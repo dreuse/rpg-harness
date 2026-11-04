@@ -98,6 +98,15 @@ importers:
 
   packages/testkit: {}
 
+  packages/timelines:
+    dependencies:
+      '@rpg/domain':
+        specifier: workspace:*
+        version: link:../domain
+      '@rpg/rules':
+        specifier: workspace:*
+        version: link:../rules
+
   packages/world:
     dependencies:
       '@rpg/domain':

@@ -1,3 +1,5 @@
+import type { EntityId } from './entity.ts';
+
 export type CampaignId = string;
 export type CharacterId = string;
 export type SceneId = string;
@@ -6,6 +8,9 @@ export type EventId = string;
 export type BranchId = string;
 
 export const MAIN_BRANCH: BranchId = 'main';
+export const CAMPAIGN_CREATED = 'CampaignCreated';
+export const CAMPAIGN_RENAMED = 'CampaignRenamed';
+export const SCENE_OPENED = 'SceneOpened';
 
 export type Campaign = { readonly id: CampaignId; readonly name: string };
 
@@ -30,6 +35,13 @@ export type CampaignEvent = {
   readonly causationId: EventId | null;
   readonly type: string;
   readonly payload: Readonly<Record<string, unknown>>;
+};
+
+export type DomainEvent = Omit<CampaignEvent, 'turnId'> & {
+  readonly branchId: BranchId;
+  readonly turnId: TurnId | null;
+  readonly actorId: EntityId | null;
+  readonly revision: number;
 };
 
 export type TurnCommit = {

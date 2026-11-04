@@ -23,6 +23,7 @@ const ALLOWED_IMPORTS: Record<string, readonly string[]> = {
   voice: ['client-protocol'],
   mcp: ['domain', 'engine'],
   testkit: ['domain'],
+  timelines: ['domain', 'rules'],
 };
 
 type Manifest = { name: string; dependencies?: Record<string, string>; devDependencies?: Record<string, string> };

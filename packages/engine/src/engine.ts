@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import {
+  CAMPAIGN_CREATED,
+  CAMPAIGN_RENAMED,
   type Campaign,
   type CampaignChange,
   type CampaignId,
@@ -10,9 +12,6 @@ import {
   MAIN_BRANCH,
 } from '../../domain/src/campaign.ts';
 import { type PlayerAction, performAction } from './turn.ts';
-
-const CAMPAIGN_CREATED = 'CampaignCreated';
-const CAMPAIGN_RENAMED = 'CampaignRenamed';
 
 export type Engine = {
   createCampaign(name: string): Campaign;

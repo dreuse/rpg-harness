@@ -7,6 +7,7 @@ import {
   type CampaignStore,
   type CharacterId,
   type CommittedTurn,
+  SCENE_OPENED,
   type SceneId,
   StaleRevisionError,
   type Turn,
@@ -40,7 +41,6 @@ export type OpeningScene = {
 const PENDING_NARRATION = '';
 const SUBMITTED = 'PlayerActionSubmitted';
 const VALIDATED = 'ActionValidated';
-const SCENE_OPENED = 'SceneOpened';
 const OPENING_ACTION = 'opening';
 const OPENING_INPUT = 'Begin.';
 

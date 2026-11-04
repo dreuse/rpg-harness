@@ -1,13 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite';
-import type { BranchId, CampaignEvent, CampaignId, TurnId } from '../../domain/src/campaign.ts';
-import type { EntityId } from '../../domain/src/entity.ts';
+import type { BranchId, CampaignId, DomainEvent } from '../../domain/src/campaign.ts';
 
-export type DomainEvent = Omit<CampaignEvent, 'turnId'> & {
-  readonly branchId: BranchId;
-  readonly turnId: TurnId | null;
-  readonly actorId: EntityId | null;
-  readonly revision: number;
-};
+export type { DomainEvent };
 
 export type EventStore = {
   append(event: DomainEvent): void;

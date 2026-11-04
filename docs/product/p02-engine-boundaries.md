@@ -26,6 +26,7 @@ An arrow means "may import". No other imports are allowed.
 | `voice` | STT/TTS adapters | `client-protocol` |
 | `mcp` | Typed campaign tools for the terminal harness | `domain`, `engine` |
 | `testkit` | Deterministic test fixtures: scripted Rng, fixed clock, sequential IDs | `domain` |
+| `timelines` | Event replay, versioned snapshots, checkpoints, branches | `domain`, `rules` |
 | `apps/*` | Wiring (composition root) | any package |
 
 `narrative`, `world`, `voice`, `imports` and `client-protocol` never import `persistence` or `engine` internals. They talk to the engine only through the ports below. V01 adds an automated import check for this table.
