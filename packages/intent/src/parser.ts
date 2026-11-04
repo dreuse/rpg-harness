@@ -34,6 +34,7 @@ const NAME_WORD = String.raw`[A-Z][\w&'+-]*:?`;
 const LEADING_VERBS = ['Play', 'Use', 'Run', 'Start', 'Try', 'Begin'];
 const NAME = String.raw`(?<![\w&'+-])(?!(?:${LEADING_VERBS.join('|')})[ ])${NAME_WORD}(?:[ ](?:(?:of|the|and)[ ])?${NAME_WORD}){0,3}`;
 const PACE = String.raw`[ -]pac(?:e|ed|ing)\b`;
+const SLUG_ID = String.raw`[a-z][a-z0-9]*(?:-[a-z0-9]+)+`;
 const EDITION = String.raw`\d+(?:st|nd|rd|th)[ ][Ee]dition|\d+e`;
 const VERSION = String.raw`\d+(?:\.\d+)+|\d+(?:st|nd|rd|th)?[ ]?(?:e|ed|[Ee]dition)\b`;
 const STORY_NOUNS = 'story|adventure|campaign|game|tale|mystery|saga|one-shot';
@@ -100,6 +101,15 @@ const INTENT_CUES: Cue[] = [
     field: 'ruleset',
     pattern: new RegExp(
       String.raw`\b(?:using|in|with|on)[ ](?:the[ ])?(${NAME})[ ](?:rules|system|ruleset|rpg)\b`,
+      'g',
+    ),
+    confidence: CONFIDENCE.moderate,
+    read: (match) => ({ id: match[1] ?? '', edition: null }),
+  },
+  {
+    field: 'ruleset',
+    pattern: new RegExp(
+      String.raw`\b(?:using|in|with|on)[ ](?:the[ ])?(${SLUG_ID})[ ](?:rules|system|ruleset|rpg)\b`,
       'g',
     ),
     confidence: CONFIDENCE.moderate,
