@@ -24,14 +24,17 @@ export const VIEW_REGISTRY: Readonly<Record<ViewId, readonly ViewComponentKind[]
 const DESCRIPTOR_KEYS = ['viewId', 'components'];
 const COMPONENT_KEYS = ['kind', 'id', 'label'];
 
-const failure = (code: ProtocolErrorCode, message: string): Result<never> => ({ ok: false, error: { code, message } });
+export const failure = (code: ProtocolErrorCode, message: string): Result<never> => ({
+  ok: false,
+  error: { code, message },
+});
 
 const isViewId = (value: unknown): value is ViewId => VIEW_IDS.some((known) => known === value);
 const isKind = (value: unknown): value is ViewComponentKind => VIEW_COMPONENT_KINDS.some((known) => known === value);
 
 type Plain = { readonly values: Record<string, unknown> };
 
-const readPlain = (input: unknown, allowed: readonly string[], what: string): Result<Plain> => {
+export const readPlain = (input: unknown, allowed: readonly string[], what: string): Result<Plain> => {
   try {
     if (typeof input !== 'object' || input === null || Array.isArray(input)) {
       return failure('MalformedCommand', `${what} must be a plain object`);
@@ -55,7 +58,7 @@ const readPlain = (input: unknown, allowed: readonly string[], what: string): Re
   }
 };
 
-const readList = (input: unknown): readonly unknown[] | undefined => {
+export const readList = (input: unknown): readonly unknown[] | undefined => {
   try {
     if (!Array.isArray(input) || Object.getPrototypeOf(input) !== Array.prototype) return undefined;
     const items: unknown[] = [];
