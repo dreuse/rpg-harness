@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import {
+  CAMPAIGN_CONFIGURED,
   type CampaignEvent,
   type CampaignId,
   CampaignNotFoundError,
@@ -43,6 +44,7 @@ export type OpeningScene = {
   readonly actorName: string;
   readonly sceneTitle: string;
   readonly narration: string;
+  readonly config?: Readonly<Record<string, unknown>>;
 };
 
 const PENDING_NARRATION = '';
@@ -179,8 +181,18 @@ export const openScene = (store: CampaignStore, opening: OpeningScene): Committe
     input: OPENING_INPUT,
     narration,
   };
-  const events = [
-    turnEvent(turn, null, SCENE_OPENED, { sceneId: scene.id, title: sceneTitle, actorId: character.id, actorName }),
-  ];
+  const opened = turnEvent(turn, null, SCENE_OPENED, {
+    sceneId: scene.id,
+    title: sceneTitle,
+    actorId: character.id,
+    actorName,
+  });
+  const events =
+    opening.config === undefined
+      ? [opened]
+      : [opened, turnEvent(turn, opened.id, CAMPAIGN_CONFIGURED, { config: opening.config })];
   return store.commitTurn({ expectedRevision: state.revision, turn, characters: [character], scenes: [scene], events });
 };
+
+export const campaignConfigOf = (events: readonly CampaignEvent[]): unknown =>
+  events.findLast(({ type }) => type === CAMPAIGN_CONFIGURED)?.payload.config;

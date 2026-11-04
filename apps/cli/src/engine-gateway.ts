@@ -4,7 +4,8 @@ import { join } from 'node:path';
 import type { CampaignState, Turn } from '../../../packages/domain/src/campaign.ts';
 import type { Visibility } from '../../../packages/domain/src/entity.ts';
 import { createEngine, type Engine } from '../../../packages/engine/src/engine.ts';
-import { openScene, performAction } from '../../../packages/engine/src/turn.ts';
+import { campaignConfigOf, openScene, performAction } from '../../../packages/engine/src/turn.ts';
+import { type CampaignConfig, parseCampaignConfig } from '../../../packages/intent/src/config.ts';
 import { PLAYER_VIEWER } from '../../../packages/memory/src/knowledge.ts';
 import { createCampaignStore } from '../../../packages/persistence/src/campaign-store.ts';
 import { openDatabase } from '../../../packages/persistence/src/database.ts';
@@ -34,6 +35,7 @@ const ARCHIVE_EXTENSION = '.rpg-archive.json';
 const TIME_SEPARATOR = /:/g;
 const SAFE_TIME_SEPARATOR = '-';
 const NONE = 'none';
+const SAVED_SETTINGS = 'Saved settings:';
 const LAUNCH_TEXT = 'Run rpg new <name> "<one sentence>" to start a campaign, or rpg resume <name> to continue one.';
 
 const databasePath = (dataDir: string, name: string) =>
@@ -108,7 +110,7 @@ const claimFile = (path: string, name: string) => {
   }
 };
 
-const createCampaign = (dataDir: string, name: string, opening: Opening): string => {
+const createCampaign = (dataDir: string, name: string, opening: Opening, config: CampaignConfig): string => {
   mkdirSync(dataDir, { recursive: true });
   const path = databasePath(dataDir, name);
   claimFile(path, name);
@@ -122,6 +124,7 @@ const createCampaign = (dataDir: string, name: string, opening: Opening): string
       actorName: HERO_NAME,
       sceneTitle: opening.title,
       narration: opening.narration,
+      config,
     });
     connection.close();
   } catch (error) {
@@ -156,8 +159,13 @@ const recap = (characters: CampaignState['characters'], last: Turn | undefined) 
   return last.narration.trim() === '' ? narrate(actor.name, last) : last.narration;
 };
 
-const recapText = (name: string, { currentScene, characters, turns }: CampaignState) =>
-  sceneText(currentScene?.title ?? name, recap(characters, turns.at(-1)));
+const savedSettings = (events: CampaignState['events']) => {
+  const saved = parseCampaignConfig(campaignConfigOf(events));
+  return saved.ok ? [describeConfig(saved.config)] : [];
+};
+
+const recapText = (name: string, { currentScene, characters, turns, events }: CampaignState) =>
+  [...savedSettings(events), sceneText(currentScene?.title ?? name, recap(characters, turns.at(-1)))].join('\n');
 
 const readView = (dataDir: string, name: string, view: ViewName) =>
   withSession(
@@ -186,11 +194,19 @@ const readView = (dataDir: string, name: string, view: ViewName) =>
     true,
   );
 
+const decodedName = (encoded: string): string[] => {
+  try {
+    return [decodeURIComponent(encoded)];
+  } catch {
+    return [];
+  }
+};
+
 const savedCampaigns = (dataDir: string) =>
   existsSync(dataDir)
     ? readdirSync(dataDir)
         .filter((file) => file.endsWith(DATABASE_EXTENSION))
-        .map((file) => decodeURIComponent(file.slice(0, -DATABASE_EXTENSION.length)))
+        .flatMap((file) => decodedName(file.slice(0, -DATABASE_EXTENSION.length)))
         .sort()
     : [];
 
@@ -278,7 +294,8 @@ export const createEngineGateway = (dataDir: string): CampaignGateway => ({
   restore: (file) => restore(dataDir, file),
   create: (name, intent) => {
     const config = planCampaign(intent);
-    return `${describeConfig(config)}\n${createCampaign(dataDir, name, openingFor(config, DEFAULT_OPENING))}`;
+    const scene = createCampaign(dataDir, name, openingFor(config, DEFAULT_OPENING), config);
+    return `${SAVED_SETTINGS}\n${describeConfig(config)}\n${scene}`;
   },
   view: (name, view) => readView(dataDir, name, view),
   tui: (name, terminal) => playTui(dataDir, name, terminal),

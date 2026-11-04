@@ -1,9 +1,21 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { CampaignNotFoundError, type CampaignStore, StaleRevisionError } from '../../domain/src/campaign.ts';
+import {
+  CAMPAIGN_CONFIGURED,
+  CampaignNotFoundError,
+  type CampaignStore,
+  StaleRevisionError,
+} from '../../domain/src/campaign.ts';
 import { createCampaignStore } from '../../persistence/src/campaign-store.ts';
 import { openDatabase } from '../../persistence/src/database.ts';
-import { ActionIdConflictError, InvalidActionError, openScene, type PlayerAction, performAction } from './turn.ts';
+import {
+  ActionIdConflictError,
+  campaignConfigOf,
+  InvalidActionError,
+  openScene,
+  type PlayerAction,
+  performAction,
+} from './turn.ts';
 
 const IN_MEMORY = ':memory:';
 const SETUP_REVISION = 1;
@@ -158,6 +170,30 @@ test('opening a scene commits the character, scene and opening turn with an even
   );
   performAction(store, { ...ACTION, sceneId: turn.sceneId, actorId: turn.actorId });
   assert.equal(store.load(CAMPAIGN.id)?.revision, SETUP_REVISION + 1);
+  close();
+});
+
+test('opening a scene with a campaign config records CampaignConfigured in the same turn', () => {
+  const { store, close } = openCreatedStore();
+  const config = { genre: { id: 'horror', version: '1.0.0' } };
+  const { turn, events } = openScene(store, { ...OPENING, config });
+  assert.deepEqual(
+    events.map(({ type, turnId, causationId }) => ({ type, turnId, causationId })),
+    [
+      { type: 'SceneOpened', turnId: turn.id, causationId: null },
+      { type: CAMPAIGN_CONFIGURED, turnId: turn.id, causationId: events[0]?.id },
+    ],
+  );
+  const state = store.load(CAMPAIGN.id);
+  assert.equal(state?.revision, SETUP_REVISION);
+  assert.deepEqual(campaignConfigOf(state?.events ?? []), config);
+  close();
+});
+
+test('a campaign opened without config has no saved config', () => {
+  const { store, close } = openCreatedStore();
+  openScene(store, OPENING);
+  assert.equal(campaignConfigOf(store.load(CAMPAIGN.id)?.events ?? []), undefined);
   close();
 });
 

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readdirSync, rmSync } from 'node:fs';
+import { mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -17,6 +17,7 @@ const MISSING_INTENT = 'A fantasy adventure using the Pathfinder rules';
 const SCENE_INTENT = 'A fantasy adventure using the Narrative rules';
 const HORROR_OPENING = `${HORROR_PACK.story.openingScenes[0]}.`;
 const FANTASY_OPENING = `${FANTASY_PACK.story.openingScenes[0]}.`;
+const UNDECODABLE_FILE = '%E0%A4%A.sqlite';
 
 const withDataDir = (run: (dataDir: string) => void) => {
   const dataDir = mkdtempSync(join(tmpdir(), 'rpg-quickstart-'));
@@ -97,6 +98,24 @@ test('ruleset not present triggers import/choice instead of invented rules enfor
     assert.match(result.stderr, /Installed rulesets: .*narrative original/);
     assert.match(result.stderr, /Run rpg import <file> to add its rule files, or name an installed ruleset\./);
     assert.throws(() => readCampaignState(dataDir, INTENT_CAMPAIGN), /No campaign named/);
+  }));
+
+test('new saves the campaign settings and resume shows the saved ruleset and genre', () =>
+  withDataDir((dataDir) => {
+    const opened = succeed(dataDir, ['new', INTENT_CAMPAIGN, INTENT]);
+    assert.match(opened, /^Saved settings:$/m);
+    const resumed = succeed(dataDir, ['resume', INTENT_CAMPAIGN]);
+    assert.match(resumed, /^Ruleset: narrative original \(derived\)$/m);
+    assert.match(resumed, /^Genre: horror 1\.0\.0 \(derived\)$/m);
+    assert.ok(resumed.includes(HORROR_OPENING), resumed);
+  }));
+
+test('the launcher skips saved files whose names cannot be decoded', () =>
+  withDataDir((dataDir) => {
+    succeed(dataDir, ['new', DEFAULT_CAMPAIGN]);
+    writeFileSync(join(dataDir, UNDECODABLE_FILE), '');
+    const launcher = succeed(dataDir, []);
+    assert.ok(launcher.includes(`Campaigns: ${DEFAULT_CAMPAIGN}\n`), launcher);
   }));
 
 test('plain-English genre names resolve to installed genre ids', () => {
