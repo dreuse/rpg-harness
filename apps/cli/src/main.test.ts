@@ -87,6 +87,7 @@ test('help lists every command with a one-line description in plain text', async
       'backup',
       'restore',
       'sheet',
+      'sheet-export',
       'inventory',
       'journal',
       'quests',

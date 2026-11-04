@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import type { CharacterProfile } from '../../domain/src/character.ts';
 import { computeDerivedStats, type DerivedStatsInput } from './derived-stats.ts';
 import { SHEET_SCHEMA_VERSION, type SheetField, type SheetSchema } from './sheet-schema.ts';
-import { buildSheetView, type SheetViewInput } from './sheet-view.ts';
+import { buildSheetView, exportSheet, importSheet, SHEET_EXPORT_FORMAT, type SheetViewInput } from './sheet-view.ts';
 
 const rulepack = { id: 'any-pack', edition: '1', revision: 'r2', sourceRefs: ['srd:p1'] };
 
@@ -197,4 +197,100 @@ test('private npc fields and gm-only secrets never appear in player view', () =>
   const privateNpc = buildSheetView({ ...input, visibility: 'gm' });
   assert.deepEqual(privateNpc, { rulepack, groups: [], computed: [] });
   assert.ok(JSON.stringify(buildSheetView({ ...input, visibility: 'gm', viewer: { role: 'gm' } })).includes('Vorhal'));
+});
+
+test('export sheet as portable json with rulepack provenance and field sources', () => {
+  const schema = schemaOf([
+    field('might', { label: 'Might' }),
+    field('oath', { widget: 'text', custom: true }),
+    field('guard', { derived: { expression: 'might * 2', refs: ['might'] } }),
+  ]);
+  const stats = statsOf({ schema, base: { might: 3 }, bonuses: [], constraints: [] });
+  const input: SheetViewInput = {
+    schema,
+    profile: profileOf([{ id: 'oath', value: 'protect the weak' }]),
+    stats,
+    visibility: 'player',
+    viewer: { role: 'player', owner: true },
+  };
+  const frozen = structuredClone(input);
+  const exported = exportSheet(input);
+  assert.deepEqual(input, frozen);
+  assert.deepEqual(JSON.parse(JSON.stringify(exported)), exported);
+  assert.deepEqual(exported, {
+    format: SHEET_EXPORT_FORMAT,
+    schema,
+    entries: [
+      { id: 'might', value: 3, source: 'core' },
+      { id: 'oath', value: 'protect the weak', source: 'custom' },
+      { id: 'guard', value: 6, source: 'computed' },
+    ],
+  });
+  assert.deepEqual(importSheet(JSON.parse(JSON.stringify(exported))), { ok: true, sheet: exported });
+});
+
+test('import/export preserves custom fields without exposing private npc knowledge', () => {
+  const schema = schemaOf([
+    field('might'),
+    field('grudge', { widget: 'text', visibility: 'owner', custom: true }),
+    field('true_name', { widget: 'text', visibility: 'gm', custom: true }),
+    field('curse', { visibility: 'gm' }),
+    field('engine_flag', { widget: 'toggle', visibility: 'hidden' }),
+    field('dread', { derived: { expression: 'curse + might', refs: ['curse', 'might'] } }),
+  ]);
+  const stats = statsOf({ schema, base: { might: 2, curse: 4 }, bonuses: [], constraints: [] });
+  const input: SheetViewInput = {
+    schema,
+    profile: profileOf([
+      { id: 'grudge', value: 'the duke' },
+      { id: 'true_name', value: 'Vorhal' },
+      { id: 'engine_flag', value: true },
+    ]),
+    stats,
+    visibility: 'public',
+    viewer: { role: 'player', owner: false },
+  };
+  const exported = exportSheet(input);
+  const text = JSON.stringify(exported);
+  for (const secret of ['duke', 'Vorhal', 'true_name', 'curse', 'engine_flag', 'grudge']) {
+    assert.ok(!text.includes(secret), secret);
+  }
+  assert.deepEqual(exported.entries, [
+    { id: 'might', value: 2, source: 'core' },
+    { id: 'dread', value: 6, source: 'computed' },
+  ]);
+  assert.deepEqual(exported.schema.fields, [field('might'), field('dread')]);
+  assert.deepEqual(exportSheet({ ...input, visibility: 'gm' }).entries, []);
+
+  const owned = exportSheet({ ...input, viewer: { role: 'player', owner: true } });
+  const imported = importSheet(JSON.parse(JSON.stringify(owned)));
+  assert.equal(imported.ok, true);
+  if (!imported.ok) return;
+  assert.deepEqual(imported.sheet, owned);
+  assert.deepEqual(
+    imported.sheet.entries.find(({ id }) => id === 'grudge'),
+    {
+      id: 'grudge',
+      value: 'the duke',
+      source: 'custom',
+    },
+  );
+
+  const tampered = structuredClone(owned) as unknown as Record<string, unknown>;
+  const bad = [
+    { ...tampered, format: 'other' },
+    { ...tampered, entries: [{ id: 'unknown', value: 1, source: 'core' }] },
+    { ...tampered, entries: [{ id: 'might', value: { nested: true }, source: 'core' }] },
+    { ...tampered, entries: [{ id: 'might', value: 1, source: 'secret' }] },
+    {
+      ...tampered,
+      entries: [
+        { id: 'might', value: 1, source: 'core' },
+        { id: 'might', value: 2, source: 'core' },
+      ],
+    },
+    { ...tampered, schema: { schemaVersion: 0 } },
+    null,
+  ];
+  for (const input of bad) assert.equal(importSheet(input).ok, false);
 });

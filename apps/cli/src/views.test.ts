@@ -11,6 +11,7 @@ import { createCampaignStore } from '../../../packages/persistence/src/campaign-
 import { createCharacterStore } from '../../../packages/persistence/src/character-store.ts';
 import { MIGRATIONS, openDatabase } from '../../../packages/persistence/src/database.ts';
 import { createEntityStore } from '../../../packages/persistence/src/entity-store.ts';
+import { importSheet, SHEET_EXPORT_FORMAT } from '../../../packages/rules/src/sheet-view.ts';
 import { createEngineGateway, readCampaignState } from './engine-gateway.ts';
 import { main } from './main.ts';
 
@@ -31,7 +32,7 @@ const SECRETS = [
   'SECRET_RING',
   'SECRET_PLOT',
 ];
-const VIEWS = ['sheet', 'inventory', 'journal', 'quests', 'recap'] as const;
+const VIEWS = ['sheet', 'sheet-export', 'inventory', 'journal', 'quests', 'recap'] as const;
 const INSERT_EVENT =
   'INSERT INTO event_log (id, campaign_id, turn_id, type, payload, visibility, actor_id) VALUES (?, ?, ?, ?, ?, ?, ?)';
 const INSERT_FACT = 'INSERT INTO fact (id, campaign_id, statement, layer, visibility) VALUES (?, ?, ?, ?, ?)';
@@ -161,10 +162,26 @@ test('read character state, inventory, important events and quests using concise
     assert.match(await run(dataDir, ['quests', CAMPAIGN]), /Find the ferryman/);
   }));
 
+test('show sheet on cli and export structured portable representation with provenance', () =>
+  withDataDir(async (dataDir) => {
+    await run(dataDir, ['new', CAMPAIGN]);
+    seed(dataDir, PLAYER);
+    assert.match(await run(dataDir, ['sheet', CAMPAIGN]), /\(any-pack 1\)\n {2}resolve: 3\n {2}oath: guard the road/);
+    const exported = JSON.parse(await run(dataDir, ['sheet-export', CAMPAIGN]));
+    assert.equal(exported.format, SHEET_EXPORT_FORMAT);
+    assert.deepEqual(exported.schema.rulepack, { ...RULEPACK, sourceRefs: [] });
+    assert.deepEqual(exported.entries, [
+      { id: 'resolve', value: 3, source: 'core' },
+      { id: 'oath', value: 'guard the road', source: 'core' },
+    ]);
+    assert.deepEqual(importSheet(exported), { ok: true, sheet: exported });
+  }));
+
 test('views show empty states when there is nothing to read', () =>
   withDataDir(async (dataDir) => {
     await run(dataDir, ['new', CAMPAIGN]);
     assert.match(await run(dataDir, ['sheet', CAMPAIGN]), /No character sheet yet\./);
+    assert.match(await run(dataDir, ['sheet-export', CAMPAIGN]), /No character sheet yet\./);
     assert.match(await run(dataDir, ['inventory', CAMPAIGN]), /No items yet\./);
     assert.match(await run(dataDir, ['quests', CAMPAIGN]), /No quests yet\./);
     assert.match(await run(dataDir, ['journal', CAMPAIGN]), /Rain drums/);

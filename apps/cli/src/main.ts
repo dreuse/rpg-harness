@@ -55,6 +55,11 @@ const COMMANDS = [
   { name: 'backup', usage: 'backup <campaign>', description: 'Save a dated archive of a campaign in the data folder.' },
   { name: 'restore', usage: 'restore <file>', description: 'Check an archive file and restore its campaign.' },
   { name: 'sheet', usage: 'sheet <campaign>', description: 'Show your character sheet.' },
+  {
+    name: 'sheet-export',
+    usage: 'sheet-export <campaign>',
+    description: 'Print your character sheet as portable JSON with rulepack provenance.',
+  },
   { name: 'inventory', usage: 'inventory <campaign>', description: 'Show the items you carry.' },
   { name: 'journal', usage: 'journal <campaign>', description: 'Show the important events so far.' },
   { name: 'quests', usage: 'quests <campaign>', description: 'Show your quests and their objectives.' },

@@ -1,6 +1,14 @@
 import type { CharacterProfile, ProfileTraitValue, ProfileVisibility } from '../../domain/src/character.ts';
 import type { AppliedBonus, ConstraintResult, DerivedStats, StatConstraint } from './derived-stats.ts';
-import type { SheetField, SheetProvenance, SheetSchema, WidgetType } from './sheet-schema.ts';
+import { isRecord } from './rulepack.ts';
+import {
+  type SheetField,
+  type SheetIssue,
+  type SheetProvenance,
+  type SheetSchema,
+  validateSheetSchema,
+  type WidgetType,
+} from './sheet-schema.ts';
 
 export const SHEET_GROUPS = ['core', 'custom', 'computed'] as const;
 const GM_ONLY_PROFILE: ProfileVisibility = 'gm';
@@ -113,4 +121,78 @@ export const buildSheetView = (input: SheetViewInput): SheetView => {
     fields: fields.filter((field) => groupOf(field) === id).map(viewOf),
   })).filter((group) => group.fields.length > 0);
   return { rulepack, groups, computed: fields.flatMap((field) => computedOf(field, stats, visible)) };
+};
+
+export const SHEET_EXPORT_FORMAT = 'rpg-sheet/1';
+
+export type SheetExportEntry = { id: string; value: ProfileTraitValue | null; source: SheetGroupId };
+export type SheetExport = { format: typeof SHEET_EXPORT_FORMAT; schema: SheetSchema; entries: SheetExportEntry[] };
+export type SheetImportResult = { ok: true; sheet: SheetExport } | { ok: false; issues: SheetIssue[] };
+
+const withoutHiddenRefs = (field: SheetField, shown: Set<string>): SheetField => {
+  const { derived, ...rest } = field;
+  return derived?.refs.every((ref) => shown.has(ref)) ? field : rest;
+};
+
+export const exportSheet = (input: SheetViewInput): SheetExport => {
+  const view = buildSheetView(input);
+  const values = new Map(view.groups.flatMap((group) => group.fields.map((shown) => [shown.id, shown.value])));
+  const shown = new Set(values.keys());
+  const fields = input.schema.fields.filter((field) => shown.has(field.id));
+  return {
+    format: SHEET_EXPORT_FORMAT,
+    schema: {
+      schemaVersion: input.schema.schemaVersion,
+      rulepack: view.rulepack,
+      fields: structuredClone(fields.map((field) => withoutHiddenRefs(field, shown))),
+    },
+    entries: fields.map((field) => ({
+      id: field.id,
+      value: values.get(field.id) ?? null,
+      source: groupOf(field),
+    })),
+  };
+};
+
+const isEntryValue = (value: unknown): value is ProfileTraitValue | null =>
+  value === null ||
+  typeof value === 'string' ||
+  typeof value === 'boolean' ||
+  (typeof value === 'number' && Number.isFinite(value));
+
+const entryIssues = (entries: unknown, schema: SheetSchema): SheetIssue[] => {
+  if (!Array.isArray(entries)) return [{ path: 'entries', code: 'invalid', message: 'must be an array' }];
+  const declared = new Set(schema.fields.map((field) => field.id));
+  const seen = new Set<string>();
+  return Array.from(entries).flatMap((entry: unknown, index): SheetIssue[] => {
+    const path = `entries.${index}`;
+    if (!isRecord(entry)) return [{ path, code: 'invalid', message: 'must be an object' }];
+    const { id, value, source } = entry;
+    const issues: SheetIssue[] = [];
+    if (typeof id !== 'string' || !declared.has(id))
+      issues.push({ path: `${path}.id`, code: 'unknown_reference', message: 'must reference a declared field' });
+    else if (seen.has(id)) issues.push({ path: `${path}.id`, code: 'duplicate', message: 'must be unique' });
+    else seen.add(id);
+    if (!isEntryValue(value)) issues.push({ path: `${path}.value`, code: 'invalid', message: 'must be a trait value' });
+    if (!SHEET_GROUPS.includes(source as SheetGroupId))
+      issues.push({
+        path: `${path}.source`,
+        code: 'unsupported',
+        message: `must be one of ${SHEET_GROUPS.join(', ')}`,
+      });
+    return issues;
+  });
+};
+
+export const importSheet = (input: unknown): SheetImportResult => {
+  if (!isRecord(input)) return { ok: false, issues: [{ path: '', code: 'invalid', message: 'must be an object' }] };
+  if (input.format !== SHEET_EXPORT_FORMAT)
+    return { ok: false, issues: [{ path: 'format', code: 'unsupported', message: `must be ${SHEET_EXPORT_FORMAT}` }] };
+  const parsed = validateSheetSchema(input.schema);
+  if (!parsed.ok)
+    return { ok: false, issues: parsed.issues.map((issue) => ({ ...issue, path: `schema.${issue.path}` })) };
+  const issues = entryIssues(input.entries, parsed.schema);
+  if (issues.length > 0) return { ok: false, issues };
+  const entries = (input.entries as SheetExportEntry[]).map(({ id, value, source }) => ({ id, value, source }));
+  return { ok: true, sheet: { format: SHEET_EXPORT_FORMAT, schema: parsed.schema, entries } };
 };
