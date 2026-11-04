@@ -1,6 +1,7 @@
 import { actionForKey, loadPreferences, type RendererAction, translate, type UiPreferences } from './accessibility.ts';
 import { PREFERENCES_QUERY } from './preload.ts';
 import type { Region, viewModel } from './renderer.ts';
+import type { DesktopVoiceView } from './voice.ts';
 
 export type ViewModel = ReturnType<typeof viewModel>;
 export type KeyEventLike = {
@@ -25,6 +26,7 @@ const ENTITIES: Readonly<Record<string, string>> = {
   '"': '&quot;',
   "'": '&#39;',
 };
+const ISSUE_SEPARATOR = ', ';
 const MODIFIERS = [
   ['ctrlKey', 'Ctrl'],
   ['altKey', 'Alt'],
@@ -74,6 +76,20 @@ const rejectedAlert = ({ rejected }: ViewModel, locale: string) =>
         locale,
         `<ul role="alert">${rejected.map(({ input, message }) => `<li>${escapeHtml(input)}${LABEL_SEPARATOR}${escapeHtml(message)}</li>`).join('')}</ul>`,
       );
+
+const alert = (text: string) => `<p role="alert">${escapeHtml(text)}</p>`;
+
+export const renderVoice = ({ mode, subtitle, fallback, issues }: DesktopVoiceView, locale: string): string =>
+  section(
+    'voice',
+    locale,
+    [
+      `<p>${escapeHtml(mode.kind === 'voice' ? translate(locale, 'voice.mode', mode) : translate(locale, 'voice.typedOnly'))}</p>`,
+      `<p aria-live="polite">${escapeHtml(subtitle?.text ?? '')}</p>`,
+      fallback === undefined ? '' : alert(translate(locale, 'voice.fallback', { reason: fallback })),
+      issues.length === 0 ? '' : alert(translate(locale, 'voice.rejected', { codes: issues.join(ISSUE_SEPARATOR) })),
+    ].join(''),
+  );
 
 export const renderView = (model: ViewModel, locale: string): string =>
   `<main data-layout="${model.layout.name}" data-animate="${model.animate}" style="--font-scale: ${model.fontScale}">${model.layout.columns

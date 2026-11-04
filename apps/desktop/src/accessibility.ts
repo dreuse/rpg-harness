@@ -77,6 +77,11 @@ const CATALOG: Readonly<Record<string, Readonly<Record<string, string>>>> = {
     'region.rejected': 'Rejected actions',
     'action.retry': 'Reconnect',
     'label.pending': 'pending',
+    'region.voice': 'Voice',
+    'voice.typedOnly': 'Voice off: type to play',
+    'voice.mode': 'Microphone {microphone}, spoken output {spokenOutput}',
+    'voice.fallback': 'Audio unavailable ({reason}); type instead',
+    'voice.rejected': 'Voice settings not changed: {codes}',
   },
   es: {
     'status.connecting': 'Conectando con el motor',
@@ -95,6 +100,11 @@ const CATALOG: Readonly<Record<string, Readonly<Record<string, string>>>> = {
     'region.rejected': 'Acciones rechazadas',
     'action.retry': 'Reconectar',
     'label.pending': 'pendiente',
+    'region.voice': 'Voz',
+    'voice.typedOnly': 'Voz desactivada: escribe para jugar',
+    'voice.mode': 'Micrófono {microphone}, voz hablada {spokenOutput}',
+    'voice.fallback': 'Audio no disponible ({reason}); escribe en su lugar',
+    'voice.rejected': 'Ajustes de voz sin cambios: {codes}',
   },
 };
 

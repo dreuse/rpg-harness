@@ -3,6 +3,7 @@ import { describe, it } from 'node:test';
 import { MAX_PLAYBACK_SPEED, MIN_PLAYBACK_SPEED } from './playback.ts';
 import {
   changeVoiceSettings,
+  routeVoiceInput,
   VOICE_SETTINGS_CHANGED,
   type VoicePreferences,
   type VoiceSession,
@@ -148,5 +149,22 @@ describe('A14 conversational voice settings', () => {
     assert.equal(result.session.preferences.spokenOutput, 'dialogue');
     assert.deepEqual(midSession.pendingInput, ['I open the door', 'and step inside']);
     assert.equal(midSession.preferences.microphone, 'hands-free');
+  });
+});
+
+describe('A18 voice input routing', () => {
+  it('passes unrecognized input to the GM and keeps settings commands out of play', () => {
+    const submitted: string[] = [];
+    const act = (text: string) => submitted.push(text);
+    const gameplay = 'Turn to the bard and ask for a song.';
+
+    const action = routeVoiceInput(session(), { source: 'spoken', text: gameplay }, SUPPORTED_LOCALES, act);
+    const changed = routeVoiceInput(session(), { source: 'typed', text: 'set speed to 1.5' }, SUPPORTED_LOCALES, act);
+    const rejected = routeVoiceInput(session(), { source: 'typed', text: 'set speed to 9' }, SUPPORTED_LOCALES, act);
+
+    assert.deepEqual(action, { kind: 'action', result: 1 });
+    assert.deepEqual(submitted, [gameplay]);
+    assert.equal(changed.kind === 'settings' && changed.session.preferences.speed, 1.5);
+    assert.deepEqual(rejected, { kind: 'settings-rejected', issues: [{ code: 'speed_out_of_range', path: 'speed' }] });
   });
 });

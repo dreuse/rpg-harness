@@ -31,6 +31,7 @@ import {
   type TuiData,
   type TuiState,
 } from './tui.ts';
+import { createTuiAudio } from './tui-audio.ts';
 
 const ESCAPE = String.fromCharCode(27);
 const ASCII_ONLY = /^[\x20-\x7e]*$/;
@@ -38,9 +39,22 @@ const WIDE = 80;
 const NARROW = 20;
 const COLOR: Capabilities = { width: WIDE, color: true, interactive: true };
 const PLAIN: Capabilities = { width: NARROW, color: false, interactive: false };
+const PLAIN_WIDE: Capabilities = { ...PLAIN, width: WIDE };
 const CAMPAIGN = 'Ember';
 const ACTION = 'I wave.';
 const BIN = join(import.meta.dirname, 'bin.ts');
+const TUI_AUDIO = join(import.meta.dirname, 'tui-audio.ts');
+const AUDIO_STACK_LOADED = 'audio stack loaded';
+const BLOCK_AUDIO_STACK = `data:text/javascript,${encodeURIComponent(`
+import { registerHooks } from 'node:module';
+registerHooks({
+  resolve(specifier, context, next) {
+    const resolved = next(specifier, context);
+    if (resolved.url.includes('/packages/voice/')) throw new Error('${AUDIO_STACK_LOADED}');
+    return resolved;
+  },
+});
+`)}`;
 
 const snapshot: CampaignSnapshot = {
   version: PROTOCOL_VERSION,
@@ -254,4 +268,52 @@ test('UI06: the sheet and mechanics panes show what the session serves', async (
   assert.match(printed, /Sheet:[\s\S]*Grit: 3/);
   assert.match(printed, /Mechanics:[\s\S]*attack: d20 -> 14/);
   assert.doesNotMatch(printed, /No sheet yet\.|No mechanics yet\./);
+});
+
+test('A18: unrecognized voice settings input reaches the GM as a player action', async () => {
+  const GAMEPLAY = 'Turn to the bard and ask for a song.';
+  const { engine, campaignId, session } = engineSession();
+  const audio = createTuiAudio(
+    {
+      campaignId,
+      turn: 0,
+      pendingInput: [],
+      preferences: { microphone: 'off', spokenOutput: 'off', locale: 'en-US', speed: 1 },
+    },
+    ['en-US'],
+  );
+  const output: string[] = [];
+  await runTui(session, campaignId, {
+    capabilities: PLAIN_WIDE,
+    audio,
+    lines: each([GAMEPLAY, 'set speed to 1.5', '?', 'q']),
+    write: (text) => output.push(text),
+  });
+  const printed = output.join('');
+  const turns = engine.getState(campaignId).turns;
+  assert.equal(turns.length, 2);
+  assert.equal(turns.at(-1)?.input, GAMEPLAY);
+  assert.match(printed, /Voice: mic off, output off, en-US, 1x/);
+  assert.match(printed, /Voice settings changed: speed 1\.5/);
+  assert.match(printed, /set mic to push-to-talk/);
+});
+
+test('A18: headless text-only play does not depend on audio stack', () => {
+  const blocked = spawnSync(process.execPath, ['--import', BLOCK_AUDIO_STACK, TUI_AUDIO], { encoding: 'utf8' });
+  assert.notEqual(blocked.status, EXIT_OK);
+  assert.match(blocked.stderr, new RegExp(AUDIO_STACK_LOADED));
+
+  const dataDir = mkdtempSync(join(tmpdir(), 'rpg-tui-'));
+  try {
+    const env = { ...process.env, RPG_DATA_DIR: dataDir, TERM: 'dumb', NO_COLOR: '1' };
+    const rpg = (args: readonly string[], input = '') =>
+      spawnSync(process.execPath, ['--import', BLOCK_AUDIO_STACK, BIN, ...args], { input, encoding: 'utf8', env });
+    assert.equal(rpg(['new', CAMPAIGN]).status, EXIT_OK);
+    const run = rpg(['tui', CAMPAIGN], `${ACTION}\nq\n`);
+    assert.equal(run.status, EXIT_OK, run.stderr);
+    assert.match(run.stdout, /Wanderer: I wave\./);
+    assert.doesNotMatch(run.stdout, /Voice:/);
+  } finally {
+    rmSync(dataDir, { recursive: true, force: true });
+  }
 });

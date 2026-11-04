@@ -203,3 +203,24 @@ export const changeVoiceSettings = (
     },
   };
 };
+
+export type VoiceInputRoute<T> =
+  | { readonly kind: 'settings'; readonly session: VoiceSession; readonly event: VoiceSettingsChangedEvent }
+  | { readonly kind: 'settings-rejected'; readonly issues: readonly VoiceSettingsIssue[] }
+  | { readonly kind: 'action'; readonly result: T };
+
+const UNRECOGNIZED: VoiceSettingsIssueCode = 'unrecognized';
+
+export const routeVoiceInput = <T>(
+  session: VoiceSession,
+  request: VoiceSettingsRequest,
+  supportedLocales: readonly string[],
+  submitAction: (text: string) => T,
+): VoiceInputRoute<T> => {
+  const result = changeVoiceSettings(session, request, supportedLocales);
+  if (result.ok) return { kind: 'settings', session: result.session, event: result.event };
+  if (result.issues.some(({ code }) => code === UNRECOGNIZED)) {
+    return { kind: 'action', result: submitAction(request.text) };
+  }
+  return { kind: 'settings-rejected', issues: result.issues };
+};

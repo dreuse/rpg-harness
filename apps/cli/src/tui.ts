@@ -25,6 +25,7 @@ export type TuiData = {
   readonly sheet: readonly ViewComponent[];
   readonly events: readonly ClientEvent[];
   readonly mechanics: readonly VisualizationEvent[];
+  readonly audio?: string;
 };
 
 export type TuiState = {
@@ -36,8 +37,16 @@ export type TuiState = {
   readonly quit: boolean;
 };
 
+type Act = (input: string) => string | undefined;
+
+export type TuiAudio = {
+  readonly status: () => string;
+  readonly input: (text: string, act: Act) => string | undefined;
+};
+
 export type Terminal = {
   readonly capabilities: Capabilities;
+  readonly audio?: TuiAudio;
   readonly keys?: AsyncIterable<Key>;
   readonly lines: AsyncIterable<string>;
   readonly write: (text: string) => void;
@@ -77,6 +86,8 @@ const CLEAR_SCREEN = '\x1b[2J\x1b[H';
 const EMPHASIS = 'bold';
 const HELP_TITLE = 'Help:';
 const STATUS_HINT = 'Tab next pane, 1-4 pick pane, i type, ? help, q quit';
+const STATUS_SEPARATOR = ' | ';
+const AUDIO_HELP = "Type 'set mic to push-to-talk', 'set output to narrator' or 'set speed to 1.5' to change voice.";
 const NO_SCENE = 'No scene to act in yet.';
 const EMPTY: Readonly<Record<PaneId, string>> = {
   conversation: 'No conversation yet.',
@@ -91,6 +102,9 @@ const HELP_LINES = [
   `${HELP_KEY} - Show or hide this help.`,
   `${QUIT_KEY} - Quit.`,
 ];
+
+const helpLines = ({ audio }: TuiData) => (audio === undefined ? HELP_LINES : [...HELP_LINES, AUDIO_HELP]);
+const hint = ({ audio }: TuiData) => (audio === undefined ? STATUS_HINT : `${STATUS_HINT}${STATUS_SEPARATOR}${audio}`);
 
 export const PLAIN_TERMINAL: Capabilities = { width: DEFAULT_WIDTH, color: false, interactive: false };
 
@@ -198,8 +212,8 @@ export const renderScreen = (state: TuiState, data: TuiData, { width, color }: C
     color ? rows.map((row) => styleText(EMPHASIS, row, { validateStream: false })) : rows;
   const tabs = PANES.map(({ key, label }) => (key === focused.key ? `[${key} ${label}]` : `${key} ${label}`));
   const title = state.help ? HELP_TITLE : `${focused.label}:`;
-  const body = state.help ? HELP_LINES : paneRows(focused.id, data);
-  const status = state.draft === undefined ? (state.notice ?? STATUS_HINT) : `${PROMPT}${state.draft}`;
+  const body = state.help ? helpLines(data) : paneRows(focused.id, data);
+  const status = state.draft === undefined ? (state.notice ?? hint(data)) : `${PROMPT}${state.draft}`;
   const rule = RULE.repeat(width);
   return [
     ...wrap([tabs.join(SPACE)], width),
@@ -213,17 +227,30 @@ export const renderScreen = (state: TuiState, data: TuiData, { width, color }: C
 
 const section = (title: string, rows: readonly string[], width: number) => wrap([title, ...rows], width);
 
-export const renderLinear = (data: TuiData, { width }: Capabilities): string[] =>
-  PANES.flatMap(({ id, label }) => section(`${label}:`, paneRows(id, data), width));
+export const renderLinear = (data: TuiData, { width }: Capabilities): string[] => [
+  ...PANES.flatMap(({ id, label }) => section(`${label}:`, paneRows(id, data), width)),
+  ...(data.audio === undefined ? [] : wrap([data.audio], width)),
+];
 
 const isMechanic = (event: ClientEvent): event is VisualizationEvent => event.type === VISUALIZATION_EVENT;
 
-const read = (session: ClientSession, campaignId: CampaignId, events: readonly ClientEvent[]): TuiData => {
+const read = (
+  session: ClientSession,
+  campaignId: CampaignId,
+  events: readonly ClientEvent[],
+  audio: TuiAudio | undefined,
+): TuiData => {
   const snapshot = session.getSnapshot({ version: PROTOCOL_VERSION, type: 'GetCampaignSnapshot', campaignId });
   if (!snapshot.ok) throw new Error(snapshot.error.message);
   const sheet = session.requestView({ version: PROTOCOL_VERSION, type: 'RequestView', campaignId, viewId: SHEET_VIEW });
   if (!sheet.ok) throw new Error(sheet.error.message);
-  return { snapshot: snapshot.value, sheet: sheet.value.components, events, mechanics: events.filter(isMechanic) };
+  return {
+    snapshot: snapshot.value,
+    sheet: sheet.value.components,
+    events,
+    mechanics: events.filter(isMechanic),
+    ...(audio === undefined ? {} : { audio: audio.status() }),
+  };
 };
 
 const submit = (session: ClientSession, { snapshot }: TuiData, input: string): string | undefined => {
@@ -242,12 +269,7 @@ const submit = (session: ClientSession, { snapshot }: TuiData, input: string): s
   return accepted.ok ? undefined : accepted.error.message;
 };
 
-const interactive = async (
-  data: () => TuiData,
-  session: ClientSession,
-  terminal: Terminal,
-  keys: AsyncIterable<Key>,
-) => {
+const interactive = async (data: () => TuiData, act: Act, terminal: Terminal, keys: AsyncIterable<Key>) => {
   let state = INITIAL_STATE;
   const paint = () =>
     terminal.write(`${CLEAR_SCREEN}${renderScreen(state, data(), terminal.capabilities).join(NEWLINE)}${NEWLINE}`);
@@ -255,12 +277,12 @@ const interactive = async (
   for await (const key of keys) {
     state = nextState(state, key);
     if (state.quit) return;
-    if (state.submitted !== undefined) state = { ...state, notice: submit(session, data(), state.submitted) };
+    if (state.submitted !== undefined) state = { ...state, notice: act(state.submitted) };
     paint();
   }
 };
 
-const linear = async (data: () => TuiData, session: ClientSession, terminal: Terminal) => {
+const linear = async (data: () => TuiData, act: Act, terminal: Terminal) => {
   const { width } = terminal.capabilities;
   const print = (rows: readonly string[]) => terminal.write(`${rows.join(NEWLINE)}${NEWLINE}`);
   const show = ({ id, label }: Pane) => print(section(`${label}:`, paneRows(id, data()), width));
@@ -270,10 +292,10 @@ const linear = async (data: () => TuiData, session: ClientSession, terminal: Ter
     const pane = PANES.find(({ key }) => key === text);
     if (text === QUIT_KEY) return;
     if (text === '') continue;
-    if (text === HELP_KEY) print(section(HELP_TITLE, HELP_LINES, width));
+    if (text === HELP_KEY) print(section(HELP_TITLE, helpLines(data()), width));
     else if (pane !== undefined) show(pane);
     else {
-      const notice = submit(session, data(), text);
+      const notice = act(text);
       if (notice === undefined) show(CONVERSATION);
       else print(wrap([notice], width));
     }
@@ -286,11 +308,14 @@ export const runTui = async (session: ClientSession, campaignId: CampaignId, ter
     { version: PROTOCOL_VERSION, type: 'SubscribeEvents', campaignId },
     (event) => events.push(event),
   );
-  const data = () => read(session, campaignId, events);
+  const { audio } = terminal;
+  const data = () => read(session, campaignId, events, audio);
+  const send: Act = (input) => submit(session, data(), input);
+  const act: Act = audio === undefined ? send : (input) => audio.input(input, send);
   try {
     if (terminal.capabilities.interactive && terminal.keys !== undefined)
-      await interactive(data, session, terminal, terminal.keys);
-    else await linear(data, session, terminal);
+      await interactive(data, act, terminal, terminal.keys);
+    else await linear(data, act, terminal);
   } finally {
     unsubscribe();
   }
