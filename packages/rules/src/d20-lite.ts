@@ -1,5 +1,6 @@
 import { createRoller, type Rng, type TrustedRoll } from './dice.ts';
 import { type Condition, type NumberExpr, RULE_DSL_VERSION, type RuleDsl, type RuleEffect } from './dsl.ts';
+import { rejectPrecondition, type SheetResult } from './inventory.ts';
 import { type ActionResolution, resolveAction } from './resolve.ts';
 import { RULEPACK_CONTRACT_VERSION, type RulePackManifest } from './rulepack.ts';
 import { resolveDerived, type Trait, type TraitSheet } from './traits.ts';
@@ -25,6 +26,9 @@ export const XP_PER_LEVEL = 100;
 export const MAX_LEVEL = 10;
 export const PROFICIENCY_BASE = 1;
 export const PROFICIENCY_INTERVAL = 3;
+export const DRAUGHT = 'draught';
+export const DRAUGHT_COST = 1;
+export const DRAUGHT_SIDES = 4;
 
 const FIRST_LEVEL = 1;
 const D20_ROLL_SUFFIX = ':d20';
@@ -116,6 +120,15 @@ export const D20_LITE_RULES = {
     id: 'exert',
     costs: [{ kind: 'cost', resource: STAMINA, amount: constant(EXERT_COST) }],
     effects: emit('stamina.spent'),
+  },
+  drinkDraught: {
+    dslVersion: RULE_DSL_VERSION,
+    id: 'drinkDraught',
+    costs: [{ kind: 'cost', resource: DRAUGHT, amount: constant(DRAUGHT_COST) }],
+    effects: [
+      { kind: 'adjustResource', resource: HP, amount: { kind: 'dice', count: 1, sides: DRAUGHT_SIDES, modifier: 0 } },
+      ...emit('draught.drunk'),
+    ],
   },
   recover: rule('recover', [
     { kind: 'adjustResource', resource: STAMINA, amount: constant(RECOVER_AMOUNT) },
@@ -282,4 +295,12 @@ export const gainExperience = (sheet: TraitSheet, amount: number) => {
   next = replaceTrait(next, { id: PROFICIENCY, kind: 'trait', value: proficiencyFor(level) });
   next = replaceTrait(next, { ...hp, current: hp.current + gain, max: hp.max + gain });
   return { sheet: next, levelsGained };
+};
+
+export const levelUp = (sheet: TraitSheet): SheetResult => {
+  const level = numberOf(sheet, LEVEL);
+  if (level >= MAX_LEVEL) return rejectPrecondition(LEVEL, `must be below ${MAX_LEVEL}`);
+  const needed = xpThreshold(level);
+  if (numberOf(sheet, XP) < needed) return rejectPrecondition(XP, `must be at least ${needed}`);
+  return { ok: true, sheet: gainExperience(sheet, 0).sheet };
 };
