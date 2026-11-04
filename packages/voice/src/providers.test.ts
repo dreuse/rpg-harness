@@ -6,6 +6,10 @@ import {
   checkProviderHealth,
   chooseProvider,
   envSecretReader,
+  findEnvNameCollisions,
+  KEYCHAIN_SERVICE,
+  type KeychainBackend,
+  keychainSecretStore,
   memorySecretStore,
   type ProbeResult,
   type ProviderDescriptor,
@@ -36,6 +40,23 @@ interface ProbeCall {
   readonly providerId: string;
   readonly secret: string | undefined;
 }
+
+const fakeKeychain = (): KeychainBackend & { readonly entries: Map<string, string> } => {
+  const entries = new Map<string, string>();
+  const key = (service: string, account: string): string => `${service}/${account}`;
+  return {
+    entries,
+    getPassword: async (service, account) => entries.get(key(service, account)),
+    setPassword: async (service, account, password) => {
+      entries.set(key(service, account), password);
+    },
+    deletePassword: async (service, account) => {
+      entries.delete(key(service, account));
+    },
+  };
+};
+
+const failingReader = { get: async () => Promise.reject(new Error(`keychain locked ${API_KEY}`)) };
 
 const fakeProbe = (result: ProbeResult | Error, calls: ProbeCall[] = []): ProviderProbe => {
   return async (provider, credential) => {
@@ -89,6 +110,52 @@ test('allow local/provider choice, api key safe storage and availability diagnos
     assert.equal((await reader.get(REMOTE_TTS_ID))?.reveal(), API_KEY);
     assert.equal(await reader.get(REMOTE_STT_ID), undefined);
     assert.equal(await reader.get(LOCAL_STT_ID), undefined);
+  });
+
+  await t.test('trims the environment value before creating the credential', async () => {
+    const reader = envSecretReader({ [REMOTE_TTS_ENV]: `  ${API_KEY}\n` });
+    assert.equal((await reader.get(REMOTE_TTS_ID))?.reveal(), API_KEY);
+  });
+
+  await t.test('finds provider ids whose environment variable names collide', () => {
+    assert.deepEqual(findEnvNameCollisions(['cloud.tts', 'cloud-tts', 'CLOUD_TTS', LOCAL_STT_ID]), [
+      'cloud.tts',
+      'cloud-tts',
+      'CLOUD_TTS',
+    ]);
+    assert.deepEqual(findEnvNameCollisions(catalog.map((provider) => provider.id)), []);
+  });
+
+  await t.test('stores, reads and deletes a credential in the OS keychain backend', async () => {
+    const backend = fakeKeychain();
+    const store = keychainSecretStore(backend);
+    assert.equal(await store.get(REMOTE_STT_ID), undefined);
+    await store.set(REMOTE_STT_ID, API_KEY);
+    assert.equal(backend.entries.get(`${KEYCHAIN_SERVICE}/${REMOTE_STT_ID}`), API_KEY);
+    assert.equal((await store.get(REMOTE_STT_ID))?.reveal(), API_KEY);
+    await store.delete(REMOTE_STT_ID);
+    assert.equal(await store.get(REMOTE_STT_ID), undefined);
+  });
+
+  await t.test('treats an empty keychain value as absent and rejects an empty credential', async () => {
+    const backend = fakeKeychain();
+    backend.entries.set(`${KEYCHAIN_SERVICE}/${REMOTE_STT_ID}`, '   ');
+    const store = keychainSecretStore(backend);
+    assert.equal(await store.get(REMOTE_STT_ID), undefined);
+    await assert.rejects(store.set(REMOTE_TTS_ID, ' '), RangeError);
+    assert.equal(backend.entries.has(`${KEYCHAIN_SERVICE}/${REMOTE_TTS_ID}`), false);
+  });
+
+  await t.test('reports credential-store-error without probing when the store fails', async () => {
+    const calls: ProbeCall[] = [];
+    const health = await checkProviderHealth(descriptor(REMOTE_STT_ID), failingReader, fakeProbe('ok', calls));
+    assert.deepEqual(health, {
+      providerId: REMOTE_STT_ID,
+      kind: 'stt',
+      locality: 'cloud',
+      status: 'credential-store-error',
+    });
+    assert.deepEqual(calls, []);
   });
 
   await t.test('reports ok for a local provider without asking for a credential', async () => {
@@ -156,6 +223,7 @@ test('no credentials are logged or committed to campaign exports', async (t) => 
       checkProviderHealth(descriptor(REMOTE_TTS_ID), store, fakeProbe('ok')),
       checkProviderHealth(descriptor(REMOTE_TTS_ID), store, fakeProbe('unreachable')),
       checkProviderHealth(descriptor(REMOTE_TTS_ID), store, fakeProbe(new Error(`401 bad key ${API_KEY}`))),
+      checkProviderHealth(descriptor(REMOTE_TTS_ID), failingReader, fakeProbe('ok')),
     ]);
     assertAbsent(diagnostics);
     assertAbsent({ campaign: { voice: { choice, diagnostics } } });
@@ -165,6 +233,13 @@ test('no credentials are logged or committed to campaign exports', async (t) => 
     const reader = envSecretReader({ [REMOTE_TTS_ENV]: API_KEY });
     assertAbsent(reader);
     assertAbsent(await reader.get(REMOTE_TTS_ID));
+  });
+
+  await t.test('a keychain store never exposes stored values when logged or exported', async () => {
+    const keychain = keychainSecretStore(fakeKeychain());
+    await keychain.set(REMOTE_TTS_ID, API_KEY);
+    assertAbsent(keychain);
+    assertAbsent(await keychain.get(REMOTE_TTS_ID));
   });
 
   await t.test('rejected input errors never echo the credential', async () => {
