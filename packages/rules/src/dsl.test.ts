@@ -86,7 +86,7 @@ test('define typed expressions for dice, comparisons, resources, conditions and 
 
   const input: RuleCompileInput = {
     rule: full,
-    rulePack: { id: 'pack', edition: 'lite', revision: '1' },
+    rulePack: { id: 'pack', edition: 'lite', revision: '1', capabilities: {} },
     sourceRefs: ['srd#1'],
   };
   assert.equal(input.rule.dslVersion, RULE_DSL_VERSION);

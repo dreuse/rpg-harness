@@ -96,7 +96,7 @@ const toState = (value: CapabilityValue | undefined): CapabilityState => {
   return 'disabled';
 };
 
-export const capabilityState = (manifest: RulePackManifest, name: string): CapabilityState =>
+export const capabilityState = (manifest: Pick<RulePackManifest, 'capabilities'>, name: string): CapabilityState =>
   toState(Object.hasOwn(manifest.capabilities, name) ? manifest.capabilities[name] : undefined);
 
 export const listCapabilities = (manifest: RulePackManifest) =>

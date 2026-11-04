@@ -1,4 +1,4 @@
-import { isRecord, type ManifestIssue, type RulePackManifest } from './rulepack.ts';
+import { isRecord, type ManifestIssue, type Primitive, type RulePackManifest } from './rulepack.ts';
 
 export const RULE_DSL_VERSION = 1;
 export const MAX_DSL_DEPTH = 16;
@@ -56,13 +56,21 @@ export type RuleDslResult = { ok: true; rule: RuleDsl } | { ok: false; error: In
 
 export type RuleCompileInput = {
   rule: RuleDsl;
-  rulePack: Pick<RulePackManifest, 'id' | 'edition' | 'revision'>;
+  rulePack: Pick<RulePackManifest, 'id' | 'edition' | 'revision' | 'capabilities'>;
   sourceRefs: string[];
 };
-export type CompiledRule = Readonly<RuleCompileInput>;
+export type CompiledRule = Readonly<{
+  rule: RuleDsl;
+  rulePack: Pick<RulePackManifest, 'id' | 'edition' | 'revision'>;
+  sourceRefs: readonly string[];
+  primitives: readonly Primitive[];
+  adjudicated: readonly Primitive[];
+  deterministic: boolean;
+}>;
+export type CapabilityDisabled = { code: 'CapabilityDisabled'; issues: ManifestIssue[] };
 export type CompileRule = (
   input: RuleCompileInput,
-) => { ok: true; rule: CompiledRule } | { ok: false; error: InvalidRuleDsl };
+) => { ok: true; rule: CompiledRule } | { ok: false; error: InvalidRuleDsl | CapabilityDisabled };
 
 const EXPR_KEYS = {
   const: ['value'],
