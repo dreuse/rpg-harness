@@ -67,7 +67,7 @@ const checkClaim = (claim: NarrationClaim, input: ConsistencyInput, visible: Rea
 const WHITESPACE_RUN = /\s+/g;
 const SINGLE_SPACE = ' ';
 
-const normalize = (text: string): string => text.toLowerCase().replace(WHITESPACE_RUN, SINGLE_SPACE).trim();
+export const normalize = (text: string): string => text.toLowerCase().replace(WHITESPACE_RUN, SINGLE_SPACE).trim();
 
 const restatedSecrets = (input: ConsistencyInput, visible: ReadonlySet<FactId>): Violation[] => {
   const narration = normalize(input.narration);
