@@ -87,3 +87,38 @@ export const MYSTERY_PACK = {
     ],
   },
 };
+
+export const MODERN_ADVENTURE_PACK = {
+  genre: {
+    contractVersion: GENREPACK_CONTRACT_VERSION,
+    id: 'modern-adventure',
+    version: '1.0.0',
+    name: 'Modern adventure',
+    archetypes: [
+      { id: 'fixer', name: 'Fixer', summary: 'Knows someone in every city and owes most of them' },
+      { id: 'reporter', name: 'Reporter', summary: 'Chases the story past where the police stop' },
+      { id: 'pilot', name: 'Pilot', summary: 'Gets people in and out when the roads close' },
+    ],
+    narrativeConstraints: [
+      'Keep events grounded in the present-day world',
+      'Consequences follow real-world logic: injuries heal slowly, money runs out',
+    ],
+    examples: ['Your phone buzzes twice: a dead drop address and a flight that leaves in forty minutes.'],
+    visualConventions: ['Contemporary cities', 'Natural lighting'],
+    suggestedCapabilities: ['social', 'travel', 'investigation'],
+  },
+};
+
+export const BLANK_WORLD_PACK = {
+  genre: {
+    contractVersion: GENREPACK_CONTRACT_VERSION,
+    id: 'blank-world',
+    version: '1.0.0',
+    name: 'Blank world',
+    archetypes: [],
+    narrativeConstraints: [],
+    examples: [],
+    visualConventions: [],
+    suggestedCapabilities: [],
+  },
+};
