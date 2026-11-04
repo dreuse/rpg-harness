@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { test } from 'node:test';
+import { MAIN_BRANCH } from '../../domain/src/campaign.ts';
 import {
   ClosedConnectionError,
   InterruptedMigrationError,
@@ -107,6 +108,125 @@ test('upgrading a v2 database keeps campaigns and legacy events', async () => {
       query(path, (database) => ({ ...database.prepare('SELECT payload, id, turn_id FROM event_log').get() })),
       { payload: LEGACY_EVENT, id: null, turn_id: null },
     );
+  });
+});
+
+const CAMPAIGN_TABLES = [
+  'campaign',
+  'event_log',
+  'character',
+  'scene',
+  'turn',
+  'entity',
+  'fact',
+  'ruleset_ref',
+  'session',
+] as const;
+const PREVIOUS_VERSION = MIGRATIONS.length - 1;
+const FUTURE_VERSION = MIGRATIONS.length + 1;
+const DEFAULT_EVENT_VISIBILITY = 'gm';
+const UNKNOWN_VISIBILITY = 'everyone';
+const PUBLIC_VISIBILITY = 'public';
+const ACTOR_SCOPED_VISIBILITY = 'actor-scoped';
+const CANON_LAYER = 'canon';
+const UNKNOWN_LAYER = 'gossip';
+const ENTITY_ID = 'entity-1';
+const SECOND_ENTITY_ID = 'entity-2';
+const FACT_ID = 'fact-1';
+const SECOND_FACT_ID = 'fact-2';
+const SESSION_ID = 'session-1';
+const ENTITY_KIND = 'npc';
+const STATEMENT = 'The mine is haunted';
+const STARTED_AT = '2026-01-01T00:00:00Z';
+const CHECK_FAILED = /CHECK constraint failed/;
+const UPGRADE_PHRASE = 'upgrades preserve user data and reject incompatible schema versions predictably';
+
+test('implement migrations for campaign, entities, ruleset refs, facts, events, sessions and visibility', async () => {
+  await withTempDir((path) => {
+    const connection = openDatabase(path);
+    const { database } = connection;
+    database.prepare('INSERT INTO campaign (id, name) VALUES (?, ?)').run(CAMPAIGN_ID, CAMPAIGN_NAME);
+    const insertEntity = database.prepare(
+      'INSERT INTO entity (id, campaign_id, kind, name, visibility, actor_id) VALUES (?, ?, ?, ?, ?, ?)',
+    );
+    const insertFact = database.prepare(
+      'INSERT INTO fact (id, campaign_id, statement, layer, visibility, actor_id) VALUES (?, ?, ?, ?, ?, ?)',
+    );
+    const insertEvent = database.prepare(
+      'INSERT INTO event_log (campaign_id, payload, visibility, actor_id) VALUES (?, ?, ?, ?)',
+    );
+
+    insertEntity.run(ENTITY_ID, CAMPAIGN_ID, ENTITY_KIND, CAMPAIGN_NAME, PUBLIC_VISIBILITY, null);
+    insertFact.run(FACT_ID, CAMPAIGN_ID, STATEMENT, CANON_LAYER, ACTOR_SCOPED_VISIBILITY, ENTITY_ID);
+    insertEvent.run(CAMPAIGN_ID, LEGACY_EVENT, ACTOR_SCOPED_VISIBILITY, ENTITY_ID);
+    database
+      .prepare('INSERT INTO session (id, campaign_id, started_at) VALUES (?, ?, ?)')
+      .run(SESSION_ID, CAMPAIGN_ID, STARTED_AT);
+
+    assert.throws(
+      () => insertEntity.run(SECOND_ENTITY_ID, CAMPAIGN_ID, ENTITY_KIND, CAMPAIGN_NAME, UNKNOWN_VISIBILITY, null),
+      CHECK_FAILED,
+    );
+    assert.throws(
+      () => insertEntity.run(SECOND_ENTITY_ID, CAMPAIGN_ID, ENTITY_KIND, CAMPAIGN_NAME, ACTOR_SCOPED_VISIBILITY, null),
+      CHECK_FAILED,
+    );
+    assert.throws(
+      () => insertFact.run(SECOND_FACT_ID, CAMPAIGN_ID, STATEMENT, CANON_LAYER, ACTOR_SCOPED_VISIBILITY, null),
+      CHECK_FAILED,
+    );
+    assert.throws(
+      () => insertFact.run(SECOND_FACT_ID, CAMPAIGN_ID, STATEMENT, UNKNOWN_LAYER, PUBLIC_VISIBILITY, null),
+      CHECK_FAILED,
+    );
+    assert.throws(() => insertEvent.run(CAMPAIGN_ID, LEGACY_EVENT, UNKNOWN_VISIBILITY, null), CHECK_FAILED);
+    assert.throws(() => insertEvent.run(CAMPAIGN_ID, LEGACY_EVENT, ACTOR_SCOPED_VISIBILITY, null), CHECK_FAILED);
+
+    for (const table of ['entity', 'fact', 'session']) {
+      assert.deepEqual(
+        { ...database.prepare(`SELECT branch_id FROM ${table}`).get() },
+        { branch_id: MAIN_BRANCH },
+        table,
+      );
+    }
+    connection.close();
+    for (const table of CAMPAIGN_TABLES) assert.equal(tableExists(path, table), true, table);
+  });
+});
+
+test(`${UPGRADE_PHRASE} - preserves rows`, async () => {
+  await withTempDir((path) => {
+    const legacy = openDatabase(path, { migrations: MIGRATIONS.slice(0, PREVIOUS_VERSION) });
+    legacy.database.prepare('INSERT INTO campaign (id, name) VALUES (?, ?)').run(CAMPAIGN_ID, CAMPAIGN_NAME);
+    legacy.database
+      .prepare('INSERT INTO event_log (campaign_id, payload) VALUES (?, ?)')
+      .run(CAMPAIGN_ID, LEGACY_EVENT);
+    legacy.close();
+
+    const upgraded = openDatabase(path);
+    assert.deepEqual(upgraded.applied, [MIGRATIONS.length]);
+    upgraded.close();
+    assert.deepEqual(
+      query(path, (database) => ({ ...database.prepare('SELECT id, name FROM campaign').get() })),
+      { id: CAMPAIGN_ID, name: CAMPAIGN_NAME },
+    );
+    assert.deepEqual(
+      query(path, (database) => ({
+        ...database.prepare('SELECT payload, visibility, session_id FROM event_log').get(),
+      })),
+      { payload: LEGACY_EVENT, visibility: DEFAULT_EVENT_VISIBILITY, session_id: null },
+    );
+  });
+});
+
+test(`${UPGRADE_PHRASE} - rejects newer version`, async () => {
+  await withTempDir(async (path) => {
+    const future: Migration = { version: FUTURE_VERSION, sql: 'CREATE TABLE future_only (id INTEGER);' };
+    openDatabase(path, { migrations: [...MIGRATIONS, future] }).close();
+    const before = await readFile(path);
+
+    assert.throws(() => openDatabase(path), SchemaTooNewError);
+    assert.deepEqual(await readFile(path), before);
   });
 });
 

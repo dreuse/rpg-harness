@@ -1,8 +1,17 @@
 import { DatabaseSync } from 'node:sqlite';
+import { MAIN_BRANCH } from '../../domain/src/campaign.ts';
 
 export type Migration = { readonly version: number; readonly sql: string };
 
 export type OpenOptions = { readonly migrations?: readonly Migration[]; readonly recover?: boolean };
+
+const GM_VISIBILITY = 'gm';
+const ACTOR_SCOPED_VISIBILITY = 'actor-scoped';
+const VISIBILITY_LEVELS = ['public', 'player', GM_VISIBILITY, ACTOR_SCOPED_VISIBILITY] as const;
+const FACT_LAYERS = ['canon', 'belief', 'rumor', 'invalidated'] as const;
+const sqlList = (values: readonly string[]) => values.map((value) => `'${value}'`).join(', ');
+const VISIBILITY_CHECK = `CHECK (visibility IN (${sqlList(VISIBILITY_LEVELS)}))`;
+const ACTOR_SCOPE_CHECK = `CHECK (visibility <> '${ACTOR_SCOPED_VISIBILITY}' OR actor_id IS NOT NULL)`;
 
 export const MIGRATIONS: readonly Migration[] = [
   { version: 1, sql: 'CREATE TABLE campaign (id TEXT PRIMARY KEY, name TEXT NOT NULL);' },
@@ -42,6 +51,50 @@ export const MIGRATIONS: readonly Migration[] = [
       ALTER TABLE event_log ADD COLUMN branch_id TEXT;
       ALTER TABLE event_log ADD COLUMN revision INTEGER;
       ALTER TABLE event_log ADD COLUMN action_id TEXT;
+    `,
+  },
+  {
+    version: 5,
+    sql: `
+      CREATE TABLE ruleset_ref (
+        campaign_id TEXT NOT NULL REFERENCES campaign (id),
+        rulepack_id TEXT NOT NULL,
+        revision TEXT NOT NULL,
+        PRIMARY KEY (campaign_id, rulepack_id)
+      );
+      CREATE TABLE session (
+        id TEXT PRIMARY KEY,
+        campaign_id TEXT NOT NULL REFERENCES campaign (id),
+        branch_id TEXT NOT NULL DEFAULT '${MAIN_BRANCH}',
+        started_at TEXT NOT NULL,
+        ended_at TEXT
+      );
+      CREATE TABLE entity (
+        id TEXT PRIMARY KEY,
+        campaign_id TEXT NOT NULL REFERENCES campaign (id),
+        branch_id TEXT NOT NULL DEFAULT '${MAIN_BRANCH}',
+        kind TEXT NOT NULL,
+        name TEXT NOT NULL,
+        data TEXT NOT NULL DEFAULT '{}',
+        visibility TEXT NOT NULL ${VISIBILITY_CHECK},
+        actor_id TEXT REFERENCES entity (id),
+        ${ACTOR_SCOPE_CHECK}
+      );
+      CREATE TABLE fact (
+        id TEXT PRIMARY KEY,
+        campaign_id TEXT NOT NULL REFERENCES campaign (id),
+        branch_id TEXT NOT NULL DEFAULT '${MAIN_BRANCH}',
+        subject_id TEXT REFERENCES entity (id),
+        statement TEXT NOT NULL,
+        layer TEXT NOT NULL CHECK (layer IN (${sqlList(FACT_LAYERS)})),
+        visibility TEXT NOT NULL ${VISIBILITY_CHECK},
+        actor_id TEXT REFERENCES entity (id),
+        source_event_id TEXT REFERENCES event_log (id),
+        ${ACTOR_SCOPE_CHECK}
+      );
+      ALTER TABLE event_log ADD COLUMN session_id TEXT REFERENCES session (id);
+      ALTER TABLE event_log ADD COLUMN visibility TEXT NOT NULL DEFAULT '${GM_VISIBILITY}' ${VISIBILITY_CHECK};
+      ALTER TABLE event_log ADD COLUMN actor_id TEXT REFERENCES entity (id) ${ACTOR_SCOPE_CHECK};
     `,
   },
 ];
