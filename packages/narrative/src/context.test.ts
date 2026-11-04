@@ -3,9 +3,10 @@ import { test } from 'node:test';
 import type { CampaignEvent, Scene } from '../../domain/src/campaign.ts';
 import type { RulePackLink } from '../../domain/src/character.ts';
 import type { CampaignEntity } from '../../domain/src/entity.ts';
+import { DEFAULT_PACING, type PacingState, type PendingEvent, selectSurfaced } from '../../domain/src/pacing.ts';
 import { type Fact, GM_VIEWER, PLAYER_VIEWER } from '../../memory/src/knowledge.ts';
 import type { ContextSnapshot } from '../../memory/src/retrieval.ts';
-import { assembleGmContext, type RuleEntry } from './context.ts';
+import { assembleGmContext, type RuleEntry, type WorldEventReport } from './context.ts';
 import type { NpcState } from './npc.ts';
 
 const CAMPAIGN_ID = 'campaign-1';
@@ -157,4 +158,74 @@ test('npc dialogue context stays out of player and other actor context', () => {
     assert.ok(!JSON.stringify(context).includes(WARDEN_NPC.disposition));
   }
   assert.equal(assembleGmContext(INPUT, GM_VIEWER).dialogue, undefined);
+});
+
+const BALANCED: PacingState = {
+  intent: 'balanced',
+  tension: 'calm',
+  attention: DEFAULT_PACING.attentionPerScene.balanced,
+  interruptions: DEFAULT_PACING.interruptionsPerScene.balanced,
+  storylines: [],
+};
+const pending = (id: string, bucket: PendingEvent['bucket']): PendingEvent => ({
+  id,
+  bucket,
+  storylineId: null,
+  solicited: false,
+});
+const report = (eventId: string, overrides: Partial<WorldEventReport> = {}): WorldEventReport => ({
+  eventId,
+  text: `news ${eventId}`,
+  visibility: 'public',
+  actorId: null,
+  ...overrides,
+});
+const worldEntries = (context: ReturnType<typeof assembleGmContext>) =>
+  context.entries.filter(({ kind }) => kind === 'world');
+const DISTANT_COUNT = 20;
+
+test('reveal relevant information using knowledge scopes and narrative pacing', () => {
+  const events = [
+    pending('world-raid', 'critical'),
+    pending('world-plot', 'critical'),
+    pending('world-spy', 'critical'),
+  ];
+  const reports = [
+    report('world-raid'),
+    report('world-plot', { visibility: 'gm', text: 'the duke plots a coup' }),
+    report('world-spy', { visibility: 'actor-scoped', actorId: WARDEN.id, text: 'a spy reports to the warden' }),
+  ];
+  const selection = selectSurfaced(BALANCED, events, DEFAULT_PACING);
+  const input = { ...INPUT, worldEvents: { selection, reports } };
+
+  const player = assembleGmContext(input, PLAYER_VIEWER);
+  assert.deepEqual(worldEntries(player), [
+    { kind: 'world', id: 'world-raid', text: 'news world-raid', sources: [{ type: 'event', id: 'world-raid' }] },
+  ]);
+  assert.ok(!JSON.stringify(player).includes('coup'));
+  assert.ok(!JSON.stringify(player).includes('spy'));
+  assert.deepEqual(
+    worldEntries(assembleGmContext(input, GM_VIEWER)).map(({ id }) => id),
+    ['world-raid', 'world-plot', 'world-spy'],
+  );
+});
+
+test('no notification floods; undiscovered distant events remain hidden', () => {
+  const ids = Array.from({ length: DISTANT_COUNT }, (_, index) => `world-distant-${index}`);
+  const selection = selectSurfaced(
+    BALANCED,
+    ids.map((id) => pending(id, 'background')),
+    DEFAULT_PACING,
+  );
+  const reports = [...ids.map((id) => report(id)), report('world-unknown', { visibility: 'gm' })];
+  const entries = worldEntries(assembleGmContext({ ...INPUT, worldEvents: { selection, reports } }, PLAYER_VIEWER));
+
+  assert.ok(entries.length <= DEFAULT_PACING.attentionPerScene.balanced);
+  assert.deepEqual(
+    entries.map(({ id }) => id),
+    selection.surfaced.map(({ id }) => id),
+  );
+  for (const { id } of selection.pending) assert.ok(!entries.some((entry) => entry.id === id));
+  assert.ok(!entries.some(({ id }) => id === 'world-unknown'));
+  assert.equal(worldEntries(assembleGmContext(INPUT, PLAYER_VIEWER)).length, 0);
 });

@@ -1,6 +1,7 @@
 import type { EventId } from '../../domain/src/campaign.ts';
 import type { RuleCitation, RulePackLink } from '../../domain/src/character.ts';
 import type { EntityId } from '../../domain/src/entity.ts';
+import type { Selection } from '../../domain/src/pacing.ts';
 import { type Scoped, type Viewer, visibleTo } from '../../memory/src/knowledge.ts';
 import {
   type ContextItem,
@@ -12,12 +13,16 @@ import { type DialogueContext, dialogueContext, type NpcState } from './npc.ts';
 
 export type RuleEntry = Scoped & { readonly id: string; readonly summary: string; readonly section: string };
 
+const WORLD = 'world';
+
 export type SourceReference =
   | { readonly type: 'event'; readonly id: EventId }
   | { readonly type: 'rule'; readonly rulepack: RulePackLink; readonly section: string };
 
+export type WorldEventReport = Scoped & { readonly eventId: EventId; readonly text: string };
+
 export type GmContextEntry = {
-  readonly kind: ContextKind;
+  readonly kind: ContextKind | typeof WORLD;
   readonly id: string;
   readonly text: string;
   readonly sources: readonly SourceReference[];
@@ -31,6 +36,7 @@ export type GmContextInput = {
   readonly rules: readonly RuleEntry[];
   readonly budget: number;
   readonly dialogue?: { readonly npc: NpcState; readonly speakerId: EntityId };
+  readonly worldEvents?: { readonly selection: Selection; readonly reports: readonly WorldEventReport[] };
 };
 
 export type GmContext = {
@@ -53,6 +59,16 @@ const toEntry =
     text,
     sources: sourceEventIds.map((eventId) => ({ type: 'event', id: eventId })),
   });
+
+const surfacedWorldEvents = (worldEvents: GmContextInput['worldEvents'], viewer: Viewer): readonly GmContextEntry[] => {
+  if (!worldEvents) return [];
+  const visible = visibleTo(worldEvents.reports, viewer);
+  return worldEvents.selection.surfaced.flatMap(({ id }) =>
+    visible
+      .filter(({ eventId }) => eventId === id)
+      .map(({ eventId, text }) => ({ kind: WORLD, id: eventId, text, sources: [{ type: 'event', id: eventId }] })),
+  );
+};
 
 const voices = (viewer: Viewer, npc: NpcState) =>
   viewer.scope === 'gm' || (viewer.scope === 'actor' && viewer.actorId === npc.id);
@@ -78,6 +94,7 @@ export const assembleGmContext = (input: GmContextInput, viewer: Viewer): GmCont
       ...retrieved.facts.map(toEntry('fact')),
       ...retrieved.entities.map(toEntry('entity')),
       ...retrieved.history.map(toEntry('history')),
+      ...surfacedWorldEvents(input.worldEvents, viewer),
     ],
     budget: retrieved.budget,
     usedTokens: retrieved.usedTokens,
