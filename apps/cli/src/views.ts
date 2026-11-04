@@ -54,6 +54,10 @@ const LIST_SEPARATOR = ', ';
 const JSON_INDENT = 2;
 const OPEN = '[ ]';
 const RULEPACK_KEYS = ['id', 'edition', 'revision'] as const;
+const ACTOR_SCOPE: Viewer['scope'] = 'actor';
+const UNPRINTABLE = /[^\P{Cc}\n]|\p{Cf}/gu;
+
+export const printable = (text: string) => text.replace(UNPRINTABLE, '');
 
 export type Panels = Omit<CampaignPanels, 'version' | 'campaignId' | 'revision'>;
 
@@ -113,6 +117,22 @@ const sheet = (hero: Character, source: ViewSource, viewer: SheetViewer) => {
     group.fields.map((field) => `  ${field.label ?? field.id}: ${field.value}`),
   );
   return section(`${hero.name} (${rulepack.id} ${rulepack.edition})`, rows, NO_SHEET);
+};
+
+const GM_SHEET_VIEWER: SheetViewer = { role: 'gm' };
+const GM_SCOPE: Viewer['scope'] = 'gm';
+
+const sheetViewerOf = (viewer: Viewer, hero: Character): SheetViewer | undefined => {
+  if (viewer.scope === GM_SCOPE) return GM_SHEET_VIEWER;
+  if (viewer.scope === ACTOR_SCOPE && viewer.actorId !== hero.id) return undefined;
+  return PLAYER_OWNER;
+};
+
+export const sheetFields = (source: ViewSource, viewer: Viewer) => {
+  const [hero] = source.state.characters;
+  const sheetViewer = hero === undefined ? undefined : sheetViewerOf(viewer, hero);
+  const input = hero === undefined || sheetViewer === undefined ? undefined : sheetInput(source, hero, sheetViewer);
+  return input === undefined ? [] : buildSheetView(input).groups.flatMap((group) => group.fields);
 };
 
 const sheetExport = (hero: Character, source: ViewSource, viewer: SheetViewer) => {
@@ -224,7 +244,7 @@ export const panelsOf = (source: ViewSource, viewer: Viewer): Panels => {
   };
 };
 
-export const renderView = (view: ReadView, source: ViewSource, viewer: SheetViewer = PLAYER_OWNER): string => {
+const renderStored = (view: ReadView, source: ViewSource, viewer: SheetViewer): string => {
   if (view === 'journal') return journal(source.state);
   if (view === 'quests') return quests(source);
   if (view === 'encounter') return encounter(source);
@@ -234,3 +254,6 @@ export const renderView = (view: ReadView, source: ViewSource, viewer: SheetView
   if (view === 'sheet-export') return sheetExport(hero, source, viewer);
   return inventory(hero, { ...source, entities: visibleTo(source.entities, PLAYER_VIEWER) });
 };
+
+export const renderView = (view: ReadView, source: ViewSource, viewer: SheetViewer = PLAYER_OWNER): string =>
+  printable(renderStored(view, source, viewer));

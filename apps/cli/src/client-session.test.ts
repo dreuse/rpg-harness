@@ -14,10 +14,11 @@ import { CAMPAIGN_CONFIGURED, MAIN_BRANCH } from '../../../packages/domain/src/c
 import type { Visibility } from '../../../packages/domain/src/entity.ts';
 import { createEngine } from '../../../packages/engine/src/engine.ts';
 import { openScene } from '../../../packages/engine/src/turn.ts';
-import { generateCampaignConfig } from '../../../packages/intent/src/config.ts';
+import { type CampaignConfig, generateCampaignConfig } from '../../../packages/intent/src/config.ts';
 import { createCampaignIntent } from '../../../packages/intent/src/intent.ts';
 import { GM_VIEWER, PLAYER_VIEWER, type Viewer } from '../../../packages/memory/src/knowledge.ts';
 import { createCampaignStore } from '../../../packages/persistence/src/campaign-store.ts';
+import { createCharacterStore } from '../../../packages/persistence/src/character-store.ts';
 import { openDatabase } from '../../../packages/persistence/src/database.ts';
 import { createEntityStore } from '../../../packages/persistence/src/entity-store.ts';
 import { createRoller, createSeededRng } from '../../../packages/rules/src/dice.ts';
@@ -83,7 +84,7 @@ const fakeSheets = (owner: string) => {
   return { sheets, commits };
 };
 
-const setup = () => {
+const setup = (config?: CampaignConfig) => {
   const { database } = openDatabase(IN_MEMORY);
   const store = createCampaignStore(database);
   const engine = createEngine(store);
@@ -93,6 +94,7 @@ const setup = () => {
     actorName: 'The Wanderer',
     sceneTitle: 'The Crossroads Inn',
     narration: 'Rain drums on the roof.',
+    ...(config === undefined ? {} : { config }),
   });
   createEntityStore(database).saveEntity({
     id: RIVAL,
@@ -143,7 +145,7 @@ const setup = () => {
   };
   const sessionFor = createClientSessions(engine, campaign.id, scopedEventsOf(database), worldOf(database));
   const envelope = { version: PROTOCOL_VERSION, campaignId: campaign.id } as const;
-  return { engine, campaignId: campaign.id, turn, sessionFor, envelope, furnish, seed, quest };
+  return { engine, database, campaignId: campaign.id, turn, sessionFor, envelope, furnish, seed, quest };
 };
 
 type Envelope = ReturnType<typeof setup>['envelope'];
@@ -227,7 +229,7 @@ test('UI01: session validates every command at the boundary', () => {
     code(session.selectCapability({ ...envelope, type: 'SelectCapability', capabilityId: 'combat', enabled: true })),
     'Rejected',
   );
-  assert.equal(code(session.requestView({ ...envelope, type: 'RequestView', viewId: 'sheet' })), 'Rejected');
+  assert.equal(code(session.requestView({ ...envelope, type: 'RequestView', viewId: 'map' })), 'Rejected');
   const ignored: ClientEvent[] = [];
   session.subscribeEvents({ ...envelope, campaignId: 'someone-else', type: 'SubscribeEvents' }, (event) =>
     ignored.push(event),
@@ -485,4 +487,143 @@ test('rpg-qzx.9: legacy CharacterCreated without traitVisibility fails closed fo
   assert.deepEqual(traitsOf(owner, 'legacy'), [['grit']]);
   assert.match(JSON.stringify(owner), /GM-DOOM/);
   assert.deepEqual(traitsOf(gm, 'legacy'), [['grit']]);
+});
+
+test('RequestView sheet serves the hero sheet fields with their stored values', () => {
+  const { database, sessionFor, envelope, campaignId, turn } = setup();
+  const request = { ...envelope, type: 'RequestView', viewId: 'sheet' } as const;
+  assert.deepEqual(sessionFor(PLAYER_VIEWER).requestView(request), {
+    ok: true,
+    value: { viewId: 'sheet', components: [] },
+  });
+  createCharacterStore(createEntityStore(database)).saveProfile(
+    campaignId,
+    turn.actorId,
+    {
+      identity: { name: 'The Wanderer' },
+      motivations: [],
+      background: '',
+      traits: [
+        { id: 'resolve', value: 3 },
+        { id: 'oath', value: 'guard the road' },
+      ],
+      conditions: [],
+      rulepack: RULEPACK,
+    },
+    'player',
+  );
+  assert.deepEqual(sessionFor(PLAYER_VIEWER).requestView(request), {
+    ok: true,
+    value: {
+      viewId: 'sheet',
+      components: [
+        { kind: 'field', id: 'resolve', label: 'resolve', value: 3 },
+        { kind: 'field', id: 'oath', label: 'oath', value: 'guard the road' },
+      ],
+    },
+  });
+  assert.deepEqual(sessionFor(RIVAL_VIEWER).requestView(request), {
+    ok: true,
+    value: { viewId: 'sheet', components: [] },
+  });
+  const owner = sessionFor({ scope: 'actor', actorId: turn.actorId }).requestView(request);
+  assert.equal(owner.ok && owner.value.components.length, 2);
+});
+
+const visualizedConfig = (enabled: boolean) => {
+  const explicit = <T>(value: T) => ({ value, provenance: 'explicit' as const });
+  const rulepack = { ...RULEPACK, capabilities: { dice: true }, sourceRefs: [] };
+  const intent = createCampaignIntent({
+    ruleset: explicit({ id: RULEPACK.id, edition: RULEPACK.edition }),
+    client: explicit('tui'),
+    diceVisualization: explicit(enabled),
+  });
+  const result = generateCampaignConfig(intent, { rulepacks: [rulepack], genres: [] });
+  assert.ok(result.ok, JSON.stringify(result));
+  return result.config;
+};
+
+const ROLL = {
+  type: 'roll.resolved',
+  rollId: 'r1',
+  pool: { dice: [{ count: 1, sides: 20 }], modifier: 2 },
+  draws: [[14]],
+  total: 16,
+};
+
+const resolveRoll = (seed: ReturnType<typeof setup>['seed'], actorId: string, visibility: Visibility) => {
+  seed(
+    `start-${visibility}`,
+    'EncounterStarted',
+    { encounterId: 'ambush', participants: [actorId], sheets: [] },
+    visibility,
+  );
+  seed(
+    `strike-${visibility}`,
+    'EncounterActionResolved',
+    {
+      encounterId: 'ambush',
+      actorId,
+      round: 1,
+      ruleId: 'strike',
+      dslVersion: 1,
+      modifiers: {},
+      resolution: { ok: true, changes: [], events: [], rolls: [ROLL] },
+    },
+    visibility,
+  );
+};
+
+const mechanics = (events: readonly ClientEvent[]) => events.filter((event) => event.type === VISUALIZATION_EVENT);
+
+test('a newly resolved encounter roll reaches subscribers as MechanicVisualized when dice visualization is on', () => {
+  const { sessionFor, envelope, seed, turn } = setup(visualizedConfig(true));
+  const player = collect(sessionFor(PLAYER_VIEWER), envelope);
+  resolveRoll(seed, turn.actorId, 'player');
+  sessionFor(PLAYER_VIEWER).getSnapshot({ ...envelope, type: 'GetCampaignSnapshot' });
+  assert.deepEqual(mechanics(player), [
+    {
+      version: PROTOCOL_VERSION,
+      type: VISUALIZATION_EVENT,
+      resultId: 'r1',
+      mechanic: 'dice',
+      frames: [{ step: 0, reveal: { kind: 'die', sides: 20, face: 14 } }],
+      final: { total: 16, outcome: undefined, modifier: 2 },
+    },
+  ]);
+  sessionFor(PLAYER_VIEWER).getSnapshot({ ...envelope, type: 'GetCampaignSnapshot' });
+  assert.equal(mechanics(player).length, 1);
+});
+
+test('encounter rolls stay hidden when dice visualization is off or the roll is gm-only', () => {
+  const off = setup(visualizedConfig(false));
+  const muted = collect(off.sessionFor(PLAYER_VIEWER), off.envelope);
+  resolveRoll(off.seed, off.turn.actorId, 'player');
+  off.sessionFor(PLAYER_VIEWER).getSnapshot({ ...off.envelope, type: 'GetCampaignSnapshot' });
+  assert.deepEqual(mechanics(muted), []);
+
+  const on = setup(visualizedConfig(true));
+  const player = collect(on.sessionFor(PLAYER_VIEWER), on.envelope);
+  const gm = collect(on.sessionFor(GM_VIEWER), on.envelope);
+  resolveRoll(on.seed, on.turn.actorId, 'gm');
+  on.sessionFor(PLAYER_VIEWER).getSnapshot({ ...on.envelope, type: 'GetCampaignSnapshot' });
+  assert.deepEqual(mechanics(player), []);
+  assert.equal(mechanics(gm).length, 1);
+});
+
+test('rolls of the current encounter stored before subscribing replay once to the new subscriber', () => {
+  const on = setup(visualizedConfig(true));
+  resolveRoll(on.seed, on.turn.actorId, 'player');
+  const player = collect(on.sessionFor(PLAYER_VIEWER), on.envelope);
+  on.sessionFor(PLAYER_VIEWER).getSnapshot({ ...on.envelope, type: 'GetCampaignSnapshot' });
+  assert.equal(mechanics(player).length, 1);
+
+  const secret = setup(visualizedConfig(true));
+  resolveRoll(secret.seed, secret.turn.actorId, 'gm');
+  assert.deepEqual(mechanics(collect(secret.sessionFor(PLAYER_VIEWER), secret.envelope)), []);
+  assert.equal(mechanics(collect(secret.sessionFor(GM_VIEWER), secret.envelope)).length, 1);
+
+  const off = setup(visualizedConfig(false));
+  resolveRoll(off.seed, off.turn.actorId, 'player');
+  assert.deepEqual(mechanics(collect(off.sessionFor(PLAYER_VIEWER), off.envelope)), []);
 });

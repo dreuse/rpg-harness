@@ -6,10 +6,12 @@ import {
   type ViewComponent,
   type ViewComponentKind,
   type ViewDescriptor,
+  type ViewValue,
 } from './protocol.ts';
 
 export const VIEW_IDS = ['sheet', 'inventory', 'quest', 'encounter', 'clock', 'map', 'investigation'] as const;
 export type ViewId = (typeof VIEW_IDS)[number];
+export const SHEET_VIEW: ViewId = 'sheet';
 
 export const VIEW_REGISTRY: Readonly<Record<ViewId, readonly ViewComponentKind[]>> = {
   sheet: ['field', 'group', 'progress', 'roll', 'relationship'],
@@ -22,7 +24,7 @@ export const VIEW_REGISTRY: Readonly<Record<ViewId, readonly ViewComponentKind[]
 };
 
 const DESCRIPTOR_KEYS = ['viewId', 'components'];
-const COMPONENT_KEYS = ['kind', 'id', 'label'];
+const COMPONENT_KEYS = ['kind', 'id', 'label', 'value'];
 
 export const failure = (code: ProtocolErrorCode, message: string): Result<never> => ({
   ok: false,
@@ -30,6 +32,8 @@ export const failure = (code: ProtocolErrorCode, message: string): Result<never>
 });
 
 const isViewId = (value: unknown): value is ViewId => VIEW_IDS.some((known) => known === value);
+const isViewValue = (value: unknown): value is ViewValue =>
+  value === null || typeof value === 'string' || typeof value === 'boolean' || Number.isFinite(value);
 const isKind = (value: unknown): value is ViewComponentKind => VIEW_COMPONENT_KINDS.some((known) => known === value);
 
 type Plain = { readonly values: Record<string, unknown> };
@@ -76,13 +80,16 @@ export const readList = (input: unknown): readonly unknown[] | undefined => {
 const parseComponent = (input: unknown, viewId: ViewId): Result<ViewComponent> => {
   const plain = readPlain(input, COMPONENT_KEYS, 'component');
   if (!plain.ok) return plain;
-  const { kind, id, label } = plain.value.values;
+  const { values } = plain.value;
+  const { kind, id, label, value } = values;
   if (!isKind(kind)) return failure('Rejected', `unknown component kind ${String(kind)}`);
   if (!VIEW_REGISTRY[viewId].includes(kind)) return failure('Rejected', `${viewId} does not allow ${kind}`);
   if (typeof id !== 'string' || id.length === 0)
     return failure('MalformedCommand', 'component.id is missing or invalid');
   if (typeof label !== 'string') return failure('MalformedCommand', 'component.label is missing or invalid');
-  return { ok: true, value: { kind, id, label } };
+  if (!Object.hasOwn(values, 'value')) return { ok: true, value: { kind, id, label } };
+  if (!isViewValue(value)) return failure('MalformedCommand', 'component.value must be plain text, number or flag');
+  return { ok: true, value: { kind, id, label, value } };
 };
 
 export const parseViewDescriptor = (input: unknown): Result<ViewDescriptor> => {

@@ -1,7 +1,7 @@
 import { parseArgs } from 'node:util';
 import type { Ask } from './character-creation.ts';
 import { PLAIN_TERMINAL, type Terminal } from './tui.ts';
-import { VIEW_NAMES, type ViewName } from './views.ts';
+import { printable, VIEW_NAMES, type ViewName } from './views.ts';
 
 export const EXIT_OK = 0;
 export const EXIT_FAILURE = 1;
@@ -84,17 +84,17 @@ const helpText = (): string =>
   ['Usage: rpg [command]', 'Commands:', ...COMMANDS.map((c) => `  ${c.usage} - ${c.description}`), ''].join('\n');
 
 const usageError = (io: Io, message: string): number => {
-  io.stderr(`${message}\n${HELP_HINT}\n`);
+  io.stderr(`${printable(message)}\n${HELP_HINT}\n`);
   return EXIT_USAGE;
 };
 
 const say = (io: Io, text: string): number => {
-  io.stdout(`${text}\n`);
+  io.stdout(`${printable(text)}\n`);
   return EXIT_OK;
 };
 
 const reportError = (io: Io, error: unknown) =>
-  io.stderr(`${error instanceof Error ? error.message : String(error)}\n`);
+  io.stderr(`${printable(error instanceof Error ? error.message : String(error))}\n`);
 
 const fail = (io: Io, error: unknown): number => {
   reportError(io, error);
@@ -150,7 +150,7 @@ const withControls = async function* (io: Io, show?: (view: ViewName) => string)
         reportError(io, error);
       }
     } else {
-      io.stderr(`Unknown control ${text}. Type /help for help.\n`);
+      io.stderr(`Unknown control ${printable(text)}. Type /help for help.\n`);
     }
   }
 };

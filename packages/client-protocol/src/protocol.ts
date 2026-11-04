@@ -123,10 +123,13 @@ export type CampaignPanels = {
   readonly recap: WorldRecap;
 };
 
+export type ViewValue = string | number | boolean | null;
+
 export type ViewComponent = {
   readonly kind: ViewComponentKind;
   readonly id: string;
   readonly label: string;
+  readonly value?: ViewValue;
 };
 
 export type ViewDescriptor = { readonly viewId: string; readonly components: readonly ViewComponent[] };

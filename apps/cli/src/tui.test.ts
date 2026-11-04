@@ -7,6 +7,7 @@ import type { Key } from 'node:readline';
 import { test } from 'node:test';
 import {
   type CampaignSnapshot,
+  type ClientSession,
   PROTOCOL_VERSION,
   toClientEvent,
 } from '../../../packages/client-protocol/src/protocol.ts';
@@ -80,7 +81,7 @@ const mechanic = toVisualizationEvent(
 
 const data: TuiData = {
   snapshot,
-  sheet: [{ id: 'grit', label: 'Grit', kind: 'number', value: 3, editable: false }],
+  sheet: [{ kind: 'field', id: 'grit', label: 'Grit', value: 3 }],
   events: [
     toClientEvent({
       id: 'e1',
@@ -107,6 +108,16 @@ const screen = (state: TuiState, capabilities = COLOR) => renderScreen(state, da
 const each = async function* <T>(items: readonly T[]) {
   yield* items;
 };
+
+const servedSession = (session: ClientSession): ClientSession => ({
+  ...session,
+  requestView: ({ viewId }) => ({ ok: true, value: { viewId, components: data.sheet } }),
+  subscribeEvents: (command, listener) => {
+    const unsubscribe = session.subscribeEvents(command, listener);
+    if (mechanic !== undefined) listener(mechanic);
+    return unsubscribe;
+  },
+});
 
 const engineSession = () => {
   const { database } = openDatabase(':memory:');
@@ -197,6 +208,7 @@ test('UI06: control sequences in campaign text never reach the terminal', async 
   const TITLE_PAYLOAD = '\x1b]0;pwn\x07';
   const CLEAR_PAYLOAD = '\x1b[2J';
   const BELL = String.fromCharCode(7);
+  const BIDI_OVERRIDE = '\u202e';
   const hostile: TuiData = {
     ...data,
     snapshot: {
@@ -208,11 +220,12 @@ test('UI06: control sequences in campaign text never reach the terminal', async 
         input: `Hi${CLEAR_PAYLOAD}`,
       })),
     },
-    sheet: [{ id: 'grit', label: `Grit${TITLE_PAYLOAD}`, kind: 'number', value: 3, editable: false }],
+    sheet: [{ kind: 'field', id: 'grit', label: `Grit${TITLE_PAYLOAD}${BIDI_OVERRIDE}`, value: 3 }],
   };
   const states = [INITIAL_STATE, press([TAB]), press([key('3')])];
   const plain = [...states.flatMap((state) => renderScreen(state, hostile, PLAIN)), ...renderLinear(hostile, PLAIN)];
-  for (const row of plain) assert.ok(!row.includes(ESCAPE) && !row.includes(BELL), JSON.stringify(row));
+  for (const row of plain)
+    assert.ok(!row.includes(ESCAPE) && !row.includes(BELL) && !row.includes(BIDI_OVERRIDE), JSON.stringify(row));
   const colored = states.flatMap((state) => renderScreen(state, hostile, COLOR)).join('\n');
   assert.ok(!colored.includes(TITLE_PAYLOAD) && !colored.includes(CLEAR_PAYLOAD) && !colored.includes(BELL));
   assert.match(colored, /Wan\[2Jderer: Hi\[2J[\s\S]*Nods\]0;pwn\./);
@@ -227,4 +240,18 @@ test('UI06: control sequences in campaign text never reach the terminal', async 
   });
   const printed = output.join('');
   assert.ok(!printed.includes(ESCAPE) && !printed.includes(BELL), JSON.stringify(printed));
+});
+
+test('UI06: the sheet and mechanics panes show what the session serves', async () => {
+  const { campaignId, session } = engineSession();
+  const output: string[] = [];
+  await runTui(servedSession(session), campaignId, {
+    capabilities: PLAIN,
+    lines: each(['2', '4', 'q']),
+    write: (text) => output.push(text),
+  });
+  const printed = output.join('');
+  assert.match(printed, /Sheet:[\s\S]*Grit: 3/);
+  assert.match(printed, /Mechanics:[\s\S]*attack: d20 -> 14/);
+  assert.doesNotMatch(printed, /No sheet yet\.|No mechanics yet\./);
 });

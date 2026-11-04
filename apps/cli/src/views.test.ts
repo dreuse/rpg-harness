@@ -17,7 +17,7 @@ import { SHEET_SCHEMA_VERSION } from '../../../packages/rules/src/sheet-schema.t
 import { importSheet, SHEET_EXPORT_FORMAT } from '../../../packages/rules/src/sheet-view.ts';
 import { createEngineGateway, readCampaignState } from './engine-gateway.ts';
 import { main } from './main.ts';
-import { renderView } from './views.ts';
+import { printable, renderView } from './views.ts';
 
 const CAMPAIGN = 'Ember';
 const ACTION = 'I light the lantern';
@@ -217,6 +217,48 @@ test('show sheet on cli and export structured portable representation with prove
       { id: 'oath', value: 'guard the road', source: 'core' },
     ]);
     assert.deepEqual(importSheet(exported), { ok: true, sheet: exported });
+  }));
+
+const ESC = '\x1b';
+const CSI = `${ESC}[2J`;
+const OSC = `${ESC}]0;pwn\x07`;
+const BIDI_OVERRIDE = '\u202e';
+const C1_CSI = '\x9b31m';
+const HOSTILE = `I wave${CSI}${OSC}${BIDI_OVERRIDE}${C1_CSI} back`;
+const UNSAFE = /[\p{Cc}\p{Cf}]/u;
+
+test('printable drops C0, C1 and bidi format characters but keeps line breaks', () => {
+  assert.equal(printable(`a${HOSTILE}\nb`), 'aI wave[2J]0;pwn31m back\nb');
+});
+
+test('the play loop and views never print stored control or bidi characters', () =>
+  withDataDir(async (dataDir) => {
+    await run(dataDir, ['new', CAMPAIGN]);
+    const played = await run(dataDir, ['play', CAMPAIGN], [HOSTILE, '/journal']);
+    const resumed = await run(dataDir, ['resume', CAMPAIGN]);
+    const journal = await run(dataDir, ['journal', CAMPAIGN]);
+    for (const output of [played, resumed, journal]) {
+      assert.match(output, /I wave\[2J\]0;pwn31m back/);
+      assert.doesNotMatch(output.replaceAll('\n', ''), UNSAFE);
+    }
+  }));
+
+test('restore, list and errors never print control or bidi characters from stored names', () =>
+  withDataDir(async (dataDir) => {
+    const hostile = `Ev${CSI}${BIDI_OVERRIDE}${C1_CSI}il`;
+    const file = join(dataDir, 'hostile.json');
+    await run(dataDir, ['new', hostile]);
+    await run(dataDir, ['export', hostile, file]);
+    await run(dataDir, ['delete', hostile], [hostile]);
+    const restored = await run(dataDir, ['restore', file]);
+    const listed = await run(dataDir, ['list']);
+    const errors: string[] = [];
+    const io = { stdout: () => {}, stderr: (text: string) => errors.push(text), lines: lines([]) };
+    await main(['restore', file], io, createEngineGateway(dataDir));
+    for (const output of [restored, listed, errors.join('')]) {
+      assert.match(output, /Ev\[2J31mil/);
+      assert.doesNotMatch(output.replaceAll('\n', ''), UNSAFE);
+    }
   }));
 
 const CREATION_RULES: CreationRules = {

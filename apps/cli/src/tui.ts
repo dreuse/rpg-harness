@@ -7,16 +7,22 @@ import {
   type ClientSession,
   EVENT_COMMITTED,
   PROTOCOL_VERSION,
+  type ViewComponent,
 } from '../../../packages/client-protocol/src/protocol.ts';
-import type { SheetWidget } from '../../../packages/client-protocol/src/sheet-widgets.ts';
-import type { MechanicReveal, VisualizationEvent } from '../../../packages/client-protocol/src/visualization.ts';
+import { SHEET_VIEW } from '../../../packages/client-protocol/src/view-registry.ts';
+import {
+  type MechanicReveal,
+  VISUALIZATION_EVENT,
+  type VisualizationEvent,
+} from '../../../packages/client-protocol/src/visualization.ts';
 import type { CampaignId } from '../../../packages/domain/src/campaign.ts';
+import { printable } from './views.ts';
 
 export type Capabilities = { readonly width: number; readonly color: boolean; readonly interactive: boolean };
 
 export type TuiData = {
   readonly snapshot: CampaignSnapshot;
-  readonly sheet: readonly SheetWidget[];
+  readonly sheet: readonly ViewComponent[];
   readonly events: readonly ClientEvent[];
   readonly mechanics: readonly VisualizationEvent[];
 };
@@ -67,7 +73,6 @@ const SPACE = ' ';
 const RULE = '-';
 const PROMPT = '> ';
 const NEWLINE = '\n';
-const CONTROL_CHARACTERS = /\p{Cc}/gu;
 const CLEAR_SCREEN = '\x1b[2J\x1b[H';
 const EMPHASIS = 'bold';
 const HELP_TITLE = 'Help:';
@@ -147,7 +152,7 @@ const wrapLine = (line: string, width: number): string[] => {
 };
 
 const wrap = (texts: readonly string[], width: number) =>
-  texts.flatMap((text) => text.split(NEWLINE)).flatMap((line) => wrapLine(line.replace(CONTROL_CHARACTERS, ''), width));
+  texts.flatMap((text) => text.split(NEWLINE)).flatMap((line) => wrapLine(printable(line), width));
 
 const reveal = (shown: MechanicReveal) => (shown.kind === 'die' ? `d${shown.sides} -> ${shown.face}` : shown.label);
 const signed = (value: number) => (value < 0 ? String(value) : `+${value}`);
@@ -173,7 +178,7 @@ const PANE_ROWS: Readonly<Record<PaneId, (data: TuiData) => readonly string[]>> 
   conversation: ({ snapshot }) => conversation(snapshot),
   sheet: ({ snapshot, sheet }) => [
     ...snapshot.characters.map(({ name }) => `Character: ${name}`),
-    ...sheet.map(({ label, value }) => `${label}: ${String(value)}`),
+    ...sheet.map(({ label, value }) => (value === undefined ? label : `${label}: ${String(value)}`)),
   ],
   log: ({ events }) =>
     events.flatMap((event) => (event.type === EVENT_COMMITTED ? [`#${event.revision} ${event.event.type}`] : [])),
@@ -211,10 +216,14 @@ const section = (title: string, rows: readonly string[], width: number) => wrap(
 export const renderLinear = (data: TuiData, { width }: Capabilities): string[] =>
   PANES.flatMap(({ id, label }) => section(`${label}:`, paneRows(id, data), width));
 
+const isMechanic = (event: ClientEvent): event is VisualizationEvent => event.type === VISUALIZATION_EVENT;
+
 const read = (session: ClientSession, campaignId: CampaignId, events: readonly ClientEvent[]): TuiData => {
   const snapshot = session.getSnapshot({ version: PROTOCOL_VERSION, type: 'GetCampaignSnapshot', campaignId });
   if (!snapshot.ok) throw new Error(snapshot.error.message);
-  return { snapshot: snapshot.value, sheet: [], events, mechanics: [] };
+  const sheet = session.requestView({ version: PROTOCOL_VERSION, type: 'RequestView', campaignId, viewId: SHEET_VIEW });
+  if (!sheet.ok) throw new Error(sheet.error.message);
+  return { snapshot: snapshot.value, sheet: sheet.value.components, events, mechanics: events.filter(isMechanic) };
 };
 
 const submit = (session: ClientSession, { snapshot }: TuiData, input: string): string | undefined => {

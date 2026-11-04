@@ -16,12 +16,14 @@ import {
   parseCommand,
   type Result,
   toClientEvent,
+  type ViewDescriptor,
 } from '../../../packages/client-protocol/src/protocol.ts';
 import {
   requestSheetEdit,
   type SheetEdit,
   type SheetSchema,
 } from '../../../packages/client-protocol/src/sheet-widgets.ts';
+import { parseViewDescriptor, SHEET_VIEW } from '../../../packages/client-protocol/src/view-registry.ts';
 import { VISUALIZATION_EVENT, type ViewerScope } from '../../../packages/client-protocol/src/visualization.ts';
 import {
   type CampaignId,
@@ -32,12 +34,13 @@ import {
   MAIN_BRANCH,
 } from '../../../packages/domain/src/campaign.ts';
 import type { CampaignEntity, Relationship, Visibility } from '../../../packages/domain/src/entity.ts';
+import { currentEncounter } from '../../../packages/engine/src/encounter.ts';
 import type { Engine } from '../../../packages/engine/src/engine.ts';
 import { type Scoped, type Viewer, visibleTo } from '../../../packages/memory/src/knowledge.ts';
 import { createEntityStore } from '../../../packages/persistence/src/entity-store.ts';
 import { createEventStore } from '../../../packages/persistence/src/event-store.ts';
-import { resultsOf, visualizationPreferenceOf } from './roll-visualization.ts';
-import { panelsOf } from './views.ts';
+import { emitVisualizations, resultsOf, visualizationPreferenceOf } from './roll-visualization.ts';
+import { panelsOf, sheetFields, type ViewSource } from './views.ts';
 
 export type ScopedEvent = DomainEvent & Scoped;
 export type EventSource = (campaignId: CampaignId) => readonly ScopedEvent[];
@@ -52,7 +55,7 @@ export type SheetPort = {
 const SELECT_EVENT_VISIBILITY = 'SELECT id, visibility FROM event_log WHERE campaign_id = ?';
 const HIDDEN: Visibility = 'gm';
 const UNSUPPORTED_CAPABILITIES = 'this engine does not support capability selection yet';
-const UNSUPPORTED_VIEWS = 'this engine does not serve view descriptors yet';
+const SHEET_COMPONENT = 'field';
 const UNSUPPORTED_SHEETS = 'this engine does not serve character sheets yet';
 const NO_SUBSCRIPTION = () => {};
 const ACTOR_SCOPE: Viewer['scope'] = 'actor';
@@ -133,6 +136,15 @@ export const createClientSessions = (
   const log = createEventLog({ campaignId, branchId: MAIN_BRANCH });
   const scopes = new Map<EventId, Scoped>();
 
+  const encounterRolls = () => {
+    const { events } = engine.getState(campaignId);
+    const acted = new Set(currentEncounter(events)?.actions.map(({ eventId }) => eventId));
+    const results = events
+      .filter(({ id }) => acted.has(id))
+      .flatMap(({ id, payload }) => resultsOf(payload, scopes.get(id)?.visibility ?? HIDDEN));
+    return { results, preference: visualizationPreferenceOf(events) };
+  };
+
   const sync = () => {
     const fresh = readEvents(campaignId).filter(({ id }) => !scopes.has(id));
     if (fresh.length === 0) return;
@@ -153,14 +165,31 @@ export const createClientSessions = (
     );
   };
 
-  const panels = (viewer: Viewer): CampaignPanels => {
+  const viewSource = (): ViewSource => {
     sync();
     const state = engine.getState(campaignId);
     const eventScopes = [...scopes].map(([id, scope]) => ({ id, ...scope }));
-    const world = readWorld(campaignId, state.characters[0]?.id);
-    const shown = panelsOf({ state, eventScopes, ...world }, viewer);
-    return deepFreeze(structuredClone({ version: PROTOCOL_VERSION, campaignId, revision: state.revision, ...shown }));
+    return { state, eventScopes, ...readWorld(campaignId, state.characters[0]?.id) };
   };
+
+  const panels = (viewer: Viewer): CampaignPanels => {
+    const source = viewSource();
+    const shown = panelsOf(source, viewer);
+    return deepFreeze(
+      structuredClone({ version: PROTOCOL_VERSION, campaignId, revision: source.state.revision, ...shown }),
+    );
+  };
+
+  const sheetView = (viewer: Viewer): Result<ViewDescriptor> =>
+    parseViewDescriptor({
+      viewId: SHEET_VIEW,
+      components: sheetFields(viewSource(), viewer).map(({ id, label, value }) => ({
+        kind: SHEET_COMPONENT,
+        id,
+        label: label ?? id,
+        value,
+      })),
+    });
 
   const accept = <T extends ClientCommand>(command: unknown, type: T['type']): Result<T> => {
     const parsed = parseCommand(command);
@@ -217,20 +246,26 @@ export const createClientSessions = (
         return accepted.ok ? failure('Rejected', UNSUPPORTED_CAPABILITIES) : accepted;
       },
       requestView: (command) => {
-        const accepted = accept(command, 'RequestView');
-        return accepted.ok ? failure('Rejected', UNSUPPORTED_VIEWS) : accepted;
+        const accepted = accept<typeof command>(command, 'RequestView');
+        if (!accepted.ok) return accepted;
+        if (accepted.value.viewId !== SHEET_VIEW)
+          return failure('Rejected', `this engine does not serve the ${accepted.value.viewId} view yet`);
+        return guarded(() => sheetView(viewer));
       },
       subscribeEvents: (command, listener) => {
         const accepted = accept<typeof command>(command, 'SubscribeEvents');
         if (!accepted.ok || !attempt(sync).ok) return NO_SUBSCRIPTION;
-        return log.subscribe(
-          accepted.value.fromRevision ?? 0,
-          (event) => {
-            if (!canSee(event)) return;
-            listener(event.type === EVENT_COMMITTED ? redactCharacterCreated(viewer, event) : event);
-          },
-          viewer.scope === GM_SCOPE ? GM_SCOPE : PLAYER_SCOPE,
-        );
+        const scope = viewer.scope === GM_SCOPE ? GM_SCOPE : PLAYER_SCOPE;
+        const filtered = (event: ClientEvent) => {
+          if (!canSee(event)) return;
+          listener(event.type === EVENT_COMMITTED ? redactCharacterCreated(viewer, event) : event);
+        };
+        const unsubscribe = log.subscribe(accepted.value.fromRevision ?? 0, filtered, scope);
+        attempt(() => {
+          const { results, preference } = encounterRolls();
+          for (const event of emitVisualizations(results, scope, preference)) filtered(event);
+        });
+        return unsubscribe;
       },
       editSheetField: (command) => {
         const accepted = accept<typeof command>(command, 'EditSheetField');

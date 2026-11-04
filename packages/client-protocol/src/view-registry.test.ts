@@ -86,3 +86,15 @@ test('labels stay inert text and the input is copied', () => {
   assert.equal(result.ok && result.value.components[0]?.label, label);
   assert.notEqual(result.ok && result.value.components[0], input.components[0]);
 });
+
+test('components may carry a plain displayed value and nothing richer', () => {
+  for (const value of ['guard the road', 3, false, null]) {
+    const result = parseViewDescriptor(descriptor('sheet', 'field', { value }));
+    assert.deepEqual(result.ok && result.value.components[0], { kind: 'field', id: 'c1', label: 'Label', value });
+  }
+  const bare = parseViewDescriptor(descriptor('sheet', 'field'));
+  assert.ok(bare.ok && !Object.hasOwn(bare.value.components[0] ?? {}, 'value'));
+  for (const value of [{ html: 'x' }, ['x'], () => 1, Number.NaN, undefined]) {
+    expectRejected(descriptor('sheet', 'field', { value }));
+  }
+});
