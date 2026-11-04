@@ -92,15 +92,20 @@ const withSession = <T>(dataDir: string, name: string, run: (session: Session) =
   }
 };
 
-const playTui = async (dataDir: string, name: string, terminal: Terminal) => {
+export const openClientSession = (dataDir: string, name: string) => {
   const { engine, campaignId, database, close } = openSession(dataDir, name);
   try {
-    const session = createClientSessions(
-      engine,
-      campaignId,
-      scopedEventsOf(database),
-      worldOf(database),
-    )(PLAYER_VIEWER);
+    const sessions = createClientSessions(engine, campaignId, scopedEventsOf(database), worldOf(database));
+    return { session: sessions(PLAYER_VIEWER), campaignId, close };
+  } catch (error) {
+    close();
+    throw error;
+  }
+};
+
+const playTui = async (dataDir: string, name: string, terminal: Terminal) => {
+  const { session, campaignId, close } = openClientSession(dataDir, name);
+  try {
     await runTui(session, campaignId, terminal);
   } finally {
     close();

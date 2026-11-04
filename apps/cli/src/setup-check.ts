@@ -3,7 +3,7 @@ import { homedir } from 'node:os';
 import { posix, win32 } from 'node:path';
 
 const APP_DIR = 'rpg';
-const DATA_DIR_ENV = 'RPG_DATA_DIR';
+export const DATA_DIR_ENV = 'RPG_DATA_DIR';
 const MIN_NODE_MAJOR = 24;
 const SQLITE_MODULE = 'node:sqlite';
 

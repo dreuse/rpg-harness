@@ -6,14 +6,15 @@ The engine runs as a Node 24 child process. The shell spawns it, handshakes over
 
 | Part | File |
 |---|---|
-| Engine child entry + supervisor (spawn, handshake, ping, shutdown, crash restart, credential scrub) | `apps/cli/src/desktop-daemon.ts` |
-| Tests (10) | `apps/cli/src/desktop-daemon.test.ts` |
+| Engine child entry + supervisor (spawn, handshake, ping, shutdown, crash restart, credential scrub, client-protocol commands) | `apps/cli/src/desktop-daemon.ts` |
+| Player client session for one campaign (`openClientSession`) | `apps/cli/src/engine-gateway.ts` |
+| Tests (14) | `apps/cli/src/desktop-daemon.test.ts` |
 | Decision | `docs/adr/0011-desktop-shell-and-engine-process.md` |
 
 ## Evidence (2026-11-04, macOS 26.6.2, arm64)
 
 ```bash
-node --test apps/cli/src/desktop-daemon.test.ts     # tests 10, pass 10, fail 0
+node --test apps/cli/src/desktop-daemon.test.ts     # tests 14, pass 14, fail 0
 ```
 
 Electron embedding check. VS Code is an Electron 43.7.7 app on this machine. Its binary ran in Node mode:
@@ -74,5 +75,5 @@ Electron. It bundles the Node major the engine needs, with `node:sqlite` and typ
 1. Electron security guidance favours turning off the `RunAsNode` fuse, because it lets any local user run the signed app as plain Node with its macOS permissions (such as the microphone). With the fuse off, the engine must start through `utilityProcess` and its message port. That path is unverified. The current supervisor needs the fuse on. Decide before the first signed build.
 2. The API key reaches the engine as an environment variable. Same-user processes can read it on some OSes. Sending it over stdin after `Ready` is an option.
 3. Windows and Linux installs, signing, notarization and updates need CI runners and owner accounts. They stay open for the M3 package smoke test.
-4. `GetCampaignSnapshot` and other `client-protocol` commands over this channel are not wired yet. The spike only proves `Ping` and `Shutdown`.
+4. Resolved for `GetCampaignSnapshot`, `SubmitPlayerAction` and `SubscribeEvents`. The engine opens the campaign named in `RPG_CAMPAIGN` from `RPG_DATA_DIR` (or the default data folder) as the player viewer. The supervisor sends `{"id","type":"Command","command"}` and gets `{"id","type":"Result","result"}`. A subscription pushes `{"id","type":"Event","event"}` lines with the subscribe request id. `{"id","type":"Unsubscribe","subscription"}` stops it. The engine checks every command with `parseCommand`. A bad command, a campaign it does not serve, or no campaign (`no campaign`) gets an `Error` reply. Still open: the other commands, and how the renderer learns the campaign id (`Ready` does not carry it yet).
 5. Re-check provider terms before distribution (ADR 0007).

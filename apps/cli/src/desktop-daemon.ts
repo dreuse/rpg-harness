@@ -3,9 +3,20 @@ import { once } from 'node:events';
 import { createInterface } from 'node:readline';
 import { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
-import { PROTOCOL_VERSION, type ProtocolVersion } from '../../../packages/client-protocol/src/protocol.ts';
+import {
+  type ClientEvent,
+  PROTOCOL_VERSION,
+  type ProtocolVersion,
+  parseCommand,
+  type Result,
+  type Unsubscribe,
+} from '../../../packages/client-protocol/src/protocol.ts';
+import { openClientSession } from './engine-gateway.ts';
+import { dataDirFromEnv } from './setup-check.ts';
 
 export const API_KEY_ENV = 'ANTHROPIC_API_KEY';
+export const CAMPAIGN_ENV = 'RPG_CAMPAIGN';
+export const NO_CAMPAIGN = 'no campaign';
 export const ELECTRON_RUN_AS_NODE_ENV = 'ELECTRON_RUN_AS_NODE';
 export const CONSUMER_CREDENTIAL_PREFIX = 'CLAUDE_';
 export const CONSUMER_CREDENTIAL_KEYS = ['ANTHROPIC_AUTH_TOKEN', 'CLAUDECODE', 'ENABLE_CLAUDEAI_MCP_SERVERS'];
@@ -23,6 +34,8 @@ const NEWLINE = '\n';
 const IGNORE = () => {};
 const UNKNOWN_PID = 0;
 const ENABLED = '1';
+const EVENT = 'Event';
+const ENGINE_STOPPED = 'The engine is not running.';
 
 export type GmRoute = 'api' | 'fake';
 export type Ready = {
@@ -34,7 +47,21 @@ export type Ready = {
   readonly gm: GmRoute;
 };
 export type RequestType = 'Ping' | 'Shutdown';
-export type Reply = { readonly id: number; readonly type: 'Pong' | 'Stopped' | 'Error'; readonly message?: string };
+export type Reply = {
+  readonly id: number;
+  readonly type: 'Pong' | 'Stopped' | 'Error' | 'Result' | 'Unsubscribed';
+  readonly message?: string;
+  readonly result?: Result<unknown>;
+};
+type Pushed = { readonly id: number; readonly type: typeof EVENT; readonly event: ClientEvent };
+type Request = {
+  readonly id: number;
+  readonly type: string;
+  readonly command?: unknown;
+  readonly subscription?: number;
+};
+type Campaign = ReturnType<typeof openClientSession>;
+type Served = { readonly campaign?: Campaign; readonly problem: string };
 export type DaemonOptions = {
   readonly env: NodeJS.ProcessEnv;
   readonly onCrash?: (pid: number) => void;
@@ -68,15 +95,63 @@ const sqliteWorks = () => {
 
 const send = (message: object, done?: () => void) => process.stdout.write(JSON.stringify(message) + NEWLINE, done);
 
-const reply = (line: string) => {
+const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
+
+const serve = (env: NodeJS.ProcessEnv): Served => {
+  const name = env[CAMPAIGN_ENV];
+  if (!name) return { problem: NO_CAMPAIGN };
   try {
-    const { id, type } = JSON.parse(line) as { id: number; type: RequestType };
-    if (type === 'Ping') return send({ id, type: 'Pong' });
-    if (type === 'Shutdown') return send({ id, type: 'Stopped' }, () => process.exit(EXIT_OK));
-    return send({ id, type: 'Error', message: `Unknown request ${type}.` });
+    return { campaign: openClientSession(dataDirFromEnv(), name), problem: NO_CAMPAIGN };
   } catch (error) {
-    return send({ type: 'Error', message: error instanceof Error ? error.message : String(error) });
+    return { problem: messageOf(error) };
   }
+};
+
+const replier = ({ campaign, problem }: Served) => {
+  const subscriptions = new Map<number, Unsubscribe>();
+
+  const execute = (id: number, input: unknown) => {
+    const parsed = parseCommand(input);
+    if (!parsed.ok) return send({ id, type: 'Error', message: parsed.error.message });
+    if (campaign === undefined) return send({ id, type: 'Error', message: problem });
+    const command = parsed.value;
+    const { session, campaignId } = campaign;
+    if (command.campaignId !== campaignId)
+      return send({ id, type: 'Error', message: `Campaign ${command.campaignId} is not served by this engine.` });
+    if (command.type === 'GetCampaignSnapshot')
+      return send({ id, type: 'Result', result: session.getSnapshot(command) });
+    if (command.type === 'SubmitPlayerAction')
+      return send({ id, type: 'Result', result: session.submitPlayerAction(command) });
+    if (command.type === 'SubscribeEvents') {
+      subscriptions.get(id)?.();
+      subscriptions.set(
+        id,
+        session.subscribeEvents(command, (event) => send({ id, type: EVENT, event })),
+      );
+      return send({ id, type: 'Result', result: { ok: true, value: { subscription: id } } });
+    }
+    return send({ id, type: 'Error', message: `${command.type} is not served by the desktop engine yet.` });
+  };
+
+  return (line: string) => {
+    try {
+      const { id, type, command, subscription } = JSON.parse(line) as Request;
+      if (type === 'Ping') return send({ id, type: 'Pong' });
+      if (type === 'Command') return execute(id, command);
+      if (type === 'Unsubscribe') {
+        if (subscription !== undefined) subscriptions.get(subscription)?.();
+        subscriptions.delete(subscription ?? id);
+        return send({ id, type: 'Unsubscribed' });
+      }
+      if (type === 'Shutdown') {
+        campaign?.close();
+        return send({ id, type: 'Stopped' }, () => process.exit(EXIT_OK));
+      }
+      return send({ id, type: 'Error', message: `Unknown request ${type}.` });
+    } catch (error) {
+      return send({ type: 'Error', message: messageOf(error) });
+    }
+  };
 };
 
 const runDaemon = () => {
@@ -95,12 +170,14 @@ const runDaemon = () => {
     sqlite: sqliteWorks(),
     gm: gmRouteOf(process.env),
   };
+  const reply = replier(serve(process.env));
   send(ready);
   createInterface({ input: process.stdin }).on('line', reply);
 };
 
 export const startDaemon = ({ env, onCrash, maxRestarts = MAX_RESTARTS }: DaemonOptions) => {
   const pending = new Map<number, PromiseWithResolvers<Reply>>();
+  const listeners = new Map<number, (event: ClientEvent) => void>();
   let child: ChildProcessWithoutNullStreams;
   let handshake: Promise<Ready>;
   let exited: Promise<[number | null, NodeJS.Signals | null]>;
@@ -118,14 +195,15 @@ export const startDaemon = ({ env, onCrash, maxRestarts = MAX_RESTARTS }: Daemon
     engine.stdin.on('error', IGNORE);
     engine.stderr.pipe(process.stderr);
     createInterface({ input: engine.stdout }).on('line', (line) => {
-      let message: Ready | Reply;
+      let message: Ready | Reply | Pushed;
       try {
-        message = JSON.parse(line) as Ready | Reply;
+        message = JSON.parse(line) as Ready | Reply | Pushed;
       } catch {
         process.stderr.write(line + NEWLINE);
         return;
       }
       if (message.type === READY) return ready.resolve(message);
+      if (message.type === EVENT) return listeners.get(message.id)?.(message.event);
       pending.get(message.id)?.resolve(message);
       pending.delete(message.id);
     });
@@ -134,6 +212,7 @@ export const startDaemon = ({ env, onCrash, maxRestarts = MAX_RESTARTS }: Daemon
       ready.reject(error);
       for (const request of pending.values()) request.reject(error);
       pending.clear();
+      listeners.clear();
       if (stopping || restarts >= maxRestarts) return;
       restarts += 1;
       spawnEngine();
@@ -141,13 +220,32 @@ export const startDaemon = ({ env, onCrash, maxRestarts = MAX_RESTARTS }: Daemon
     });
   };
 
-  const request = async (type: RequestType): Promise<Reply> => {
+  const call = async (message: Omit<Request, 'id'>, id = nextId++): Promise<Reply> => {
     await handshake;
-    const id = nextId++;
+    if (child.exitCode !== null || child.signalCode !== null) throw new Error(ENGINE_STOPPED);
     const answer = Promise.withResolvers<Reply>();
     pending.set(id, answer);
-    child.stdin.write(JSON.stringify({ id, type }) + NEWLINE);
+    child.stdin.write(JSON.stringify({ id, ...message }) + NEWLINE);
     return answer.promise;
+  };
+
+  const request = (type: RequestType) => call({ type });
+
+  const command = (input: unknown) => call({ type: 'Command', command: input });
+
+  const subscribe = async (input: unknown, listener: (event: ClientEvent) => void) => {
+    const id = nextId++;
+    listeners.set(id, listener);
+    const reply = await call({ type: 'Command', command: input }, id).catch((error: unknown) => {
+      listeners.delete(id);
+      throw error;
+    });
+    if (reply.type !== 'Result') listeners.delete(id);
+    const unsubscribe = () => {
+      listeners.delete(id);
+      return call({ type: 'Unsubscribe', subscription: id });
+    };
+    return { reply, unsubscribe };
   };
 
   const stop = async (): Promise<number | null> => {
@@ -162,7 +260,7 @@ export const startDaemon = ({ env, onCrash, maxRestarts = MAX_RESTARTS }: Daemon
   };
 
   spawnEngine();
-  return { ready: () => handshake, request, stop, restarts: () => restarts };
+  return { ready: () => handshake, request, command, subscribe, stop, restarts: () => restarts };
 };
 
 if (import.meta.main) runDaemon();
