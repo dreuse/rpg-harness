@@ -32,6 +32,12 @@ importers:
 
   apps/mcp-server: {}
 
+  packages/content:
+    dependencies:
+      '@rpg/domain':
+        specifier: workspace:*
+        version: link:../domain
+
   packages/domain: {}
 
   packages/engine:

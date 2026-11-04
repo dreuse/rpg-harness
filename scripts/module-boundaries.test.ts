@@ -12,6 +12,7 @@ const ALLOWED_IMPORTS: Record<string, readonly string[]> = {
   domain: [],
   intent: ['domain'],
   rules: ['domain'],
+  content: ['domain'],
   engine: ['domain', 'rules'],
   persistence: ['domain'],
   memory: ['domain'],

@@ -15,6 +15,7 @@ An arrow means "may import". No other imports are allowed.
 | `domain` | IDs, entities, event types, invariants | nothing |
 | `intent` | Campaign intent and preference schema | `domain` |
 | `rules` | RulePack loading, dice, checks | `domain` |
+| `content` | Genre and setting packs | `domain` |
 | `engine` | Turn state machine, validation, commit | `domain`, `rules` |
 | `persistence` | `CampaignStore` adapter (SQLite, later Dolt) | `domain` |
 | `memory` | Retrieval, visibility filters | `domain` |
