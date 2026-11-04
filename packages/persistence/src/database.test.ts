@@ -123,6 +123,7 @@ const CAMPAIGN_TABLES = [
   'session',
 ] as const;
 const PREVIOUS_VERSION = MIGRATIONS.length - 1;
+const NO_PRIOR_VERSION = 0;
 const FUTURE_VERSION = MIGRATIONS.length + 1;
 const DEFAULT_EVENT_VISIBILITY = 'gm';
 const UNKNOWN_VISIBILITY = 'everyone';
@@ -228,6 +229,36 @@ test(`${UPGRADE_PHRASE} - rejects newer version`, async () => {
     assert.throws(() => openDatabase(path), SchemaTooNewError);
     assert.deepEqual(await readFile(path), before);
   });
+});
+
+const versionsAfter = (version: number) =>
+  MIGRATIONS.map((migration) => migration.version).filter((candidate) => candidate > version);
+
+test('D08: migrations apply in version order, are idempotent and upgrade every older schema without data loss', async () => {
+  await withTempDir((path) => {
+    const fresh = openDatabase(path, { migrations: [...MIGRATIONS].reverse() });
+    assert.deepEqual(fresh.applied, versionsAfter(NO_PRIOR_VERSION));
+    fresh.close();
+    const reopened = openDatabase(path);
+    reopened.close();
+    assert.deepEqual(reopened.applied, []);
+  });
+  for (const { version } of MIGRATIONS.slice(0, PREVIOUS_VERSION)) {
+    await withTempDir((path) => {
+      const legacy = openDatabase(path, { migrations: MIGRATIONS.slice(0, version) });
+      legacy.database.prepare('INSERT INTO campaign (id, name) VALUES (?, ?)').run(CAMPAIGN_ID, CAMPAIGN_NAME);
+      legacy.close();
+
+      const upgraded = openDatabase(path);
+      assert.deepEqual(upgraded.applied, versionsAfter(version), `from v${version}`);
+      upgraded.close();
+      assert.deepEqual(
+        query(path, (database) => ({ ...database.prepare('SELECT id, name FROM campaign').get() })),
+        { id: CAMPAIGN_ID, name: CAMPAIGN_NAME },
+        `from v${version}`,
+      );
+    });
+  }
 });
 
 test('interrupted migration can be detected or recovered without deleting user data', async () => {

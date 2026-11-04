@@ -4,7 +4,11 @@ import { FACT_LAYERS, VISIBILITY_LEVELS, type Visibility } from '../../domain/sr
 
 export type Migration = { readonly version: number; readonly sql: string };
 
-export type OpenOptions = { readonly migrations?: readonly Migration[]; readonly recover?: boolean };
+export type OpenOptions = {
+  readonly migrations?: readonly Migration[];
+  readonly recover?: boolean;
+  readonly readOnly?: boolean;
+};
 
 const GM_VISIBILITY: Visibility = 'gm';
 const ACTOR_SCOPED_VISIBILITY: Visibility = 'actor-scoped';
@@ -210,8 +214,11 @@ const migrate = (database: DatabaseSync, migrations: readonly Migration[], recov
   );
 };
 
-export const openDatabase = (path: string, { migrations = MIGRATIONS, recover = false }: OpenOptions = {}) => {
-  const database = new DatabaseSync(path);
+export const openDatabase = (
+  path: string,
+  { migrations = MIGRATIONS, recover = false, readOnly = false }: OpenOptions = {},
+) => {
+  const database = new DatabaseSync(path, { readOnly });
   try {
     return migrate(database, migrations, recover);
   } catch (error) {

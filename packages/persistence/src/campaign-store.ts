@@ -38,8 +38,9 @@ const TURN_COLUMNS = 'SELECT id, campaign_id, scene_id, action_id, actor_id, inp
 const SELECT_TURNS = `${TURN_COLUMNS} WHERE campaign_id = ? ORDER BY revision`;
 const SELECT_TURN_BY_ACTION = `${TURN_COLUMNS} WHERE campaign_id = ? AND action_id = ?`;
 const EVENT_COLUMNS = 'SELECT id, campaign_id, turn_id, causation_id, type, payload FROM event_log';
-const SELECT_EVENTS = `${EVENT_COLUMNS} WHERE campaign_id = ? AND turn_id IS NOT NULL ORDER BY seq`;
-const SELECT_TURN_EVENTS = `${EVENT_COLUMNS} WHERE turn_id = ? ORDER BY seq`;
+const ON_MAIN_BRANCH = `IFNULL(branch_id, '${MAIN_BRANCH}') = '${MAIN_BRANCH}'`;
+const SELECT_EVENTS = `${EVENT_COLUMNS} WHERE campaign_id = ? AND turn_id IS NOT NULL AND ${ON_MAIN_BRANCH} ORDER BY seq`;
+const SELECT_TURN_EVENTS = `${EVENT_COLUMNS} WHERE turn_id = ? AND ${ON_MAIN_BRANCH} ORDER BY seq`;
 
 type Row = Record<string, unknown>;
 

@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { backup } from 'node:sqlite';
 import { test } from 'node:test';
 import {
   type Campaign,
@@ -16,6 +18,7 @@ import {
 } from '../../domain/src/campaign.ts';
 import { createCampaignStore } from './campaign-store.ts';
 import { openDatabase } from './database.ts';
+import { createEventStore } from './event-store.ts';
 
 const IN_MEMORY = ':memory:';
 const TEMP_PREFIX = 'rpg-campaign-store-';
@@ -75,6 +78,7 @@ const REWARD_EVENT = {
   payload: { item: 'lantern', quantity: 1 },
 };
 const DUPLICATE_EVENT = /event_log is append-only/;
+const READ_ONLY = /readonly database/;
 
 const emptyState = (campaign: Campaign): CampaignState => ({
   campaign,
@@ -308,5 +312,117 @@ test('rejected campaign writes leave campaigns and events unchanged', () => {
     assert.equal(store.load(MISSING_ID), undefined);
     assert.deepEqual(campaignEvents(connection), before);
   }
+  connection.close();
+});
+
+const withTempPath = async (run: (path: string) => void | Promise<void>) => {
+  const dir = await mkdtemp(join(tmpdir(), TEMP_PREFIX));
+  try {
+    await run(join(dir, DATABASE_FILE));
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+};
+
+const KILL_SIGNAL = 'SIGKILL';
+const SECOND_TURN = { ...TURN, id: 'turn-2', actionId: 'action-2', input: 'I follow the lantern.' };
+const SECOND_EVENT = { ...ACTION_EVENT, id: 'event-3', turnId: SECOND_TURN.id, payload: { input: SECOND_TURN.input } };
+const SECOND_COMMIT: TurnCommit = {
+  expectedRevision: INITIAL_REVISION + 1,
+  turn: SECOND_TURN,
+  characters: [],
+  scenes: [],
+  events: [SECOND_EVENT, { ...NARRATION_EVENT, id: 'event-4', turnId: SECOND_TURN.id, causationId: SECOND_EVENT.id }],
+};
+const CRASH_DURING_COMMIT = `
+import { createCampaignStore } from ${JSON.stringify(import.meta.resolve('./campaign-store.ts'))};
+import { openDatabase } from ${JSON.stringify(import.meta.resolve('./database.ts'))};
+const [path, json] = process.argv.slice(1);
+const commit = JSON.parse(json);
+const killed = { toJSON: () => process.kill(process.pid, ${JSON.stringify(KILL_SIGNAL)}) };
+const events = [...commit.events.slice(0, -1), { ...commit.events.at(-1), payload: killed }];
+createCampaignStore(openDatabase(path).database).commitTurn({ ...commit, events });
+`;
+
+const crashDuringCommit = (path: string, commit: TurnCommit) =>
+  spawnSync(process.execPath, ['--input-type=module', '-e', CRASH_DURING_COMMIT, '--', path, JSON.stringify(commit)]);
+
+test('D08: interrupted writes remain atomic and a resume returns the last committed turn', async () => {
+  await withTempPath((path) => {
+    const writer = openStore(path);
+    create(writer.store, CAMPAIGN);
+    writer.store.commitTurn(COMMIT);
+    writer.connection.close();
+
+    assert.equal(crashDuringCommit(path, SECOND_COMMIT).signal, KILL_SIGNAL);
+
+    const resumed = openStore(path);
+    const state = resumed.store.load(CAMPAIGN.id);
+    assert.deepEqual(state, EXPECTED_STATE);
+    assert.deepEqual(state?.turns.at(-1), TURN);
+    assert.deepEqual(resumed.store.commitTurn(SECOND_COMMIT), { turn: SECOND_TURN, events: SECOND_COMMIT.events });
+    assert.equal(resumed.store.load(CAMPAIGN.id)?.revision, SECOND_COMMIT.expectedRevision + 1);
+    resumed.connection.close();
+  });
+});
+
+test('D08: replaying the same action after a restart does not double-commit', async () => {
+  await withTempPath((path) => {
+    const writer = openStore(path);
+    create(writer.store, CAMPAIGN);
+    writer.store.commitTurn(COMMIT);
+    writer.connection.close();
+
+    const restarted = openStore(path);
+    const replay: TurnCommit = { ...COMMIT, turn: { ...TURN, id: 'turn-replay' }, events: [] };
+    assert.deepEqual(restarted.store.commitTurn(COMMIT), COMMITTED_TURN);
+    assert.deepEqual(restarted.store.commitTurn(replay), COMMITTED_TURN);
+    assert.deepEqual(restarted.store.load(CAMPAIGN.id), EXPECTED_STATE);
+    restarted.connection.close();
+  });
+});
+
+test('D08: a backup copy opens read-only with the last committed state', async () => {
+  await withTempPath(async (path) => {
+    const writer = openStore(path);
+    create(writer.store, CAMPAIGN);
+    writer.store.commitTurn(COMMIT);
+    const copy = `${path}.backup`;
+    await backup(writer.connection.database, copy);
+    writer.connection.close();
+
+    const reader = openDatabase(copy, { readOnly: true });
+    const store = createCampaignStore(reader.database);
+    assert.deepEqual(store.load(CAMPAIGN.id), EXPECTED_STATE);
+    assert.throws(() => store.commitTurn(SECOND_COMMIT), READ_ONLY);
+    assert.deepEqual(store.load(CAMPAIGN.id), EXPECTED_STATE);
+    reader.close();
+  });
+});
+
+const SIDE_BRANCH = 'branch-what-if';
+const LEGACY_TURN_EVENT = { ...NARRATION_EVENT, id: 'event-legacy', type: 'LegacyNote', payload: { note: 'v3' } };
+const INSERT_UNBRANCHED_EVENT =
+  'INSERT INTO event_log (id, campaign_id, turn_id, causation_id, type, payload) VALUES (?, ?, ?, ?, ?, ?)';
+
+test('D08: campaign reads and action replays only see main-branch events', () => {
+  const { connection, store } = openStore(IN_MEMORY);
+  create(store, CAMPAIGN);
+  store.commitTurn(COMMIT);
+  createEventStore(connection.database).append({
+    ...REWARD_EVENT,
+    id: 'event-side',
+    branchId: SIDE_BRANCH,
+    actorId: null,
+    revision: INITIAL_REVISION + 1,
+  });
+  assert.deepEqual(store.load(CAMPAIGN.id), EXPECTED_STATE);
+  assert.deepEqual(store.commitTurn(COMMIT), COMMITTED_TURN);
+
+  const { id, campaignId, turnId, causationId, type, payload } = LEGACY_TURN_EVENT;
+  connection.database
+    .prepare(INSERT_UNBRANCHED_EVENT)
+    .run(id, campaignId, turnId, causationId, type, JSON.stringify(payload));
+  assert.deepEqual(store.load(CAMPAIGN.id)?.events, [...EXPECTED_STATE.events, LEGACY_TURN_EVENT]);
   connection.close();
 });
