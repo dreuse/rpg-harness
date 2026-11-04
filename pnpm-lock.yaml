@@ -42,6 +42,12 @@ importers:
 
   packages/imports: {}
 
+  packages/intent:
+    dependencies:
+      '@rpg/domain':
+        specifier: workspace:*
+        version: link:../domain
+
   packages/mcp:
     dependencies:
       '@modelcontextprotocol/sdk':

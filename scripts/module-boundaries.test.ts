@@ -10,6 +10,7 @@ const APPS_DIR = 'apps';
 
 const ALLOWED_IMPORTS: Record<string, readonly string[]> = {
   domain: [],
+  intent: ['domain'],
   rules: ['domain'],
   engine: ['domain', 'rules'],
   persistence: ['domain'],

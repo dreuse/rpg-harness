@@ -13,7 +13,7 @@ interface CampaignIntent {
     voice?: 'off' | 'narrator' | 'dialogue' | 'full';
     pacing?: 'relaxed' | 'balanced' | 'intense';
   };
-  provenance: Record<string, 'explicit' | 'inferred' | 'default'>;
+  provenance: Record<string, 'explicit' | 'derived' | 'default'>;
 }
 
 interface RulePackManifest {
