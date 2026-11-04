@@ -180,7 +180,7 @@ export const parseCommand = (input: unknown): Result<ClientCommand> => {
   return { ok: true, value: Object.freeze(own) as ClientCommand };
 };
 
-const deepFreeze = <T>(value: T, visited = new WeakSet<object>()): T => {
+export const deepFreeze = <T>(value: T, visited = new WeakSet<object>()): T => {
   if (typeof value !== 'object' || value === null || Object.isFrozen(value) || visited.has(value)) return value;
   visited.add(value);
   for (const child of Object.values(value)) deepFreeze(child, visited);
