@@ -10,6 +10,32 @@ export const MIGRATIONS: readonly Migration[] = [
     version: 2,
     sql: 'CREATE TABLE event_log (seq INTEGER PRIMARY KEY, campaign_id TEXT NOT NULL REFERENCES campaign (id), payload TEXT NOT NULL);',
   },
+  {
+    version: 3,
+    sql: `
+      ALTER TABLE campaign ADD COLUMN revision INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE campaign ADD COLUMN current_scene_id TEXT REFERENCES scene (id);
+      CREATE TABLE character (id TEXT PRIMARY KEY, campaign_id TEXT NOT NULL REFERENCES campaign (id), name TEXT NOT NULL);
+      CREATE TABLE scene (id TEXT PRIMARY KEY, campaign_id TEXT NOT NULL REFERENCES campaign (id), title TEXT NOT NULL);
+      CREATE TABLE turn (
+        id TEXT PRIMARY KEY,
+        campaign_id TEXT NOT NULL REFERENCES campaign (id),
+        scene_id TEXT NOT NULL REFERENCES scene (id),
+        action_id TEXT NOT NULL,
+        actor_id TEXT NOT NULL REFERENCES character (id),
+        input TEXT NOT NULL,
+        narration TEXT NOT NULL,
+        revision INTEGER NOT NULL,
+        UNIQUE (campaign_id, action_id),
+        UNIQUE (campaign_id, revision)
+      );
+      ALTER TABLE event_log ADD COLUMN id TEXT;
+      ALTER TABLE event_log ADD COLUMN turn_id TEXT REFERENCES turn (id);
+      ALTER TABLE event_log ADD COLUMN causation_id TEXT REFERENCES event_log (id);
+      ALTER TABLE event_log ADD COLUMN type TEXT;
+      CREATE UNIQUE INDEX event_log_id ON event_log (id);
+    `,
+  },
 ];
 
 const STARTED = 'started';

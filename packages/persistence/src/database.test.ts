@@ -19,6 +19,8 @@ const DATABASE_FILE = 'campaign.sqlite';
 const CAMPAIGN_ID = 'campaign-1';
 const CAMPAIGN_NAME = 'Lost Mine';
 const BROKEN_VERSION = MIGRATIONS.length + 1;
+const LEGACY_VERSION = 2;
+const LEGACY_EVENT = JSON.stringify({ type: 'CampaignCreated', name: CAMPAIGN_NAME });
 
 const withTempDir = async (run: (path: string) => void | Promise<void>) => {
   const dir = await mkdtemp(join(tmpdir(), TEMP_PREFIX));
@@ -77,6 +79,33 @@ test('create local sqlite database, versioned migrations and repository connecti
     assert.deepEqual(
       appliedVersions(path),
       MIGRATIONS.map((migration) => migration.version),
+    );
+  });
+});
+
+test('upgrading a v2 database keeps campaigns and legacy events', async () => {
+  await withTempDir((path) => {
+    const legacy = openDatabase(path, { migrations: MIGRATIONS.slice(0, LEGACY_VERSION) });
+    legacy.database.prepare('INSERT INTO campaign (id, name) VALUES (?, ?)').run(CAMPAIGN_ID, CAMPAIGN_NAME);
+    legacy.database
+      .prepare('INSERT INTO event_log (campaign_id, payload) VALUES (?, ?)')
+      .run(CAMPAIGN_ID, LEGACY_EVENT);
+    legacy.close();
+
+    const upgraded = openDatabase(path);
+    assert.deepEqual(
+      upgraded.applied,
+      MIGRATIONS.slice(LEGACY_VERSION).map((migration) => migration.version),
+    );
+    upgraded.close();
+    assert.equal(countCampaigns(path), 1);
+    assert.deepEqual(
+      query(path, (database) => ({ ...database.prepare('SELECT revision, current_scene_id FROM campaign').get() })),
+      { revision: 0, current_scene_id: null },
+    );
+    assert.deepEqual(
+      query(path, (database) => ({ ...database.prepare('SELECT payload, id, turn_id FROM event_log').get() })),
+      { payload: LEGACY_EVENT, id: null, turn_id: null },
     );
   });
 });

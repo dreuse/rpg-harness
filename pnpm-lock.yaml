@@ -20,6 +20,8 @@ importers:
 
   apps/cli: {}
 
+  packages/domain: {}
+
   packages/mcp:
     dependencies:
       '@modelcontextprotocol/sdk':
@@ -29,7 +31,11 @@ importers:
         specifier: workspace:*
         version: link:../persistence
 
-  packages/persistence: {}
+  packages/persistence:
+    dependencies:
+      '@rpg/domain':
+        specifier: workspace:*
+        version: link:../domain
 
 packages:
 
