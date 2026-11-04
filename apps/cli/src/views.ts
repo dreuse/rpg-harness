@@ -1,7 +1,13 @@
 import type { CampaignPanels, CitationEntry } from '../../../packages/client-protocol/src/protocol.ts';
 import type { CampaignEvent, CampaignState, Character, EventId, Turn } from '../../../packages/domain/src/campaign.ts';
-import { CHARACTER_KIND, isProfileVisibility, parseCharacterProfile } from '../../../packages/domain/src/character.ts';
+import {
+  CHARACTER_KIND,
+  isProfileVisibility,
+  type ProfileVisibility,
+  parseCharacterProfile,
+} from '../../../packages/domain/src/character.ts';
 import type { CampaignEntity, EntityKind, Relationship } from '../../../packages/domain/src/entity.ts';
+import { CHARACTER_CREATED } from '../../../packages/engine/src/character.ts';
 import { currentEncounter, type EncounterAction } from '../../../packages/engine/src/encounter.ts';
 import { questLog } from '../../../packages/engine/src/quest.ts';
 import { PLAYER_VIEWER, type Scoped, type Viewer, visibleTo } from '../../../packages/memory/src/knowledge.ts';
@@ -23,6 +29,7 @@ export type ViewSource = {
 const ITEM_KIND: EntityKind = 'item';
 const OWNER_FIELD = 'owner';
 const PLAYER_OWNER = { role: 'player', owner: true } as const;
+const OWNER_PROFILE: ProfileVisibility = 'player';
 const WIDGET_BY_TYPE: Readonly<Record<string, WidgetType>> = { number: 'number', boolean: 'toggle', string: 'text' };
 const NO_CHARACTER = 'No character yet.';
 const NO_SHEET = 'No character sheet yet.';
@@ -41,10 +48,22 @@ export type Panels = Omit<CampaignPanels, 'version' | 'campaignId' | 'revision'>
 const section = (title: string, rows: readonly string[], empty: string) =>
   rows.length === 0 ? `${title}\n${empty}` : [title, ...rows].join('\n');
 
-const sheetInput = (entities: readonly CampaignEntity[], hero: Character): SheetViewInput | undefined => {
+const storedProfile = ({ entities, state }: ViewSource, hero: Character) => {
   const entity = entities.find(({ id, kind }) => id === hero.id && kind === CHARACTER_KIND);
-  const parsed = entity === undefined ? undefined : parseCharacterProfile(entity.data);
-  if (entity === undefined || !parsed?.ok || !isProfileVisibility(entity.visibility)) return undefined;
+  if (entity !== undefined)
+    return visibleTo([entity], PLAYER_VIEWER).length === 0
+      ? undefined
+      : { data: entity.data, visibility: entity.visibility };
+  const created = state.events.findLast(
+    ({ type, payload }) => type === CHARACTER_CREATED && payload.actorId === hero.id,
+  );
+  return created === undefined ? undefined : { data: created.payload.profile, visibility: OWNER_PROFILE };
+};
+
+const sheetInput = (source: ViewSource, hero: Character): SheetViewInput | undefined => {
+  const stored = storedProfile(source, hero);
+  const parsed = stored === undefined ? undefined : parseCharacterProfile(stored.data);
+  if (stored === undefined || !parsed?.ok || !isProfileVisibility(stored.visibility)) return undefined;
   const { profile } = parsed;
   const rulepack = { ...profile.rulepack, sourceRefs: [] };
   const fields: SheetField[] = profile.traits.map(({ id, value }) => ({
@@ -57,13 +76,13 @@ const sheetInput = (entities: readonly CampaignEntity[], hero: Character): Sheet
     schema: { schemaVersion: SHEET_SCHEMA_VERSION, rulepack, fields },
     profile,
     stats: { ok: true, rulepack, order: [], values: {}, appliedBonuses: [], constraints: [] },
-    visibility: entity.visibility,
+    visibility: stored.visibility,
     viewer: PLAYER_OWNER,
   };
 };
 
-const sheet = (hero: Character, entities: readonly CampaignEntity[]) => {
-  const input = sheetInput(entities, hero);
+const sheet = (hero: Character, source: ViewSource) => {
+  const input = sheetInput(source, hero);
   if (input === undefined) return `${hero.name}\n${NO_SHEET}`;
   const { rulepack } = input.schema;
   const rows = buildSheetView(input).groups.flatMap((group) =>
@@ -72,8 +91,8 @@ const sheet = (hero: Character, entities: readonly CampaignEntity[]) => {
   return section(`${hero.name} (${rulepack.id} ${rulepack.edition})`, rows, NO_SHEET);
 };
 
-const sheetExport = (hero: Character, entities: readonly CampaignEntity[]) => {
-  const input = sheetInput(entities, hero);
+const sheetExport = (hero: Character, source: ViewSource) => {
+  const input = sheetInput(source, hero);
   return input === undefined ? `${hero.name}\n${NO_SHEET}` : JSON.stringify(exportSheet(input), null, JSON_INDENT);
 };
 
@@ -187,7 +206,7 @@ export const renderView = (view: ReadView, source: ViewSource): string => {
   if (view === 'encounter') return encounter(source);
   const [hero] = source.state.characters;
   if (hero === undefined) return NO_CHARACTER;
-  const visible = { ...source, entities: visibleTo(source.entities, PLAYER_VIEWER) };
-  if (view === 'sheet') return sheet(hero, visible.entities);
-  return view === 'sheet-export' ? sheetExport(hero, visible.entities) : inventory(hero, visible);
+  if (view === 'sheet') return sheet(hero, source);
+  if (view === 'sheet-export') return sheetExport(hero, source);
+  return inventory(hero, { ...source, entities: visibleTo(source.entities, PLAYER_VIEWER) });
 };

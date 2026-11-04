@@ -73,6 +73,16 @@ test('the engine commits a character it rebuilds from the creation rules', () =>
     assert.equal(engine.getState(campaignId).revision, state.revision);
   }));
 
+test('the created character renames the campaign actor to its identity name', () =>
+  withCampaign(({ store, engine, campaignId, action }) => {
+    const renamed = { ...build, proposal: { ...build.proposal, name: 'Wren' } };
+    commitCharacter(store, { ...action, build: renamed });
+    assert.deepEqual(
+      engine.getState(campaignId).characters.map(({ id, name }) => ({ id, name })),
+      [{ id: action.actorId, name: 'Wren' }],
+    );
+  }));
+
 test('the engine refuses a forged, invalid or incomplete character and writes nothing', () =>
   withCampaign(({ store, engine, campaignId, action }) => {
     const forged: BuildInput[] = [

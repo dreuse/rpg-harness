@@ -5,12 +5,15 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import type { Visibility } from '../../../packages/domain/src/entity.ts';
+import { commitCharacter } from '../../../packages/engine/src/character.ts';
 import { createEngine } from '../../../packages/engine/src/engine.ts';
 import { openScene } from '../../../packages/engine/src/turn.ts';
 import { createCampaignStore } from '../../../packages/persistence/src/campaign-store.ts';
 import { createCharacterStore } from '../../../packages/persistence/src/character-store.ts';
 import { MIGRATIONS, openDatabase } from '../../../packages/persistence/src/database.ts';
 import { createEntityStore } from '../../../packages/persistence/src/entity-store.ts';
+import type { CreationRules } from '../../../packages/rules/src/character-builder.ts';
+import { SHEET_SCHEMA_VERSION } from '../../../packages/rules/src/sheet-schema.ts';
 import { importSheet, SHEET_EXPORT_FORMAT } from '../../../packages/rules/src/sheet-view.ts';
 import { createEngineGateway, readCampaignState } from './engine-gateway.ts';
 import { main } from './main.ts';
@@ -213,6 +216,62 @@ test('show sheet on cli and export structured portable representation with prove
       { id: 'oath', value: 'guard the road', source: 'core' },
     ]);
     assert.deepEqual(importSheet(exported), { ok: true, sheet: exported });
+  }));
+
+const CREATION_RULES: CreationRules = {
+  schema: {
+    schemaVersion: SHEET_SCHEMA_VERSION,
+    rulepack: { ...RULEPACK, sourceRefs: [] },
+    fields: [{ id: 'grit', widget: 'number', custom: false, visibility: 'public' }],
+  },
+  constraints: [],
+  startingEquipment: [],
+  overridableFields: [],
+};
+
+const createHero = (dataDir: string, name: string) => {
+  const state = readCampaignState(dataDir, CAMPAIGN);
+  const [hero] = state.characters;
+  assert.ok(hero !== undefined && state.currentScene !== undefined);
+  const connection = openDatabase(join(dataDir, `${CAMPAIGN}.sqlite`));
+  try {
+    commitCharacter(createCampaignStore(connection.database), {
+      campaignId: state.campaign.id,
+      actionId: randomUUID(),
+      expectedRevision: state.revision,
+      sceneId: state.currentScene.id,
+      actorId: hero.id,
+      input: 'A drifter.',
+      intent: 'create character',
+      build: {
+        rules: CREATION_RULES,
+        backstory: 'A drifter.',
+        proposal: { name, values: { grit: 3 }, equipment: [] },
+      },
+    });
+  } finally {
+    connection.close();
+  }
+};
+
+test('the sheet shows the character created by the engine under its identity name', () =>
+  withDataDir(async (dataDir) => {
+    await run(dataDir, ['new', CAMPAIGN]);
+    createHero(dataDir, 'Wren');
+    assert.match(await run(dataDir, ['sheet', CAMPAIGN]), /^Wren \(any-pack 1\)\n {2}grit: 3/);
+    assert.deepEqual(JSON.parse(await run(dataDir, ['sheet-export', CAMPAIGN])).entries, [
+      { id: 'grit', value: 3, source: 'core' },
+    ]);
+  }));
+
+test('a gm-only stored profile stays hidden even after character creation', () =>
+  withDataDir(async (dataDir) => {
+    await run(dataDir, ['new', CAMPAIGN]);
+    seed(dataDir, GM);
+    createHero(dataDir, 'Wren');
+    const sheet = await run(dataDir, ['sheet', CAMPAIGN]);
+    assert.match(sheet, /^Wren\nNo character sheet yet\./);
+    assert.doesNotMatch(sheet, /SECRET_TRAIT/);
   }));
 
 test('views show empty states when there is nothing to read', () =>

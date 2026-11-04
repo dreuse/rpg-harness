@@ -7,6 +7,7 @@ import {
   CampaignNotFoundError,
   type CampaignState,
   type CampaignStore,
+  type Character,
   type CharacterId,
   type CommittedTurn,
   SCENE_OPENED,
@@ -111,6 +112,7 @@ export const commit = (
   store: CampaignStore,
   action: PlayerAction,
   steps: readonly (readonly [string, Record<string, unknown>])[],
+  characters: readonly Character[] = [],
 ): CommittedTurn => {
   const { turn, events } = toCommittedTurn(action);
   const chained: CampaignEvent[] = [...events];
@@ -118,7 +120,7 @@ export const commit = (
   return store.commitTurn({
     expectedRevision: action.expectedRevision,
     turn,
-    characters: [],
+    characters,
     scenes: [],
     events: chained,
   });

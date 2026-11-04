@@ -16,5 +16,6 @@ export const commitCharacter = (store: CampaignStore, input: CharacterCreation):
   const stored = replayOf(state, input, recorded(CHARACTER_CREATED, payload));
   if (stored !== undefined) return stored;
   validate(state, input);
-  return commit(store, input, [[CHARACTER_CREATED, payload]]);
+  const character = { id: actorId, campaignId, name: result.character.profile.identity.name };
+  return commit(store, input, [[CHARACTER_CREATED, payload]], [character]);
 };
