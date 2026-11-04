@@ -55,7 +55,7 @@ export const daemonEnv = (env: NodeJS.ProcessEnv, versions: Versions = process.v
   ...(versions.electron === undefined ? {} : { [ELECTRON_RUN_AS_NODE_ENV]: ENABLED }),
 });
 
-const gmRouteOf = (env: NodeJS.ProcessEnv): GmRoute => (env[API_KEY_ENV] ? 'api' : 'fake');
+export const gmRouteOf = (env: NodeJS.ProcessEnv): GmRoute => (env[API_KEY_ENV] ? 'api' : 'fake');
 
 const sqliteWorks = () => {
   const database = new DatabaseSync(MEMORY_DATABASE);
