@@ -5,13 +5,16 @@ import type { CampaignState, Turn } from '../../../packages/domain/src/campaign.
 import type { Visibility } from '../../../packages/domain/src/entity.ts';
 import { createEngine, type Engine } from '../../../packages/engine/src/engine.ts';
 import { openScene, performAction } from '../../../packages/engine/src/turn.ts';
+import { PLAYER_VIEWER } from '../../../packages/memory/src/knowledge.ts';
 import { createCampaignStore } from '../../../packages/persistence/src/campaign-store.ts';
 import { openDatabase } from '../../../packages/persistence/src/database.ts';
 import { createEntityStore } from '../../../packages/persistence/src/entity-store.ts';
 import { exportArchive, restoreArchive } from './campaign-archive.ts';
+import { createClientSessions, scopedEventsOf } from './client-session.ts';
 import { importRules } from './import-gateway.ts';
 import type { CampaignGateway } from './main.ts';
 import { describeConfig, type Opening, openingFor, planCampaign } from './quickstart.ts';
+import { runTui, type Terminal } from './tui.ts';
 import { renderView, type ViewName } from './views.ts';
 
 const DATABASE_EXTENSION = '.sqlite';
@@ -50,7 +53,7 @@ type Session = {
   database: ReturnType<typeof openDatabase>['database'];
 };
 
-const withSession = <T>(dataDir: string, name: string, run: (session: Session) => T, readOnly = false): T => {
+const openSession = (dataDir: string, name: string, readOnly = false): Session & { close: () => void } => {
   const path = databasePath(dataDir, name);
   if (!existsSync(path)) throw missingCampaign(dataDir, name);
   if (readOnly) openDatabase(path).close();
@@ -60,9 +63,30 @@ const withSession = <T>(dataDir: string, name: string, run: (session: Session) =
     const store = createCampaignStore(database);
     const row = database.prepare(SELECT_CAMPAIGN_ID).get();
     if (row === undefined) throw new Error(`Campaign ${name} has no saved state.`);
-    return run({ engine: createEngine(store), store, campaignId: String(row.id), database });
-  } finally {
+    const close = () => connection.close();
+    return { engine: createEngine(store), store, campaignId: String(row.id), database, close };
+  } catch (error) {
     connection.close();
+    throw error;
+  }
+};
+
+const withSession = <T>(dataDir: string, name: string, run: (session: Session) => T, readOnly = false): T => {
+  const session = openSession(dataDir, name, readOnly);
+  try {
+    return run(session);
+  } finally {
+    session.close();
+  }
+};
+
+const playTui = async (dataDir: string, name: string, terminal: Terminal) => {
+  const { engine, campaignId, database, close } = openSession(dataDir, name);
+  try {
+    const session = createClientSessions(engine, campaignId, scopedEventsOf(database))(PLAYER_VIEWER);
+    await runTui(session, campaignId, terminal);
+  } finally {
+    close();
   }
 };
 
@@ -257,6 +281,7 @@ export const createEngineGateway = (dataDir: string): CampaignGateway => ({
     return `${describeConfig(config)}\n${createCampaign(dataDir, name, openingFor(config, DEFAULT_OPENING))}`;
   },
   view: (name, view) => readView(dataDir, name, view),
+  tui: (name, terminal) => playTui(dataDir, name, terminal),
   importRules: (files, lines) => importRules(process.cwd(), files, lines),
   open: async function* (name, _mode, lines, onTurnError) {
     yield readView(dataDir, name, RECAP_VIEW);

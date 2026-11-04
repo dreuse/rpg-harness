@@ -58,6 +58,9 @@ const setup = (input: readonly string[] = PLAYER_LINES) => {
       calls.push(`${view}:${name}`);
       return `Viewed ${view}.`;
     },
+    tui: async (name) => {
+      calls.push(`tui:${name}`);
+    },
   };
   const out: string[] = [];
   const err: string[] = [];
@@ -215,6 +218,7 @@ test('gateway failures exit 1 and report the error on stderr', async () => {
     backup: broken,
     restore: broken,
     view: broken,
+    tui: async () => broken(),
   };
   for (const argv of [
     [],
@@ -229,6 +233,7 @@ test('gateway failures exit 1 and report the error on stderr', async () => {
     ['backup', 'Ember'],
     ['restore', 'ember.json'],
     ['sheet', 'Ember'],
+    ['tui', 'Ember'],
   ]) {
     const { io, err } = setup();
     assert.equal(await main(argv, io, failing), EXIT_FAILURE, argv.join(' '));

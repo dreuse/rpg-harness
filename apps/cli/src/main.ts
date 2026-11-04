@@ -1,4 +1,5 @@
 import { parseArgs } from 'node:util';
+import { PLAIN_TERMINAL, type Terminal } from './tui.ts';
 import { VIEW_NAMES, type ViewName } from './views.ts';
 
 export const EXIT_OK = 0;
@@ -26,12 +27,14 @@ export type CampaignGateway = {
   backup: (campaign: string) => string;
   restore: (file: string) => string;
   view: (campaign: string, view: ViewName) => string;
+  tui: (campaign: string, terminal: Terminal) => Promise<void>;
 };
 
 export type Io = {
   stdout: (text: string) => void;
   stderr: (text: string) => void;
   lines: AsyncIterable<string>;
+  terminal?: Terminal;
 };
 
 const COMMANDS = [
@@ -68,6 +71,7 @@ const COMMANDS = [
     usage: 'encounter <campaign>',
     description: 'Show the current encounter, its rolls and outcome.',
   },
+  { name: 'tui', usage: 'tui <campaign>', description: 'Play with keyboard panes for talk, sheet, log and mechanics.' },
   { name: 'recap', usage: 'recap <campaign>', description: 'Show the current scene and the latest event.' },
   { name: 'help', usage: 'help', description: 'Show this help.' },
 ] as const;
@@ -188,6 +192,18 @@ export const main = async (argv: readonly string[], io: Io, gateway: CampaignGat
             (error) => reportError(io, error),
           ),
     );
+  }
+  if (command === 'tui') {
+    const [name, ...extra] = rest;
+    if (name === undefined || name.trim() === '') return usageError(io, 'Missing campaign name for tui.');
+    if (extra.length > 0) return usageError(io, `Unexpected argument: ${extra[0]}.`);
+    const terminal = io.terminal ?? { capabilities: PLAIN_TERMINAL, lines: io.lines, write: io.stdout };
+    try {
+      await gateway.tui(name, terminal);
+      return EXIT_OK;
+    } catch (error) {
+      return fail(io, error);
+    }
   }
   if (isView(command)) {
     const [name, ...extra] = rest;
