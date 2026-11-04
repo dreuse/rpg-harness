@@ -1,3 +1,5 @@
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import type { Locality, PrivacyDisclosure } from './voice.ts';
 
 export type ProviderKind = 'stt' | 'tts';
@@ -76,12 +78,70 @@ const toCredential = (value: string | undefined): Credential | undefined => {
 export const keychainSecretStore = (backend: KeychainBackend): SecretStore => ({
   get: async (providerId) => toCredential(await backend.getPassword(KEYCHAIN_SERVICE, providerId)),
   set: async (providerId, secret) => {
-    await backend.setPassword(KEYCHAIN_SERVICE, providerId, new Credential(secret).reveal());
+    await backend.setPassword(KEYCHAIN_SERVICE, providerId, new Credential(secret.trim()).reveal());
   },
   delete: async (providerId) => {
     await backend.deletePassword(KEYCHAIN_SERVICE, providerId);
   },
 });
+
+export interface KeychainExecResult {
+  readonly stdout: string;
+  readonly exitCode: number;
+}
+
+export type KeychainExec = (command: string, args: readonly string[]) => Promise<KeychainExecResult>;
+
+const SECURITY_COMMAND = 'security';
+const SECURITY_FIND = 'find-generic-password';
+const SECURITY_ADD = 'add-generic-password';
+const SECURITY_DELETE = 'delete-generic-password';
+const SECURITY_SUCCESS = 0;
+const SECURITY_ITEM_NOT_FOUND = 44;
+const TRAILING_NEWLINE = /\r?\n$/;
+
+const runExecFile = promisify(execFile);
+
+const exitCodeOf = (error: unknown): number | undefined => {
+  const code = (error as { code?: unknown } | null)?.code;
+  return typeof code === 'number' ? code : undefined;
+};
+
+export const nodeKeychainExec: KeychainExec = async (command, args) => {
+  try {
+    const { stdout } = await runExecFile(command, [...args]);
+    return { stdout, exitCode: SECURITY_SUCCESS };
+  } catch (error) {
+    const exitCode = exitCodeOf(error);
+    if (exitCode === undefined) throw new Error(`${command} could not be started`);
+    return { stdout: '', exitCode };
+  }
+};
+
+export const macosKeychainBackend = (exec: KeychainExec = nodeKeychainExec): KeychainBackend => {
+  const run = async (subcommand: string, args: readonly string[]): Promise<KeychainExecResult> => {
+    const result = await exec(SECURITY_COMMAND, [subcommand, ...args]);
+    if (result.exitCode !== SECURITY_SUCCESS && result.exitCode !== SECURITY_ITEM_NOT_FOUND) {
+      throw new Error(`${SECURITY_COMMAND} ${subcommand} failed with exit code ${result.exitCode}`);
+    }
+    return result;
+  };
+  return {
+    getPassword: async (service, account) => {
+      const result = await run(SECURITY_FIND, ['-s', service, '-a', account, '-w']);
+      return result.exitCode === SECURITY_ITEM_NOT_FOUND ? undefined : result.stdout.replace(TRAILING_NEWLINE, '');
+    },
+    setPassword: async (service, account, password) => {
+      const result = await run(SECURITY_ADD, ['-U', '-s', service, '-a', account, '-w', password]);
+      if (result.exitCode !== SECURITY_SUCCESS) {
+        throw new Error(`${SECURITY_COMMAND} ${SECURITY_ADD} failed with exit code ${result.exitCode}`);
+      }
+    },
+    deletePassword: async (service, account) => {
+      await run(SECURITY_DELETE, ['-s', service, '-a', account]);
+    },
+  };
+};
 
 const ENV_PREFIX = 'RPG_VOICE_';
 const ENV_SUFFIX = '_API_KEY';

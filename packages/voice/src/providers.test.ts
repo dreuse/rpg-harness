@@ -9,7 +9,9 @@ import {
   findEnvNameCollisions,
   KEYCHAIN_SERVICE,
   type KeychainBackend,
+  type KeychainExec,
   keychainSecretStore,
+  macosKeychainBackend,
   memorySecretStore,
   type ProbeResult,
   type ProviderDescriptor,
@@ -54,6 +56,21 @@ const fakeKeychain = (): KeychainBackend & { readonly entries: Map<string, strin
     deletePassword: async (service, account) => {
       entries.delete(key(service, account));
     },
+  };
+};
+
+const SECURITY_ITEM_NOT_FOUND = 44;
+const SECURITY_FAILURE = 51;
+
+interface ExecCall {
+  readonly command: string;
+  readonly args: readonly string[];
+}
+
+const fakeExec = (stdout: string, exitCode: number, calls: ExecCall[] = []): KeychainExec => {
+  return async (command, args) => {
+    calls.push({ command, args });
+    return { stdout, exitCode };
   };
 };
 
@@ -154,6 +171,50 @@ test('allow local/provider choice, api key safe storage and availability diagnos
     assert.equal(await store.get(REMOTE_STT_ID), undefined);
     await assert.rejects(store.set(REMOTE_TTS_ID, ' '), RangeError);
     assert.equal(backend.entries.has(`${KEYCHAIN_SERVICE}/${REMOTE_TTS_ID}`), false);
+  });
+
+  await t.test('stores the trimmed secret in the keychain backend', async () => {
+    const backend = fakeKeychain();
+    await keychainSecretStore(backend).set(REMOTE_STT_ID, ' key ');
+    assert.equal(backend.entries.get(`${KEYCHAIN_SERVICE}/${REMOTE_STT_ID}`), 'key');
+  });
+
+  await t.test('reads a macOS keychain password and strips the trailing newline', async () => {
+    const calls: ExecCall[] = [];
+    const backend = macosKeychainBackend(fakeExec(`${API_KEY}\n`, 0, calls));
+    assert.equal(await backend.getPassword(KEYCHAIN_SERVICE, REMOTE_STT_ID), API_KEY);
+    assert.deepEqual(calls, [
+      { command: 'security', args: ['find-generic-password', '-s', KEYCHAIN_SERVICE, '-a', REMOTE_STT_ID, '-w'] },
+    ]);
+  });
+
+  await t.test('treats a missing macOS keychain entry as absent', async () => {
+    const backend = macosKeychainBackend(fakeExec('', SECURITY_ITEM_NOT_FOUND));
+    assert.equal(await backend.getPassword(KEYCHAIN_SERVICE, REMOTE_STT_ID), undefined);
+    await backend.deletePassword(KEYCHAIN_SERVICE, REMOTE_STT_ID);
+  });
+
+  await t.test('writes and deletes macOS keychain entries', async () => {
+    const calls: ExecCall[] = [];
+    const backend = macosKeychainBackend(fakeExec('', 0, calls));
+    await backend.setPassword(KEYCHAIN_SERVICE, REMOTE_STT_ID, API_KEY);
+    await backend.deletePassword(KEYCHAIN_SERVICE, REMOTE_STT_ID);
+    assert.deepEqual(calls, [
+      {
+        command: 'security',
+        args: ['add-generic-password', '-U', '-s', KEYCHAIN_SERVICE, '-a', REMOTE_STT_ID, '-w', API_KEY],
+      },
+      { command: 'security', args: ['delete-generic-password', '-s', KEYCHAIN_SERVICE, '-a', REMOTE_STT_ID] },
+    ]);
+  });
+
+  await t.test('throws on macOS keychain failures without exposing the password', async () => {
+    const backend = macosKeychainBackend(fakeExec(API_KEY, SECURITY_FAILURE));
+    const hidesSecret = (error: unknown): boolean =>
+      error instanceof Error && !inspect(error).includes(API_KEY) && !error.message.includes(API_KEY);
+    await assert.rejects(backend.setPassword(KEYCHAIN_SERVICE, REMOTE_STT_ID, API_KEY), hidesSecret);
+    await assert.rejects(backend.getPassword(KEYCHAIN_SERVICE, REMOTE_STT_ID), hidesSecret);
+    await assert.rejects(backend.deletePassword(KEYCHAIN_SERVICE, REMOTE_STT_ID), hidesSecret);
   });
 
   await t.test('reports credential-store-error without probing when the store fails', async () => {
