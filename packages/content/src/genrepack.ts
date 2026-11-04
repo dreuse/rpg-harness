@@ -17,27 +17,27 @@ export type GenrePack = {
 export type GenrePackIssue = { path: string; message: string };
 export type GenrePackResult = { ok: true; pack: GenrePack } | { ok: false; issues: GenrePackIssue[] };
 
-const NON_EMPTY_STRING = 'must be a non-empty string';
+export const NON_EMPTY_STRING = 'must be a non-empty string';
 const UNKNOWN_FIELD = 'is not an allowed field';
 const STRING_FIELDS = ['id', 'version', 'name'] as const;
 const STRING_LIST_FIELDS = ['narrativeConstraints', 'examples', 'visualConventions', 'suggestedCapabilities'] as const;
 const ARCHETYPE_FIELDS = ['id', 'name', 'summary'] as const;
 const ALLOWED_FIELDS: readonly string[] = ['contractVersion', 'archetypes', ...STRING_FIELDS, ...STRING_LIST_FIELDS];
 
-const isPlainRecord = (value: unknown): value is Record<string, unknown> => {
+export const isPlainRecord = (value: unknown): value is Record<string, unknown> => {
   if (typeof value !== 'object' || value === null) return false;
   const prototype = Object.getPrototypeOf(value);
   return prototype === Object.prototype || prototype === null;
 };
 
-const isNonEmptyString = (value: unknown): value is string => typeof value === 'string' && value.length > 0;
+export const isNonEmptyString = (value: unknown): value is string => typeof value === 'string' && value.length > 0;
 
-const unknownFields = (record: Record<string, unknown>, allowed: readonly string[], prefix: string) =>
+export const unknownFields = (record: Record<string, unknown>, allowed: readonly string[], prefix: string) =>
   Object.keys(record)
     .filter((key) => !allowed.includes(key))
     .map((key) => ({ path: `${prefix}${key}`, message: UNKNOWN_FIELD }));
 
-const readStringList = (value: unknown, path: string, issues: GenrePackIssue[]): readonly string[] => {
+export const readStringList = (value: unknown, path: string, issues: GenrePackIssue[]): readonly string[] => {
   if (!Array.isArray(value)) {
     issues.push({ path, message: 'must be an array' });
     return [];
