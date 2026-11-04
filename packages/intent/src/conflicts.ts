@@ -22,7 +22,7 @@ export const CLIENT_CAPABILITIES: Record<Client, readonly UiCapability[]> = {
   desktop: ['voice', 'audio', 'diceVisualization'],
 };
 
-const MECHANICAL_FIELDS = ['dice', 'attributes', 'combat'] as const;
+export const MECHANICAL_FIELDS = ['dice', 'attributes', 'combat'] as const;
 const UI_REQUIREMENTS: [IntentField, UiCapability][] = [
   ['voiceInput', 'voice'],
   ['voiceOutput', 'voice'],
