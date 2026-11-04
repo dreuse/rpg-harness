@@ -31,4 +31,4 @@ Live run: exit 0, `is_error: false`, 3 turns, $0.0074. Output used only player-v
 
 ## Open questions
 
-1. V04 should move the server to TypeScript inside the V01 workspace and read SQLite. Delete this spike then.
+1. V04 should move the server to TypeScript inside the V01 workspace and read SQLite. V04 ships in-process tool handlers in `packages/mcp` only. The stdio server and the spike deletion are tracked in a follow-up bead.

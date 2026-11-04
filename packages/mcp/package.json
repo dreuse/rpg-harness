@@ -1,0 +1,9 @@
+{
+  "name": "@rpg/mcp",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "devDependencies": {
+    "@rpg/persistence": "workspace:*"
+  }
+}

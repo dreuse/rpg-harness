@@ -19,6 +19,13 @@ importers:
         version: 7.0.2
 
   apps/cli: {}
+
+  packages/mcp:
+    devDependencies:
+      '@rpg/persistence':
+        specifier: workspace:*
+        version: link:../persistence
+
   packages/persistence: {}
 
 packages:
