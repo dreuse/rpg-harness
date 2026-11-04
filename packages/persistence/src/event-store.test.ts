@@ -11,6 +11,7 @@ const SIDE_BRANCH = 'branch-what-if';
 const ACTOR_ID = 'npc-1';
 const TURN_ID = 'turn-1';
 const APPEND_ONLY = /event_log is append-only/;
+const EMPTY_BRANCH = 0;
 const FIRST: DomainEvent = {
   id: 'event-1',
   campaignId: CAMPAIGN_A,
@@ -50,7 +51,11 @@ const openStore = () => {
 
 test('persist ordered immutable domain events with campaign, timeline, actor and logical time', () => {
   const { connection, store } = openStore();
-  for (const event of [FIRST, SECOND, BRANCHED, OTHER_CAMPAIGN, THIRD]) store.append(event);
+  store.append(FIRST, EMPTY_BRANCH);
+  store.append(SECOND, FIRST.revision);
+  store.append(BRANCHED, EMPTY_BRANCH);
+  store.append(OTHER_CAMPAIGN, EMPTY_BRANCH);
+  store.append(THIRD, SECOND.revision);
 
   assert.deepEqual(store.list(CAMPAIGN_A, MAIN_BRANCH), [FIRST, SECOND, THIRD]);
   assert.deepEqual(store.list(CAMPAIGN_A, SIDE_BRANCH), [BRANCHED]);
@@ -60,10 +65,10 @@ test('persist ordered immutable domain events with campaign, timeline, actor and
 
 test('historical event writes cannot be silently overwritten', () => {
   const { connection, store } = openStore();
-  store.append(FIRST);
+  store.append(FIRST, EMPTY_BRANCH);
   const { database } = connection;
 
-  assert.throws(() => store.append({ ...FIRST, type: 'Rewritten' }), APPEND_ONLY);
+  assert.throws(() => store.append({ ...FIRST, type: 'Rewritten' }, FIRST.revision), APPEND_ONLY);
   assert.throws(
     () => database.prepare('UPDATE event_log SET type = ? WHERE id = ?').run('Rewritten', FIRST.id),
     APPEND_ONLY,

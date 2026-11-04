@@ -409,13 +409,16 @@ test('D08: campaign reads and action replays only see main-branch events', () =>
   const { connection, store } = openStore(IN_MEMORY);
   create(store, CAMPAIGN);
   store.commitTurn(COMMIT);
-  createEventStore(connection.database).append({
-    ...REWARD_EVENT,
-    id: 'event-side',
-    branchId: SIDE_BRANCH,
-    actorId: null,
-    revision: INITIAL_REVISION + 1,
-  });
+  createEventStore(connection.database).append(
+    {
+      ...REWARD_EVENT,
+      id: 'event-side',
+      branchId: SIDE_BRANCH,
+      actorId: null,
+      revision: INITIAL_REVISION + 1,
+    },
+    INITIAL_REVISION,
+  );
   assert.deepEqual(store.load(CAMPAIGN.id), EXPECTED_STATE);
   assert.deepEqual(store.commitTurn(COMMIT), COMMITTED_TURN);
 

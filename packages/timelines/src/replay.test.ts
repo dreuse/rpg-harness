@@ -197,7 +197,7 @@ test('T01: replay is branch scoped and requires revision order', () => {
   const { events, timeline, eventStore } = session;
   const last = events.at(-1) as DomainEvent;
   const branched: DomainEvent = { ...last, id: 'event-side', branchId: SIDE_BRANCH };
-  eventStore.append(branched);
+  eventStore.append(branched, last.revision);
   assert.deepEqual(eventStore.list(timeline.campaignId, MAIN_BRANCH), events);
   assert.throws(() => replay(campaignProjection, timeline, [...events, branched]), CampaignBoundaryError);
   const foreign: DomainEvent = { ...last, id: 'event-foreign', campaignId: OTHER_CAMPAIGN };

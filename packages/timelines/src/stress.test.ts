@@ -3,7 +3,13 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { type BranchId, CAMPAIGN_CREATED, type DomainEvent, MAIN_BRANCH } from '../../domain/src/campaign.ts';
+import {
+  type BranchId,
+  CAMPAIGN_CREATED,
+  type DomainEvent,
+  MAIN_BRANCH,
+  StaleRevisionError,
+} from '../../domain/src/campaign.ts';
 import type { Visibility } from '../../domain/src/entity.ts';
 import { createCampaignStore } from '../../persistence/src/campaign-store.ts';
 import { openDatabase } from '../../persistence/src/database.ts';
@@ -133,34 +139,37 @@ const liveState = (harness: Harness, branchId: BranchId) => {
   return state;
 };
 
-const append = (
-  harness: Harness,
-  branchId: BranchId,
-  type: string,
-  key: string,
-  store: EventStore = harness.store,
-): DomainEvent => {
-  const previous = historyOf(harness, branchId).at(-1);
-  assert.ok(previous);
-  const entry: DiffEntry = { key, value: { branchId }, visibility: PUBLIC, actorId: null };
-  const event: DomainEvent = {
+const headOf = (harness: Harness, branchId: BranchId) => {
+  const head = historyOf(harness, branchId).at(-1);
+  assert.ok(head);
+  return head;
+};
+
+const nextEvent = (harness: Harness, head: DomainEvent, branchId: BranchId, type: string): DomainEvent => {
+  const entry: DiffEntry = { key: harness.nextId(), value: { branchId }, visibility: PUBLIC, actorId: null };
+  return {
     id: harness.nextId(),
     campaignId: harness.campaignId,
     branchId,
     turnId: null,
     actorId: null,
-    causationId: previous.id,
-    revision: previous.revision + REVISION_STEP,
+    causationId: head.id,
+    revision: head.revision + REVISION_STEP,
     type,
     payload: { category: FACTS, entry },
   };
-  store.append(event);
+};
+
+const append = (harness: Harness, branchId: BranchId, type: string, store: EventStore = harness.store): DomainEvent => {
+  const head = headOf(harness, branchId);
+  const event = nextEvent(harness, head, branchId, type);
+  store.append(event, head.revision);
   harness.live.set(branchId, projection.apply(liveState(harness, branchId), event));
   return event;
 };
 
 const appendMany = (harness: Harness, branchId: BranchId, type: string, count: number) =>
-  Array.from({ length: count }, () => append(harness, branchId, type, harness.nextId()));
+  Array.from({ length: count }, () => append(harness, branchId, type));
 
 const saveCheckpoint = (harness: Harness, branchId: BranchId): CheckpointId => {
   const id = harness.nextId();
@@ -281,7 +290,7 @@ test('run forks, retries, restarts and replay consistency tests', () =>
 
     const logBeforeRetry = loadLog(harness);
     assert.ok(replayed);
-    assert.throws(() => harness.store.append(replayed), APPEND_ONLY);
+    assert.throws(() => harness.store.append(replayed, headOf(harness, deeper).revision), APPEND_ONLY);
     assert.deepEqual(loadLog(harness), logBeforeRetry);
     assertConsistent(harness);
 
@@ -310,7 +319,7 @@ test('no branch corruption even with concurrent scheduled world events', () =>
       const left = fork(harness, MAIN_BRANCH, start, WHAT_IF);
       const shared = historyOf(harness, left);
       const worldEvents: DomainEvent[] = [];
-      const schedule = () => worldEvents.push(append(harness, left, WORLD_EVENT, harness.nextId(), world));
+      const schedule = () => worldEvents.push(append(harness, left, WORLD_EVENT, world));
       const rewound: BranchId[] = [];
 
       for (let tick = 0; tick < WORLD_TICKS; tick++) {
@@ -346,6 +355,28 @@ test('no branch corruption even with concurrent scheduled world events', () =>
           mainHistory.slice(NO_EVENTS, branch.forkEventCount),
         );
       }
+    } finally {
+      scheduler.close();
+    }
+  }));
+
+test('reject a player write that read the same branch head as a committed world write', () =>
+  withHarness((harness) => {
+    const scheduler = openDatabase(harness.path);
+    try {
+      const world = createEventStore(scheduler.database);
+      appendMany(harness, MAIN_BRANCH, PLAYER_EVENT, EARLY_EVENTS);
+      const head = headOf(harness, MAIN_BRANCH);
+      const worldEvent = nextEvent(harness, head, MAIN_BRANCH, WORLD_EVENT);
+      const playerEvent = nextEvent(harness, head, MAIN_BRANCH, PLAYER_EVENT);
+
+      world.append(worldEvent, head.revision);
+      assert.throws(() => harness.store.append(playerEvent, head.revision), StaleRevisionError);
+      assert.deepEqual(headOf(harness, MAIN_BRANCH), worldEvent);
+      assert.equal(
+        loadLog(harness).some(({ id }) => id === playerEvent.id),
+        false,
+      );
     } finally {
       scheduler.close();
     }
