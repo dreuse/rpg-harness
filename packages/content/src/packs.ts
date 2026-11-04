@@ -7,8 +7,16 @@ export const HORROR_PACK = {
     version: '1.0.0',
     name: 'Creeping horror',
     archetypes: [
-      { id: 'skeptic', name: 'Skeptic', summary: 'Explains away the impossible until it cannot be explained' },
-      { id: 'survivor', name: 'Survivor', summary: 'Has seen the thing before and still has the scars' },
+      {
+        id: 'skeptic',
+        name: 'Skeptic',
+        summary: 'Explains away the impossible until it cannot be explained',
+      },
+      {
+        id: 'survivor',
+        name: 'Survivor',
+        summary: 'Has seen the thing before and still has the scars',
+      },
     ],
     narrativeConstraints: ['Show the threat indirectly before showing it fully', 'Safety tools override any scene'],
     examples: ['The scratching stopped the moment you held your breath.'],
@@ -27,19 +35,64 @@ export const HORROR_PACK = {
       ],
     },
     clues: [
-      { id: 'scratches', text: 'Fresh scratches inside the cellar door', pointsTo: 'cellar-entity' },
-      { id: 'diary', text: 'A diary entry about voices below the floor', pointsTo: 'cellar-entity' },
-      { id: 'deed', text: 'The house deed names a family that vanished', pointsTo: 'bound-family' },
-      { id: 'portrait', text: 'A portrait whose faces change between visits', pointsTo: 'bound-family' },
+      {
+        id: 'scratches',
+        text: 'Fresh scratches inside the cellar door',
+        pointsTo: 'cellar-entity',
+      },
+      {
+        id: 'diary',
+        text: 'A diary entry about voices below the floor',
+        pointsTo: 'cellar-entity',
+      },
+      {
+        id: 'deed',
+        text: 'The house deed names a family that vanished',
+        pointsTo: 'bound-family',
+      },
+      {
+        id: 'portrait',
+        text: 'A portrait whose faces change between visits',
+        pointsTo: 'bound-family',
+      },
     ],
     secrets: [
-      { id: 'cellar-entity', statement: 'The entity lives in the cellar and feeds on fear' },
-      { id: 'bound-family', statement: 'The vanished family is bound to the house as its servants' },
+      {
+        id: 'cellar-entity',
+        statement: 'The entity lives in the cellar and feeds on fear',
+      },
+      {
+        id: 'bound-family',
+        statement: 'The vanished family is bound to the house as its servants',
+      },
     ],
     pacing: [
-      { id: 'arrival', summary: 'Settle in and notice small wrong details', requiresClues: [] },
-      { id: 'descent', summary: 'Go below the house', requiresClues: ['scratches', 'diary'] },
-      { id: 'reckoning', summary: 'Face what holds the house', requiresClues: ['deed', 'portrait'] },
+      {
+        id: 'arrival',
+        summary: 'Settle in and notice small wrong details',
+        requiresClues: [],
+      },
+      {
+        id: 'descent',
+        summary: 'Go below the house',
+        requiresClues: ['scratches', 'diary'],
+      },
+      {
+        id: 'reckoning',
+        summary: 'Face what holds the house',
+        requiresClues: ['deed', 'portrait'],
+      },
+    ],
+  },
+  story: {
+    tone: ['Dread that builds slowly', 'Intimate and unsettling'],
+    openingScenes: [
+      'You inherit a house whose previous owners left the table set and the front door open',
+      'The night porter at a quiet hotel asks you not to answer when the corridor knocks',
+    ],
+    conflicts: [
+      'Something in the cellar wants the family to stay, and the family is starting to agree',
+      'A neighbour insists the missing are still home, and the town would rather not look closely',
     ],
   },
 };
@@ -51,8 +104,16 @@ export const MYSTERY_PACK = {
     version: '1.0.0',
     name: 'Investigative mystery',
     archetypes: [
-      { id: 'detective', name: 'Detective', summary: 'Reads people and rooms for what does not fit' },
-      { id: 'journalist', name: 'Journalist', summary: 'Follows the story wherever it leads' },
+      {
+        id: 'detective',
+        name: 'Detective',
+        summary: 'Reads people and rooms for what does not fit',
+      },
+      {
+        id: 'journalist',
+        name: 'Journalist',
+        summary: 'Follows the story wherever it leads',
+      },
     ],
     narrativeConstraints: ['Every solution is reachable through more than one clue', 'Play fair with the reader'],
     examples: ['The clock had been wound, but nobody admitted to touching it.'],
@@ -71,19 +132,61 @@ export const MYSTERY_PACK = {
       ],
     },
     clues: [
-      { id: 'wound-clock', text: 'The study clock was wound after the time of death', pointsTo: 'culprit' },
-      { id: 'mud', text: 'Garden mud on the secretary’s shoes', pointsTo: 'culprit' },
-      { id: 'will', text: 'A draft will that disinherits the secretary', pointsTo: 'motive' },
-      { id: 'letter', text: 'A burned letter mentions a change to the will', pointsTo: 'motive' },
+      {
+        id: 'wound-clock',
+        text: 'The study clock was wound after the time of death',
+        pointsTo: 'culprit',
+      },
+      {
+        id: 'mud',
+        text: 'Garden mud on the secretary’s shoes',
+        pointsTo: 'culprit',
+      },
+      {
+        id: 'will',
+        text: 'A draft will that disinherits the secretary',
+        pointsTo: 'motive',
+      },
+      {
+        id: 'letter',
+        text: 'A burned letter mentions a change to the will',
+        pointsTo: 'motive',
+      },
     ],
     secrets: [
-      { id: 'culprit', statement: 'The secretary killed the host in the study' },
+      {
+        id: 'culprit',
+        statement: 'The secretary killed the host in the study',
+      },
       { id: 'motive', statement: 'The secretary acted to stop the new will' },
     ],
     pacing: [
-      { id: 'scene-of-crime', summary: 'Examine the study and the body', requiresClues: [] },
-      { id: 'interviews', summary: 'Question the household', requiresClues: ['wound-clock'] },
-      { id: 'accusation', summary: 'Confront the culprit', requiresClues: ['mud', 'will'] },
+      {
+        id: 'scene-of-crime',
+        summary: 'Examine the study and the body',
+        requiresClues: [],
+      },
+      {
+        id: 'interviews',
+        summary: 'Question the household',
+        requiresClues: ['wound-clock'],
+      },
+      {
+        id: 'accusation',
+        summary: 'Confront the culprit',
+        requiresClues: ['mud', 'will'],
+      },
+    ],
+  },
+  story: {
+    tone: ['Wry and observant', 'Patient suspicion'],
+    openingScenes: [
+      'A lawyer summons you to a locked study where the clock stopped at a quarter past nine',
+      'The household assembles for supper, one chair empty and one guest already lying about the hour',
+    ],
+    conflicts: [
+      'Every suspect gains from the will, and each has a story that almost fits the evidence',
+      'The inspector wants a quick arrest while the one honest witness grows afraid to speak',
     ],
   },
 };
@@ -95,9 +198,21 @@ export const MODERN_ADVENTURE_PACK = {
     version: '1.0.0',
     name: 'Modern adventure',
     archetypes: [
-      { id: 'fixer', name: 'Fixer', summary: 'Knows someone in every city and owes most of them' },
-      { id: 'reporter', name: 'Reporter', summary: 'Chases the story past where the police stop' },
-      { id: 'pilot', name: 'Pilot', summary: 'Gets people in and out when the roads close' },
+      {
+        id: 'fixer',
+        name: 'Fixer',
+        summary: 'Knows someone in every city and owes most of them',
+      },
+      {
+        id: 'reporter',
+        name: 'Reporter',
+        summary: 'Chases the story past where the police stop',
+      },
+      {
+        id: 'pilot',
+        name: 'Pilot',
+        summary: 'Gets people in and out when the roads close',
+      },
     ],
     narrativeConstraints: [
       'Keep events grounded in the present-day world',
@@ -106,6 +221,17 @@ export const MODERN_ADVENTURE_PACK = {
     examples: ['Your phone buzzes twice: a dead drop address and a flight that leaves in forty minutes.'],
     visualConventions: ['Contemporary cities', 'Natural lighting'],
     suggestedCapabilities: ['social', 'travel', 'investigation'],
+  },
+  story: {
+    tone: ['Brisk and kinetic', 'Wary and resourceful'],
+    openingScenes: [
+      'A courier presses a sealed envelope into your hand at the airport and vanishes into the crowd',
+      'Your rental car is gone from the garage, and the attendant swears you never arrived',
+    ],
+    conflicts: [
+      'A rival crew reaches the same hidden vault one day ahead of you and offers a split',
+      'The contact who hired you is missing, and the people searching for them are not police',
+    ],
   },
 };
 
@@ -116,9 +242,21 @@ export const FANTASY_PACK = {
     version: '1.0.0',
     name: 'Fantasy',
     archetypes: [
-      { id: 'hedge-witch', name: 'Hedge witch', summary: 'Trades remedies for secrets at the edge of the village' },
-      { id: 'exiled-knight', name: 'Exiled knight', summary: 'Keeps an oath to a lord who cast them out' },
-      { id: 'river-smuggler', name: 'River smuggler', summary: 'Moves goods and people past the toll keeps' },
+      {
+        id: 'hedge-witch',
+        name: 'Hedge witch',
+        summary: 'Trades remedies for secrets at the edge of the village',
+      },
+      {
+        id: 'exiled-knight',
+        name: 'Exiled knight',
+        summary: 'Keeps an oath to a lord who cast them out',
+      },
+      {
+        id: 'river-smuggler',
+        name: 'River smuggler',
+        summary: 'Moves goods and people past the toll keeps',
+      },
     ],
     narrativeConstraints: ['Wonders have a cost and a history', 'Old oaths and bloodlines shape who holds power'],
     examples: ['The standing stones hum when the moon clears the ridge, and tonight it is full.'],
@@ -155,7 +293,11 @@ export const SCIENCE_FICTION_PACK = {
         name: 'Corporate envoy',
         summary: 'Negotiates for a company that owns the colony charter',
       },
-      { id: 'drift-salvager', name: 'Drift salvager', summary: 'Strips derelict ships and sells what still works' },
+      {
+        id: 'drift-salvager',
+        name: 'Drift salvager',
+        summary: 'Strips derelict ships and sells what still works',
+      },
     ],
     narrativeConstraints: [
       'Distance and light-lag shape every decision',
@@ -189,5 +331,10 @@ export const BLANK_WORLD_PACK = {
     examples: [],
     visualConventions: [],
     suggestedCapabilities: [],
+  },
+  story: {
+    tone: ['Open and undefined'],
+    openingScenes: ['Nothing is decided yet, so describe where you are and what is happening around you'],
+    conflicts: ['Name the problem you want to face, and the story will take shape around it'],
   },
 };

@@ -40,5 +40,5 @@ test('blank world does not force classes, combat or supernatural elements', () =
   assert.deepEqual(blank.visualConventions, []);
   assert.deepEqual(blank.suggestedCapabilities, []);
   assert.equal(FORCED_TERMS.test(JSON.stringify(blank)), false);
-  assert.deepEqual(Object.keys(BLANK_WORLD_PACK), ['genre']);
+  assert.deepEqual(Object.keys(BLANK_WORLD_PACK), ['genre', 'story']);
 });

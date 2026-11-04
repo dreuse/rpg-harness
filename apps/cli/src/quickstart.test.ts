@@ -4,7 +4,7 @@ import { mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { FANTASY_PACK } from '../../../packages/content/src/packs.ts';
+import { FANTASY_PACK, HORROR_PACK } from '../../../packages/content/src/packs.ts';
 import { readCampaignState } from './engine-gateway.ts';
 
 const BIN = join(import.meta.dirname, 'bin.ts');
@@ -14,6 +14,7 @@ const INTENT_CAMPAIGN = 'Hollow';
 const INTENT = 'A horror story using the Narrative rules';
 const MISSING_INTENT = 'A fantasy adventure using the Pathfinder rules';
 const SCENE_INTENT = 'A fantasy adventure using the Narrative rules';
+const HORROR_OPENING = `${HORROR_PACK.story.openingScenes[0]}.`;
 const FANTASY_OPENING = `${FANTASY_PACK.story.openingScenes[0]}.`;
 
 const withDataDir = (run: (dataDir: string) => void) => {
@@ -26,7 +27,10 @@ const withDataDir = (run: (dataDir: string) => void) => {
 };
 
 const rpg = (dataDir: string, args: readonly string[]) =>
-  spawnSync(process.execPath, [BIN, ...args], { encoding: 'utf8', env: { ...process.env, RPG_DATA_DIR: dataDir } });
+  spawnSync(process.execPath, [BIN, ...args], {
+    encoding: 'utf8',
+    env: { ...process.env, RPG_DATA_DIR: dataDir },
+  });
 
 const succeed = (dataDir: string, args: readonly string[]) => {
   const result = rpg(dataDir, args);
@@ -76,6 +80,13 @@ test('from single prompt to scene opening without manual JSON editing', () =>
     const state = readCampaignState(dataDir, INTENT_CAMPAIGN);
     assert.equal(state.currentScene?.title, FANTASY_PACK.genre.name);
     assert.ok(succeed(dataDir, ['resume', INTENT_CAMPAIGN]).includes(FANTASY_OPENING));
+  }));
+
+test('a horror intent opens at its own scene instead of the fantasy default', () =>
+  withDataDir((dataDir) => {
+    const opened = succeed(dataDir, ['new', INTENT_CAMPAIGN, INTENT]);
+    assert.ok(opened.includes(HORROR_OPENING), opened);
+    assert.equal(opened.includes(FANTASY_OPENING), false);
   }));
 
 test('ruleset not present triggers import/choice instead of invented rules enforcement', () =>
