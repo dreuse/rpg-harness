@@ -98,6 +98,23 @@ export const toCommittedTurn = ({
   return { turn, events: [submitted, event(submitted.id, VALIDATED, { revision: expectedRevision + 1 })] };
 };
 
+export const commit = (
+  store: CampaignStore,
+  action: PlayerAction,
+  steps: readonly (readonly [string, Record<string, unknown>])[],
+): CommittedTurn => {
+  const { turn, events } = toCommittedTurn(action);
+  const chained: CampaignEvent[] = [...events];
+  for (const [type, payload] of steps) chained.push(turnEvent(turn, chained.at(-1)?.id ?? null, type, payload));
+  return store.commitTurn({
+    expectedRevision: action.expectedRevision,
+    turn,
+    characters: [],
+    scenes: [],
+    events: chained,
+  });
+};
+
 export const performAction = (store: CampaignStore, action: PlayerAction): CommittedTurn => {
   const state = loadState(store, action.campaignId);
   const stored = storedTurn(state, action.actionId);
