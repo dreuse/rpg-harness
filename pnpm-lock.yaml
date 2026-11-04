@@ -60,6 +60,12 @@ importers:
         specifier: workspace:*
         version: link:../engine
 
+  packages/memory:
+    dependencies:
+      '@rpg/domain':
+        specifier: workspace:*
+        version: link:../domain
+
   packages/persistence:
     dependencies:
       '@rpg/domain':

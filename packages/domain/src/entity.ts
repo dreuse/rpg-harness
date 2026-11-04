@@ -9,6 +9,9 @@ export type EntityKind = (typeof ENTITY_KINDS)[number];
 export const VISIBILITY_LEVELS = ['public', 'player', 'gm', 'actor-scoped'] as const;
 export type Visibility = (typeof VISIBILITY_LEVELS)[number];
 
+export const FACT_LAYERS = ['canon', 'belief', 'rumor', 'invalidated'] as const;
+export type FactLayer = (typeof FACT_LAYERS)[number];
+
 export type CampaignEntity = {
   readonly id: EntityId;
   readonly campaignId: CampaignId;

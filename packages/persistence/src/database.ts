@@ -1,6 +1,6 @@
 import { DatabaseSync } from 'node:sqlite';
 import { MAIN_BRANCH } from '../../domain/src/campaign.ts';
-import { VISIBILITY_LEVELS, type Visibility } from '../../domain/src/entity.ts';
+import { FACT_LAYERS, VISIBILITY_LEVELS, type Visibility } from '../../domain/src/entity.ts';
 
 export type Migration = { readonly version: number; readonly sql: string };
 
@@ -9,7 +9,6 @@ export type OpenOptions = { readonly migrations?: readonly Migration[]; readonly
 const GM_VISIBILITY: Visibility = 'gm';
 const ACTOR_SCOPED_VISIBILITY: Visibility = 'actor-scoped';
 const APPEND_ONLY_EVENTS = 'event_log is append-only';
-const FACT_LAYERS = ['canon', 'belief', 'rumor', 'invalidated'] as const;
 const sqlList = (values: readonly string[]) => values.map((value) => `'${value}'`).join(', ');
 const VISIBILITY_CHECK = `CHECK (visibility IN (${sqlList(VISIBILITY_LEVELS)}))`;
 const ACTOR_SCOPE_CHECK = `CHECK (visibility <> '${ACTOR_SCOPED_VISIBILITY}' OR actor_id IS NOT NULL)`;
