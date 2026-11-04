@@ -1,8 +1,8 @@
-import type { CampaignStore, CommittedTurn } from '../../domain/src/campaign.ts';
+import { type CampaignStore, CHARACTER_CREATED, type CommittedTurn } from '../../domain/src/campaign.ts';
 import { type BuildInput, buildCharacter } from '../../rules/src/character-builder.ts';
 import { commit, InvalidActionError, loadState, type PlayerAction, recorded, replayOf, validate } from './turn.ts';
 
-export const CHARACTER_CREATED = 'CharacterCreated';
+export { CHARACTER_CREATED };
 
 export type CharacterCreation = PlayerAction & { readonly build: BuildInput };
 

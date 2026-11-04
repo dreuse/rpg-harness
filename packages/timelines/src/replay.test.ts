@@ -1,14 +1,17 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { CampaignBoundaryError, type DomainEvent, MAIN_BRANCH } from '../../domain/src/campaign.ts';
+import { commitCharacter } from '../../engine/src/character.ts';
 import { actInEncounter, currentEncounter, resolveEncounter, startEncounter } from '../../engine/src/encounter.ts';
 import { createEngine } from '../../engine/src/engine.ts';
 import { openScene, type PlayerAction } from '../../engine/src/turn.ts';
 import { createCampaignStore } from '../../persistence/src/campaign-store.ts';
 import { openDatabase } from '../../persistence/src/database.ts';
 import { createEventStore } from '../../persistence/src/event-store.ts';
+import type { BuildInput } from '../../rules/src/character-builder.ts';
 import type { RollEvent } from '../../rules/src/dice.ts';
 import { type EffectiveMechanic, RULE_DSL_VERSION, type RuleDsl } from '../../rules/src/dsl.ts';
+import { SHEET_SCHEMA_VERSION } from '../../rules/src/sheet-schema.ts';
 import { createScriptedRng } from '../../testkit/src/fixtures.ts';
 import { CAMPAIGN_PROJECTION_VERSION, campaignProjection, RecordedRollError } from './campaign.ts';
 import { checkpoint, EventOrderError, type Projection, replay, SnapshotMismatchError } from './replay.ts';
@@ -29,6 +32,21 @@ const SIDE_BRANCH = 'branch-what-if';
 const OTHER_CAMPAIGN = 'campaign-other';
 const ROLL_PATH = 'resolution';
 const NO_EVENTS = 0;
+const CREATED_NAME = 'Mara of the Tides';
+const BUILD: BuildInput = {
+  rules: {
+    schema: {
+      schemaVersion: SHEET_SCHEMA_VERSION,
+      rulepack: { id: 'harbor-rules', edition: 'first', revision: '1', sourceRefs: [] },
+      fields: [],
+    },
+    constraints: [],
+    startingEquipment: [],
+    overridableFields: [],
+  },
+  backstory: 'A ferryman’s daughter.',
+  proposal: { name: CREATED_NAME, values: {}, equipment: [] },
+};
 const RULE: RuleDsl = {
   dslVersion: RULE_DSL_VERSION,
   id: 'contest',
@@ -160,6 +178,29 @@ test('T01: replay state matches directly materialized state and recorded roll ou
     replayed.rolls.map(({ draws }) => draws),
     [[[FIRST_FACE]], [[SECOND_FACE]]],
   );
+  session.connection.close();
+});
+
+test('T01: replay applies a created character name like the store', () => {
+  const session = playSession();
+  const { store, timeline } = session;
+  const before = materialized(session);
+  const [actor] = before.characters;
+  assert.ok(actor && before.currentScene);
+  commitCharacter(store, {
+    campaignId: timeline.campaignId,
+    actionId: 'create-mara',
+    expectedRevision: before.revision,
+    sceneId: before.currentScene.id,
+    actorId: actor.id,
+    input: 'Create character.',
+    intent: 'create character',
+    build: BUILD,
+  });
+  const state = materialized(session);
+  const replayed = replay(campaignProjection, timeline, session.eventStore.list(timeline.campaignId, MAIN_BRANCH));
+  assert.deepEqual(replayed.characters, state.characters);
+  assert.equal(replayed.characters[0]?.name, CREATED_NAME);
   session.connection.close();
 });
 

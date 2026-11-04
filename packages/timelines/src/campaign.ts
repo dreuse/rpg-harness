@@ -2,6 +2,7 @@ import {
   CAMPAIGN_CREATED,
   CAMPAIGN_RENAMED,
   type Campaign,
+  CHARACTER_CREATED,
   type Character,
   type DomainEvent,
   type EventId,
@@ -51,6 +52,18 @@ const withTurn = (turnIds: readonly TurnId[], turnId: TurnId | null) =>
 const applyType = (state: CampaignTimelineState, { campaignId, type, payload }: DomainEvent): CampaignTimelineState => {
   if (type === CAMPAIGN_CREATED || type === CAMPAIGN_RENAMED) {
     return { ...state, campaign: { id: campaignId, name: String(payload.name) } };
+  }
+  if (type === CHARACTER_CREATED) {
+    const profile = payload.profile as { identity: { name: string } };
+    const created = { id: String(payload.actorId), campaignId, name: profile.identity.name };
+    const rest = state.characters.filter(({ id }) => id !== created.id);
+    return {
+      ...state,
+      characters:
+        rest.length === state.characters.length
+          ? [...rest, created]
+          : state.characters.map((character) => (character.id === created.id ? created : character)),
+    };
   }
   if (type !== SCENE_OPENED) return state;
   const actor = { id: String(payload.actorId), campaignId, name: String(payload.actorName) };

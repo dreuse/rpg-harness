@@ -322,6 +322,10 @@ test('d20-lite supplies creation rules that build a pinned character from attrib
       proposal: { name: 'Ash', values, equipment: [DRAUGHT] },
     });
   assert.ok(validateSheetSchema(D20_LITE_CREATION.schema).ok);
+  assert.deepEqual(
+    D20_LITE_CREATION.schema.fields.map(({ label }) => label),
+    ['Might', 'Agility', 'Wits', 'Presence'],
+  );
   const created = build({ might: 6, agility: 5, wits: 7, presence: 4 });
   assert.equal(created.status, 'created', JSON.stringify(created));
   if (created.status === 'created') {

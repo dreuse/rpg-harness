@@ -264,6 +264,23 @@ test('the sheet shows the character created by the engine under its identity nam
     ]);
   }));
 
+test('views and turns show the character created by rpg new instead of the default hero', () =>
+  withDataDir(async (dataDir) => {
+    const created = await run(
+      dataDir,
+      ['new', CAMPAIGN, 'A fantasy adventure using the D20-Lite rules'],
+      ['A scout named Wren with might 6, agility 5, wits 7 and presence 4.'],
+    );
+    assert.match(created, /Created Wren\./);
+    assert.deepEqual(
+      readCampaignState(dataDir, CAMPAIGN).characters.map(({ name }) => name),
+      ['Wren'],
+    );
+    assert.match(await run(dataDir, ['play', CAMPAIGN], [ACTION]), new RegExp(`Wren: ${ACTION}`));
+    assert.match(await run(dataDir, ['sheet', CAMPAIGN]), /^Wren \(d20-lite original\)/);
+    assert.doesNotMatch(await run(dataDir, ['journal', CAMPAIGN]), /The Wanderer/);
+  }));
+
 test('a gm-only stored profile stays hidden even after character creation', () =>
   withDataDir(async (dataDir) => {
     await run(dataDir, ['new', CAMPAIGN]);

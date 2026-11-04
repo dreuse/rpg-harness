@@ -8,6 +8,12 @@ import { resolveDerived, type Trait, type TraitSheet } from './traits.ts';
 
 export const ATTRIBUTES = ['might', 'agility', 'wits', 'presence'] as const;
 export type Attribute = (typeof ATTRIBUTES)[number];
+const ATTRIBUTE_LABELS: Record<Attribute, string> = {
+  might: 'Might',
+  agility: 'Agility',
+  wits: 'Wits',
+  presence: 'Presence',
+};
 
 export const D20_SIDES = 20;
 export const NATURAL_MAX = 20;
@@ -57,7 +63,7 @@ export const D20_LITE_MANIFEST: RulePackManifest = {
 
 export const D20_LITE_CREATION = creationRulesOf(
   D20_LITE_MANIFEST,
-  ATTRIBUTES.map((id) => ({ id, widget: 'number', custom: false, visibility: 'public' })),
+  ATTRIBUTES.map((id) => ({ id, widget: 'number', label: ATTRIBUTE_LABELS[id], custom: false, visibility: 'public' })),
   ATTRIBUTES.map((field) => ({ field, min: ATTRIBUTE_MIN, max: ATTRIBUTE_MAX, onViolation: 'report' })),
   [DRAUGHT],
 );
