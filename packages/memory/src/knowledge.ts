@@ -32,7 +32,9 @@ const NO_LENGTH = 0;
 
 const isActorId = (actorId: unknown): actorId is EntityId => typeof actorId === 'string' && actorId.length > NO_LENGTH;
 
-const readable = (fact: Fact, viewer: Viewer): boolean => {
+export type Scoped = { readonly visibility: Visibility; readonly actorId: EntityId | null };
+
+const readable = (fact: Scoped, viewer: Viewer): boolean => {
   switch (viewer.scope) {
     case 'gm':
       return VISIBILITY_LEVELS.includes(fact.visibility);
@@ -48,7 +50,7 @@ const readable = (fact: Fact, viewer: Viewer): boolean => {
   }
 };
 
-export const visibleTo = (facts: readonly Fact[], viewer: Viewer): readonly Fact[] =>
+export const visibleTo = <T extends Scoped>(facts: readonly T[], viewer: Viewer): readonly T[] =>
   facts.filter((fact) => readable(fact, viewer));
 
 export const canonicalFacts = (facts: readonly Fact[], viewer: Viewer): readonly Fact[] =>
