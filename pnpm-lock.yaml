@@ -40,6 +40,8 @@ importers:
         specifier: workspace:*
         version: link:../domain
 
+  packages/imports: {}
+
   packages/mcp:
     dependencies:
       '@modelcontextprotocol/sdk':
