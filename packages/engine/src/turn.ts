@@ -31,9 +31,34 @@ export class InvalidActionError extends Error {
   }
 }
 
+export type OpeningScene = {
+  readonly campaignId: CampaignId;
+  readonly actorName: string;
+  readonly sceneTitle: string;
+  readonly narration: string;
+};
+
 const PENDING_NARRATION = '';
 const SUBMITTED = 'PlayerActionSubmitted';
 const VALIDATED = 'ActionValidated';
+const SCENE_OPENED = 'SceneOpened';
+const OPENING_ACTION = 'opening';
+const OPENING_INPUT = 'Begin.';
+
+const turnEvent = (turn: Turn, causationId: string | null, type: string, payload: Record<string, unknown>) => ({
+  id: randomUUID(),
+  campaignId: turn.campaignId,
+  turnId: turn.id,
+  causationId,
+  type,
+  payload,
+});
+
+const loadState = (store: CampaignStore, campaignId: CampaignId) => {
+  const state = store.load(campaignId);
+  if (state === undefined) throw new CampaignNotFoundError(campaignId);
+  return state;
+};
 
 const storedTurn = (state: CampaignState, actionId: string): CommittedTurn | undefined => {
   const turn = state.turns.find((candidate) => candidate.actionId === actionId);
@@ -60,25 +85,43 @@ const validate = (state: CampaignState, action: PlayerAction) => {
 
 const toCommittedTurn = ({ campaignId, actionId, expectedRevision, sceneId, actorId, input, intent }: PlayerAction) => {
   const turn: Turn = { id: randomUUID(), campaignId, sceneId, actionId, actorId, input, narration: PENDING_NARRATION };
-  const event = (causationId: string | null, type: string, payload: Record<string, unknown>): CampaignEvent => ({
-    id: randomUUID(),
-    campaignId,
-    turnId: turn.id,
-    causationId,
-    type,
-    payload,
-  });
+  const event = (causationId: string | null, type: string, payload: Record<string, unknown>): CampaignEvent =>
+    turnEvent(turn, causationId, type, payload);
   const submitted = event(null, SUBMITTED, { actorId, sceneId, input, intent });
   return { turn, events: [submitted, event(submitted.id, VALIDATED, { revision: expectedRevision + 1 })] };
 };
 
 export const performAction = (store: CampaignStore, action: PlayerAction): CommittedTurn => {
-  const state = store.load(action.campaignId);
-  if (state === undefined) throw new CampaignNotFoundError(action.campaignId);
+  const state = loadState(store, action.campaignId);
   const stored = storedTurn(state, action.actionId);
   if (stored !== undefined) return stored;
   validate(state, action);
   const committed = toCommittedTurn(action);
   store.commitTurn({ expectedRevision: action.expectedRevision, characters: [], scenes: [], ...committed });
   return committed;
+};
+
+export const openScene = (store: CampaignStore, opening: OpeningScene): CommittedTurn => {
+  const { campaignId, actorName, sceneTitle, narration } = opening;
+  const state = loadState(store, campaignId);
+  requireValid(OPENING_ACTION, state.currentScene === undefined, `campaign ${campaignId} already has a scene`);
+  requireValid(OPENING_ACTION, actorName.trim() !== '', 'actor name is blank');
+  requireValid(OPENING_ACTION, sceneTitle.trim() !== '', 'scene title is blank');
+  requireValid(OPENING_ACTION, narration.trim() !== '', 'narration is blank');
+  const character = { id: randomUUID(), campaignId, name: actorName };
+  const scene = { id: randomUUID(), campaignId, title: sceneTitle };
+  const turn: Turn = {
+    id: randomUUID(),
+    campaignId,
+    sceneId: scene.id,
+    actionId: OPENING_ACTION,
+    actorId: character.id,
+    input: OPENING_INPUT,
+    narration,
+  };
+  const events = [
+    turnEvent(turn, null, SCENE_OPENED, { sceneId: scene.id, title: sceneTitle, actorId: character.id, actorName }),
+  ];
+  store.commitTurn({ expectedRevision: state.revision, turn, characters: [character], scenes: [scene], events });
+  return { turn, events };
 };

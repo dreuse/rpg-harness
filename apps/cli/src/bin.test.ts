@@ -1,0 +1,87 @@
+import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { chmodSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { test } from 'node:test';
+import { readCampaignState } from './engine-gateway.ts';
+
+const BIN = join(import.meta.dirname, 'bin.ts');
+const CAMPAIGN = 'Ember';
+const FIRST_ACTION = 'I open the door.';
+const SECOND_ACTION = 'I light the lantern.';
+const EXIT_OK = 0;
+const NO_INPUT = '';
+const READ_ONLY = 0o444;
+const SAVE_FILE = `${CAMPAIGN}.sqlite`;
+
+const withDataDir = (run: (dataDir: string) => void) => {
+  const dataDir = mkdtempSync(join(tmpdir(), 'rpg-cli-'));
+  try {
+    run(dataDir);
+  } finally {
+    rmSync(dataDir, { recursive: true, force: true });
+  }
+};
+
+const rpg = (dataDir: string, args: readonly string[], input = NO_INPUT) =>
+  spawnSync(process.execPath, [BIN, ...args], {
+    input,
+    encoding: 'utf8',
+    env: { ...process.env, RPG_DATA_DIR: dataDir },
+  });
+
+const succeed = (dataDir: string, args: readonly string[], input = NO_INPUT) => {
+  const result = rpg(dataDir, args, input);
+  assert.equal(result.status, EXIT_OK, result.stderr);
+  assert.equal(result.stderr, '');
+  return result.stdout;
+};
+
+test('new, play, resume and act survive two save/resume cycles with identical state', () =>
+  withDataDir((dataDir) => {
+    assert.ok(succeed(dataDir, ['new', CAMPAIGN]).trim().length > 0);
+
+    const played = succeed(dataDir, ['play', CAMPAIGN], `${FIRST_ACTION}\n`);
+    assert.ok(played.includes(FIRST_ACTION));
+    const firstSave = readCampaignState(dataDir, CAMPAIGN);
+
+    succeed(dataDir, ['resume', CAMPAIGN]);
+    assert.deepEqual(readCampaignState(dataDir, CAMPAIGN), firstSave);
+
+    const acted = succeed(dataDir, ['resume', CAMPAIGN], `${SECOND_ACTION}\n`);
+    assert.ok(acted.includes(SECOND_ACTION));
+    const secondSave = readCampaignState(dataDir, CAMPAIGN);
+    assert.equal(secondSave.revision, firstSave.revision + 1);
+    assert.deepEqual(secondSave.turns.map(({ input }) => input).slice(-2), [FIRST_ACTION, SECOND_ACTION]);
+
+    succeed(dataDir, ['resume', CAMPAIGN]);
+    assert.deepEqual(readCampaignState(dataDir, CAMPAIGN), secondSave);
+  }));
+
+test('failed commands exit non-zero and leave state unchanged', () =>
+  withDataDir((dataDir) => {
+    const missing = rpg(dataDir, ['play', CAMPAIGN], `${FIRST_ACTION}\n`);
+    assert.notEqual(missing.status, EXIT_OK);
+    assert.ok(missing.stderr.includes(CAMPAIGN));
+    assert.deepEqual(readdirSync(dataDir), []);
+
+    succeed(dataDir, ['new', CAMPAIGN]);
+    const created = readCampaignState(dataDir, CAMPAIGN);
+    const duplicate = rpg(dataDir, ['new', CAMPAIGN]);
+    assert.notEqual(duplicate.status, EXIT_OK);
+    assert.ok(duplicate.stderr.includes(CAMPAIGN));
+    assert.deepEqual(readCampaignState(dataDir, CAMPAIGN), created);
+  }));
+
+test('a failed action mid-play exits non-zero and leaves state unchanged', () =>
+  withDataDir((dataDir) => {
+    succeed(dataDir, ['new', CAMPAIGN]);
+    const before = readCampaignState(dataDir, CAMPAIGN);
+    chmodSync(join(dataDir, SAVE_FILE), READ_ONLY);
+    const failed = rpg(dataDir, ['play', CAMPAIGN], `${FIRST_ACTION}\n${SECOND_ACTION}\n`);
+    assert.notEqual(failed.status, EXIT_OK);
+    assert.ok(failed.stderr.trim().length > 0);
+    assert.ok(!failed.stdout.includes(FIRST_ACTION));
+    assert.deepEqual(readCampaignState(dataDir, CAMPAIGN), before);
+  }));

@@ -5,5 +5,10 @@
   "type": "module",
   "bin": {
     "rpg": "./src/bin.ts"
+  },
+  "dependencies": {
+    "@rpg/domain": "workspace:*",
+    "@rpg/engine": "workspace:*",
+    "@rpg/persistence": "workspace:*"
   }
 }

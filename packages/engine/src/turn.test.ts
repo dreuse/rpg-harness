@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { CampaignNotFoundError, type CampaignStore, StaleRevisionError } from '../../domain/src/campaign.ts';
 import { createCampaignStore } from '../../persistence/src/campaign-store.ts';
 import { openDatabase } from '../../persistence/src/database.ts';
-import { InvalidActionError, type PlayerAction, performAction } from './turn.ts';
+import { InvalidActionError, openScene, type PlayerAction, performAction } from './turn.ts';
 
 const IN_MEMORY = ':memory:';
 const SETUP_REVISION = 1;
@@ -102,5 +102,57 @@ test('a failed action produces no partial state mutation', () => {
     assert.throws(() => performAction(store, action), error);
     assert.deepEqual(store.load(CAMPAIGN.id), before);
   }
+  close();
+});
+
+const OPENING = {
+  campaignId: CAMPAIGN.id,
+  actorName: CHARACTER.name,
+  sceneTitle: SCENE.title,
+  narration: SETUP_TURN.narration,
+};
+
+const openCreatedStore = (): { store: CampaignStore; close: () => void } => {
+  const connection = openDatabase(IN_MEMORY);
+  const store = createCampaignStore(connection.database);
+  store.createCampaign(CAMPAIGN, CREATED_EVENT);
+  return { store, close: () => connection.close() };
+};
+
+test('opening a scene commits the character, scene and opening turn with an event', () => {
+  const { store, close } = openCreatedStore();
+  const { turn, events } = openScene(store, OPENING);
+  const state = store.load(CAMPAIGN.id);
+  assert.equal(state?.revision, SETUP_REVISION);
+  assert.deepEqual(
+    state?.characters.map(({ campaignId, name }) => ({ campaignId, name })),
+    [{ campaignId: CAMPAIGN.id, name: CHARACTER.name }],
+  );
+  assert.equal(state?.currentScene?.title, SCENE.title);
+  assert.deepEqual(state?.turns, [turn]);
+  assert.equal(turn.narration, SETUP_TURN.narration);
+  assert.equal(turn.actorId, state?.characters[0]?.id);
+  assert.equal(turn.sceneId, state?.currentScene?.id);
+  assert.deepEqual(state?.events, events);
+  assert.deepEqual(
+    events.map(({ type, turnId, causationId }) => ({ type, turnId, causationId })),
+    [{ type: 'SceneOpened', turnId: turn.id, causationId: null }],
+  );
+  performAction(store, { ...ACTION, sceneId: turn.sceneId, actorId: turn.actorId });
+  assert.equal(store.load(CAMPAIGN.id)?.revision, SETUP_REVISION + 1);
+  close();
+});
+
+test('opening a scene rejects missing campaigns, blank fields and a second opening without writing', () => {
+  const { store, close } = openCreatedStore();
+  assert.throws(() => openScene(store, { ...OPENING, campaignId: 'missing' }), CampaignNotFoundError);
+  for (const blank of [{ actorName: BLANK }, { sceneTitle: BLANK }, { narration: BLANK }]) {
+    assert.throws(() => openScene(store, { ...OPENING, ...blank }), InvalidActionError);
+  }
+  assert.equal(store.load(CAMPAIGN.id)?.revision, 0);
+  openScene(store, OPENING);
+  const opened = store.load(CAMPAIGN.id);
+  assert.throws(() => openScene(store, OPENING), InvalidActionError);
+  assert.deepEqual(store.load(CAMPAIGN.id), opened);
   close();
 });
