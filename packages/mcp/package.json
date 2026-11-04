@@ -5,6 +5,7 @@
   "type": "module",
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.32.2",
-    "@rpg/persistence": "workspace:*"
+    "@rpg/domain": "workspace:*",
+    "@rpg/engine": "workspace:*"
   }
 }

@@ -6,8 +6,11 @@ import { test } from 'node:test';
 import {
   type Campaign,
   CampaignBoundaryError,
+  type CampaignChange,
   CampaignNotFoundError,
   type CampaignState,
+  type CampaignStore,
+  MAIN_BRANCH,
   StaleRevisionError,
   type TurnCommit,
 } from '../../domain/src/campaign.ts';
@@ -76,6 +79,39 @@ const emptyState = (campaign: Campaign): CampaignState => ({
   events: [],
 });
 
+const change = (campaign: Campaign, id: string, type: string): CampaignChange => ({
+  id,
+  campaignId: campaign.id,
+  branchId: MAIN_BRANCH,
+  actionId: `action-${id}`,
+  type,
+  payload: { name: campaign.name },
+});
+
+const createdEvent = (campaign: Campaign) => change(campaign, `created-${campaign.id}`, 'CampaignCreated');
+
+const create = (store: CampaignStore, campaign: Campaign) => store.createCampaign(campaign, createdEvent(campaign));
+
+const SELECT_CAMPAIGN_EVENTS =
+  'SELECT id, campaign_id, branch_id, revision, action_id, turn_id, type, payload FROM event_log WHERE turn_id IS NULL ORDER BY seq';
+
+const campaignEvents = (connection: ReturnType<typeof openDatabase>) =>
+  connection.database
+    .prepare(SELECT_CAMPAIGN_EVENTS)
+    .all()
+    .map((row) => ({ ...row, payload: JSON.parse(String(row.payload)) }));
+
+const eventRow = (event: CampaignChange, revision: number) => ({
+  id: event.id,
+  campaign_id: event.campaignId,
+  branch_id: event.branchId,
+  revision,
+  action_id: event.actionId,
+  turn_id: null,
+  type: event.type,
+  payload: event.payload,
+});
+
 const openStore = (path: string) => {
   const connection = openDatabase(path);
   return { connection, store: createCampaignStore(connection.database) };
@@ -83,7 +119,7 @@ const openStore = (path: string) => {
 
 test('store and retrieve a campaign, character, current scene and single turn', () => {
   const { connection, store } = openStore(IN_MEMORY);
-  store.createCampaign(CAMPAIGN);
+  create(store, CAMPAIGN);
   assert.deepEqual(store.load(CAMPAIGN.id), emptyState(CAMPAIGN));
   store.commitTurn(COMMIT);
   assert.deepEqual(store.load(CAMPAIGN.id), EXPECTED_STATE);
@@ -93,7 +129,7 @@ test('store and retrieve a campaign, character, current scene and single turn', 
 
 test('stale revision or failed turn writes nothing', () => {
   const { connection, store } = openStore(IN_MEMORY);
-  store.createCampaign(CAMPAIGN);
+  create(store, CAMPAIGN);
   store.commitTurn(COMMIT);
   const second = { ...COMMIT, turn: { ...TURN, id: 'turn-2', actionId: 'action-2' }, events: [] };
   assert.throws(() => store.commitTurn(second), StaleRevisionError);
@@ -120,9 +156,9 @@ test('stale revision or failed turn writes nothing', () => {
 
 test('a turn for one campaign cannot write or reference another campaign', () => {
   const { connection, store } = openStore(IN_MEMORY);
-  store.createCampaign(CAMPAIGN);
+  create(store, CAMPAIGN);
   store.commitTurn(COMMIT);
-  store.createCampaign(OTHER_CAMPAIGN);
+  create(store, OTHER_CAMPAIGN);
   const ownCharacter = { id: 'character-2', campaignId: OTHER_CAMPAIGN.id, name: 'Oren' };
   const ownScene = { id: 'scene-2', campaignId: OTHER_CAMPAIGN.id, title: 'The Ferry' };
   const ownTurn = {
@@ -166,7 +202,7 @@ test('opening the same campaign after process restart yields identical identifie
   try {
     const path = join(dir, DATABASE_FILE);
     const first = openStore(path);
-    first.store.createCampaign(CAMPAIGN);
+    create(first.store, CAMPAIGN);
     first.store.commitTurn(COMMIT);
     const before = first.store.load(CAMPAIGN.id);
     first.connection.close();
@@ -179,4 +215,53 @@ test('opening the same campaign after process restart yields identical identifie
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
+});
+
+test('create and rename record a main-branch event with revision and action id in the same transaction', () => {
+  const { connection, store } = openStore(IN_MEMORY);
+  create(store, CAMPAIGN);
+  const renamed = { ...CAMPAIGN, name: 'Harbor Lights Renamed' };
+  const renamedEvent = change(renamed, 'renamed-1', 'CampaignRenamed');
+  store.renameCampaign({ expectedRevision: INITIAL_REVISION, campaign: renamed, event: renamedEvent });
+  assert.deepEqual(store.load(CAMPAIGN.id), { ...emptyState(renamed), revision: INITIAL_REVISION + 1 });
+  assert.deepEqual(campaignEvents(connection), [
+    eventRow(createdEvent(CAMPAIGN), INITIAL_REVISION),
+    eventRow(renamedEvent, INITIAL_REVISION + 1),
+  ]);
+  connection.close();
+});
+
+test('rejected campaign writes leave campaigns and events unchanged', () => {
+  const { connection, store } = openStore(IN_MEMORY);
+  create(store, CAMPAIGN);
+  create(store, OTHER_CAMPAIGN);
+  const before = campaignEvents(connection);
+  const renamed = { ...CAMPAIGN, name: 'Stolen' };
+  const event = change(renamed, 'renamed-1', 'CampaignRenamed');
+  const rename = { expectedRevision: INITIAL_REVISION, campaign: renamed, event };
+  const missing = { id: MISSING_ID, name: 'Nowhere' };
+  const attempts: [() => void, new (...args: never[]) => Error][] = [
+    [() => store.renameCampaign({ ...rename, expectedRevision: INITIAL_REVISION + 1 }), StaleRevisionError],
+    [
+      () => store.renameCampaign({ ...rename, campaign: missing, event: change(missing, 'm', 'CampaignRenamed') }),
+      CampaignNotFoundError,
+    ],
+    [
+      () => store.renameCampaign({ ...rename, event: { ...event, campaignId: OTHER_CAMPAIGN.id } }),
+      CampaignBoundaryError,
+    ],
+    [() => store.renameCampaign({ ...rename, event: { ...event, branchId: 'side' } }), CampaignBoundaryError],
+    [() => store.createCampaign(missing, { ...event, campaignId: CAMPAIGN.id }), CampaignBoundaryError],
+    [
+      () => store.createCampaign(missing, { ...change(missing, 'm', 'CampaignCreated'), branchId: 'side' }),
+      CampaignBoundaryError,
+    ],
+  ];
+  for (const [attempt, error] of attempts) {
+    assert.throws(attempt, error);
+    assert.deepEqual(store.load(CAMPAIGN.id), emptyState(CAMPAIGN));
+    assert.equal(store.load(MISSING_ID), undefined);
+    assert.deepEqual(campaignEvents(connection), before);
+  }
+  connection.close();
 });

@@ -6,8 +6,6 @@ Traces to: `docs/02-architecture.md`, `docs/08-storage-and-events.md`, ADR 0002,
 
 `engine` is the only module that writes canonical state. It writes through the `CampaignStore` port inside one transaction per turn. Every other module reads snapshots or submits proposals.
 
-Exception until V05 (rpg-e0g): `mcp` writes `campaign` and `event_log` directly for `create_campaign` and `rename_campaign`, because no engine exists yet. V05 must route these through the engine and remove the write access.
-
 ## Modules and allowed imports
 
 An arrow means "may import". No other imports are allowed.
@@ -24,7 +22,7 @@ An arrow means "may import". No other imports are allowed.
 | `imports` | Document staging, extraction, provenance | `domain`, `rules` |
 | `client-protocol` | Commands, events, view descriptors | `domain` |
 | `voice` | STT/TTS adapters | `client-protocol` |
-| `mcp` | Typed campaign tools for the terminal harness | `domain`, `persistence` |
+| `mcp` | Typed campaign tools for the terminal harness | `domain`, `engine` |
 | `apps/*` | Wiring (composition root) | any package |
 
 `narrative`, `world`, `voice`, `imports` and `client-protocol` never import `persistence` or `engine` internals. They talk to the engine only through the ports below. V01 adds an automated import check for this table.

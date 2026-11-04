@@ -2,10 +2,12 @@ import type { DatabaseSync } from 'node:sqlite';
 import {
   type Campaign,
   CampaignBoundaryError,
+  type CampaignChange,
   type CampaignEvent,
   CampaignNotFoundError,
   type CampaignStore,
   type Character,
+  MAIN_BRANCH,
   type Scene,
   StaleRevisionError,
   type Turn,
@@ -15,6 +17,7 @@ import {
 const INSERT_CAMPAIGN = 'INSERT INTO campaign (id, name) VALUES (?, ?)';
 const SELECT_CAMPAIGN = 'SELECT id, name, revision FROM campaign WHERE id = ?';
 const SELECT_REVISION = 'SELECT revision FROM campaign WHERE id = ?';
+const RENAME_CAMPAIGN = 'UPDATE campaign SET name = ?, revision = ? WHERE id = ?';
 const ADVANCE_CAMPAIGN = 'UPDATE campaign SET revision = ?, current_scene_id = ? WHERE id = ?';
 const UPSERT_CHARACTER =
   'INSERT INTO character (id, campaign_id, name) VALUES (?, ?, ?) ON CONFLICT (id) DO UPDATE SET name = excluded.name WHERE character.campaign_id = excluded.campaign_id';
@@ -26,7 +29,7 @@ const OWNED_EVENT = 'SELECT 1 FROM event_log WHERE id = ? AND campaign_id = ?';
 const INSERT_TURN =
   'INSERT INTO turn (id, campaign_id, scene_id, action_id, actor_id, input, narration, revision) VALUES (?, ?, ?, ?, ?, ?, ?, ?)';
 const APPEND_EVENT =
-  'INSERT INTO event_log (id, campaign_id, turn_id, causation_id, type, payload) VALUES (?, ?, ?, ?, ?, ?)';
+  'INSERT INTO event_log (id, campaign_id, branch_id, revision, action_id, turn_id, causation_id, type, payload) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)';
 const SELECT_CHARACTERS = 'SELECT id, campaign_id, name FROM character WHERE campaign_id = ? ORDER BY rowid';
 const SELECT_CURRENT_SCENE =
   'SELECT scene.id, scene.campaign_id, scene.title FROM scene JOIN campaign ON campaign.current_scene_id = scene.id WHERE campaign.id = ?';
@@ -80,6 +83,7 @@ const inTransaction = (database: DatabaseSync, run: () => void) => {
 };
 
 const NO_CHANGES = 0;
+const INITIAL_REVISION = 0;
 
 const requireInCampaign = (campaignId: string, reference: string, inCampaign: boolean) => {
   if (!inCampaign) throw new CampaignBoundaryError(campaignId, reference);
@@ -91,13 +95,35 @@ const ownedBy = (database: DatabaseSync, sql: string, id: string, campaignId: st
 const upsertOwned = (database: DatabaseSync, sql: string, values: readonly string[]) =>
   database.prepare(sql).run(...values).changes !== NO_CHANGES;
 
-const writeTurn = (database: DatabaseSync, { expectedRevision, turn, characters, scenes, events }: TurnCommit) => {
-  const { campaignId } = turn;
+const nextRevision = (database: DatabaseSync, campaignId: string, expectedRevision: number) => {
   const current = database.prepare(SELECT_REVISION).get(campaignId);
   if (current === undefined) throw new CampaignNotFoundError(campaignId);
   const actual = Number(current.revision);
   if (actual !== expectedRevision) throw new StaleRevisionError(expectedRevision, actual);
-  const revision = expectedRevision + 1;
+  return expectedRevision + 1;
+};
+
+const appendCampaignChange = (database: DatabaseSync, campaignId: string, event: CampaignChange, revision: number) => {
+  requireInCampaign(campaignId, `event ${event.id}`, event.campaignId === campaignId);
+  requireInCampaign(campaignId, `branch ${event.branchId}`, event.branchId === MAIN_BRANCH);
+  database
+    .prepare(APPEND_EVENT)
+    .run(
+      event.id,
+      campaignId,
+      event.branchId,
+      revision,
+      event.actionId,
+      null,
+      null,
+      event.type,
+      JSON.stringify(event.payload),
+    );
+};
+
+const writeTurn = (database: DatabaseSync, { expectedRevision, turn, characters, scenes, events }: TurnCommit) => {
+  const { campaignId } = turn;
+  const revision = nextRevision(database, campaignId, expectedRevision);
   for (const { id, campaignId: owner, name } of characters) {
     const reference = `character ${id}`;
     requireInCampaign(campaignId, reference, owner === campaignId);
@@ -126,15 +152,33 @@ const writeTurn = (database: DatabaseSync, { expectedRevision, turn, characters,
     }
     database
       .prepare(APPEND_EVENT)
-      .run(event.id, campaignId, turn.id, event.causationId, event.type, JSON.stringify(event.payload));
+      .run(
+        event.id,
+        campaignId,
+        MAIN_BRANCH,
+        revision,
+        turn.actionId,
+        turn.id,
+        event.causationId,
+        event.type,
+        JSON.stringify(event.payload),
+      );
   }
   database.prepare(ADVANCE_CAMPAIGN).run(revision, turn.sceneId, campaignId);
 };
 
 export const createCampaignStore = (database: DatabaseSync): CampaignStore => ({
-  createCampaign: (campaign: Campaign) => {
-    database.prepare(INSERT_CAMPAIGN).run(campaign.id, campaign.name);
-  },
+  createCampaign: (campaign: Campaign, event: CampaignChange) =>
+    inTransaction(database, () => {
+      database.prepare(INSERT_CAMPAIGN).run(campaign.id, campaign.name);
+      appendCampaignChange(database, campaign.id, event, INITIAL_REVISION);
+    }),
+  renameCampaign: ({ expectedRevision, campaign, event }) =>
+    inTransaction(database, () => {
+      const revision = nextRevision(database, campaign.id, expectedRevision);
+      database.prepare(RENAME_CAMPAIGN).run(campaign.name, revision, campaign.id);
+      appendCampaignChange(database, campaign.id, event, revision);
+    }),
   commitTurn: (commit) => inTransaction(database, () => writeTurn(database, commit)),
   load: (id) => {
     const row = database.prepare(SELECT_CAMPAIGN).get(id);

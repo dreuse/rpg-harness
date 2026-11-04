@@ -1,0 +1,51 @@
+import { randomUUID } from 'node:crypto';
+import {
+  type Campaign,
+  type CampaignChange,
+  type CampaignId,
+  CampaignNotFoundError,
+  type CampaignState,
+  type CampaignStore,
+  MAIN_BRANCH,
+} from '../../domain/src/campaign.ts';
+
+const CAMPAIGN_CREATED = 'CampaignCreated';
+const CAMPAIGN_RENAMED = 'CampaignRenamed';
+
+export type Engine = {
+  createCampaign(name: string): Campaign;
+  getCampaign(id: CampaignId): Campaign;
+  getState(id: CampaignId): CampaignState;
+  renameCampaign(id: CampaignId, name: string): Campaign;
+};
+
+const change = ({ id, name }: Campaign, type: string): CampaignChange => ({
+  id: randomUUID(),
+  campaignId: id,
+  branchId: MAIN_BRANCH,
+  actionId: randomUUID(),
+  type,
+  payload: { name },
+});
+
+const loadState = (store: CampaignStore, id: CampaignId) => {
+  const state = store.load(id);
+  if (state === undefined) throw new CampaignNotFoundError(id);
+  return state;
+};
+
+export const createEngine = (store: CampaignStore): Engine => ({
+  createCampaign: (name) => {
+    const campaign = { id: randomUUID(), name };
+    store.createCampaign(campaign, change(campaign, CAMPAIGN_CREATED));
+    return campaign;
+  },
+  getCampaign: (id) => loadState(store, id).campaign,
+  getState: (id) => loadState(store, id),
+  renameCampaign: (id, name) => {
+    const { revision } = loadState(store, id);
+    const campaign = { id, name };
+    store.renameCampaign({ expectedRevision: revision, campaign, event: change(campaign, CAMPAIGN_RENAMED) });
+    return campaign;
+  },
+});

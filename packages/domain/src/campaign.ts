@@ -3,6 +3,9 @@ export type CharacterId = string;
 export type SceneId = string;
 export type TurnId = string;
 export type EventId = string;
+export type BranchId = string;
+
+export const MAIN_BRANCH: BranchId = 'main';
 
 export type Campaign = { readonly id: CampaignId; readonly name: string };
 
@@ -37,6 +40,21 @@ export type TurnCommit = {
   readonly events: readonly CampaignEvent[];
 };
 
+export type CampaignChange = {
+  readonly id: EventId;
+  readonly campaignId: CampaignId;
+  readonly branchId: BranchId;
+  readonly actionId: string;
+  readonly type: string;
+  readonly payload: Readonly<Record<string, unknown>>;
+};
+
+export type CampaignRename = {
+  readonly expectedRevision: number;
+  readonly campaign: Campaign;
+  readonly event: CampaignChange;
+};
+
 export type CampaignState = {
   readonly campaign: Campaign;
   readonly revision: number;
@@ -47,7 +65,8 @@ export type CampaignState = {
 };
 
 export interface CampaignStore {
-  createCampaign(campaign: Campaign): void;
+  createCampaign(campaign: Campaign, event: CampaignChange): void;
+  renameCampaign(rename: CampaignRename): void;
   commitTurn(commit: TurnCommit): void;
   load(id: CampaignId): CampaignState | undefined;
 }

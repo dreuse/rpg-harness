@@ -36,6 +36,14 @@ export const MIGRATIONS: readonly Migration[] = [
       CREATE UNIQUE INDEX event_log_id ON event_log (id);
     `,
   },
+  {
+    version: 4,
+    sql: `
+      ALTER TABLE event_log ADD COLUMN branch_id TEXT;
+      ALTER TABLE event_log ADD COLUMN revision INTEGER;
+      ALTER TABLE event_log ADD COLUMN action_id TEXT;
+    `,
+  },
 ];
 
 const STARTED = 'started';

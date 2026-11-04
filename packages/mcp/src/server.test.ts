@@ -8,7 +8,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { CAMPAIGN_TOOLS } from './tools.ts';
 
-const SERVER = join(import.meta.dirname, 'server.ts');
+const SERVER = join(import.meta.dirname, '..', '..', '..', 'apps', 'mcp-server', 'src', 'main.ts');
 const DATABASE_ENV = 'RPG_DATABASE_PATH';
 const CAMPAIGN_NAME = 'Wire Test';
 const EXIT_OK = 0;

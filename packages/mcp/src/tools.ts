@@ -1,6 +1,5 @@
-import { randomUUID } from 'node:crypto';
-import type { DatabaseSync } from 'node:sqlite';
-import { createCampaignStore } from '../../persistence/src/campaign-store.ts';
+import { type Campaign, CampaignNotFoundError, StaleRevisionError } from '../../domain/src/campaign.ts';
+import type { Engine } from '../../engine/src/engine.ts';
 
 export const MAX_REQUEST_BYTES = 4096;
 export const MAX_NAME_LENGTH = 120;
@@ -38,9 +37,8 @@ export type ToolErrorCode =
   | 'InvalidArguments'
   | 'RequestTooLarge'
   | 'CampaignNotFound'
+  | 'StaleRevision'
   | 'SceneNotFound';
-
-export type Campaign = { readonly id: string; readonly name: string };
 
 export type SceneState = {
   readonly campaignId: string;
@@ -106,11 +104,6 @@ export const CAMPAIGN_TOOLS: readonly ToolDefinition[] = [
   },
 ];
 
-const SELECT_CAMPAIGN = 'SELECT id, name FROM campaign WHERE id = ?';
-const INSERT_CAMPAIGN = 'INSERT INTO campaign (id, name) VALUES (?, ?)';
-const UPDATE_CAMPAIGN = 'UPDATE campaign SET name = ? WHERE id = ?';
-const APPEND_EVENT = 'INSERT INTO event_log (campaign_id, payload) VALUES (?, ?)';
-
 class ToolError extends Error {
   readonly code: ToolErrorCode;
   constructor(code: ToolErrorCode, message: string) {
@@ -158,31 +151,8 @@ const validate = (schema: ObjectSchema, args: unknown): Record<string, string> =
   return values as Record<string, string>;
 };
 
-const readCampaign = (database: DatabaseSync, id: string): Campaign => {
-  const row = database.prepare(SELECT_CAMPAIGN).get(id);
-  if (row === undefined) throw new ToolError('CampaignNotFound', `no campaign with id ${id}`);
-  return { id: String(row.id), name: String(row.name) };
-};
-
-const inTransaction = <T>(database: DatabaseSync, run: () => T): T => {
-  database.exec('BEGIN IMMEDIATE');
-  try {
-    const result = run();
-    database.exec('COMMIT');
-    return result;
-  } catch (error) {
-    database.exec('ROLLBACK');
-    throw error;
-  }
-};
-
-const appendEvent = (database: DatabaseSync, campaignId: string, payload: Record<string, string>) =>
-  database.prepare(APPEND_EVENT).run(campaignId, JSON.stringify(payload));
-
-const readScene = (database: DatabaseSync, campaignId: string): SceneState => {
-  const state = createCampaignStore(database).load(campaignId);
-  if (state === undefined) throw new ToolError('CampaignNotFound', `no campaign with id ${campaignId}`);
-  const { currentScene, revision, characters } = state;
+const readScene = (engine: Engine, campaignId: string): SceneState => {
+  const { currentScene, revision, characters } = engine.getState(campaignId);
   if (currentScene === undefined) throw new ToolError('SceneNotFound', `campaign ${campaignId} has no current scene`);
   return {
     campaignId,
@@ -192,26 +162,21 @@ const readScene = (database: DatabaseSync, campaignId: string): SceneState => {
   };
 };
 
-const HANDLERS: Record<string, (database: DatabaseSync, args: Record<string, string>) => ToolOutput> = {
-  create_campaign: (database, { name = '' }) =>
-    inTransaction(database, () => {
-      const id = randomUUID();
-      database.prepare(INSERT_CAMPAIGN).run(id, name);
-      appendEvent(database, id, { type: 'CampaignCreated', name });
-      return { id, name };
-    }),
-  get_campaign: (database, { id = '' }) => readCampaign(database, id),
-  get_scene: (database, { campaignId = '' }) => readScene(database, campaignId),
-  rename_campaign: (database, { id = '', name = '' }) =>
-    inTransaction(database, () => {
-      readCampaign(database, id);
-      database.prepare(UPDATE_CAMPAIGN).run(name, id);
-      appendEvent(database, id, { type: 'CampaignRenamed', name });
-      return { id, name };
-    }),
+const HANDLERS: Record<string, (engine: Engine, args: Record<string, string>) => ToolOutput> = {
+  create_campaign: (engine, { name = '' }) => engine.createCampaign(name),
+  get_campaign: (engine, { id = '' }) => engine.getCampaign(id),
+  get_scene: (engine, { campaignId = '' }) => readScene(engine, campaignId),
+  rename_campaign: (engine, { id = '', name = '' }) => engine.renameCampaign(id, name),
 };
 
-export const callTool = (database: DatabaseSync, name: string, args: unknown): ToolResult => {
+const toToolError = (error: unknown) => {
+  if (error instanceof ToolError) return error;
+  if (error instanceof CampaignNotFoundError) return new ToolError('CampaignNotFound', error.message);
+  if (error instanceof StaleRevisionError) return new ToolError('StaleRevision', error.message);
+  throw error;
+};
+
+export const callTool = (engine: Engine, name: string, args: unknown): ToolResult => {
   try {
     const tool = CAMPAIGN_TOOLS.find((candidate) => candidate.name === name);
     const handler = HANDLERS[name];
@@ -219,9 +184,8 @@ export const callTool = (database: DatabaseSync, name: string, args: unknown): T
     if (requestBytes(args) > MAX_REQUEST_BYTES) {
       throw new ToolError('RequestTooLarge', `arguments exceed ${MAX_REQUEST_BYTES} bytes`);
     }
-    return success(handler(database, validate(tool.inputSchema, args)));
+    return success(handler(engine, validate(tool.inputSchema, args)));
   } catch (error) {
-    if (error instanceof ToolError) return failure(error);
-    throw error;
+    return failure(toToolError(error));
   }
 };
