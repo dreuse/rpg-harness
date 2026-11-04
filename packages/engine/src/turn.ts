@@ -44,7 +44,7 @@ const SCENE_OPENED = 'SceneOpened';
 const OPENING_ACTION = 'opening';
 const OPENING_INPUT = 'Begin.';
 
-const turnEvent = (turn: Turn, causationId: string | null, type: string, payload: Record<string, unknown>) => ({
+export const turnEvent = (turn: Turn, causationId: string | null, type: string, payload: Record<string, unknown>) => ({
   id: randomUUID(),
   campaignId: turn.campaignId,
   turnId: turn.id,
@@ -53,23 +53,23 @@ const turnEvent = (turn: Turn, causationId: string | null, type: string, payload
   payload,
 });
 
-const loadState = (store: CampaignStore, campaignId: CampaignId) => {
+export const loadState = (store: CampaignStore, campaignId: CampaignId) => {
   const state = store.load(campaignId);
   if (state === undefined) throw new CampaignNotFoundError(campaignId);
   return state;
 };
 
-const storedTurn = (state: CampaignState, actionId: string): CommittedTurn | undefined => {
+export const storedTurn = (state: CampaignState, actionId: string): CommittedTurn | undefined => {
   const turn = state.turns.find((candidate) => candidate.actionId === actionId);
   if (turn === undefined) return undefined;
   return { turn, events: state.events.filter((event) => event.turnId === turn.id) };
 };
 
-const requireValid = (actionId: string, valid: boolean, reason: string) => {
+export const requireValid = (actionId: string, valid: boolean, reason: string) => {
   if (!valid) throw new InvalidActionError(actionId, reason);
 };
 
-const validate = (state: CampaignState, action: PlayerAction) => {
+export const validate = (state: CampaignState, action: PlayerAction) => {
   const { actionId } = action;
   if (state.revision !== action.expectedRevision) throw new StaleRevisionError(action.expectedRevision, state.revision);
   requireValid(actionId, state.currentScene?.id === action.sceneId, `scene ${action.sceneId} is not the current scene`);
@@ -82,7 +82,15 @@ const validate = (state: CampaignState, action: PlayerAction) => {
   requireValid(actionId, action.intent.trim() !== '', 'intent is blank');
 };
 
-const toCommittedTurn = ({ campaignId, actionId, expectedRevision, sceneId, actorId, input, intent }: PlayerAction) => {
+export const toCommittedTurn = ({
+  campaignId,
+  actionId,
+  expectedRevision,
+  sceneId,
+  actorId,
+  input,
+  intent,
+}: PlayerAction) => {
   const turn: Turn = { id: randomUUID(), campaignId, sceneId, actionId, actorId, input, narration: PENDING_NARRATION };
   const event = (causationId: string | null, type: string, payload: Record<string, unknown>): CampaignEvent =>
     turnEvent(turn, causationId, type, payload);

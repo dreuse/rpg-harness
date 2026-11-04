@@ -39,6 +39,9 @@ importers:
       '@rpg/domain':
         specifier: workspace:*
         version: link:../domain
+      '@rpg/rules':
+        specifier: workspace:*
+        version: link:../rules
 
   packages/imports: {}
 
