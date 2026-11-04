@@ -184,3 +184,43 @@ test('N08 off verb carries across settings joined by and', () => {
   assert.equal(split.values.voiceInput, false);
   assert.equal(split.values.voiceOutput, true);
 });
+
+test('N08 combat alone can be turned off or on', () => {
+  for (const text of [
+    'Turn off combat.',
+    'Turn combat off.',
+    'Kill combat.',
+    'Drop the combat.',
+    'Pause combat.',
+    'Less combat please.',
+  ])
+    assertChanged(text, 'combat', 'off');
+  const quiet = configFor(FULL_EDITION, 'desktop', { combat: explicit('off' as const) });
+  assert.equal(changed(changeSettings(quiet, 'Turn on combat.')).config.values.combat, 'on');
+});
+
+test('N08 combat is not dropped when listed with other settings', () => {
+  const previous = configFor(FULL_EDITION, 'desktop', { voiceOutput: explicit(true) });
+  const { config } = changed(changeSettings(previous, 'Turn off combat and voice narration.'));
+  assert.equal(config.values.combat, 'off');
+  assert.equal(config.values.voiceOutput, false);
+});
+
+test('N08 combat mention without a clear cue is ambiguous', () => {
+  const previous = configFor(FULL_EDITION, 'desktop', { voiceOutput: explicit(true) });
+  for (const text of ["Don't turn off combat.", 'Combat is fine, turn off voice narration.'])
+    assert.deepEqual(changeSettings(previous, text), { ok: false, issues: [{ code: 'ambiguous', path: 'combat' }] });
+});
+
+test('N08 qualifiers after a setting do not turn it off', () => {
+  const previous = configFor(FULL_EDITION, 'desktop', { voiceOutput: explicit(true) });
+  for (const text of [
+    'Keep combat and drop the gore.',
+    'I want combat with less gore.',
+    'Combat should be less deadly.',
+    'Voice narration should pause for combat.',
+    'Keep voice narration and drop the accent.',
+    'Voice narration with less detail please.',
+  ])
+    assert.equal(changeSettings(previous, text).ok, false, text);
+});

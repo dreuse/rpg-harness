@@ -31,14 +31,16 @@ export type SettingsChangeResult =
   | { ok: true; config: CampaignConfig; event: ConfigChangedEvent }
   | { ok: false; issues: SettingsChangeIssue[] };
 
-type Request = { field: IntentField; value: unknown; evidence: Evidence };
+type Request = { field: IntentField; value: unknown; evidence: Evidence; bare?: true };
 
 const PREVIOUS_PATH = 'previous';
 const TONE =
   /\b(?:make|set|change|switch)[ ](?:the[ ])?(?:tone|mood)[ ](?:to[ ]|into[ ]|more[ ])?([a-z]+(?:-[a-z]+)*)/gi;
 
 const TONE_FILLER = ['a', 'an', 'the', 'not', 'be', 'something', 'more', 'less', 'so'];
+const BARE_COMBAT = /\bcombat\b/gi;
 const OFF_WORD = /\b(?:off|disable|stop|mute)\b/i;
+const OFF_VERB_OBJECT = /\b(?:kill|drop|pause|less)\s+(?:the\s+)?$/i;
 const ON_WORD = /\b(?:on|enable|start|unmute)\b/i;
 const CLAUSE_BREAK = /[,;.!?]|\b(?:but|then)\b/i;
 const JOIN = /\b(?:and|or)\b/i;
@@ -62,6 +64,20 @@ const toneRequests = (text: string): Request[] =>
       value: match[1]?.toLowerCase(),
       evidence: { start: match.index, end: match.index + match[0].length, text: match[0] },
     }));
+
+const overlaps = (a: Evidence, b: Evidence) => a.start < b.end && b.start < a.end;
+
+const bareCombatRequests = (text: string, settings: Request[], conflicted: boolean): Request[] =>
+  conflicted
+    ? []
+    : Array.from(text.matchAll(BARE_COMBAT))
+        .map((match) => ({
+          field: 'combat' as const,
+          value: 'on',
+          bare: true as const,
+          evidence: { start: match.index, end: match.index + match[0].length, text: match[0] },
+        }))
+        .filter((request) => !settings.some((setting) => overlaps(setting.evidence, request.evidence)));
 
 type Context = { before: string; tail: string; joined: boolean };
 type Resolved = Request & { offBefore: boolean; unclear: boolean };
@@ -96,9 +112,13 @@ const resolveOffWords = (text: string, found: Request[]): Resolved[] => {
     }
     const { before, tail, joined } = contextOf(text, found, index);
     const offBefore =
-      OFF_WORD.test(before) || (joined && BARE_JOIN.test(before) && resolved.at(-1)?.offBefore === true);
+      OFF_WORD.test(before) ||
+      OFF_VERB_OBJECT.test(before) ||
+      (joined && BARE_JOIN.test(before) && resolved.at(-1)?.offBefore === true);
     const off = offBefore || OFF_WORD.test(tail);
-    const unclear = off && (ON_WORD.test(before) || isNegatedClause(text, request.evidence.start));
+    const unclear = request.bare
+      ? isNegatedClause(text, request.evidence.start) || (off ? ON_WORD.test(before) : !ON_WORD.test(before + tail))
+      : off && (ON_WORD.test(before) || isNegatedClause(text, request.evidence.start));
     resolved.push({ ...request, value: off ? OFF_VALUES[request.field] : request.value, offBefore, unclear });
   });
   return resolved;
@@ -134,7 +154,15 @@ export const changeSettings = (previous: unknown, text: unknown): SettingsChange
   const said = text as string;
   const found = resolveOffWords(
     said,
-    [...settings, ...toneRequests(said)].sort((a, b) => a.evidence.start - b.evidence.start),
+    [
+      ...settings,
+      ...bareCombatRequests(
+        said,
+        settings,
+        conflicts.some(({ field }) => field === 'combat'),
+      ),
+      ...toneRequests(said),
+    ].sort((a, b) => a.evidence.start - b.evidence.start),
   );
   if (found.length === 0 && conflicts.length === 0) return fail([{ code: 'unrecognized', path: '' }]);
   const requests = found.filter((request) => found.find((other) => other.field === request.field) === request);
