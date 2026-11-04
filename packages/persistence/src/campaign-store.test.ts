@@ -67,7 +67,13 @@ const EXPECTED_STATE: CampaignState = {
 
 const OTHER_CAMPAIGN = { id: 'campaign-2', name: 'Salt Roads' };
 const MISSING_ID = 'missing';
-const DUPLICATE_ACTION = /UNIQUE constraint failed: turn\.campaign_id, turn\.action_id/;
+const COMMITTED_TURN = { turn: TURN, events: [ACTION_EVENT, NARRATION_EVENT] };
+const REWARD_EVENT = {
+  ...NARRATION_EVENT,
+  id: 'event-reward',
+  type: 'RewardGranted',
+  payload: { item: 'lantern', quantity: 1 },
+};
 const DUPLICATE_EVENT = /event_log is append-only/;
 
 const emptyState = (campaign: Campaign): CampaignState => ({
@@ -133,8 +139,6 @@ test('stale revision or failed turn writes nothing', () => {
   store.commitTurn(COMMIT);
   const second = { ...COMMIT, turn: { ...TURN, id: 'turn-2', actionId: 'action-2' }, events: [] };
   assert.throws(() => store.commitTurn(second), StaleRevisionError);
-  const duplicateAction = { ...second, expectedRevision: INITIAL_REVISION + 1, turn: { ...TURN, id: 'turn-2' } };
-  assert.throws(() => store.commitTurn(duplicateAction), DUPLICATE_ACTION);
   const lateFailure: TurnCommit = {
     expectedRevision: INITIAL_REVISION + 1,
     turn: { ...TURN, id: 'turn-2', actionId: 'action-2', sceneId: 'scene-2', actorId: 'character-2' },
@@ -152,6 +156,47 @@ test('stale revision or failed turn writes nothing', () => {
     CampaignNotFoundError,
   );
   connection.close();
+});
+
+test('validate preconditions and commit effects/events with revision checks and idempotency keys', () => {
+  const { connection, store } = openStore(IN_MEMORY);
+  create(store, CAMPAIGN);
+  assert.deepEqual(store.commitTurn(COMMIT), COMMITTED_TURN);
+  const retry: TurnCommit = {
+    ...COMMIT,
+    turn: { ...TURN, id: 'turn-2' },
+    events: [{ ...ACTION_EVENT, id: 'event-3', turnId: 'turn-2' }],
+  };
+  assert.deepEqual(store.commitTurn(retry), COMMITTED_TURN);
+  assert.deepEqual(store.load(CAMPAIGN.id), EXPECTED_STATE);
+  const stale = { ...retry, turn: { ...retry.turn, actionId: 'action-2' } };
+  assert.throws(() => store.commitTurn(stale), StaleRevisionError);
+  assert.deepEqual(store.load(CAMPAIGN.id), EXPECTED_STATE);
+  connection.close();
+});
+
+test('concurrent turns or retry after timeout do not duplicate inventory or rewards', async () => {
+  const dir = await mkdtemp(join(tmpdir(), TEMP_PREFIX));
+  try {
+    const path = join(dir, DATABASE_FILE);
+    const first = openStore(path);
+    create(first.store, CAMPAIGN);
+    const second = openStore(path);
+    const rewarded: TurnCommit = { ...COMMIT, events: [ACTION_EVENT, REWARD_EVENT] };
+    const rival: TurnCommit = {
+      ...rewarded,
+      turn: { ...TURN, id: 'turn-2', actionId: 'action-2' },
+      events: [{ ...REWARD_EVENT, id: 'event-rival', turnId: 'turn-2' }],
+    };
+    first.store.commitTurn(rewarded);
+    assert.throws(() => second.store.commitTurn(rival), StaleRevisionError);
+    assert.deepEqual(second.store.commitTurn(rewarded), { turn: TURN, events: rewarded.events });
+    assert.deepEqual(first.store.load(CAMPAIGN.id), { ...EXPECTED_STATE, events: rewarded.events });
+    first.connection.close();
+    second.connection.close();
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });
 
 test('a turn for one campaign cannot write or reference another campaign', () => {

@@ -40,6 +40,8 @@ export type TurnCommit = {
   readonly events: readonly CampaignEvent[];
 };
 
+export type CommittedTurn = { readonly turn: Turn; readonly events: readonly CampaignEvent[] };
+
 export type CampaignChange = {
   readonly id: EventId;
   readonly campaignId: CampaignId;
@@ -67,7 +69,7 @@ export type CampaignState = {
 export interface CampaignStore {
   createCampaign(campaign: Campaign, event: CampaignChange): void;
   renameCampaign(rename: CampaignRename): void;
-  commitTurn(commit: TurnCommit): void;
+  commitTurn(commit: TurnCommit): CommittedTurn;
   load(id: CampaignId): CampaignState | undefined;
 }
 

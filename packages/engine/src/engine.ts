@@ -6,9 +6,10 @@ import {
   CampaignNotFoundError,
   type CampaignState,
   type CampaignStore,
+  type CommittedTurn,
   MAIN_BRANCH,
 } from '../../domain/src/campaign.ts';
-import { type CommittedTurn, type PlayerAction, performAction } from './turn.ts';
+import { type PlayerAction, performAction } from './turn.ts';
 
 const CAMPAIGN_CREATED = 'CampaignCreated';
 const CAMPAIGN_RENAMED = 'CampaignRenamed';

@@ -7,6 +7,7 @@ import {
   CampaignNotFoundError,
   type CampaignStore,
   type Character,
+  type CommittedTurn,
   MAIN_BRANCH,
   type Scene,
   StaleRevisionError,
@@ -33,10 +34,12 @@ const APPEND_EVENT =
 const SELECT_CHARACTERS = 'SELECT id, campaign_id, name FROM character WHERE campaign_id = ? ORDER BY rowid';
 const SELECT_CURRENT_SCENE =
   'SELECT scene.id, scene.campaign_id, scene.title FROM scene JOIN campaign ON campaign.current_scene_id = scene.id WHERE campaign.id = ?';
-const SELECT_TURNS =
-  'SELECT id, campaign_id, scene_id, action_id, actor_id, input, narration FROM turn WHERE campaign_id = ? ORDER BY revision';
-const SELECT_EVENTS =
-  'SELECT id, campaign_id, turn_id, causation_id, type, payload FROM event_log WHERE campaign_id = ? AND turn_id IS NOT NULL ORDER BY seq';
+const TURN_COLUMNS = 'SELECT id, campaign_id, scene_id, action_id, actor_id, input, narration FROM turn';
+const SELECT_TURNS = `${TURN_COLUMNS} WHERE campaign_id = ? ORDER BY revision`;
+const SELECT_TURN_BY_ACTION = `${TURN_COLUMNS} WHERE campaign_id = ? AND action_id = ?`;
+const EVENT_COLUMNS = 'SELECT id, campaign_id, turn_id, causation_id, type, payload FROM event_log';
+const SELECT_EVENTS = `${EVENT_COLUMNS} WHERE campaign_id = ? AND turn_id IS NOT NULL ORDER BY seq`;
+const SELECT_TURN_EVENTS = `${EVENT_COLUMNS} WHERE turn_id = ? ORDER BY seq`;
 
 type Row = Record<string, unknown>;
 
@@ -71,11 +74,12 @@ const toEvent = (row: Row): CampaignEvent => ({
   payload: JSON.parse(String(row.payload)),
 });
 
-const inTransaction = (database: DatabaseSync, run: () => void) => {
+const inTransaction = <T>(database: DatabaseSync, run: () => T): T => {
   database.exec('BEGIN IMMEDIATE');
   try {
-    run();
+    const result = run();
     database.exec('COMMIT');
+    return result;
   } catch (error) {
     database.exec('ROLLBACK');
     throw error;
@@ -121,7 +125,17 @@ const appendCampaignChange = (database: DatabaseSync, campaignId: string, event:
     );
 };
 
-const writeTurn = (database: DatabaseSync, { expectedRevision, turn, characters, scenes, events }: TurnCommit) => {
+const storedTurn = (database: DatabaseSync, { campaignId, actionId }: Turn): CommittedTurn | undefined => {
+  const row = database.prepare(SELECT_TURN_BY_ACTION).get(campaignId, actionId);
+  if (row === undefined) return undefined;
+  const turn = toTurn(row);
+  return { turn, events: database.prepare(SELECT_TURN_EVENTS).all(turn.id).map(toEvent) };
+};
+
+const writeTurn = (
+  database: DatabaseSync,
+  { expectedRevision, turn, characters, scenes, events }: TurnCommit,
+): CommittedTurn => {
   const { campaignId } = turn;
   const revision = nextRevision(database, campaignId, expectedRevision);
   for (const { id, campaignId: owner, name } of characters) {
@@ -165,6 +179,7 @@ const writeTurn = (database: DatabaseSync, { expectedRevision, turn, characters,
       );
   }
   database.prepare(ADVANCE_CAMPAIGN).run(revision, turn.sceneId, campaignId);
+  return { turn, events };
 };
 
 export const createCampaignStore = (database: DatabaseSync): CampaignStore => ({
@@ -179,7 +194,8 @@ export const createCampaignStore = (database: DatabaseSync): CampaignStore => ({
       database.prepare(RENAME_CAMPAIGN).run(campaign.name, revision, campaign.id);
       appendCampaignChange(database, campaign.id, event, revision);
     }),
-  commitTurn: (commit) => inTransaction(database, () => writeTurn(database, commit)),
+  commitTurn: (commit) =>
+    inTransaction(database, () => storedTurn(database, commit.turn) ?? writeTurn(database, commit)),
   load: (id) => {
     const row = database.prepare(SELECT_CAMPAIGN).get(id);
     if (row === undefined) return undefined;

@@ -6,6 +6,7 @@ import {
   type CampaignState,
   type CampaignStore,
   type CharacterId,
+  type CommittedTurn,
   type SceneId,
   StaleRevisionError,
   type Turn,
@@ -20,8 +21,6 @@ export type PlayerAction = {
   readonly input: string;
   readonly intent: string;
 };
-
-export type CommittedTurn = { readonly turn: Turn; readonly events: readonly CampaignEvent[] };
 
 export class InvalidActionError extends Error {
   readonly actionId: string;
@@ -96,9 +95,12 @@ export const performAction = (store: CampaignStore, action: PlayerAction): Commi
   const stored = storedTurn(state, action.actionId);
   if (stored !== undefined) return stored;
   validate(state, action);
-  const committed = toCommittedTurn(action);
-  store.commitTurn({ expectedRevision: action.expectedRevision, characters: [], scenes: [], ...committed });
-  return committed;
+  return store.commitTurn({
+    expectedRevision: action.expectedRevision,
+    characters: [],
+    scenes: [],
+    ...toCommittedTurn(action),
+  });
 };
 
 export const openScene = (store: CampaignStore, opening: OpeningScene): CommittedTurn => {
@@ -122,6 +124,5 @@ export const openScene = (store: CampaignStore, opening: OpeningScene): Committe
   const events = [
     turnEvent(turn, null, SCENE_OPENED, { sceneId: scene.id, title: sceneTitle, actorId: character.id, actorName }),
   ];
-  store.commitTurn({ expectedRevision: state.revision, turn, characters: [character], scenes: [scene], events });
-  return { turn, events };
+  return store.commitTurn({ expectedRevision: state.revision, turn, characters: [character], scenes: [scene], events });
 };
