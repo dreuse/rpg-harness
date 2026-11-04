@@ -78,6 +78,8 @@ importers:
         specifier: workspace:*
         version: link:../domain
 
+  packages/testkit: {}
+
 packages:
 
   '@biomejs/biome@2.6.5':

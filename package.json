@@ -12,6 +12,8 @@
     "lint": "biome check .",
     "format": "biome format --write .",
     "test": "node --test \"scripts/**/*.test.ts\" \"packages/*/src/**/*.test.ts\" \"apps/*/src/**/*.test.ts\"",
+    "test:integration": "node --test \"packages/*/src/**/*.integration.test.ts\"",
+    "check:prereqs": "node scripts/check-prerequisites.ts",
     "build": "tsc --rootDir . --outDir dist"
   },
   "devDependencies": {
