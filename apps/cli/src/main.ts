@@ -11,6 +11,9 @@ export type CampaignMode = 'play' | 'resume';
 export type CampaignGateway = {
   launch: () => string;
   create: (name: string, intent?: string) => string;
+  list: () => string;
+  archive: (campaign: string) => string;
+  remove: (campaign: string, lines: AsyncIterable<string>) => AsyncIterable<string>;
   open: (
     campaign: string,
     mode: CampaignMode,
@@ -35,6 +38,9 @@ const COMMANDS = [
   },
   { name: 'play', usage: 'play <campaign>', description: 'Start playing a campaign.' },
   { name: 'resume', usage: 'resume <campaign>', description: 'Continue a campaign.' },
+  { name: 'list', usage: 'list', description: 'List active and archived campaigns.' },
+  { name: 'archive', usage: 'archive <campaign>', description: 'Hide a campaign and keep its saved state.' },
+  { name: 'delete', usage: 'delete <campaign>', description: 'Delete a campaign after you confirm its name.' },
   { name: 'import', usage: 'import <file...>', description: 'Import rule files and choose what to activate.' },
   { name: 'help', usage: 'help', description: 'Show this help.' },
 ] as const;
@@ -118,8 +124,15 @@ export const main = async (argv: readonly string[], io: Io, gateway: CampaignGat
     io.stdout(helpText());
     return EXIT_OK;
   }
-  if (command === 'launch') {
-    return rest.length > 0 ? usageError(io, `Unexpected argument: ${rest[0]}.`) : run(io, () => [gateway.launch()]);
+  if (command === 'launch' || command === 'list') {
+    if (rest.length > 0) return usageError(io, `Unexpected argument: ${rest[0]}.`);
+    return run(io, () => [command === 'launch' ? gateway.launch() : gateway.list()]);
+  }
+  if (command === 'archive' || command === 'delete') {
+    const [name, ...extra] = rest;
+    if (name === undefined || name.trim() === '') return usageError(io, `Missing campaign name for ${command}.`);
+    if (extra.length > 0) return usageError(io, `Unexpected argument: ${extra[0]}.`);
+    return run(io, () => (command === 'archive' ? [gateway.archive(name)] : gateway.remove(name, io.lines)));
   }
   if (command === 'new' || command === 'play' || command === 'resume') {
     const [name, ...extra] = rest;
