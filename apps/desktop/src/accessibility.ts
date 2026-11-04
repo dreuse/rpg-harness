@@ -36,6 +36,15 @@ export const parsePreferences = (input: unknown): Result<UiPreferences> => {
   return { ok: true, value: { fontScale: clamp(fontScale), locale, reducedMotion, keyboard } };
 };
 
+export const loadPreferences = (read: () => string): UiPreferences => {
+  try {
+    const parsed = parsePreferences(JSON.parse(read()));
+    return parsed.ok ? parsed.value : DEFAULT_PREFERENCES;
+  } catch {
+    return DEFAULT_PREFERENCES;
+  }
+};
+
 export type RendererAction = 'submit' | 'retry' | 'focusConversation' | 'focusSheet' | 'focusPanels' | 'nextCampaign';
 
 export const KEY_BINDINGS: Readonly<Record<string, RendererAction>> = {
@@ -60,6 +69,14 @@ const CATALOG: Readonly<Record<string, Readonly<Record<string, string>>>> = {
     'label.no': 'no',
     'label.noValue': 'no value',
     'label.progressOf': 'of',
+    'region.campaigns': 'Campaigns',
+    'region.status': 'Engine status',
+    'region.conversation': 'Conversation',
+    'region.sheet': 'Character sheet',
+    'region.panels': 'Panels',
+    'region.rejected': 'Rejected actions',
+    'action.retry': 'Reconnect',
+    'label.pending': 'pending',
   },
   es: {
     'status.connecting': 'Conectando con el motor',
@@ -70,6 +87,14 @@ const CATALOG: Readonly<Record<string, Readonly<Record<string, string>>>> = {
     'label.no': 'no',
     'label.noValue': 'sin valor',
     'label.progressOf': 'de',
+    'region.campaigns': 'Campañas',
+    'region.status': 'Estado del motor',
+    'region.conversation': 'Conversación',
+    'region.sheet': 'Ficha del personaje',
+    'region.panels': 'Paneles',
+    'region.rejected': 'Acciones rechazadas',
+    'action.retry': 'Reconectar',
+    'label.pending': 'pendiente',
   },
 };
 

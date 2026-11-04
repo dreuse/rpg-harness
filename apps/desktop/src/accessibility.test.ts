@@ -5,6 +5,7 @@ import {
   componentLabel,
   DEFAULT_PREFERENCES,
   KEY_BINDINGS,
+  loadPreferences,
   MAX_FONT_SCALE,
   MIN_FONT_SCALE,
   parsePreferences,
@@ -22,6 +23,27 @@ test('UI10 preferences default, clamp font scale and reject invalid input', () =
   assert.equal(parsePreferences({ reducedMotion: 'yes' }).ok, false);
   assert.equal(parsePreferences({ locale: '' }).ok, false);
   assert.equal(parsePreferences('nope').ok, false);
+});
+
+test('UI10 saved preferences load and fall back to defaults without throwing', () => {
+  assert.deepEqual(
+    loadPreferences(() => '{"locale":"es"}'),
+    { ...DEFAULT_PREFERENCES, locale: 'es' },
+  );
+  assert.deepEqual(
+    loadPreferences(() => '{broken'),
+    DEFAULT_PREFERENCES,
+  );
+  assert.deepEqual(
+    loadPreferences(() => '[]'),
+    DEFAULT_PREFERENCES,
+  );
+  assert.deepEqual(
+    loadPreferences(() => {
+      throw new Error('missing');
+    }),
+    DEFAULT_PREFERENCES,
+  );
 });
 
 test('UI10 keyboard controls map keys to renderer actions and can be disabled', () => {

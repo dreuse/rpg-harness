@@ -1,0 +1,208 @@
+import assert from 'node:assert/strict';
+import { join } from 'node:path';
+import { test } from 'node:test';
+import { PROTOCOL_VERSION } from '../../../packages/client-protocol/src/protocol.ts';
+import { API_KEY_ENV, type DaemonOptions } from '../../cli/src/desktop-daemon.ts';
+import { DEFAULT_PREFERENCES, MAX_FONT_SCALE } from './accessibility.ts';
+import { type Daemon, daemonTransport, ENGINE_CRASHED, PREFERENCES_FILE, startMain, WINDOW_SECURITY } from './main.ts';
+import { CHANNELS, PREFERENCES_QUERY } from './preload.ts';
+
+const DATA_DIR = '/data';
+const PRELOAD = '/app/preload.js';
+const PAGE = '/app/index.html';
+const CAMPAIGN = 'c1';
+const READY = { type: 'Ready', version: PROTOCOL_VERSION, pid: 7, node: 'v24', sqlite: true, gm: 'fake' };
+const STOPPED = 'The engine is not running.';
+const API_KEY = 'sk-test';
+const CONSUMER_TOKEN = 'token';
+const SENT_PREFERENCES = { ...DEFAULT_PREFERENCES, fontScale: MAX_FONT_SCALE };
+const VIEW = { campaignId: CAMPAIGN, viewId: 'sheet', components: [] };
+const command = (type: string, extra: object = {}) =>
+  JSON.stringify({ version: PROTOCOL_VERSION, type, campaignId: CAMPAIGN, ...extra });
+
+const fakeDaemon = (results: Record<string, unknown> = {}): Daemon & { stopped: () => boolean } => {
+  let stopped = false;
+  return {
+    ready: async () => READY as Awaited<ReturnType<Daemon['ready']>>,
+    command: async (input) => {
+      const { type } = input as { type: string };
+      if (!Object.hasOwn(results, type)) throw new Error(STOPPED);
+      return { id: 0, type: 'Result', result: results[type] as { ok: true; value: unknown } };
+    },
+    stop: async () => {
+      stopped = true;
+      return 0;
+    },
+    stopped: () => stopped,
+  };
+};
+
+const flush = () => new Promise((resolve) => setImmediate(resolve));
+
+const collect = (daemon: Daemon) => {
+  const transport = daemonTransport(daemon);
+  const lines: unknown[] = [];
+  const closes: string[] = [];
+  transport.onLine((line) => lines.push(JSON.parse(line)));
+  transport.onClose((error) => closes.push(error));
+  return { transport, lines, closes };
+};
+
+test('UI08 daemon transport maps engine replies to renderer lines', async () => {
+  const snapshot = { campaignId: CAMPAIGN };
+  const { transport, lines, closes } = collect(
+    fakeDaemon({
+      ListCampaigns: { ok: true, value: { campaigns: [] } },
+      GetCampaignSnapshot: { ok: true, value: snapshot },
+      GetCampaignPanels: { ok: true, value: snapshot },
+      RequestView: { ok: true, value: VIEW },
+      SubmitPlayerAction: { ok: false, error: { code: 'Rejected', message: 'no' } },
+    }),
+  );
+  transport.connect();
+  transport.send(JSON.stringify({ version: PROTOCOL_VERSION, type: 'ListCampaigns' }));
+  transport.send(command('GetCampaignSnapshot'));
+  transport.send(command('GetCampaignPanels'));
+  transport.send(command('RequestView', { viewId: 'sheet' }));
+  transport.send(command('SubmitPlayerAction', { actionId: 'a1' }));
+  transport.send('not json');
+  await flush();
+  assert.deepEqual(lines, [
+    READY,
+    { type: 'Campaigns', campaigns: [] },
+    { type: 'Snapshot', snapshot },
+    { type: 'Panels', panels: snapshot },
+    { type: 'View', campaignId: CAMPAIGN, view: VIEW },
+    { type: 'Rejected', actionId: 'a1', error: { code: 'Rejected', message: 'no' } },
+  ]);
+  assert.deepEqual(closes, []);
+});
+
+test('UI08 daemon transport reports a failed engine call as closed', async () => {
+  const { transport, lines, closes } = collect(fakeDaemon());
+  transport.send(command('GetCampaignSnapshot'));
+  await flush();
+  assert.deepEqual(lines, []);
+  assert.deepEqual(closes, [STOPPED]);
+});
+
+const fakeElectron = (files: Record<string, string> = {}) => {
+  const handlers = new Map<string, (event: { sender: unknown }, ...args: unknown[]) => void>();
+  const pushed: unknown[][] = [];
+  const written: Record<string, string> = {};
+  const made: string[] = [];
+  const windows: { options: unknown; page: string; load: unknown }[] = [];
+  const webContents = {
+    send: (channel: string, ...args: unknown[]) => {
+      pushed.push([channel, ...args]);
+    },
+  };
+  class BrowserWindow {
+    readonly webContents = webContents;
+    readonly options: unknown;
+    constructor(options: unknown) {
+      this.options = options;
+    }
+    loadFile(page: string, load: unknown) {
+      windows.push({ options: this.options, page, load });
+    }
+  }
+  const fs = {
+    readFileSync: (path: string) => {
+      if (!Object.hasOwn(files, path)) throw new Error('missing');
+      return files[path] as string;
+    },
+    writeFileSync: (path: string, data: string) => {
+      written[path] = data;
+    },
+    mkdirSync: (path: string) => {
+      made.push(path);
+    },
+  };
+  const ipcMain = {
+    on: (channel: string, listener: (event: { sender: unknown }, ...args: unknown[]) => void) => {
+      handlers.set(channel, listener);
+    },
+  };
+  const ipc = (channel: string, ...args: unknown[]) => handlers.get(channel)?.({ sender: webContents }, ...args);
+  const foreign = (channel: string, ...args: unknown[]) => handlers.get(channel)?.({ sender: {} }, ...args);
+  return { BrowserWindow, ipcMain, fs, ipc, foreign, pushed, written, made, windows };
+};
+
+const start = (electron: ReturnType<typeof fakeElectron>, daemon = fakeDaemon()) => {
+  const options: DaemonOptions[] = [];
+  const main = startMain({
+    ...electron,
+    env: { [API_KEY_ENV]: API_KEY, CLAUDE_CODE_OAUTH_TOKEN: CONSUMER_TOKEN },
+    dataDir: DATA_DIR,
+    preload: PRELOAD,
+    page: PAGE,
+    startDaemon: (given) => {
+      options.push(given);
+      return daemon;
+    },
+  });
+  return { main, options };
+};
+
+test('UI08 main opens a sandboxed window with a scrubbed engine env', () => {
+  const electron = fakeElectron();
+  const { options } = start(electron);
+  const [window] = electron.windows;
+  assert.ok(window);
+  assert.deepEqual((window.options as { webPreferences: unknown }).webPreferences, {
+    preload: PRELOAD,
+    ...WINDOW_SECURITY,
+  });
+  assert.deepEqual(WINDOW_SECURITY, { contextIsolation: true, nodeIntegration: false, sandbox: true });
+  assert.equal(window.page, PAGE);
+  assert.deepEqual(options[0]?.env, { [API_KEY_ENV]: API_KEY });
+});
+
+test('UI08 main relays ipc lines from its own window only', async () => {
+  const electron = fakeElectron();
+  const daemon = fakeDaemon({ ListCampaigns: { ok: true, value: { campaigns: [] } } });
+  const { options, main } = start(electron, daemon);
+  const list = JSON.stringify({ version: PROTOCOL_VERSION, type: 'ListCampaigns' });
+  electron.foreign(CHANNELS.connect);
+  electron.foreign(CHANNELS.send, list);
+  electron.ipc(CHANNELS.send, { not: 'a line' });
+  await flush();
+  assert.deepEqual(electron.pushed, []);
+  electron.ipc(CHANNELS.connect);
+  electron.ipc(CHANNELS.send, list);
+  await flush();
+  options[0]?.onCrash?.(READY.pid);
+  assert.deepEqual(electron.pushed, [
+    [CHANNELS.line, JSON.stringify(READY)],
+    [CHANNELS.line, JSON.stringify({ type: 'Campaigns', campaigns: [] })],
+    [CHANNELS.close, ENGINE_CRASHED],
+  ]);
+  await main.stop();
+  assert.equal(daemon.stopped(), true);
+});
+
+test('UI08 main loads saved preferences and falls back on bad files', () => {
+  const path = join(DATA_DIR, PREFERENCES_FILE);
+  const saved = fakeElectron({ [path]: JSON.stringify(SENT_PREFERENCES) });
+  start(saved);
+  assert.deepEqual(saved.windows[0]?.load, { query: { [PREFERENCES_QUERY]: JSON.stringify(SENT_PREFERENCES) } });
+  for (const files of [{}, { [path]: '{broken' }, { [path]: '{"fontScale":"big"}' }]) {
+    const electron = fakeElectron(files);
+    start(electron);
+    assert.deepEqual(electron.windows[0]?.load, {
+      query: { [PREFERENCES_QUERY]: JSON.stringify(DEFAULT_PREFERENCES) },
+    });
+  }
+});
+
+test('UI08 main persists only valid preferences from its window', () => {
+  const electron = fakeElectron();
+  start(electron);
+  electron.foreign(CHANNELS.preferences, SENT_PREFERENCES);
+  electron.ipc(CHANNELS.preferences, { fontScale: 'big' });
+  assert.deepEqual(electron.written, {});
+  electron.ipc(CHANNELS.preferences, SENT_PREFERENCES);
+  assert.deepEqual(electron.made, [DATA_DIR]);
+  assert.deepEqual(JSON.parse(electron.written[join(DATA_DIR, PREFERENCES_FILE)] ?? ''), SENT_PREFERENCES);
+});

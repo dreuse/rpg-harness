@@ -12,6 +12,7 @@ import { API_KEY_ENV, CAMPAIGN_ENV, startDaemon } from '../../cli/src/desktop-da
 import { createEngineGateway, openClientSession } from '../../cli/src/engine-gateway.ts';
 import { DATA_DIR_ENV } from '../../cli/src/setup-check.ts';
 import { PLAIN_TERMINAL, runTui } from '../../cli/src/tui.ts';
+import { daemonTransport } from './main.ts';
 import { createDesktopClient, type Transport } from './renderer.ts';
 
 const CAMPAIGN = 'Ember';
@@ -26,6 +27,7 @@ const QUIT = 'q';
 const LOST_REPLY = 'Connection lost before the reply.';
 const ENGINE_CRASHED = 'Engine crashed.';
 const KILL = 'SIGKILL';
+const IGNORE = () => {};
 
 type Daemon = ReturnType<typeof startDaemon>;
 type Wire = Transport & {
@@ -44,35 +46,29 @@ const campaignDir = async (t: TestContext) => {
 };
 
 const daemonWire = (daemon: Daemon): Wire => {
-  const inflight = new Set<Promise<void>>();
-  let onLine = (_line: string) => {};
+  const inflight = new Set<Promise<unknown>>();
   let onClose = (_error: string) => {};
   let dropReply = false;
-  const emit = (message: object) => onLine(JSON.stringify(message));
-  const track = (work: Promise<void>) => {
-    const tracked = work.catch(() => {}).finally(() => inflight.delete(tracked));
+  const track = <T>(work: Promise<T>) => {
+    const tracked = work.then(IGNORE, IGNORE).finally(() => inflight.delete(tracked));
     inflight.add(tracked);
+    return work;
   };
-  const reply = async (command: ClientCommand) => {
-    const { result, message } = await daemon.command(command);
-    if (command.type === 'ListCampaigns' && result?.ok) return emit({ type: 'Campaigns', ...(result.value as object) });
-    if (command.type === 'GetCampaignSnapshot' && result?.ok) return emit({ type: 'Snapshot', snapshot: result.value });
-    if (command.type !== 'SubmitPlayerAction') return;
-    if (dropReply) {
-      dropReply = false;
-      return onClose(LOST_REPLY);
-    }
-    const { actionId } = command;
-    emit(result?.ok ? { type: 'Accepted', actionId } : { type: 'Rejected', actionId, error: result?.error ?? message });
+  const lossy = async (command: ClientCommand) => {
+    const reply = await daemon.command(command);
+    if (!dropReply || command.type !== 'SubmitPlayerAction') return reply;
+    dropReply = false;
+    throw new Error(LOST_REPLY);
   };
+  const transport = daemonTransport({
+    ready: () => track(daemon.ready()),
+    command: (command) => track(lossy(command as ClientCommand)),
+  });
   return {
-    connect: () => track(daemon.ready().then(emit)),
-    send: (line) => track(reply(JSON.parse(line) as ClientCommand)),
-    onLine: (listener) => {
-      onLine = listener;
-    },
+    ...transport,
     onClose: (listener) => {
       onClose = listener;
+      transport.onClose(listener);
     },
     settled: async () => {
       while (inflight.size > 0) await Promise.all(inflight);
