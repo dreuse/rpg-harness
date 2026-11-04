@@ -320,3 +320,11 @@ test('rpg-p5p5: an action submitted between Ready and the first snapshot is sent
     [['a0', 4]],
   );
 });
+
+test('A21 a disconnect clears pending voice saves', () => {
+  const { wire, client } = connectedClient();
+  assert.equal(client.saveVoice({ microphone: 'off', spokenOutput: 'off', locale: 'en', speed: 1 }).ok, true);
+  assert.equal(client.voicePending(), true);
+  wire.close('Engine 42 exited (1).');
+  assert.equal(client.voicePending(), false);
+});

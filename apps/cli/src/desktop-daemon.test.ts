@@ -258,6 +258,17 @@ describe('serve client-protocol commands over the desktop engine daemon', () => 
     assert.equal(rejectionOf(await daemon.command({ ...edit, fieldId: 'stress', value: 1 })), 'Rejected');
   });
 
+  it('A21: saves voice settings through the engine so a restarted daemon serves them', async (t) => {
+    const { env, campaignId } = await campaignEnv(t);
+    const daemon = supervise(t, { env });
+    const { revision } = await snapshotOf(daemon, campaignId);
+    const settings = { microphone: 'off', spokenOutput: 'full', locale: 'en-US', speed: 1.5 };
+    const save = { ...snapshotCommand(campaignId), type: 'SaveVoiceSettings', actionId: 'voice', ...settings };
+    acceptedValue<Accepted>(await daemon.command({ ...save, expectedRevision: revision }));
+    await daemon.stop();
+    assert.deepEqual((await snapshotOf(supervise(t, { env }), campaignId)).voice, settings);
+  });
+
   it('serves campaign panels and the sheet view', async (t) => {
     const { env, campaignId } = await campaignEnv(t);
     const daemon = supervise(t, { env });

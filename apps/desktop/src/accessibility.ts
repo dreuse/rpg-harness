@@ -139,6 +139,10 @@ const CATALOG: Readonly<Record<string, Readonly<Record<string, string>>>> = {
     'voice.mode': 'Microphone {microphone}, spoken output {spokenOutput}',
     'voice.fallback': 'Audio unavailable ({reason}); type instead',
     'voice.rejected': 'Voice settings not changed: {codes}',
+    'voice.settings': 'Settings: microphone {microphone}, output {spokenOutput}, {locale}, {speed}x',
+    'voice.consent': 'Allow microphone capture for this campaign?',
+    'voice.allow': 'Allow microphone',
+    'voice.decline': 'Keep typing',
   },
   es: {
     'status.connecting': 'Conectando con el motor',
@@ -162,6 +166,10 @@ const CATALOG: Readonly<Record<string, Readonly<Record<string, string>>>> = {
     'voice.mode': 'Micrófono {microphone}, voz hablada {spokenOutput}',
     'voice.fallback': 'Audio no disponible ({reason}); escribe en su lugar',
     'voice.rejected': 'Ajustes de voz sin cambios: {codes}',
+    'voice.settings': 'Ajustes: micrófono {microphone}, salida {spokenOutput}, {locale}, {speed}x',
+    'voice.consent': '¿Permitir la captura del micrófono en esta campaña?',
+    'voice.allow': 'Permitir micrófono',
+    'voice.decline': 'Seguir escribiendo',
   },
 };
 

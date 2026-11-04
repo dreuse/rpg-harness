@@ -79,12 +79,24 @@ const rejectedAlert = ({ rejected }: ViewModel, locale: string) =>
 
 const alert = (text: string) => `<p role="alert">${escapeHtml(text)}</p>`;
 
-export const renderVoice = ({ mode, subtitle, fallback, issues }: DesktopVoiceView, locale: string): string =>
+export const VOICE_ATTRIBUTE = 'data-voice';
+export const ALLOW = 'allow';
+export const DECLINE = 'decline';
+
+const consentPrompt = (locale: string) =>
+  `<div role="alertdialog" aria-label="${escapeHtml(translate(locale, 'voice.consent'))}"><p>${escapeHtml(translate(locale, 'voice.consent'))}</p>${button(VOICE_ATTRIBUTE, ALLOW, translate(locale, 'voice.allow'))}${button(VOICE_ATTRIBUTE, DECLINE, translate(locale, 'voice.decline'))}</div>`;
+
+export const renderVoice = (
+  { mode, preferences, subtitle, fallback, issues, asking }: DesktopVoiceView,
+  locale: string,
+): string =>
   section(
     'voice',
     locale,
     [
       `<p>${escapeHtml(mode.kind === 'voice' ? translate(locale, 'voice.mode', mode) : translate(locale, 'voice.typedOnly'))}</p>`,
+      `<p>${escapeHtml(translate(locale, 'voice.settings', preferences))}</p>`,
+      asking ? consentPrompt(locale) : '',
       `<p aria-live="polite">${escapeHtml(subtitle?.text ?? '')}</p>`,
       fallback === undefined ? '' : alert(translate(locale, 'voice.fallback', { reason: fallback })),
       issues.length === 0 ? '' : alert(translate(locale, 'voice.rejected', { codes: issues.join(ISSUE_SEPARATOR) })),

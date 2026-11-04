@@ -77,6 +77,11 @@ export type CampaignRename = {
   readonly event: CampaignChange;
 };
 
+export type CampaignChangeRecord = {
+  readonly expectedRevision: number;
+  readonly event: CampaignChange;
+};
+
 export type CampaignState = {
   readonly campaign: Campaign;
   readonly revision: number;
@@ -89,6 +94,7 @@ export type CampaignState = {
 export interface CampaignStore {
   createCampaign(campaign: Campaign, event: CampaignChange): void;
   renameCampaign(rename: CampaignRename): void;
+  recordChange(change: CampaignChangeRecord): void;
   commitTurn(commit: TurnCommit): CommittedTurn;
   recordNarration(campaignId: CampaignId, turnId: TurnId, narration: string): void;
   load(id: CampaignId): CampaignState | undefined;

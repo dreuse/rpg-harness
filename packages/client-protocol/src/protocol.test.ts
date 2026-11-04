@@ -56,6 +56,18 @@ const SHEET_EDIT = {
   value: 4,
 };
 
+const VOICE_SAVE = {
+  ...envelope,
+  type: 'SaveVoiceSettings',
+  actionId: 'action-3',
+  expectedRevision: 2,
+  microphone: 'push-to-talk',
+  spokenOutput: 'narrator',
+  locale: 'en-US',
+  speed: 1.5,
+  consentGrantedAt: '2026-11-04T00:00:00Z',
+};
+
 const LIST_CAMPAIGNS = { version: PROTOCOL_VERSION, type: 'ListCampaigns' } as const;
 
 const VALID_COMMANDS = [
@@ -70,7 +82,9 @@ const VALID_COMMANDS = [
   SHEET_EDIT,
   { ...SHEET_EDIT, value: 'Rook' },
   { ...SHEET_EDIT, value: false },
-];
+  VOICE_SAVE,
+  { ...VOICE_SAVE, microphone: 'off', consentGrantedAt: undefined },
+].map((command) => Object.fromEntries(Object.entries(command).filter(([, value]) => value !== undefined)));
 
 const inMemorySession = (): ClientSession & { commit(event: DomainEvent): void } => {
   const log = createEventLog({ campaignId: CAMPAIGN_ID, branchId: MAIN_BRANCH });
@@ -111,6 +125,7 @@ const inMemorySession = (): ClientSession & { commit(event: DomainEvent): void }
     }),
     subscribeEvents: (command, listener) => log.subscribe(command.fromRevision ?? 0, listener),
     editSheetField: () => ({ ok: true, value: { revision } }),
+    saveVoiceSettings: () => ({ ok: true, value: { revision } }),
   };
 };
 
@@ -173,7 +188,10 @@ test('UI01: clients cannot bypass the engine or trust unsolicited model state wr
     'RequestView',
     'SubscribeEvents',
     'EditSheetField',
+    'SaveVoiceSettings',
   ]);
+  assert.equal(code(parseCommand({ ...VOICE_SAVE, speed: '1.5' })), 'MalformedCommand');
+  assert.equal(code(parseCommand({ ...VOICE_SAVE, providerKey: 'sk-live' })), 'UnexpectedField');
   for (const type of ['WriteState', 'SetState', 'CommitEvent', '__proto__', 'toString']) {
     assert.equal(code(parseCommand({ ...envelope, type })), 'UnknownCommand');
   }

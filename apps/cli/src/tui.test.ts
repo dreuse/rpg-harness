@@ -273,15 +273,17 @@ test('UI06: the sheet and mechanics panes show what the session serves', async (
 test('A18: unrecognized voice settings input reaches the GM as a player action', async () => {
   const GAMEPLAY = 'Turn to the bard and ask for a song.';
   const { engine, campaignId, session } = engineSession();
-  const audio = createTuiAudio(
-    {
-      campaignId,
-      turn: 0,
-      pendingInput: [],
-      preferences: { microphone: 'off', spokenOutput: 'off', locale: 'en-US', speed: 1 },
-    },
-    ['en-US'],
-  );
+  const audio = () =>
+    createTuiAudio(
+      {
+        campaignId,
+        turn: 0,
+        pendingInput: [],
+        preferences: { microphone: 'off', spokenOutput: 'off', locale: 'en-US', speed: 1 },
+      },
+      ['en-US'],
+      () => undefined,
+    );
   const output: string[] = [];
   await runTui(session, campaignId, {
     capabilities: PLAIN_WIDE,

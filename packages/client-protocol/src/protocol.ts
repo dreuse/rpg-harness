@@ -10,9 +10,22 @@ import type {
   Turn,
 } from '../../domain/src/campaign.ts';
 import type { RuleCitation } from '../../domain/src/character.ts';
+import type { SavedVoiceSettings } from '../../domain/src/voice.ts';
 import type { VisualizationEvent } from './visualization.ts';
 
-export type { VoiceFallback, VoiceProfile } from '../../domain/src/voice.ts';
+export type {
+  MicrophoneMode,
+  SavedVoiceSettings,
+  SpokenOutputMode,
+  VoiceFallback,
+  VoiceProfile,
+} from '../../domain/src/voice.ts';
+export {
+  MAX_VOICE_SPEED,
+  MICROPHONE_MODES,
+  MIN_VOICE_SPEED,
+  SPOKEN_OUTPUT_MODES,
+} from '../../domain/src/voice.ts';
 
 export const PROTOCOL_VERSION = 1;
 export const MAX_INPUT_LENGTH = 4096;
@@ -27,6 +40,7 @@ export const COMMAND_TYPES = [
   'RequestView',
   'SubscribeEvents',
   'EditSheetField',
+  'SaveVoiceSettings',
 ] as const;
 export type CommandType = (typeof COMMAND_TYPES)[number];
 
@@ -76,6 +90,11 @@ export type EditSheetField = Envelope<'EditSheetField'> & {
   readonly value: unknown;
 };
 
+export type SaveVoiceSettings = Envelope<'SaveVoiceSettings'> & {
+  readonly actionId: string;
+  readonly expectedRevision: number;
+} & SavedVoiceSettings;
+
 export type ClientCommand =
   | ListCampaigns
   | GetCampaignSnapshot
@@ -84,7 +103,8 @@ export type ClientCommand =
   | SelectCapability
   | RequestView
   | SubscribeEvents
-  | EditSheetField;
+  | EditSheetField
+  | SaveVoiceSettings;
 
 export type ClientDomainEvent = Readonly<DomainEvent>;
 
@@ -107,6 +127,7 @@ export type CampaignSnapshot = {
   readonly characters: readonly Character[];
   readonly currentScene: Scene | undefined;
   readonly turns: readonly Turn[];
+  readonly voice?: SavedVoiceSettings;
 };
 
 export type InventoryEntry = { readonly id: string; readonly name: string };
@@ -173,9 +194,10 @@ export interface ClientSession {
   requestView(command: RequestView): Result<ViewDescriptor>;
   subscribeEvents(command: SubscribeEvents, listener: (event: ClientEvent) => void): Unsubscribe;
   editSheetField(command: EditSheetField): Result<Accepted>;
+  saveVoiceSettings(command: SaveVoiceSettings): Result<Accepted>;
 }
 
-type FieldKind = 'id' | 'text' | 'revision' | 'flag' | 'primitive';
+type FieldKind = 'id' | 'text' | 'revision' | 'flag' | 'number' | 'primitive';
 type FieldSpec = { readonly kind: FieldKind; readonly optional?: true };
 
 const HEADER_FIELDS = ['version', 'type'];
@@ -204,6 +226,15 @@ const COMMAND_FIELDS: Record<CommandType, Readonly<Record<string, FieldSpec>>> =
     fieldId: ID,
     value: { kind: 'primitive' },
   },
+  SaveVoiceSettings: {
+    actionId: ID,
+    expectedRevision: { kind: 'revision' },
+    microphone: ID,
+    spokenOutput: ID,
+    locale: ID,
+    speed: { kind: 'number' },
+    consentGrantedAt: { kind: 'id', optional: true },
+  },
 };
 
 const FIELD_CHECKS: Record<FieldKind, (value: unknown) => boolean> = {
@@ -211,8 +242,8 @@ const FIELD_CHECKS: Record<FieldKind, (value: unknown) => boolean> = {
   text: (value) => typeof value === 'string' && value.length <= MAX_INPUT_LENGTH,
   revision: (value) => Number.isSafeInteger(value) && (value as number) >= 0,
   flag: (value) => typeof value === 'boolean',
-  primitive: (value) =>
-    FIELD_CHECKS.text(value) || FIELD_CHECKS.flag(value) || (typeof value === 'number' && Number.isFinite(value)),
+  number: (value) => typeof value === 'number' && Number.isFinite(value),
+  primitive: (value) => FIELD_CHECKS.text(value) || FIELD_CHECKS.flag(value) || FIELD_CHECKS.number(value),
 };
 
 export const failure = (code: ProtocolErrorCode, message: string): Result<never> => ({

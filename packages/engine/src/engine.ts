@@ -11,8 +11,10 @@ import {
   type CommittedTurn,
   MAIN_BRANCH,
 } from '../../domain/src/campaign.ts';
+import type { SavedVoiceSettings } from '../../domain/src/voice.ts';
 import type { Rng } from '../../rules/src/dice.ts';
 import { type Check, type PlayerAction, performAction } from './turn.ts';
+import { saveVoiceSettings, type VoiceSettingsSave } from './voice-settings.ts';
 
 export type Engine = {
   createCampaign(name: string): Campaign;
@@ -20,6 +22,7 @@ export type Engine = {
   getState(id: CampaignId): CampaignState;
   renameCampaign(id: CampaignId, name: string): Campaign;
   submitAction(action: PlayerAction, check?: Check): CommittedTurn;
+  saveVoiceSettings(save: VoiceSettingsSave): SavedVoiceSettings;
 };
 
 const change = ({ id, name }: Campaign, type: string): CampaignChange => ({
@@ -52,4 +55,5 @@ export const createEngine = (store: CampaignStore, rng: Rng = Math.random): Engi
     return campaign;
   },
   submitAction: (action, check) => performAction(store, action, check, rng),
+  saveVoiceSettings: (save) => saveVoiceSettings(store, save),
 });

@@ -120,6 +120,8 @@ const replier = ({ campaign, problem }: Served) => {
       return send({ id, type: 'Result', result: session.selectCapability(command) });
     if (command.type === 'RequestView') return send({ id, type: 'Result', result: session.requestView(command) });
     if (command.type === 'EditSheetField') return send({ id, type: 'Result', result: session.editSheetField(command) });
+    if (command.type === 'SaveVoiceSettings')
+      return send({ id, type: 'Result', result: session.saveVoiceSettings(command) });
     subscriptions.get(id)?.();
     subscriptions.set(
       id,

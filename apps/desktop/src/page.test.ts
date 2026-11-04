@@ -81,6 +81,14 @@ const fakePage = () => {
 
 const DENIED: MicrophoneState = { kind: 'typed-input-only', reason: 'permission-denied' };
 const CONSENT = { granted: true, grantedAt: '2026-11-04T00:00:00Z', providerIds: ['local'] } as const;
+const SAVED_REVISION = 2;
+const SAVED_VOICE = {
+  microphone: 'push-to-talk',
+  spokenOutput: 'off',
+  locale: 'en',
+  speed: 1,
+  consentGrantedAt: CONSENT.grantedAt,
+};
 const settle = () => new Promise(setImmediate);
 const deniedMicrophone: PageOptions['openMicrophone'] = () => ({ start: async () => DENIED, stop: () => {} });
 
@@ -90,12 +98,13 @@ const mount = (
   openMicrophone = deniedMicrophone,
 ) => {
   const preferences = { ...DEFAULT_PREFERENCES, fontScale: MAX_FONT_SCALE, ...saved };
+  let actions = 0;
   return mountPage({
     elements: page.elements,
     bridge: page.bridge,
     search: `?${new URLSearchParams({ [PREFERENCES_QUERY]: JSON.stringify(preferences) })}`,
     width: () => WIDE_WIDTH,
-    newActionId: () => 'a0',
+    newActionId: () => `a${actions++}`,
     openMicrophone,
   });
 };
@@ -149,14 +158,17 @@ test('A18 page renders voice and opens the mic at startup when saved settings en
     opened.push(settings.microphone);
     return { start: async () => DENIED, stop: () => {} };
   });
-  assert.deepEqual(opened, ['push-to-talk']);
   await settle();
-  assert.match(page.root.innerHTML, /Audio unavailable \(permission-denied\); type instead/);
+  assert.deepEqual(opened, []);
 
   page.receive(READY);
   page.receive({ type: 'Campaigns', campaigns: [SNAPSHOT.campaign] });
   page.click({ 'data-campaign': CAMPAIGN });
-  page.receive({ type: 'Snapshot', snapshot: SNAPSHOT });
+  page.receive({ type: 'Snapshot', snapshot: { ...SNAPSHOT, voice: SAVED_VOICE } });
+  await settle();
+  assert.deepEqual(opened, ['push-to-talk']);
+  assert.match(page.root.innerHTML, /Audio unavailable \(permission-denied\); type instead/);
+  assert.match(page.root.innerHTML, /Settings: microphone push-to-talk, output off, en, 1x/);
   page.input.value = 'set mic to off. look around';
   page.press('Enter');
   await settle();
@@ -164,4 +176,102 @@ test('A18 page renders voice and opens the mic at startup when saved settings en
   assert.equal(page.input.value, '');
   assert.match(page.root.innerHTML, /Voice off: type to play/);
   assert.doesNotMatch(page.root.innerHTML, /Audio unavailable/);
+});
+
+const saves = (page: ReturnType<typeof fakePage>) => page.sent.filter(({ type }) => type === 'SaveVoiceSettings');
+
+test('A21 page asks for microphone consent, saves the answer through the engine and keeps text play', async () => {
+  const page = fakePage();
+  const opened: string[] = [];
+  mount(page, { voice: { ...DEFAULT_PREFERENCES.voice, consent: CONSENT } }, (settings) => {
+    opened.push(settings.microphone);
+    return { start: async () => DENIED, stop: () => {} };
+  });
+  page.receive(READY);
+  page.receive({ type: 'Campaigns', campaigns: [SNAPSHOT.campaign] });
+  page.click({ 'data-campaign': CAMPAIGN });
+  page.receive({ type: 'Snapshot', snapshot: SNAPSHOT });
+  page.input.value = 'set mic to push-to-talk';
+  page.press('Enter');
+  await settle();
+  assert.match(page.root.innerHTML, /Allow microphone capture for this campaign\?/);
+  assert.deepEqual(opened, []);
+  assert.deepEqual(saves(page), []);
+  page.click({ 'data-voice': 'decline' });
+  await settle();
+  assert.doesNotMatch(page.root.innerHTML, /Allow microphone capture/);
+  assert.deepEqual(opened, []);
+  const declined = saves(page).at(-1);
+  assert.ok(declined?.type === 'SaveVoiceSettings');
+  assert.equal(declined.microphone, 'off');
+  assert.equal(declined.consentGrantedAt, undefined);
+  const refreshes = page.sent.filter(({ type }) => type === 'GetCampaignSnapshot').length;
+  page.receive({ type: 'Accepted', actionId: declined.actionId });
+  assert.equal(page.sent.filter(({ type }) => type === 'GetCampaignSnapshot').length, refreshes + 1);
+  const { consentGrantedAt: _none, ...textOnly } = SAVED_VOICE;
+  const saved = { ...SNAPSHOT, revision: SAVED_REVISION, voice: { ...textOnly, microphone: 'off' } };
+  page.receive({ type: 'Snapshot', snapshot: saved });
+  page.input.value = 'look around';
+  page.press('Enter');
+  await settle();
+  assert.deepEqual(submitted(page), ['look around']);
+  const action = page.sent.findLast(({ type }) => type === 'SubmitPlayerAction');
+  assert.ok(action?.type === 'SubmitPlayerAction');
+  assert.equal(action.expectedRevision, SAVED_REVISION);
+
+  page.input.value = 'set mic to hands-free';
+  page.press('Enter');
+  await settle();
+  page.click({ 'data-voice': 'allow' });
+  await settle();
+  assert.deepEqual(opened, ['hands-free']);
+  const granted = saves(page).at(-1);
+  assert.ok(granted?.type === 'SaveVoiceSettings' && granted.consentGrantedAt);
+  assert.equal(granted.microphone, 'hands-free');
+  assert.equal(granted.expectedRevision, SAVED_REVISION);
+  page.receive({ type: 'Rejected', actionId: granted.actionId, error: { code: 'Rejected', message: 'no' } });
+  assert.match(page.root.innerHTML, /role="alert"><li>voice settings: no/);
+  page.receive({ type: 'Snapshot', snapshot: { ...saved } });
+  await settle();
+  assert.match(page.root.innerHTML, /Settings: microphone off/);
+});
+
+test('A21 page retries a voice save rejected as stale and keeps the mic off', async () => {
+  const page = fakePage();
+  const opened: string[] = [];
+  mount(page, { voice: { ...DEFAULT_PREFERENCES.voice, consent: CONSENT } }, (settings) => {
+    opened.push(settings.microphone);
+    return { start: async () => DENIED, stop: () => {} };
+  });
+  page.receive(READY);
+  page.receive({ type: 'Campaigns', campaigns: [SNAPSHOT.campaign] });
+  page.click({ 'data-campaign': CAMPAIGN });
+  page.receive({ type: 'Snapshot', snapshot: { ...SNAPSHOT, voice: SAVED_VOICE } });
+  await settle();
+  assert.deepEqual(opened, ['push-to-talk']);
+  page.input.value = 'set mic to off. look around';
+  page.press('Enter');
+  await settle();
+  const action = page.sent.findLast(({ type }) => type === 'SubmitPlayerAction');
+  const first = saves(page).at(-1);
+  assert.ok(action?.type === 'SubmitPlayerAction' && first?.type === 'SaveVoiceSettings');
+  assert.equal(first.microphone, 'off');
+  page.receive({ type: 'Accepted', actionId: action.actionId });
+  page.receive({ type: 'Rejected', actionId: first.actionId, error: { code: 'StaleRevision', message: 'stale' } });
+  page.receive({ type: 'Snapshot', snapshot: { ...SNAPSHOT, revision: SAVED_REVISION, voice: SAVED_VOICE } });
+  await settle();
+  assert.deepEqual(opened, ['push-to-talk']);
+  assert.doesNotMatch(page.root.innerHTML, /voice settings: stale/);
+  assert.match(page.root.innerHTML, /Settings: microphone off/);
+  const retry = saves(page).at(-1);
+  assert.ok(retry?.type === 'SaveVoiceSettings' && retry !== first);
+  assert.equal(retry.expectedRevision, SAVED_REVISION);
+  assert.equal(retry.microphone, 'off');
+  page.receive({ type: 'Accepted', actionId: retry.actionId });
+  const off = { ...SAVED_VOICE, microphone: 'off' };
+  page.receive({ type: 'Snapshot', snapshot: { ...SNAPSHOT, revision: SAVED_REVISION + 1, voice: off } });
+  await settle();
+  assert.deepEqual(opened, ['push-to-talk']);
+  assert.match(page.root.innerHTML, /Settings: microphone off/);
+  assert.equal(saves(page).length, 2);
 });

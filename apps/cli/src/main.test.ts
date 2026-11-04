@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { type CampaignGateway, EXIT_FAILURE, EXIT_USAGE, main } from './main.ts';
 import type { Terminal } from './tui.ts';
+import { defaultTuiAudio } from './tui-audio.ts';
 
 const ESCAPE = String.fromCharCode(27);
 const FAILURE = 'Campaign Ember is broken.';
@@ -345,7 +346,7 @@ test('A18 tui gets voice controls only with --voice', async () => {
   }
   const [plain, voiced] = terminals;
   assert.equal(plain?.audio, undefined);
-  assert.match(voiced?.audio?.status() ?? '', /^Voice: mic off, output off, /);
+  assert.equal(voiced?.audio, defaultTuiAudio);
   const { gateway, io, err } = setup();
   assert.equal(await main(['play', 'Ember', '--voice'], io, gateway), EXIT_USAGE);
   assert.match(err.join(''), /--voice/);

@@ -777,3 +777,27 @@ test('an attempt in a d20-lite campaign rolls through the engine and reaches the
   assert.deepEqual(reveal?.kind === 'die' && reveal.sides, 20);
   assert.match((shown?.type === VISUALIZATION_EVENT && shown.final.outcome) || '', /^check\./);
 });
+
+test('A21: SaveVoiceSettings commits through the engine and the snapshot reads it back', () => {
+  const { sessionFor, envelope } = setup();
+  const session = sessionFor(PLAYER_VIEWER);
+  const settings = { microphone: 'off', spokenOutput: 'narrator', locale: 'en-US', speed: 1.5 } as const;
+  const save = { ...envelope, type: 'SaveVoiceSettings', actionId: 'voice-1', ...settings } as const;
+  const before = session.getSnapshot({ ...envelope, type: 'GetCampaignSnapshot' });
+  assert.ok(before.ok);
+  assert.equal(before.value.voice, undefined);
+  const saved = session.saveVoiceSettings({ ...save, expectedRevision: OPENING_REVISION });
+  assert.deepEqual(saved, { ok: true, value: { revision: OPENING_REVISION + 1 } });
+  const snapshot = session.getSnapshot({ ...envelope, type: 'GetCampaignSnapshot' });
+  assert.ok(snapshot.ok);
+  assert.deepEqual(snapshot.value.voice, settings);
+  const unconsented = session.saveVoiceSettings({
+    ...save,
+    actionId: 'voice-2',
+    microphone: 'hands-free',
+    expectedRevision: OPENING_REVISION + 1,
+  });
+  assert.equal(unconsented.ok ? undefined : unconsented.error.code, 'Rejected');
+  const stale = session.saveVoiceSettings({ ...save, actionId: 'voice-3', expectedRevision: OPENING_REVISION });
+  assert.equal(stale.ok ? undefined : stale.error.code, 'StaleRevision');
+});

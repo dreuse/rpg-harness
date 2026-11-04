@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { failure, type Result, type SubmitPlayerAction } from '../../../packages/client-protocol/src/protocol.ts';
+import {
+  failure,
+  type Result,
+  type SavedVoiceSettings,
+  type SubmitPlayerAction,
+} from '../../../packages/client-protocol/src/protocol.ts';
 import type { MicrophoneState } from '../../../packages/voice/src/microphone.ts';
 import type { VoiceSession } from '../../../packages/voice/src/voice-settings.ts';
 import { renderVoice } from './view.ts';
@@ -24,7 +29,9 @@ test('A18: desktop supports full voice; tui supports appropriate audio controls 
   const microphone = { starts: 0, stops: 0 };
   const voice = createDesktopVoice({
     session,
-    consent: { granted: true, grantedAt: '2026-11-04T00:00:00Z', providerIds: ['local'] },
+    consentGrantedAt: CONSENT.grantedAt,
+    providerIds: CONSENT.providerIds,
+    save: () => {},
     supportedLocales: SUPPORTED_LOCALES,
     subtitles: { current: () => SUBTITLE },
     openMicrophone: (settings) => ({
@@ -80,7 +87,9 @@ const deferredMicrophone = () => {
   const voice = (initial: VoiceSession = session) =>
     createDesktopVoice({
       session: initial,
-      consent: CONSENT,
+      consentGrantedAt: CONSENT.grantedAt,
+      providerIds: CONSENT.providerIds,
+      save: () => {},
       supportedLocales: SUPPORTED_LOCALES,
       subtitles: { current: () => undefined },
       openMicrophone: () => ({
@@ -125,6 +134,77 @@ test('A18: desktop opens the mic at startup when saved settings enable it', asyn
   mic.starts[0]?.(DENIED);
   await started;
   assert.equal(enabled.view().fallback, 'permission-denied');
+});
+
+const consentFixture = () => {
+  const opened: string[] = [];
+  const submitted: string[] = [];
+  const saved: SavedVoiceSettings[] = [];
+  const voice = createDesktopVoice({
+    session,
+    providerIds: CONSENT.providerIds,
+    supportedLocales: SUPPORTED_LOCALES,
+    subtitles: { current: () => undefined },
+    openMicrophone: (settings) => {
+      opened.push(settings.microphone);
+      return { start: async () => DENIED, stop: () => {} };
+    },
+    submit: (input) => {
+      submitted.push(input);
+      return failure('Rejected', 'offline');
+    },
+    save: (settings) => void saved.push(settings),
+  });
+  return { opened, submitted, saved, voice };
+};
+
+test('A21: desktop asks before the first capture and declining keeps text play', async () => {
+  const { opened, submitted, saved, voice } = consentFixture();
+  await voice.say('set mic to push-to-talk');
+  assert.equal(voice.view().asking, true);
+  assert.deepEqual(voice.view().mode, { kind: 'typed-input-only' });
+  assert.deepEqual(opened, []);
+  assert.deepEqual(saved, []);
+  assert.match(renderVoice(voice.view(), LOCALE), /data-voice="allow"[\s\S]*data-voice="decline"/);
+  await voice.decline();
+  assert.equal(voice.view().asking, false);
+  assert.equal(voice.view().preferences.microphone, 'off');
+  assert.deepEqual(opened, []);
+  assert.deepEqual(saved, [session.preferences]);
+  await voice.say(SPOKEN_ACTION);
+  assert.deepEqual(submitted, [SPOKEN_ACTION]);
+});
+
+test('A21: desktop opens the mic only after consent and saves it through the engine', async () => {
+  const { opened, saved, voice } = consentFixture();
+  await voice.say('set mic to hands-free');
+  await voice.allow();
+  assert.deepEqual(opened, ['hands-free']);
+  assert.equal(saved.at(-1)?.microphone, 'hands-free');
+  assert.ok(saved.at(-1)?.consentGrantedAt);
+  assert.deepEqual(voice.view().mode, { kind: 'voice', microphone: 'hands-free', spokenOutput: 'off' });
+});
+
+test('A21: desktop loads saved voice settings from the campaign snapshot', async () => {
+  const { opened, saved, voice } = consentFixture();
+  const stored: SavedVoiceSettings = {
+    microphone: 'push-to-talk',
+    spokenOutput: 'full',
+    locale: 'en-US',
+    speed: 1.5,
+    consentGrantedAt: CONSENT.grantedAt,
+  };
+  await voice.load(stored);
+  await voice.load(stored);
+  assert.deepEqual(opened, ['push-to-talk']);
+  assert.deepEqual(saved, []);
+  assert.deepEqual(voice.view().preferences, {
+    microphone: 'push-to-talk',
+    spokenOutput: 'full',
+    locale: 'en-US',
+    speed: 1.5,
+  });
+  assert.match(renderVoice(voice.view(), LOCALE), /Settings: microphone push-to-talk, output full, en-US, 1\.5x/);
 });
 
 const CHUNK = [1, 2, 3];

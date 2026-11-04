@@ -1,6 +1,6 @@
 import { parseArgs } from 'node:util';
 import type { Ask } from './character-creation.ts';
-import { PLAIN_TERMINAL, type Terminal, type TuiAudio } from './tui.ts';
+import { PLAIN_TERMINAL, type Terminal } from './tui.ts';
 import { printable, VIEW_NAMES, type ViewName } from './views.ts';
 
 export const EXIT_OK = 0;
@@ -164,8 +164,8 @@ const withControls = async function* (io: Io, show?: (view: ViewName) => string)
   }
 };
 
-const loadTuiAudio = async (campaign: string): Promise<TuiAudio> =>
-  (await import('./tui-audio.ts')).defaultTuiAudio(campaign);
+const loadTuiAudio = async (): Promise<NonNullable<Terminal['audio']>> =>
+  (await import('./tui-audio.ts')).defaultTuiAudio;
 
 const run = async (io: Io, outputs: () => Iterable<string> | AsyncIterable<string>): Promise<number> => {
   try {
@@ -225,7 +225,7 @@ export const main = async (argv: readonly string[], io: Io, gateway: CampaignGat
     if (extra.length > 0) return usageError(io, `Unexpected argument: ${extra[0]}.`);
     const base = io.terminal ?? { capabilities: PLAIN_TERMINAL, lines: io.lines, write: io.stdout };
     try {
-      const terminal = voice ? { ...base, audio: await loadTuiAudio(name) } : base;
+      const terminal = voice ? { ...base, audio: await loadTuiAudio() } : base;
       await gateway.tui(name, terminal);
       return EXIT_OK;
     } catch (error) {

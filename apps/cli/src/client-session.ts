@@ -38,6 +38,7 @@ import {
 import type { CampaignEntity, Relationship, Visibility } from '../../../packages/domain/src/entity.ts';
 import { currentEncounter } from '../../../packages/engine/src/encounter.ts';
 import type { Engine } from '../../../packages/engine/src/engine.ts';
+import { voiceSettingsOf } from '../../../packages/engine/src/voice-settings.ts';
 import { type Scoped, type Viewer, visibleTo } from '../../../packages/memory/src/knowledge.ts';
 import { createEntityStore } from '../../../packages/persistence/src/entity-store.ts';
 import { createEventStore } from '../../../packages/persistence/src/event-store.ts';
@@ -163,8 +164,18 @@ export const createClientSessions = (
   const snapshot = (): CampaignSnapshot => {
     sync();
     const { campaign, revision, characters, currentScene, turns } = engine.getState(campaignId);
+    const voice = voiceSettingsOf(readEvents(campaignId));
     return deepFreeze(
-      structuredClone({ version: PROTOCOL_VERSION, campaignId, revision, campaign, characters, currentScene, turns }),
+      structuredClone({
+        version: PROTOCOL_VERSION,
+        campaignId,
+        revision,
+        campaign,
+        characters,
+        currentScene,
+        turns,
+        ...(voice === undefined ? {} : { voice }),
+      }),
     );
   };
 
@@ -289,6 +300,16 @@ export const createClientSessions = (
         if (!accepted.ok) return accepted;
         if (sheets === undefined) return failure('Rejected', UNSUPPORTED_SHEETS);
         return guarded(() => editSheet(sheets, accepted.value));
+      },
+      saveVoiceSettings: (command) => {
+        const accepted = accept<typeof command>(command, 'SaveVoiceSettings');
+        if (!accepted.ok) return accepted;
+        const { version: _, type: __, campaignId: ___, actionId, expectedRevision, ...settings } = accepted.value;
+        return attempt(() => {
+          engine.saveVoiceSettings({ campaignId, actionId, expectedRevision, settings });
+          sync();
+          return { revision: engine.getState(campaignId).revision };
+        });
       },
     };
   };

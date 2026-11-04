@@ -7,6 +7,8 @@ import {
   PROTOCOL_VERSION,
   parseCommand,
   type Result,
+  type SavedVoiceSettings,
+  type SaveVoiceSettings,
   type SubmitPlayerAction,
   type ViewDescriptor,
 } from '../../../packages/client-protocol/src/protocol.ts';
@@ -29,6 +31,8 @@ const VIEW = 'View';
 const ACCEPTED = 'Accepted';
 const REJECTED = 'Rejected';
 const NO_REVISION = -1;
+const VOICE_SAVE_INPUT = 'voice settings';
+const STALE_REVISION = 'StaleRevision';
 const LIST_CAMPAIGNS: ClientCommand = { version: PROTOCOL_VERSION, type: 'ListCampaigns' };
 
 export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected' | 'reconnecting';
@@ -140,6 +144,9 @@ export const createDesktopClient = ({
 }) => {
   let state = initialState;
   let resendOnSnapshot = false;
+  const voiceSaves = new Map<unknown, SaveVoiceSettings>();
+  const retried = new Set<unknown>();
+  let staleSaves: SaveVoiceSettings[] = [];
   const listeners = new Set<(state: DesktopState) => void>();
 
   const update = (next: Partial<DesktopState>) => {
@@ -149,8 +156,12 @@ export const createDesktopClient = ({
 
   const connected = () => state.connection.status === 'connected';
 
-  const disconnect = (error: string) =>
+  const disconnect = (error: string) => {
+    voiceSaves.clear();
+    retried.clear();
+    staleSaves = [];
     update({ connection: { status: 'disconnected', attempts: state.connection.attempts, lastError: error } });
+  };
 
   const send = (command: ClientCommand) => {
     if (!connected()) return;
@@ -177,7 +188,22 @@ export const createDesktopClient = ({
   const forSelected = (value: unknown): value is { campaignId: CampaignId; version: number } =>
     isRecord(value) && value.version === PROTOCOL_VERSION && value.campaignId === state.selected;
 
-  const settle = (actionId: unknown, message?: string) => {
+  const settleVoice = (actionId: unknown, message?: string, code?: unknown) => {
+    const save = voiceSaves.get(actionId);
+    if (save !== undefined && code === STALE_REVISION && !retried.has(actionId)) {
+      retried.add(actionId);
+      staleSaves = [...staleSaves, save];
+      return refresh();
+    }
+    voiceSaves.delete(actionId);
+    retried.delete(actionId);
+    if (message !== undefined)
+      update({ rejected: [...state.rejected, { actionId: String(actionId), input: VOICE_SAVE_INPUT, message }] });
+    refresh();
+  };
+
+  const settle = (actionId: unknown, message?: string, code?: unknown) => {
+    if (voiceSaves.has(actionId)) return settleVoice(actionId, message, code);
     const action = state.outbox.find((queued) => queued.actionId === actionId);
     if (action === undefined) return;
     update({
@@ -206,6 +232,13 @@ export const createDesktopClient = ({
         : action,
     );
     update({ snapshot, outbox });
+    const stale = staleSaves;
+    staleSaves = [];
+    for (const save of stale) {
+      const retry = Object.freeze({ ...save, expectedRevision: snapshot.revision });
+      voiceSaves.set(retry.actionId, retry);
+      send(retry);
+    }
     if (!resendOnSnapshot) return;
     resendOnSnapshot = false;
     for (const action of outbox) send(action);
@@ -231,7 +264,7 @@ export const createDesktopClient = ({
     if (message.type === ACCEPTED) return settle(message.actionId);
     if (message.type === REJECTED) {
       const error = isRecord(message.error) ? String(message.error.message) : String(message.error);
-      return settle(message.actionId, error);
+      return settle(message.actionId, error, isRecord(message.error) ? message.error.code : undefined);
     }
     if (
       message.type === EVENT_COMMITTED &&
@@ -280,6 +313,24 @@ export const createDesktopClient = ({
       update({ outbox: [...state.outbox, action] });
       if (!resendOnSnapshot) send(action);
       return { ok: true, value: action };
+    },
+    voicePending: () => voiceSaves.size > 0,
+    saveVoice: (settings: SavedVoiceSettings): Result<SaveVoiceSettings> => {
+      const { snapshot } = state;
+      if (snapshot === undefined) return failure('Rejected', 'no campaign selected yet');
+      const parsed = parseCommand({
+        version: PROTOCOL_VERSION,
+        type: 'SaveVoiceSettings',
+        campaignId: snapshot.campaignId,
+        actionId: newActionId(),
+        expectedRevision: snapshot.revision,
+        ...settings,
+      });
+      if (!parsed.ok) return parsed;
+      const save = parsed.value as SaveVoiceSettings;
+      voiceSaves.set(save.actionId, save);
+      send(save);
+      return { ok: true, value: save };
     },
     retry: () => {
       if (state.connection.status !== 'disconnected') return;

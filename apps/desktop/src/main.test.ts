@@ -55,6 +55,7 @@ const fakeDaemon = (
   };
 };
 
+const VOICE_SETTINGS = { expectedRevision: 1, microphone: 'off', spokenOutput: 'off', locale: 'en', speed: 1 };
 const flush = () => new Promise((resolve) => setImmediate(resolve));
 
 const collect = (daemon: Daemon) => {
@@ -75,6 +76,7 @@ test('UI08 daemon transport maps engine replies to renderer lines', async () => 
       GetCampaignPanels: { ok: true, value: snapshot },
       RequestView: { ok: true, value: VIEW },
       SubmitPlayerAction: { ok: false, error: { code: 'Rejected', message: 'no' } },
+      SaveVoiceSettings: { ok: true, value: { revision: 2 } },
     }),
   );
   transport.connect();
@@ -83,6 +85,7 @@ test('UI08 daemon transport maps engine replies to renderer lines', async () => 
   transport.send(command('GetCampaignPanels'));
   transport.send(command('RequestView', { viewId: 'sheet' }));
   transport.send(command('SubmitPlayerAction', { actionId: 'a1' }));
+  transport.send(command('SaveVoiceSettings', { actionId: 'v1', ...VOICE_SETTINGS }));
   transport.send('not json');
   await flush();
   assert.deepEqual(lines, [
@@ -92,6 +95,7 @@ test('UI08 daemon transport maps engine replies to renderer lines', async () => 
     { type: 'Panels', panels: snapshot },
     { type: 'View', campaignId: CAMPAIGN, view: VIEW },
     { type: 'Rejected', actionId: 'a1', error: { code: 'Rejected', message: 'no' } },
+    { type: 'Accepted', actionId: 'v1' },
   ]);
   assert.deepEqual(closes, []);
 });

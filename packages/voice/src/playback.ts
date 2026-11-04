@@ -1,9 +1,10 @@
+import { MAX_VOICE_SPEED, MIN_VOICE_SPEED } from '../../client-protocol/src/protocol.ts';
 import { type AudioCache, speakWithBudget, type UsageLedger, type UsageReport } from './audio-budget.ts';
 import { type SpeakOptions, type SpeechChunk, speakOrText, type TextFallbackReason } from './tts.ts';
 import type { CommittedUtterance } from './voice.ts';
 
-export const MIN_PLAYBACK_SPEED = 0.5;
-export const MAX_PLAYBACK_SPEED = 2;
+export const MIN_PLAYBACK_SPEED = MIN_VOICE_SPEED;
+export const MAX_PLAYBACK_SPEED = MAX_VOICE_SPEED;
 export const DEFAULT_PLAYBACK_SPEED = 1;
 
 export interface PlaybackSink {

@@ -1,4 +1,4 @@
-import type { Result, SubmitPlayerAction } from '../../../packages/client-protocol/src/protocol.ts';
+import type { Result, SavedVoiceSettings, SubmitPlayerAction } from '../../../packages/client-protocol/src/protocol.ts';
 import type { AudioFailure, TurnTranscription } from '../../../packages/voice/src/fallback.ts';
 import type {
   MicrophoneController,
@@ -7,7 +7,12 @@ import type {
 } from '../../../packages/voice/src/microphone.ts';
 import type { SttFallbackReason } from '../../../packages/voice/src/stt.ts';
 import type { SubtitleTranscript } from '../../../packages/voice/src/subtitles.ts';
-import { resolveVoiceMode, type VoiceConsent, type VoiceSettings } from '../../../packages/voice/src/voice.ts';
+import {
+  DEFAULT_VOICE_SETTINGS,
+  resolveVoiceMode,
+  type VoiceConsent,
+  type VoiceSettings,
+} from '../../../packages/voice/src/voice.ts';
 import {
   type RequestSource,
   routeVoiceInput,
@@ -23,11 +28,13 @@ export type VoiceFallback = TypedFallbackReason | SttFallbackReason | AudioFailu
 
 export type DesktopVoiceOptions = {
   readonly session: VoiceSession;
-  readonly consent: VoiceConsent;
+  readonly consentGrantedAt?: string;
+  readonly providerIds: readonly string[];
   readonly supportedLocales: readonly string[];
   readonly subtitles: Pick<SubtitleTranscript, 'current'>;
   readonly openMicrophone: (settings: VoiceSettings) => Microphone;
   readonly submit: (input: string) => Result<SubmitPlayerAction>;
+  readonly save: (settings: SavedVoiceSettings) => void;
 };
 
 const TYPED: RequestSource = 'typed';
@@ -40,6 +47,11 @@ const DEVICE_CHANGE = 'devicechange';
 const DATA_AVAILABLE = 'dataavailable';
 const RECORDER_STOP = 'stop';
 const CHUNK_MS = 250;
+export const { microphone: MICROPHONE_OFF } = DEFAULT_VOICE_SETTINGS;
+const SAVED_FIELDS = ['microphone', 'spokenOutput', 'locale', 'speed', 'consentGrantedAt'] as const;
+
+const sameSettings = (left: SavedVoiceSettings, right: SavedVoiceSettings) =>
+  SAVED_FIELDS.every((field) => left[field] === right[field]);
 
 const stopTracks = (stream: MediaStream) => {
   for (const track of stream.getTracks()) track.stop();
@@ -92,18 +104,35 @@ export const browserMicrophone = (media: MediaDevices, Recorder: typeof MediaRec
 });
 
 export const createDesktopVoice = (options: DesktopVoiceOptions) => {
-  const { consent, supportedLocales, subtitles, openMicrophone, submit } = options;
+  const { providerIds, supportedLocales, subtitles, openMicrophone, submit, save } = options;
   let session = options.session;
+  let consentGrantedAt = options.consentGrantedAt;
+  let asking: VoiceSession | undefined;
   let microphone: Microphone | undefined;
   let fallback: VoiceFallback | undefined;
   let issues: readonly VoiceSettingsIssueCode[] = [];
   let generation = 0;
 
+  const consent = (): VoiceConsent =>
+    consentGrantedAt === undefined ? { granted: false } : { granted: true, grantedAt: consentGrantedAt, providerIds };
+
   const settings = (): VoiceSettings => ({
     microphone: session.preferences.microphone,
     spokenOutput: session.preferences.spokenOutput,
-    consent,
+    consent: consent(),
   });
+
+  const saved = (): SavedVoiceSettings => ({
+    ...session.preferences,
+    ...(consentGrantedAt === undefined ? {} : { consentGrantedAt }),
+  });
+
+  const apply = (next: VoiceSession, grantedAt: string | undefined) => {
+    session = next;
+    consentGrantedAt = grantedAt;
+    save(saved());
+    return listen();
+  };
 
   const listen = async () => {
     const token = ++generation;
@@ -122,9 +151,31 @@ export const createDesktopVoice = (options: DesktopVoiceOptions) => {
     const route = routeVoiceInput(session, { source, text }, supportedLocales, submit);
     issues = route.kind === 'settings-rejected' ? route.issues.map(({ code }) => code) : [];
     if (route.kind !== 'settings') return route;
+    if (consentGrantedAt === undefined && route.session.preferences.microphone !== MICROPHONE_OFF) {
+      asking = route.session;
+      return route;
+    }
+    const restart = route.event.payload.changes.some(({ field }) => field === MICROPHONE);
     session = route.session;
-    if (route.event.payload.changes.some(({ field }) => field === MICROPHONE)) await listen();
+    save(saved());
+    if (restart) await listen();
     return route;
+  };
+
+  const answer = async (allowed: boolean) => {
+    const next = asking;
+    asking = undefined;
+    if (next === undefined) return;
+    if (allowed) return apply(next, new Date().toISOString());
+    return apply({ ...next, preferences: { ...next.preferences, microphone: MICROPHONE_OFF } }, consentGrantedAt);
+  };
+
+  const load = async (stored: SavedVoiceSettings) => {
+    if (sameSettings(stored, saved())) return;
+    const { consentGrantedAt: grantedAt, ...preferences } = stored;
+    session = { ...session, preferences };
+    consentGrantedAt = grantedAt;
+    await listen();
   };
 
   const heard = async (turn: TurnTranscription): Promise<Route | undefined> => {
@@ -147,9 +198,10 @@ export const createDesktopVoice = (options: DesktopVoiceOptions) => {
     subtitle: subtitles.current(),
     fallback,
     issues,
+    asking: asking !== undefined,
   });
 
-  return { say, heard, view, start: listen };
+  return { say, heard, view, load, start: listen, allow: () => answer(true), decline: () => answer(false) };
 };
 
 export type DesktopVoiceView = ReturnType<ReturnType<typeof createDesktopVoice>['view']>;

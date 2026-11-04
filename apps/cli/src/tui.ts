@@ -46,7 +46,7 @@ export type TuiAudio = {
 
 export type Terminal = {
   readonly capabilities: Capabilities;
-  readonly audio?: TuiAudio;
+  readonly audio?: (session: ClientSession, campaignId: CampaignId) => TuiAudio;
   readonly keys?: AsyncIterable<Key>;
   readonly lines: AsyncIterable<string>;
   readonly write: (text: string) => void;
@@ -308,7 +308,7 @@ export const runTui = async (session: ClientSession, campaignId: CampaignId, ter
     { version: PROTOCOL_VERSION, type: 'SubscribeEvents', campaignId },
     (event) => events.push(event),
   );
-  const { audio } = terminal;
+  const audio = terminal.audio?.(session, campaignId);
   const data = () => read(session, campaignId, events, audio);
   const send: Act = (input) => submit(session, data(), input);
   const act: Act = audio === undefined ? send : (input) => audio.input(input, send);

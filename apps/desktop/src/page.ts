@@ -1,10 +1,20 @@
+import type { CampaignSnapshot } from '../../../packages/client-protocol/src/protocol.ts';
 import { createMicrophoneController } from '../../../packages/voice/src/microphone.ts';
 import { createSubtitleTranscript } from '../../../packages/voice/src/subtitles.ts';
 import { type RendererAction, SUPPORTED_LOCALES } from './accessibility.ts';
 import { BRIDGE_KEY } from './preload.ts';
-import { createDesktopClient, type Region, type Transport, viewModel } from './renderer.ts';
-import { bindKeys, type KeyTarget, queryPreferences, renderView, renderVoice } from './view.ts';
-import { browserMicrophone, createDesktopVoice, type DesktopVoiceOptions } from './voice.ts';
+import { createDesktopClient, type DesktopState, type Region, type Transport, viewModel } from './renderer.ts';
+import {
+  ALLOW,
+  bindKeys,
+  DECLINE,
+  type KeyTarget,
+  queryPreferences,
+  renderView,
+  renderVoice,
+  VOICE_ATTRIBUTE,
+} from './view.ts';
+import { browserMicrophone, createDesktopVoice, type DesktopVoiceOptions, MICROPHONE_OFF } from './voice.ts';
 
 export const FONT_SCALE_PROPERTY = '--font-scale';
 export const ROOT_ID = 'app';
@@ -57,12 +67,14 @@ export const mountPage = ({
   const { consent, ...voicePreferences } = preferences.voice;
   const voice = createDesktopVoice({
     session: { campaignId: NO_CAMPAIGN, turn: FIRST_TURN, pendingInput: [], preferences: voicePreferences },
-    consent,
+    providerIds: consent.granted ? consent.providerIds : [],
     supportedLocales: SUPPORTED_LOCALES,
     subtitles: createSubtitleTranscript(),
     openMicrophone,
     submit: client.submit,
+    save: client.saveVoice,
   });
+  let loaded: CampaignSnapshot | undefined;
   const render = () => {
     const model = viewModel(client.state(), width(), preferences);
     root.innerHTML = renderView(model, preferences.locale) + renderVoice(voice.view(), preferences.locale);
@@ -85,11 +97,20 @@ export const mountPage = ({
     if (action === 'retry') return client.retry();
     if (action === 'nextCampaign') return nextCampaign();
   };
+  const loadVoice = ({ snapshot }: DesktopState) => {
+    if (snapshot === undefined || snapshot === loaded || client.voicePending()) return;
+    loaded = snapshot;
+    voice.load(snapshot.voice ?? { ...voicePreferences, microphone: MICROPHONE_OFF }).then(render);
+  };
+  client.subscribe(loadVoice);
   client.subscribe(render);
   root.addEventListener(CLICK, (event) => {
     const target = closestTarget(event);
     const campaign = target?.closest(`[${CAMPAIGN_ATTRIBUTE}]`)?.getAttribute(CAMPAIGN_ATTRIBUTE);
     if (campaign) return client.select(campaign);
+    const answer = target?.closest(`[${VOICE_ATTRIBUTE}]`)?.getAttribute(VOICE_ATTRIBUTE);
+    if (answer === ALLOW) return void voice.allow().then(render);
+    if (answer === DECLINE) return void voice.decline().then(render);
     if (target?.closest(RETRY_SELECTOR)) client.retry();
   });
   form.addEventListener(SUBMIT, (event) => {

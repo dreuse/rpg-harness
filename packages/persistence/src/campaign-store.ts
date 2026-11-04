@@ -22,6 +22,7 @@ const INSERT_CAMPAIGN = 'INSERT INTO campaign (id, name) VALUES (?, ?)';
 const SELECT_CAMPAIGN = 'SELECT id, name, revision FROM campaign WHERE id = ?';
 const SELECT_REVISION = 'SELECT revision FROM campaign WHERE id = ?';
 const RENAME_CAMPAIGN = 'UPDATE campaign SET name = ?, revision = ? WHERE id = ?';
+const ADVANCE_REVISION = 'UPDATE campaign SET revision = ? WHERE id = ?';
 const ADVANCE_CAMPAIGN = 'UPDATE campaign SET revision = ?, current_scene_id = ? WHERE id = ?';
 const UPSERT_CHARACTER =
   'INSERT INTO character (id, campaign_id, name) VALUES (?, ?, ?) ON CONFLICT (id) DO UPDATE SET name = excluded.name WHERE character.campaign_id = excluded.campaign_id';
@@ -202,6 +203,12 @@ export const createCampaignStore = (database: DatabaseSync): CampaignStore => ({
       const revision = nextRevision(database, campaign.id, expectedRevision);
       database.prepare(RENAME_CAMPAIGN).run(campaign.name, revision, campaign.id);
       appendCampaignChange(database, campaign.id, event, revision);
+    }),
+  recordChange: ({ expectedRevision, event }) =>
+    inTransaction(database, () => {
+      const revision = nextRevision(database, event.campaignId, expectedRevision);
+      database.prepare(ADVANCE_REVISION).run(revision, event.campaignId);
+      appendCampaignChange(database, event.campaignId, event, revision);
     }),
   commitTurn: (commit) =>
     inTransaction(database, () => storedTurn(database, commit.turn) ?? writeTurn(database, commit)),

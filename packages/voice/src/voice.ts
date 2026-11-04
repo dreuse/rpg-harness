@@ -1,9 +1,8 @@
-import type { VoiceProfile } from '../../client-protocol/src/protocol.ts';
+import type { MicrophoneMode, SpokenOutputMode, VoiceProfile } from '../../client-protocol/src/protocol.ts';
 
 export type Locality = 'local' | 'cloud';
 export type Retention = 'none' | 'session' | 'persistent';
-export type MicrophoneMode = 'off' | 'push-to-talk' | 'hands-free';
-export type SpokenOutputMode = 'off' | 'narrator' | 'dialogue' | 'full';
+export type { MicrophoneMode, SpokenOutputMode };
 
 export interface TranscriptSegment {
   readonly id: string;
