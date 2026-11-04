@@ -1,3 +1,4 @@
+import type { GenrePack } from '../../../packages/content/src/genrepack.ts';
 import {
   BLANK_WORLD_PACK,
   FANTASY_PACK,
@@ -6,6 +7,7 @@ import {
   MYSTERY_PACK,
   SCIENCE_FICTION_PACK,
 } from '../../../packages/content/src/packs.ts';
+import type { StoryKit } from '../../../packages/content/src/story.ts';
 import { type CampaignConfig, type ConfigIssue, generateCampaignConfig } from '../../../packages/intent/src/config.ts';
 import { type CampaignIntent, type CapabilityMode, createCampaignIntent } from '../../../packages/intent/src/intent.ts';
 import { MAX_INTENT_TEXT_LENGTH, proposeCampaignIntent } from '../../../packages/intent/src/parser.ts';
@@ -17,7 +19,7 @@ import {
 } from '../../../packages/intent/src/resolver.ts';
 import { BUILT_IN_PACKS } from './import-gateway.ts';
 
-const GENRE_PACKS = [
+const GENRE_PACKS: readonly { genre: Pick<GenrePack, 'id' | 'version' | 'name'>; story?: StoryKit }[] = [
   FANTASY_PACK,
   SCIENCE_FICTION_PACK,
   HORROR_PACK,
@@ -69,6 +71,14 @@ export const planCampaign = (text?: string): CampaignConfig => {
   const result = generateCampaignConfig(intent, REGISTRY);
   if (!result.ok) throw new Error(result.issues.map((issue) => issueText(intent, issue)).join('\n'));
   return result.config;
+};
+
+export type Opening = { title: string; narration: string };
+
+export const openingFor = ({ genre }: CampaignConfig, fallback: Opening): Opening => {
+  const pack = GENRE_PACKS.find((candidate) => candidate.genre.id === genre?.id);
+  const scene = pack?.story?.openingScenes[0];
+  return pack === undefined || scene === undefined ? fallback : { title: pack.genre.name, narration: `${scene}.` };
 };
 
 export const describeConfig = ({ rulepack, genre, values, provenance }: CampaignConfig): string =>

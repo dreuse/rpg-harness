@@ -4,6 +4,7 @@ import { mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
+import { FANTASY_PACK } from '../../../packages/content/src/packs.ts';
 import { readCampaignState } from './engine-gateway.ts';
 
 const BIN = join(import.meta.dirname, 'bin.ts');
@@ -12,6 +13,8 @@ const DEFAULT_CAMPAIGN = 'Ember';
 const INTENT_CAMPAIGN = 'Hollow';
 const INTENT = 'A horror story using the Narrative rules';
 const MISSING_INTENT = 'A fantasy adventure using the Pathfinder rules';
+const SCENE_INTENT = 'A fantasy adventure using the Narrative rules';
+const FANTASY_OPENING = `${FANTASY_PACK.story.openingScenes[0]}.`;
 
 const withDataDir = (run: (dataDir: string) => void) => {
   const dataDir = mkdtempSync(join(tmpdir(), 'rpg-quickstart-'));
@@ -61,4 +64,25 @@ test('missing ruleset files are surfaced honestly instead of invented', () =>
     assert.match(result.stderr, /Installed rulesets: d20-lite original, dice-pool-lite original, narrative original\./);
     assert.match(result.stderr, /rpg import <file>/);
     assert.deepEqual(readdirSync(dataDir), []);
+  }));
+
+test('from single prompt to scene opening without manual JSON editing', () =>
+  withDataDir((dataDir) => {
+    const opened = succeed(dataDir, ['new', INTENT_CAMPAIGN, SCENE_INTENT]);
+    assert.match(opened, /^Ruleset: narrative original \(derived\)$/m);
+    assert.match(opened, /^Genre: fantasy 1\.0\.0 \(derived\)$/m);
+    assert.ok(opened.includes(FANTASY_OPENING), opened);
+    assert.deepEqual(readdirSync(dataDir), [`${INTENT_CAMPAIGN}.sqlite`]);
+    const state = readCampaignState(dataDir, INTENT_CAMPAIGN);
+    assert.equal(state.currentScene?.title, FANTASY_PACK.genre.name);
+    assert.ok(succeed(dataDir, ['resume', INTENT_CAMPAIGN]).includes(FANTASY_OPENING));
+  }));
+
+test('ruleset not present triggers import/choice instead of invented rules enforcement', () =>
+  withDataDir((dataDir) => {
+    const result = rpg(dataDir, ['new', INTENT_CAMPAIGN, MISSING_INTENT]);
+    assert.notEqual(result.status, EXIT_OK);
+    assert.match(result.stderr, /Installed rulesets: .*narrative original/);
+    assert.match(result.stderr, /Run rpg import <file> to add its rule files, or name an installed ruleset\./);
+    assert.throws(() => readCampaignState(dataDir, INTENT_CAMPAIGN), /No campaign named/);
   }));

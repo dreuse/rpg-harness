@@ -10,7 +10,7 @@ import { openDatabase } from '../../../packages/persistence/src/database.ts';
 import { exportArchive, restoreArchive } from './campaign-archive.ts';
 import { importRules } from './import-gateway.ts';
 import type { CampaignGateway } from './main.ts';
-import { describeConfig, planCampaign } from './quickstart.ts';
+import { describeConfig, type Opening, openingFor, planCampaign } from './quickstart.ts';
 
 const APP_DIR = 'rpg';
 const DATABASE_EXTENSION = '.sqlite';
@@ -18,8 +18,10 @@ const SELECT_CAMPAIGN_ID = 'SELECT id FROM campaign LIMIT 1';
 const CREATE_EXCLUSIVE = 'wx';
 const FILE_EXISTS = 'EEXIST';
 const HERO_NAME = 'The Wanderer';
-const OPENING_TITLE = 'The Crossroads Inn';
-const OPENING_NARRATION = 'Rain drums on the roof of the Crossroads Inn. A stranger by the fire looks up as you enter.';
+const DEFAULT_OPENING: Opening = {
+  title: 'The Crossroads Inn',
+  narration: 'Rain drums on the roof of the Crossroads Inn. A stranger by the fire looks up as you enter.',
+};
 const ARCHIVE_DIR = 'archive';
 const BACKUP_DIR = 'backups';
 const ARCHIVE_EXTENSION = '.rpg-archive.json';
@@ -81,7 +83,7 @@ const claimFile = (path: string, name: string) => {
   }
 };
 
-const createCampaign = (dataDir: string, name: string): string => {
+const createCampaign = (dataDir: string, name: string, opening: Opening): string => {
   mkdirSync(dataDir, { recursive: true });
   const path = databasePath(dataDir, name);
   claimFile(path, name);
@@ -93,8 +95,8 @@ const createCampaign = (dataDir: string, name: string): string => {
     openScene(store, {
       campaignId: campaign.id,
       actorName: HERO_NAME,
-      sceneTitle: OPENING_TITLE,
-      narration: OPENING_NARRATION,
+      sceneTitle: opening.title,
+      narration: opening.narration,
     });
     connection.close();
   } catch (error) {
@@ -102,7 +104,7 @@ const createCampaign = (dataDir: string, name: string): string => {
     rmSync(path, { force: true });
     throw error;
   }
-  return sceneText(OPENING_TITLE, OPENING_NARRATION);
+  return sceneText(opening.title, opening.narration);
 };
 
 const act = (dataDir: string, name: string, input: string): string =>
@@ -125,7 +127,7 @@ const act = (dataDir: string, name: string, input: string): string =>
 
 const recap = (characters: CampaignState['characters'], last: Turn | undefined) => {
   const actor = characters.find(({ id }) => id === last?.actorId);
-  if (last === undefined || actor === undefined) return OPENING_NARRATION;
+  if (last === undefined || actor === undefined) return DEFAULT_OPENING.narration;
   return last.narration.trim() === '' ? narrate(actor.name, last) : last.narration;
 };
 
@@ -220,8 +222,8 @@ export const createEngineGateway = (dataDir: string): CampaignGateway => ({
   backup: (name) => backup(dataDir, name),
   restore: (file) => restore(dataDir, file),
   create: (name, intent) => {
-    const settings = describeConfig(planCampaign(intent));
-    return `${settings}\n${createCampaign(dataDir, name)}`;
+    const config = planCampaign(intent);
+    return `${describeConfig(config)}\n${createCampaign(dataDir, name, openingFor(config, DEFAULT_OPENING))}`;
   },
   importRules: (files, lines) => importRules(process.cwd(), files, lines),
   open: async function* (name, _mode, lines, onTurnError) {
