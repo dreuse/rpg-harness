@@ -12,6 +12,7 @@ export type GenrePack = {
   readonly examples: readonly string[];
   readonly visualConventions: readonly string[];
   readonly suggestedCapabilities: readonly string[];
+  readonly requiredRuleCapabilities?: readonly string[];
 };
 
 export type GenrePackIssue = { path: string; message: string };
@@ -21,8 +22,15 @@ export const NON_EMPTY_STRING = 'must be a non-empty string';
 const UNKNOWN_FIELD = 'is not an allowed field';
 const STRING_FIELDS = ['id', 'version', 'name'] as const;
 const STRING_LIST_FIELDS = ['narrativeConstraints', 'examples', 'visualConventions', 'suggestedCapabilities'] as const;
+const REQUIRED_RULE_CAPABILITIES = 'requiredRuleCapabilities';
 const ARCHETYPE_FIELDS = ['id', 'name', 'summary'] as const;
-const ALLOWED_FIELDS: readonly string[] = ['contractVersion', 'archetypes', ...STRING_FIELDS, ...STRING_LIST_FIELDS];
+const ALLOWED_FIELDS: readonly string[] = [
+  'contractVersion',
+  'archetypes',
+  REQUIRED_RULE_CAPABILITIES,
+  ...STRING_FIELDS,
+  ...STRING_LIST_FIELDS,
+];
 
 export const isPlainRecord = (value: unknown): value is Record<string, unknown> => {
   if (typeof value !== 'object' || value === null) return false;
@@ -89,6 +97,13 @@ export const loadGenrePack = (input: unknown): GenrePackResult => {
   const lists = Object.fromEntries(
     STRING_LIST_FIELDS.map((field) => [field, Object.freeze(readStringList(input[field], field, issues))]),
   ) as Record<(typeof STRING_LIST_FIELDS)[number], readonly string[]>;
+  const required = Object.hasOwn(input, REQUIRED_RULE_CAPABILITIES)
+    ? {
+        requiredRuleCapabilities: Object.freeze(
+          readStringList(input[REQUIRED_RULE_CAPABILITIES], REQUIRED_RULE_CAPABILITIES, issues),
+        ),
+      }
+    : {};
   if (issues.length > 0) return { ok: false, issues };
   const pack: GenrePack = {
     contractVersion: GENREPACK_CONTRACT_VERSION,
@@ -97,6 +112,7 @@ export const loadGenrePack = (input: unknown): GenrePackResult => {
     name: name as string,
     archetypes: Object.freeze(archetypes),
     ...lists,
+    ...required,
   };
   return { ok: true, pack: Object.freeze(pack) };
 };

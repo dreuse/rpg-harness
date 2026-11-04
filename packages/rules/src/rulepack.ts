@@ -120,3 +120,17 @@ export const requireCapability = (manifest: RulePackManifest, name: string): Exc
   if (state === 'disabled') throw new CapabilityDisabledError(manifest.id, name);
   return state;
 };
+
+export type RequiredCapabilitiesResult =
+  | { ok: true }
+  | { ok: false; packId: string; missing: readonly string[]; reason: string };
+
+export const checkRequiredCapabilities = (
+  manifest: RulePackManifest,
+  required: readonly string[],
+): RequiredCapabilitiesResult => {
+  const missing = required.filter((name) => capabilityState(manifest, name) === 'disabled');
+  if (missing.length === 0) return { ok: true };
+  const reason = `Rule pack ${manifest.id} disables required capabilities: ${missing.join(', ')}`;
+  return { ok: false, packId: manifest.id, missing, reason };
+};

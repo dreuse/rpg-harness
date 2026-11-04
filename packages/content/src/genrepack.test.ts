@@ -42,6 +42,17 @@ test('returns a frozen deep copy of the input', () => {
   assert.deepEqual(result.pack.narrativeConstraints, ['No supernatural events']);
 });
 
+test('reads optional required rule capabilities and rejects non-string entries', () => {
+  const loaded = loadGenrePack({ ...validPack(), requiredRuleCapabilities: ['checks'] });
+  assert.equal(loaded.ok && loaded.pack.requiredRuleCapabilities?.[0], 'checks');
+  assert.equal(loaded.ok && Object.isFrozen(loaded.pack.requiredRuleCapabilities), true);
+  const plain = loadGenrePack(validPack());
+  assert.equal(plain.ok && Object.hasOwn(plain.pack, 'requiredRuleCapabilities'), false);
+  assert.deepEqual(issuePaths({ ...validPack(), requiredRuleCapabilities: ['checks', 1] }), [
+    'requiredRuleCapabilities.1',
+  ]);
+});
+
 test('rejects non-objects and non-plain objects', () => {
   assert.deepEqual(issuePaths(null), ['']);
   assert.deepEqual(issuePaths([]), ['']);

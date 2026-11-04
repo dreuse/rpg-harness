@@ -51,7 +51,7 @@ These are boundaries, not mandatory folder names. Keep API contracts stable befo
 
 **RulePack:** declares mechanical definitions and capabilities: dice syntax, stats, tests, consequences, progression, turn rules, faction mechanics. Can be built in, compiled from user documents or extended via controlled plugins. Version-pinned.
 
-**GenrePack:** defines setting and style: dark fantasy, sci-fi, horror, investigation. Provides starting archetypes, narrative constraints, examples, visual conventions and suggested capabilities, not mandatory mechanics.
+**GenrePack:** defines setting and style: dark fantasy, sci-fi, horror, investigation. Provides starting archetypes, narrative constraints, examples, visual conventions and suggested capabilities, not mandatory mechanics. A genre may list rule capabilities it depends on (`requiredRuleCapabilities`). A mismatch with the selected RulePack is reported, never enforced and never replaced by d20 rules.
 
 **CampaignConfig:** stores explicit player choices and defaults: selected RulePack revision, GenrePack, pace, world autonomy, impact/intensity, voice, UI presentation, and content boundaries. Settings may change with appropriate validation.
 
