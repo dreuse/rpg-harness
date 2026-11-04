@@ -21,6 +21,9 @@ export type CampaignGateway = {
     onTurnError: (error: unknown) => void,
   ) => AsyncIterable<string>;
   importRules: (files: readonly string[], lines: AsyncIterable<string>) => AsyncIterable<string>;
+  exportCampaign: (campaign: string, file: string) => string;
+  backup: (campaign: string) => string;
+  restore: (file: string) => string;
 };
 
 export type Io = {
@@ -42,6 +45,13 @@ const COMMANDS = [
   { name: 'archive', usage: 'archive <campaign>', description: 'Hide a campaign and keep its saved state.' },
   { name: 'delete', usage: 'delete <campaign>', description: 'Delete a campaign after you confirm its name.' },
   { name: 'import', usage: 'import <file...>', description: 'Import rule files and choose what to activate.' },
+  {
+    name: 'export',
+    usage: 'export <campaign> <file>',
+    description: 'Write a campaign and its rulepack pins to a portable archive file.',
+  },
+  { name: 'backup', usage: 'backup <campaign>', description: 'Save a dated archive of a campaign in the data folder.' },
+  { name: 'restore', usage: 'restore <file>', description: 'Check an archive file and restore its campaign.' },
   { name: 'help', usage: 'help', description: 'Show this help.' },
 ] as const;
 
@@ -148,6 +158,20 @@ export const main = async (argv: readonly string[], io: Io, gateway: CampaignGat
   if (command === 'import') {
     if (rest.length === 0 || rest.some((file) => file.trim() === '')) return usageError(io, 'Missing file for import.');
     return run(io, () => gateway.importRules(rest, withControls(io)));
+  }
+  if (command === 'export') {
+    const [name, file, ...extra] = rest;
+    if (name === undefined || name.trim() === '') return usageError(io, 'Missing campaign name for export.');
+    if (file === undefined || file.trim() === '') return usageError(io, 'Missing file for export.');
+    if (extra.length > 0) return usageError(io, `Unexpected argument: ${extra[0]}.`);
+    return run(io, () => [gateway.exportCampaign(name, file)]);
+  }
+  if (command === 'backup' || command === 'restore') {
+    const [value, ...extra] = rest;
+    const missing = command === 'backup' ? 'campaign name' : 'file';
+    if (value === undefined || value.trim() === '') return usageError(io, `Missing ${missing} for ${command}.`);
+    if (extra.length > 0) return usageError(io, `Unexpected argument: ${extra[0]}.`);
+    return run(io, () => [command === 'backup' ? gateway.backup(value) : gateway.restore(value)]);
   }
   return usageError(io, `Unsupported command: ${command}.`);
 };

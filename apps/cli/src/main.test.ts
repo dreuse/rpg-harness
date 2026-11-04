@@ -42,6 +42,18 @@ const setup = (input: readonly string[] = PLAYER_LINES) => {
       calls.push(`import:${files.join(',')}`);
       for await (const line of input) yield `reply:${line}`;
     },
+    exportCampaign: (name, file) => {
+      calls.push(`export:${name}:${file}`);
+      return `Exported campaign ${name}.`;
+    },
+    backup: (name) => {
+      calls.push(`backup:${name}`);
+      return `Backed up campaign ${name}.`;
+    },
+    restore: (file) => {
+      calls.push(`restore:${file}`);
+      return `Restored ${file}.`;
+    },
   };
   const out: string[] = [];
   const err: string[] = [];
@@ -58,7 +70,20 @@ test('help lists every command with a one-line description in plain text', async
     const { gateway, io, out, err } = setup();
     assert.equal(await main(argv, io, gateway), 0);
     const text = out.join('');
-    for (const command of ['launch', 'new', 'play', 'resume', 'list', 'archive', 'delete', 'import', 'help']) {
+    for (const command of [
+      'launch',
+      'new',
+      'play',
+      'resume',
+      'list',
+      'archive',
+      'delete',
+      'import',
+      'export',
+      'backup',
+      'restore',
+      'help',
+    ]) {
       assert.match(text, new RegExp(`^  ${command}\\b.* - .+$`, 'm'));
     }
     assert.deepEqual(err, []);
@@ -77,6 +102,9 @@ test('launch, new, play and resume dispatch to the gateway and confirm', async (
     [['archive', 'Ember'], 'archive:Ember'],
     [['delete', 'Ember'], 'delete:Ember'],
     [['import', 'rules.md', 'core.pdf'], 'import:rules.md,core.pdf'],
+    [['export', 'Ember', 'ember.json'], 'export:Ember:ember.json'],
+    [['backup', 'Ember'], 'backup:Ember'],
+    [['restore', 'ember.json'], 'restore:ember.json'],
   ];
   for (const [argv, call] of cases) {
     const { calls, gateway, io, out, err } = setup();
@@ -112,6 +140,15 @@ test('usage errors exit 2, hint at rpg help and never call the gateway', async (
     [['archive', 'a', 'b'], 'b'],
     [['delete'], 'delete'],
     [['delete', 'a', 'b'], 'b'],
+    [['export'], 'export'],
+    [['export', 'Ember'], 'export'],
+    [['export', 'Ember', ' '], 'export'],
+    [['export', 'a', 'b', 'c'], 'c'],
+    [['backup'], 'backup'],
+    [['backup', 'a', 'b'], 'b'],
+    [['restore'], 'restore'],
+    [['restore', ' '], 'restore'],
+    [['restore', 'a', 'b'], 'b'],
   ];
   for (const [argv, named] of bad) {
     const { calls, gateway, io, out, err } = setup();
@@ -155,6 +192,9 @@ test('gateway failures exit 1 and report the error on stderr', async () => {
       yield 'Reading.';
       broken();
     },
+    exportCampaign: broken,
+    backup: broken,
+    restore: broken,
   };
   for (const argv of [
     [],
@@ -165,6 +205,9 @@ test('gateway failures exit 1 and report the error on stderr', async () => {
     ['archive', 'Ember'],
     ['delete', 'Ember'],
     ['import', 'rules.md'],
+    ['export', 'Ember', 'ember.json'],
+    ['backup', 'Ember'],
+    ['restore', 'ember.json'],
   ]) {
     const { io, err } = setup();
     assert.equal(await main(argv, io, failing), EXIT_FAILURE, argv.join(' '));

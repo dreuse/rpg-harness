@@ -7,6 +7,7 @@ import { createEngine, type Engine } from '../../../packages/engine/src/engine.t
 import { openScene, performAction } from '../../../packages/engine/src/turn.ts';
 import { createCampaignStore } from '../../../packages/persistence/src/campaign-store.ts';
 import { openDatabase } from '../../../packages/persistence/src/database.ts';
+import { exportArchive, restoreArchive } from './campaign-archive.ts';
 import { importRules } from './import-gateway.ts';
 import type { CampaignGateway } from './main.ts';
 import { describeConfig, planCampaign } from './quickstart.ts';
@@ -20,6 +21,10 @@ const HERO_NAME = 'The Wanderer';
 const OPENING_TITLE = 'The Crossroads Inn';
 const OPENING_NARRATION = 'Rain drums on the roof of the Crossroads Inn. A stranger by the fire looks up as you enter.';
 const ARCHIVE_DIR = 'archive';
+const BACKUP_DIR = 'backups';
+const ARCHIVE_EXTENSION = '.rpg-archive.json';
+const TIME_SEPARATOR = /:/g;
+const SAFE_TIME_SEPARATOR = '-';
 const NONE = 'none';
 const LAUNCH_TEXT = 'Run rpg new <name> "<one sentence>" to start a campaign, or rpg resume <name> to continue one.';
 
@@ -184,11 +189,36 @@ const remove = async function* (dataDir: string, name: string, lines: AsyncItera
   yield `Deleted campaign ${name}.`;
 };
 
+const exportCampaign = (dataDir: string, name: string, file: string) => {
+  const path = databasePath(dataDir, name);
+  if (!existsSync(path)) throw missingCampaign(dataDir, name);
+  const { rulesets } = exportArchive(path, file);
+  return `Exported campaign ${name} with ${rulesets.length} rulepack pin(s) to ${file}.`;
+};
+
+const backup = (dataDir: string, name: string) => {
+  const dir = join(dataDir, BACKUP_DIR);
+  mkdirSync(dir, { recursive: true });
+  const stamp = new Date().toISOString().replace(TIME_SEPARATOR, SAFE_TIME_SEPARATOR);
+  const file = join(dir, `${encodeURIComponent(name)}-${stamp}${ARCHIVE_EXTENSION}`);
+  exportCampaign(dataDir, name, file);
+  return `Backed up campaign ${name} to ${file}.`;
+};
+
+const restore = (dataDir: string, file: string) => {
+  mkdirSync(dataDir, { recursive: true });
+  const { campaign } = restoreArchive(file, dataDir, (name) => databasePath(dataDir, name));
+  return `Restored campaign ${campaign}. Run rpg resume ${campaign} to continue.`;
+};
+
 export const createEngineGateway = (dataDir: string): CampaignGateway => ({
   launch: () => launch(dataDir),
   list: () => list(dataDir),
   archive: (name) => archive(dataDir, name),
   remove: (name, lines) => remove(dataDir, name, lines),
+  exportCampaign: (name, file) => exportCampaign(dataDir, name, file),
+  backup: (name) => backup(dataDir, name),
+  restore: (file) => restore(dataDir, file),
   create: (name, intent) => {
     const settings = describeConfig(planCampaign(intent));
     return `${settings}\n${createCampaign(dataDir, name)}`;
