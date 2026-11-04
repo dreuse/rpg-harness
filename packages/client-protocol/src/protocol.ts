@@ -10,6 +10,7 @@ import type {
   Turn,
 } from '../../domain/src/campaign.ts';
 import type { RuleCitation } from '../../domain/src/character.ts';
+import type { VisualizationEvent } from './visualization.ts';
 
 export type { VoiceFallback, VoiceProfile } from '../../domain/src/voice.ts';
 
@@ -76,7 +77,7 @@ export type EventCommitted = {
   readonly event: ClientDomainEvent;
 };
 
-export type ClientEvent = EventCommitted;
+export type ClientEvent = EventCommitted | VisualizationEvent;
 
 export type CampaignSnapshot = {
   readonly version: ProtocolVersion;
@@ -224,7 +225,7 @@ export const deepFreeze = <T>(value: T, visited = new WeakSet<object>()): T => {
   return Object.freeze(value);
 };
 
-export const toClientEvent = (event: DomainEvent): ClientEvent =>
+export const toClientEvent = (event: DomainEvent): EventCommitted =>
   deepFreeze({
     version: PROTOCOL_VERSION,
     type: EVENT_COMMITTED,

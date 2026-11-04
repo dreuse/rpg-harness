@@ -5,6 +5,7 @@ import {
   type CampaignSnapshot,
   type ClientEvent,
   type ClientSession,
+  EVENT_COMMITTED,
   PROTOCOL_VERSION,
 } from '../../../packages/client-protocol/src/protocol.ts';
 import type { SheetWidget } from '../../../packages/client-protocol/src/sheet-widgets.ts';
@@ -174,7 +175,8 @@ const PANE_ROWS: Readonly<Record<PaneId, (data: TuiData) => readonly string[]>> 
     ...snapshot.characters.map(({ name }) => `Character: ${name}`),
     ...sheet.map(({ label, value }) => `${label}: ${String(value)}`),
   ],
-  log: ({ events }) => events.map(({ revision, event }) => `#${revision} ${event.type}`),
+  log: ({ events }) =>
+    events.flatMap((event) => (event.type === EVENT_COMMITTED ? [`#${event.revision} ${event.event.type}`] : [])),
   mechanics: ({ mechanics }) => mechanics.map(indicator),
 };
 

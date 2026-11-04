@@ -1,7 +1,22 @@
 import type { BranchId, CampaignId, EventId } from '../../domain/src/campaign.ts';
-import { type Accepted, type ClientEvent, failure, type Result, type Unsubscribe } from './protocol.ts';
+import {
+  type Accepted,
+  type ClientEvent,
+  type EventCommitted,
+  failure,
+  type Result,
+  type Unsubscribe,
+} from './protocol.ts';
+import {
+  type MechanicResult,
+  toVisualizationEvent,
+  type ViewerScope,
+  type VisualizationPreference,
+} from './visualization.ts';
 
 type Listener = (event: ClientEvent) => void;
+
+const LEAST_PRIVILEGED: ViewerScope = 'player';
 
 export type Timeline = { readonly campaignId: CampaignId; readonly branchId: BranchId };
 
@@ -16,11 +31,11 @@ const deliver = (listener: Listener, event: ClientEvent) => {
 };
 
 export const createEventLog = ({ campaignId, branchId }: Timeline) => {
-  const events: ClientEvent[] = [];
+  const events: EventCommitted[] = [];
   const seen = new Set<EventId>();
-  const listeners = new Set<Listener>();
+  const listeners = new Map<Listener, ViewerScope>();
   return {
-    publish(event: ClientEvent): Result<Accepted> {
+    publish(event: EventCommitted): Result<Accepted> {
       const { id } = event.event;
       const accepted: Result<Accepted> = { ok: true, value: { revision: event.revision } };
       if (event.event.campaignId !== campaignId || event.event.branchId !== branchId)
@@ -31,12 +46,18 @@ export const createEventLog = ({ campaignId, branchId }: Timeline) => {
         return failure('Rejected', `event ${id} at revision ${event.revision} does not follow revision ${last}`);
       events.push(event);
       seen.add(id);
-      for (const listener of [...listeners]) deliver(listener, event);
+      for (const listener of [...listeners.keys()]) deliver(listener, event);
       return accepted;
     },
-    subscribe(fromRevision: number, listener: Listener): Unsubscribe {
+    visualize(result: MechanicResult, preference: VisualizationPreference) {
+      for (const [listener, viewer] of [...listeners]) {
+        const event = toVisualizationEvent(result, viewer, preference);
+        if (event !== undefined) deliver(listener, event);
+      }
+    },
+    subscribe(fromRevision: number, listener: Listener, viewer: ViewerScope = LEAST_PRIVILEGED): Unsubscribe {
       for (const event of events) if (event.revision > fromRevision) deliver(listener, event);
-      listeners.add(listener);
+      listeners.set(listener, viewer);
       return () => listeners.delete(listener);
     },
   };

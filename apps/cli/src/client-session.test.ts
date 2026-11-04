@@ -4,9 +4,11 @@ import { type CampaignPanels, watchPanels } from '../../../packages/client-proto
 import {
   type ClientEvent,
   type ClientSession,
+  EVENT_COMMITTED,
   MAX_INPUT_LENGTH,
   PROTOCOL_VERSION,
 } from '../../../packages/client-protocol/src/protocol.ts';
+import { VISUALIZATION_EVENT } from '../../../packages/client-protocol/src/visualization.ts';
 import { MAIN_BRANCH } from '../../../packages/domain/src/campaign.ts';
 import type { Visibility } from '../../../packages/domain/src/entity.ts';
 import { createEngine } from '../../../packages/engine/src/engine.ts';
@@ -97,7 +99,8 @@ const collect = (session: ClientSession, envelope: Envelope) => {
   return received;
 };
 
-const ids = (events: readonly ClientEvent[]) => events.map(({ event }) => event.id);
+const ids = (events: readonly ClientEvent[]) =>
+  events.flatMap((event) => (event.type === EVENT_COMMITTED ? [event.event.id] : []));
 
 test('UI01: player snapshot never carries the seeded GM note', () => {
   const { engine, campaignId, sessionFor, envelope } = setup();
@@ -138,7 +141,9 @@ test('UI01: a committed action reaches every subscriber only through its viewer 
   });
   assert.deepEqual(accepted, { ok: true, value: { revision: OPENING_REVISION + 1 } });
   assert.ok(gm.length > before);
-  assert.ok(gm.slice(before).every(({ revision }) => revision === OPENING_REVISION + 1));
+  assert.ok(
+    gm.slice(before).every((event) => event.type === EVENT_COMMITTED && event.revision === OPENING_REVISION + 1),
+  );
   assert.deepEqual(ids(player), ['clue']);
 });
 
@@ -238,4 +243,23 @@ test('UI04 secret facts are filtered server-side, not hidden only with css', () 
   assert.doesNotMatch(JSON.stringify(delivered), /Duke Varn/);
   const rejected = sessionFor(PLAYER_VIEWER).getPanels({ ...command, campaignId: 'someone-else' });
   assert.equal(rejected.ok ? undefined : rejected.error.code, 'Rejected');
+});
+
+test('visualizations reach each session only when its viewer may see the result', () => {
+  const { sessionFor, envelope } = setup();
+  const sessions = { gm: GM_VIEWER, player: PLAYER_VIEWER, actor: RIVAL_VIEWER };
+  const received = Object.fromEntries(
+    Object.entries(sessions).map(([name, viewer]) => [name, collect(sessionFor(viewer), envelope)]),
+  );
+  const visibilities: readonly Visibility[] = ['gm', 'player', 'public', 'actor-scoped'];
+  for (const visibility of visibilities)
+    sessionFor.visualize(
+      { resultId: visibility, mechanic: 'd20', visibility, reveals: [{ kind: 'die', sides: 20, face: 7 }], total: 7 },
+      { enabled: true },
+    );
+  const shown = (events: readonly ClientEvent[] = []) =>
+    events.flatMap((event) => (event.type === VISUALIZATION_EVENT ? [event.resultId] : []));
+  assert.deepEqual(shown(received.gm), ['gm', 'player', 'public', 'actor-scoped']);
+  assert.deepEqual(shown(received.player), ['player', 'public']);
+  assert.deepEqual(shown(received.actor), []);
 });

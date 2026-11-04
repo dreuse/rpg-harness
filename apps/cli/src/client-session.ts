@@ -7,12 +7,14 @@ import {
   type ClientEvent,
   type ClientSession,
   deepFreeze,
+  EVENT_COMMITTED,
   failure,
   PROTOCOL_VERSION,
   parseCommand,
   type Result,
   toClientEvent,
 } from '../../../packages/client-protocol/src/protocol.ts';
+import { VISUALIZATION_EVENT, type ViewerScope } from '../../../packages/client-protocol/src/visualization.ts';
 import {
   type CampaignId,
   type CharacterId,
@@ -37,6 +39,9 @@ const HIDDEN: Visibility = 'gm';
 const UNSUPPORTED_CAPABILITIES = 'this engine does not support capability selection yet';
 const UNSUPPORTED_VIEWS = 'this engine does not serve view descriptors yet';
 const NO_SUBSCRIPTION = () => {};
+const GM_SCOPE: ViewerScope = 'gm';
+const PLAYER_SCOPE: ViewerScope = 'player';
+const VISUALIZING: readonly Viewer['scope'][] = [GM_SCOPE, PLAYER_SCOPE];
 const EMPTY_WORLD: World = { entities: [], relationships: [] };
 const NO_WORLD: WorldSource = () => EMPTY_WORLD;
 
@@ -112,8 +117,10 @@ export const createClientSessions = (
 
   sync();
 
-  return (viewer: Viewer): ClientSession => {
+  const sessionFor = (viewer: Viewer): ClientSession => {
     const canSee = (event: ClientEvent) => {
+      if (event.type !== EVENT_COMMITTED)
+        return event.type === VISUALIZATION_EVENT && VISUALIZING.includes(viewer.scope);
       const scope = scopes.get(event.event.id);
       return scope !== undefined && visibleTo([scope], viewer).length > 0;
     };
@@ -147,10 +154,16 @@ export const createClientSessions = (
       subscribeEvents: (command, listener) => {
         const accepted = accept<typeof command>(command, 'SubscribeEvents');
         if (!accepted.ok || !attempt(sync).ok) return NO_SUBSCRIPTION;
-        return log.subscribe(accepted.value.fromRevision ?? 0, (event) => {
-          if (canSee(event)) listener(event);
-        });
+        return log.subscribe(
+          accepted.value.fromRevision ?? 0,
+          (event) => {
+            if (canSee(event)) listener(event);
+          },
+          viewer.scope === GM_SCOPE ? GM_SCOPE : PLAYER_SCOPE,
+        );
       },
     };
   };
+
+  return Object.assign(sessionFor, { visualize: log.visualize });
 };

@@ -6,9 +6,10 @@ import { type DomainEvent, MAIN_BRANCH } from '../../domain/src/campaign.ts';
 import { createEventLog } from './event-log.ts';
 import {
   type CampaignSnapshot,
-  type ClientEvent,
   type ClientSession,
   COMMAND_TYPES,
+  EVENT_COMMITTED,
+  type EventCommitted,
   MAX_INPUT_LENGTH,
   PROTOCOL_VERSION,
   parseCommand,
@@ -103,10 +104,12 @@ test('UI01: provide versioned commands and typed events for ui clients; support 
   assert.ok(snapshot.ok);
   session.commit(domainEvent(3));
 
-  const received: ClientEvent[] = [];
+  const received: EventCommitted[] = [];
   const unsubscribe = session.subscribeEvents(
     { ...envelope, type: 'SubscribeEvents', fromRevision: snapshot.value.revision },
-    (event) => received.push(event),
+    (event) => {
+      if (event.type === EVENT_COMMITTED) received.push(event);
+    },
   );
   session.commit(domainEvent(3));
   session.commit(domainEvent(4));
