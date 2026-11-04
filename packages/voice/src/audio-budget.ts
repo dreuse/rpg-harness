@@ -124,13 +124,13 @@ interface VoiceChoice {
 }
 
 async function* replay(chunks: readonly SpeechChunk[], utteranceEventId: string): AsyncGenerator<SpeechChunk> {
-  for (const chunk of chunks) yield { ...chunk, utteranceEventId };
+  for (const chunk of chunks) yield { ...chunk, audio: chunk.audio.slice(), utteranceEventId };
 }
 
 async function* store(chunks: AsyncIterable<SpeechChunk>, cache: AudioCache, key: string): AsyncGenerator<SpeechChunk> {
   const collected: SpeechChunk[] = [];
   for await (const chunk of chunks) {
-    collected.push(chunk);
+    collected.push({ ...chunk, audio: chunk.audio.slice() });
     yield chunk;
   }
   if (collected.at(-1)?.final) cache.set(key, collected);

@@ -27,6 +27,7 @@ const COST = UTTERANCE.text.length;
 const CHUNK_COUNT = 2;
 const ROOMY_CACHE_BYTES = 1024;
 const TINY_CACHE_BYTES = CHUNK_COUNT;
+const TAMPER_BYTE = 255;
 
 const fake = (id: string): TtsProvider & { calls: number } => {
   const provider = {
@@ -163,4 +164,20 @@ test('A16: cache respects voice-off settings', async () => {
   const off = await speakWithBudget({ ...base, settings: { ...SETTINGS, spokenOutput: 'off' }, utterance: REPEAT });
 
   assert.deepEqual(off, { kind: 'text', reason: 'voice-off' });
+});
+
+test('A16b: cache copies buffers on store and on replay', async () => {
+  const provider = fake('a');
+  const ledger = createUsageLedger({ rate: RATE });
+  const cache = createAudioCache(ROOMY_CACHE_BYTES);
+  const base = { settings: SETTINGS, providers: [provider], ledger, cache, safeToCache: true };
+
+  const first = await drain(await speakWithBudget({ ...base, utterance: UTTERANCE }));
+  first[0]?.audio.fill(TAMPER_BYTE);
+  const replayed = await drain(await speakWithBudget({ ...base, utterance: REPEAT }));
+  assert.equal(replayed[0]?.audio[0], 0);
+  replayed[0]?.audio.fill(TAMPER_BYTE);
+  const again = await drain(await speakWithBudget({ ...base, utterance: { ...UTTERANCE, eventId: 'ev-3' } }));
+  assert.equal(again[0]?.audio[0], 0);
+  assert.equal(provider.calls, 1);
 });

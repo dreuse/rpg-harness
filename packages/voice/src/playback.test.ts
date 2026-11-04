@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { type AudioCache, createAudioCache, createUsageLedger, type UsageLedger } from './audio-budget.ts';
 import {
   createOutputQueue,
   DEFAULT_PLAYBACK_SPEED,
@@ -31,6 +32,8 @@ const TIMEOUT_MS = 20;
 const CHUNK_COUNT = 2;
 const FAST_SPEED = 1.5;
 const FAILING_EVENT = 'ev-fail';
+const CACHE_BYTES = 1024;
+const COST_PER_CHAR = 1;
 
 const utterance = (eventId: string, speakerId = 'gm'): CommittedUtterance =>
   Object.freeze({ text: `line ${eventId}`, speakerId, eventId, profile: PROFILE });
@@ -66,7 +69,15 @@ interface Played {
   readonly speed: number;
 }
 
-const setup = (options: { providers?: TtsProvider[]; settings?: VoiceSettings; sink?: PlaybackSink } = {}) => {
+interface SetupOptions {
+  providers?: TtsProvider[];
+  settings?: VoiceSettings;
+  sink?: PlaybackSink;
+  ledger?: UsageLedger;
+  cache?: AudioCache;
+}
+
+const setup = (options: SetupOptions = {}) => {
   const events: PlaybackEvent[] = [];
   const played: Played[] = [];
   const sink: PlaybackSink = options.sink ?? {
@@ -91,6 +102,8 @@ const setup = (options: { providers?: TtsProvider[]; settings?: VoiceSettings; s
       firstChunkTimeoutMs: TIMEOUT_MS,
     },
     onEvent: (event) => events.push(event),
+    ...(options.ledger && { ledger: options.ledger }),
+    ...(options.cache && { cache: options.cache }),
   });
   return { queue, events, played };
 };
@@ -294,4 +307,64 @@ test('interrupt before the first chunk shows the text with the cancelled reason'
   assert.ok(
     events.some((event) => event.kind === 'subtitle' && event.state === 'text-only' && event.reason === 'cancelled'),
   );
+});
+
+const countingProvider = (): TtsProvider & { calls: number } => {
+  const inner = provider();
+  const counting = {
+    ...inner,
+    calls: 0,
+    synthesize: (spoken: CommittedUtterance, voiceId: string, signal: AbortSignal) => {
+      counting.calls++;
+      return inner.synthesize(spoken, voiceId, signal);
+    },
+  };
+  return counting;
+};
+
+const usageReports = (events: PlaybackEvent[]) =>
+  events.flatMap((event) => (event.kind === 'usage' ? [event.report] : []));
+
+test('shows the ledger report to clients after each utterance and replays from cache', async () => {
+  const counting = countingProvider();
+  const ledger = createUsageLedger({ rate: { ...RATE, pricePerUnit: COST_PER_CHAR } });
+  const cache = createAudioCache(CACHE_BYTES);
+  const { queue, events } = setup({ providers: [counting], ledger, cache });
+  queue.enqueue(utterance('ev-1'));
+  queue.enqueue({ ...utterance('ev-1'), eventId: 'ev-2' });
+  await queue.idle();
+
+  assert.equal(counting.calls, 1);
+  const reports = usageReports(events);
+  assert.equal(reports.length, 2);
+  assert.equal(reports[1]?.entries[0]?.cacheHits, 1);
+  assert.equal(reports[1]?.spent, utterance('ev-1').text.length * COST_PER_CHAR);
+});
+
+test('revoked consent does not replay populated cache', async () => {
+  const counting = countingProvider();
+  const ledger = createUsageLedger({ rate: RATE });
+  const cache = createAudioCache(CACHE_BYTES);
+  const warm = setup({ providers: [counting], ledger, cache });
+  warm.queue.enqueue(utterance('ev-1'));
+  await warm.queue.idle();
+
+  const revoked: VoiceSettings = { ...SETTINGS, consent: { granted: false } };
+  const { queue, played, events } = setup({ providers: [counting], settings: revoked, ledger, cache });
+  queue.enqueue(utterance('ev-2'));
+  await queue.idle();
+
+  assert.equal(played.length, 0);
+  assert.equal(counting.calls, 1);
+  assert.ok(subtitles(events).some((event) => event.kind === 'subtitle' && event.state === 'text-only'));
+});
+
+test('partial stream is not cached', async () => {
+  const cache = createAudioCache(CACHE_BYTES);
+  const ledger = createUsageLedger({ rate: RATE });
+  const { queue } = setup({ providers: [provider({ failMidStreamFor: FAILING_EVENT })], ledger, cache });
+  queue.enqueue(utterance(FAILING_EVENT));
+  await queue.idle();
+
+  assert.equal(cache.bytes, 0);
 });

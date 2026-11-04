@@ -66,7 +66,7 @@ export const createSubtitleTranscript = (deps: SubtitleTranscriptDeps = {}): Sub
       if (entry) finish(entry, 'interrupted');
       return;
     }
-    if (!entry) return;
+    if (!entry || event.kind === 'usage') return;
     if (event.state === 'text-only') {
       if (entry.endedAt !== undefined) return;
       show(entry, event.reason);

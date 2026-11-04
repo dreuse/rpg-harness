@@ -1,3 +1,4 @@
+import { type AudioCache, speakWithBudget, type UsageLedger, type UsageReport } from './audio-budget.ts';
 import { type SpeakOptions, type SpeechChunk, speakOrText, type TextFallbackReason } from './tts.ts';
 import type { CommittedUtterance } from './voice.ts';
 
@@ -19,12 +20,15 @@ interface SubtitleFields {
 export type PlaybackEvent =
   | (SubtitleFields & { readonly state: 'start' | 'end' })
   | (SubtitleFields & { readonly state: 'text-only'; readonly reason: TextFallbackReason })
+  | { readonly kind: 'usage'; readonly utteranceEventId: string; readonly report: UsageReport }
   | { readonly kind: 'interrupted'; readonly utteranceEventId: string | undefined; readonly dropped: number };
 
 export interface OutputQueueDeps {
   readonly sink: PlaybackSink;
   readonly speech: Omit<SpeakOptions, 'utterance' | 'signal'>;
   readonly onEvent: (event: PlaybackEvent) => void;
+  readonly ledger?: UsageLedger;
+  readonly cache?: AudioCache;
 }
 
 export interface InterruptOptions {
@@ -64,10 +68,26 @@ export const createOutputQueue = (deps: OutputQueueDeps): OutputQueue => {
   let current: Current | undefined;
   let draining: Promise<void> | undefined;
 
+  const speak = (utterance: CommittedUtterance, signal: AbortSignal) =>
+    deps.ledger
+      ? speakWithBudget({
+          ...deps.speech,
+          utterance,
+          signal,
+          ledger: deps.ledger,
+          ...(deps.cache && { cache: deps.cache, safeToCache: true }),
+        })
+      : speakOrText({ ...deps.speech, utterance, signal });
+
+  const reportUsage = (utterance: CommittedUtterance): void => {
+    if (deps.ledger) deps.onEvent({ kind: 'usage', utteranceEventId: utterance.eventId, report: deps.ledger.report() });
+  };
+
   const playOne = async (utterance: CommittedUtterance, signal: AbortSignal): Promise<void> => {
-    const outcome = await speakOrText({ ...deps.speech, utterance, signal });
+    const outcome = await speak(utterance, signal);
     if (outcome.kind === 'text') {
       deps.onEvent({ ...subtitle(utterance), state: 'text-only', reason: outcome.reason });
+      reportUsage(utterance);
       return;
     }
     deps.onEvent({ ...subtitle(utterance), state: 'start' });
@@ -79,6 +99,7 @@ export const createOutputQueue = (deps: OutputQueueDeps): OutputQueue => {
     } catch {
     } finally {
       deps.onEvent({ ...subtitle(utterance), state: 'end' });
+      reportUsage(utterance);
     }
   };
 
