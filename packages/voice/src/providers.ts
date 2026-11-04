@@ -159,3 +159,19 @@ export const checkProviderHealth = async (
   locality: provider.locality,
   status: await healthOf(provider, secrets, probe),
 });
+
+export interface EnvNameCollisionError {
+  readonly code: 'env-name-collision';
+  readonly providerIds: readonly string[];
+}
+
+export type CatalogValidation =
+  | { readonly ok: true; readonly catalog: readonly ProviderDescriptor[] }
+  | { readonly ok: false; readonly error: EnvNameCollisionError };
+
+export const validateProviderCatalog = (catalog: readonly ProviderDescriptor[]): CatalogValidation => {
+  const providerIds = findEnvNameCollisions(catalog.map((provider) => provider.id));
+  return providerIds.length === 0
+    ? { ok: true, catalog }
+    : { ok: false, error: { code: 'env-name-collision', providerIds } };
+};

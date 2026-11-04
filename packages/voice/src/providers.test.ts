@@ -15,6 +15,7 @@ import {
   type ProviderDescriptor,
   type ProviderProbe,
   secretEnvName,
+  validateProviderCatalog,
 } from './providers.ts';
 
 const LOCAL_STT_ID = 'local-whisper';
@@ -124,6 +125,15 @@ test('allow local/provider choice, api key safe storage and availability diagnos
       'CLOUD_TTS',
     ]);
     assert.deepEqual(findEnvNameCollisions(catalog.map((provider) => provider.id)), []);
+  });
+
+  await t.test('rejects a catalog whose provider ids share an environment variable name', () => {
+    assert.deepEqual(validateProviderCatalog(catalog), { ok: true, catalog });
+    const colliding = [...catalog, { ...catalog[2], id: 'cloud-tts-v2' }] as readonly ProviderDescriptor[];
+    assert.deepEqual(validateProviderCatalog(colliding), {
+      ok: false,
+      error: { code: 'env-name-collision', providerIds: [REMOTE_TTS_ID, 'cloud-tts-v2'] },
+    });
   });
 
   await t.test('stores, reads and deletes a credential in the OS keychain backend', async () => {
