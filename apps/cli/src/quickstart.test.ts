@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { FANTASY_PACK, HORROR_PACK } from '../../../packages/content/src/packs.ts';
 import { readCampaignState } from './engine-gateway.ts';
+import { planCampaign } from './quickstart.ts';
 
 const BIN = join(import.meta.dirname, 'bin.ts');
 const EXIT_OK = 0;
@@ -97,3 +98,16 @@ test('ruleset not present triggers import/choice instead of invented rules enfor
     assert.match(result.stderr, /Run rpg import <file> to add its rule files, or name an installed ruleset\./);
     assert.throws(() => readCampaignState(dataDir, INTENT_CAMPAIGN), /No campaign named/);
   }));
+
+test('plain-English genre names resolve to installed genre ids', () => {
+  const cases = [
+    ['a mystery story', 'investigative-mystery'],
+    ['a modern adventure', 'modern-adventure'],
+    ['a blank world', 'blank-world'],
+    ['a science fiction game', 'science-fiction'],
+    ['a fantasy story in a vast world', 'fantasy'],
+    ['a horror story set in a ruined world', 'horror'],
+  ] as const;
+  for (const [text, id] of cases) assert.equal(planCampaign(text).genre?.id, id, text);
+  assert.throws(() => planCampaign('a western story'), /not installed/);
+});

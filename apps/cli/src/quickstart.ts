@@ -11,7 +11,7 @@ import type { StoryKit } from '../../../packages/content/src/story.ts';
 import { type CampaignConfig, type ConfigIssue, generateCampaignConfig } from '../../../packages/intent/src/config.ts';
 import { type CampaignIntent, type CapabilityMode, createCampaignIntent } from '../../../packages/intent/src/intent.ts';
 import { MAX_INTENT_TEXT_LENGTH, proposeCampaignIntent } from '../../../packages/intent/src/parser.ts';
-import type { Registry } from '../../../packages/intent/src/registry.ts';
+import { matchGenre, type Registry } from '../../../packages/intent/src/registry.ts';
 import {
   type RulesetCandidate,
   type RulesetResolution,
@@ -27,9 +27,19 @@ const GENRE_PACKS: readonly { genre: Pick<GenrePack, 'id' | 'version' | 'name'>;
   MODERN_ADVENTURE_PACK,
   BLANK_WORLD_PACK,
 ];
+const GENRE_ALIASES: Readonly<Record<string, readonly string[]>> = {
+  [MYSTERY_PACK.genre.id]: ['mystery'],
+  [MODERN_ADVENTURE_PACK.genre.id]: ['modern'],
+  [BLANK_WORLD_PACK.genre.id]: ['blank'],
+};
 const REGISTRY: Registry = {
   rulepacks: BUILT_IN_PACKS,
-  genres: GENRE_PACKS.map(({ genre }) => ({ id: genre.id, version: genre.version })),
+  genres: GENRE_PACKS.map(({ genre }) => ({
+    id: genre.id,
+    version: genre.version,
+    name: genre.name,
+    aliases: [...(GENRE_ALIASES[genre.id] ?? [])],
+  })),
 };
 const NONE = 'none';
 const IMPORT_HINT = 'Run rpg import <file> to add its rule files, or name an installed ruleset.';
@@ -52,13 +62,19 @@ const issueText = (intent: CampaignIntent, { code, path }: ConfigIssue) =>
     ? `Genre ${intent.genre.value} is not installed. Installed genres: ${listed(REGISTRY.genres.map(({ id }) => id))}.`
     : `${path} ${code.replaceAll('_', ' ')}.`;
 
+const canonicalGenre = (intent: CampaignIntent): CampaignIntent => {
+  if (intent.genre.value === null) return intent;
+  const match = matchGenre(REGISTRY, { id: intent.genre.value, version: null });
+  return match.ok ? { ...intent, genre: { value: match.genre.id, provenance: intent.genre.provenance } } : intent;
+};
+
 const intentFrom = (text: string): CampaignIntent => {
   const proposed = proposeCampaignIntent(text);
   if (!proposed.ok) throw new Error(`Campaign intent must be at most ${MAX_INTENT_TEXT_LENGTH} characters.`);
   const { conflicts, input } = proposed.proposal;
   if (conflicts.length > 0)
     throw new Error(`Your intent gives conflicting choices for ${listed(conflicts.map(({ field }) => field))}.`);
-  const intent = createCampaignIntent(input);
+  const intent = canonicalGenre(createCampaignIntent(input));
   if (intent.ruleset.value === null) return intent;
   const resolution = resolveRuleset(REGISTRY, intent.ruleset.value);
   if (resolution.status !== 'resolved') throw new Error(rulesetError(resolution));

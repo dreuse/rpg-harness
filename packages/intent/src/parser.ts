@@ -65,6 +65,12 @@ const INTENT_CUES: Cue[] = [
     read: (match) => match[1] ?? null,
   },
   {
+    field: 'genre',
+    pattern: /\bblank[ -]world\b/gi,
+    confidence: CONFIDENCE.moderate,
+    read: (match) => match[0],
+  },
+  {
     field: 'ruleset',
     pattern: new RegExp(String.raw`\b(${EDITION})[ ](?:of[ ])?(${NAME})`, 'g'),
     confidence: CONFIDENCE.strong,
