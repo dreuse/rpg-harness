@@ -1,4 +1,4 @@
-export const INGEST_FORMATS = ['pdf', 'docx', 'text', 'markdown', 'yaml', 'json'] as const;
+export const INGEST_FORMATS = ['pdf', 'docx', 'text', 'markdown', 'yaml', 'json', 'png', 'jpg', 'csv', 'xlsx'] as const;
 export type IngestFormat = (typeof INGEST_FORMATS)[number];
 
 const BYTES_PER_MIB = 1024 * 1024;
@@ -14,10 +14,24 @@ const EXTENSION_FORMATS: Record<string, IngestFormat> = {
   yaml: 'yaml',
   yml: 'yaml',
   json: 'json',
+  png: 'png',
+  jpg: 'jpg',
+  jpeg: 'jpg',
+  csv: 'csv',
+  xlsx: 'xlsx',
 };
 
 const PDF_MAGIC = [0x25, 0x50, 0x44, 0x46, 0x2d];
 const ZIP_MAGIC = [0x50, 0x4b, 0x03, 0x04];
+const PNG_MAGIC = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+const JPEG_MAGIC = [0xff, 0xd8, 0xff];
+const BINARY_MAGIC: Partial<Record<IngestFormat, number[]>> = {
+  pdf: PDF_MAGIC,
+  docx: ZIP_MAGIC,
+  xlsx: ZIP_MAGIC,
+  png: PNG_MAGIC,
+  jpg: JPEG_MAGIC,
+};
 const NUL_BYTE = 0x00;
 const PATH_SEPARATORS = /[/\\]/;
 const DRIVE_SEPARATOR = ':';
@@ -31,9 +45,8 @@ export type FileProbe = { fileName: string; size: number; head: Uint8Array };
 const startsWith = (head: Uint8Array, magic: number[]) => magic.every((byte, index) => head[index] === byte);
 
 const matchesContent = (format: IngestFormat, head: Uint8Array): boolean => {
-  if (format === 'pdf') return startsWith(head, PDF_MAGIC);
-  if (format === 'docx') return startsWith(head, ZIP_MAGIC);
-  return !head.includes(NUL_BYTE);
+  const magic = BINARY_MAGIC[format];
+  return magic ? startsWith(head, magic) : !head.includes(NUL_BYTE);
 };
 
 export const isSafeFileName = (fileName: string) =>

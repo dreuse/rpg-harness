@@ -12,6 +12,10 @@ Package: `@rpg/imports` (`packages/imports`). No dependencies. Pure types and fu
 | markdown | `.md`, `.markdown` | no NUL byte in leading bytes |
 | yaml | `.yaml`, `.yml` | no NUL byte in leading bytes |
 | json | `.json` | no NUL byte in leading bytes |
+| png | `.png` | starts with PNG magic `\x89PNG\r\n\x1a\n` |
+| jpg | `.jpg`, `.jpeg` | starts with JPEG magic `\xFF\xD8\xFF` |
+| csv | `.csv` | no NUL byte in leading bytes |
+| xlsx | `.xlsx` | starts with ZIP magic `PK\x03\x04` |
 
 Size cap: `MAX_IMPORT_BYTES` (50 MiB). Images and scans go through the separate vision fallback.
 
@@ -29,12 +33,12 @@ States per stage: `pending`, `running`, `succeeded`, `failed`.
 | size_cap_exceeded | stage | all |
 | unsafe_path | stage | all |
 | duplicate | stage | all |
-| extraction_failed | extract | pdf, docx, text, markdown |
-| encrypted | extract | pdf, docx |
-| scanned_needs_vision | extract | pdf |
-| malformed_structure | extract | yaml, json |
-| unsafe_archive_entry | extract | docx |
-| archive_size_exceeded | extract | docx |
+| extraction_failed | extract | pdf, docx, text, markdown, png, jpg, csv, xlsx |
+| encrypted | extract | pdf, docx, xlsx |
+| scanned_needs_vision | extract | pdf, docx, png, jpg |
+| malformed_structure | extract | yaml, json, csv, xlsx |
+| unsafe_archive_entry | extract | docx, xlsx |
+| archive_size_exceeded | extract | docx, xlsx |
 | low_confidence | interpret | all |
 | compile_failed | compile | all |
 | validation_failed | validate | all |

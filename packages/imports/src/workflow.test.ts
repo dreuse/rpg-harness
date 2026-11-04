@@ -11,7 +11,7 @@ const LOW_CONFIDENCE = 0.2;
 const FOCUS_CLAUSE = 'Spend 1 focus to reroll.';
 const VAGUE_CLAUSE = 'The moon decides everything.';
 const PDF_BYTES = new TextEncoder().encode('%PDF-1.7 scanned');
-const PNG_BYTES = Uint8Array.from([0x89, 0x50, 0x4e, 0x47]);
+const GIF_BYTES = new TextEncoder().encode('GIF89a');
 const READ_FAILURE = 'no pdf reader';
 
 const pack = (id: string, capabilities: RulePackManifest['capabilities']): RulePackManifest => ({
@@ -138,7 +138,7 @@ test('import never silently completes with gaps', async () => {
   const { outcome, transcript } = await converse(
     [
       { fileName: 'rules.md', bytes: text(`${FOCUS_CLAUSE}\n\n${VAGUE_CLAUSE}`) },
-      { fileName: 'art.png', bytes: PNG_BYTES },
+      { fileName: 'art.gif', bytes: GIF_BYTES },
       { fileName: 'scan.pdf', bytes: PDF_BYTES },
       { fileName: 'empty.txt', bytes: text('') },
     ],
@@ -148,14 +148,14 @@ test('import never silently completes with gaps', async () => {
   assert.deepEqual(
     outcome.gaps.map(({ kind, source }) => [kind, source]),
     [
-      ['stage_failed', 'art.png'],
+      ['stage_failed', 'art.gif'],
       ['extraction_failed', 'scan.pdf'],
       ['no_content', 'empty.txt'],
       ['unsupported_mechanic', 'rules.md p.1'],
       ['unsupported_mechanic', 'rules.md p.1'],
     ],
   );
-  assert.match(transcript, /art\.png/);
+  assert.match(transcript, /art\.gif/);
   assert.match(transcript, /scan\.pdf/);
   assert.match(transcript, /empty\.txt/);
   assert.match(transcript, /Activation refused/);

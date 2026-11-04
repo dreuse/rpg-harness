@@ -50,6 +50,10 @@ const EXTRACT_FAILURES: Record<IngestFormat, readonly FailureKind[]> = {
   markdown: ['extraction_failed'],
   yaml: ['malformed_structure'],
   json: ['malformed_structure'],
+  png: ['extraction_failed', 'scanned_needs_vision'],
+  jpg: ['extraction_failed', 'scanned_needs_vision'],
+  csv: ['extraction_failed', 'malformed_structure'],
+  xlsx: ['extraction_failed', 'encrypted', 'malformed_structure', 'unsafe_archive_entry', 'archive_size_exceeded'],
 };
 
 export const failuresFor = (format: IngestFormat): readonly FailureKind[] => [

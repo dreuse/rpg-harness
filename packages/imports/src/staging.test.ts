@@ -64,7 +64,7 @@ test('path traversal, oversized payload and unsupported file types produce safe 
   const results = stageDocuments([
     { fileName: TRAVERSAL_NAME, bytes: NOTES },
     { fileName: 'huge.pdf', bytes: oversized },
-    { fileName: 'art.png', bytes: NOTES },
+    { fileName: 'art.gif', bytes: NOTES },
     { fileName: 'fake.pdf', bytes: NOTES },
     { fileName: 'ok.txt', bytes: NOTES },
   ]);

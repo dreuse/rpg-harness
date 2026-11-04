@@ -17,13 +17,18 @@ const PDF_HEAD = new TextEncoder().encode('%PDF-1.7');
 const ZIP_HEAD = Uint8Array.from([0x50, 0x4b, 0x03, 0x04]);
 const TEXT_HEAD = new TextEncoder().encode('hello');
 const BINARY_HEAD = Uint8Array.from([0x00, 0x01, 0x02]);
+const PNG_HEAD = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+const JPEG_HEAD = Uint8Array.from([0xff, 0xd8, 0xff, 0xe0]);
 const SMALL = 10;
 const HASH = 'a'.repeat(64);
 
 const classify = (fileName: string, head: Uint8Array, size = SMALL) => classifyFile({ fileName, size, head });
 
 test('define pdf, docx, text, markdown, yaml and json ingest journey with failure states', () => {
-  assert.deepEqual([...INGEST_FORMATS], ['pdf', 'docx', 'text', 'markdown', 'yaml', 'json']);
+  assert.deepEqual(
+    [...INGEST_FORMATS],
+    ['pdf', 'docx', 'text', 'markdown', 'yaml', 'json', 'png', 'jpg', 'csv', 'xlsx'],
+  );
   assert.deepEqual([...INGEST_STAGES], ['stage', 'extract', 'interpret', 'compile', 'validate', 'review', 'activate']);
   assert.deepEqual([...STAGE_STATES], ['pending', 'running', 'succeeded', 'failed']);
 
@@ -34,7 +39,7 @@ test('define pdf, docx, text, markdown, yaml and json ingest journey with failur
   assert.deepEqual(classify('rules.yml', TEXT_HEAD), { ok: true, format: 'yaml' });
   assert.deepEqual(classify('rules.json', TEXT_HEAD), { ok: true, format: 'json' });
 
-  assert.deepEqual(classify('art.png', PDF_HEAD), { ok: false, failure: 'unsupported_format' });
+  assert.deepEqual(classify('art.gif', PDF_HEAD), { ok: false, failure: 'unsupported_format' });
   assert.deepEqual(classify('book.pdf', TEXT_HEAD), { ok: false, failure: 'mime_mismatch' });
   assert.deepEqual(classify('book.docx', PDF_HEAD), { ok: false, failure: 'mime_mismatch' });
   assert.deepEqual(classify('notes.txt', BINARY_HEAD), { ok: false, failure: 'mime_mismatch' });
@@ -95,6 +100,34 @@ test('define pdf, docx, text, markdown, yaml and json ingest journey with failur
   assert.equal(failed.failure, 'encrypted');
   assert.equal(staged.states.extract, 'pending');
   assert.throws(() => withFailure(withSuccess(newJourney('text'), 'stage'), 'encrypted'));
+});
+
+test('stage png, jpg, csv and xlsx character sheets by extension and content', () => {
+  assert.deepEqual(classify('sheet.png', PNG_HEAD), { ok: true, format: 'png' });
+  assert.deepEqual(classify('sheet.JPG', JPEG_HEAD), { ok: true, format: 'jpg' });
+  assert.deepEqual(classify('sheet.jpeg', JPEG_HEAD), { ok: true, format: 'jpg' });
+  assert.deepEqual(classify('sheet.csv', TEXT_HEAD), { ok: true, format: 'csv' });
+  assert.deepEqual(classify('sheet.xlsx', ZIP_HEAD), { ok: true, format: 'xlsx' });
+
+  for (const [name, head] of [
+    ['sheet.png', PDF_HEAD],
+    ['sheet.png', JPEG_HEAD],
+    ['sheet.jpg', PNG_HEAD],
+    ['sheet.jpeg', TEXT_HEAD],
+    ['sheet.csv', BINARY_HEAD],
+    ['sheet.xlsx', PDF_HEAD],
+  ] as const) {
+    assert.deepEqual(classify(name, head), { ok: false, failure: 'mime_mismatch' }, name);
+  }
+
+  assert.ok(failuresFor('png').includes('scanned_needs_vision'));
+  assert.ok(failuresFor('jpg').includes('scanned_needs_vision'));
+  assert.ok(!failuresFor('png').includes('unsafe_archive_entry'));
+  assert.ok(failuresFor('csv').includes('malformed_structure'));
+  assert.ok(!failuresFor('csv').includes('encrypted'));
+  for (const failure of ['encrypted', 'unsafe_archive_entry', 'archive_size_exceeded'] as const) {
+    assert.ok(failuresFor('xlsx').includes(failure), failure);
+  }
 });
 
 test('provenance records hash, locator and quality and never fabricates a missing locator', () => {
