@@ -116,6 +116,7 @@ const replier = ({ campaign, problem }: Served) => {
     if (campaign === undefined) return send({ id, type: 'Error', message: problem });
     const command = parsed.value;
     const { session, campaignId } = campaign;
+    if (command.type === 'ListCampaigns') return send({ id, type: 'Result', result: session.listCampaigns(command) });
     if (command.campaignId !== campaignId)
       return send({ id, type: 'Error', message: `Campaign ${command.campaignId} is not served by this engine.` });
     if (command.type === 'GetCampaignSnapshot')
