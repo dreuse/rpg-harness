@@ -1,0 +1,10 @@
+{
+  "name": "@rpg/narrative",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@rpg/domain": "workspace:*",
+    "@rpg/memory": "workspace:*"
+  }
+}

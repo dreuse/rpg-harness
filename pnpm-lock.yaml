@@ -66,6 +66,15 @@ importers:
         specifier: workspace:*
         version: link:../domain
 
+  packages/narrative:
+    dependencies:
+      '@rpg/domain':
+        specifier: workspace:*
+        version: link:../domain
+      '@rpg/memory':
+        specifier: workspace:*
+        version: link:../memory
+
   packages/persistence:
     dependencies:
       '@rpg/domain':
