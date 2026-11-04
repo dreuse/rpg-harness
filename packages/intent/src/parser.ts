@@ -30,7 +30,8 @@ type Cue = {
 }[IntentField];
 
 const NAME_WORD = String.raw`[A-Z][\w&'+-]*:?`;
-const NAME = String.raw`(?<![\w&'+-])${NAME_WORD}(?:[ ](?:(?:of|the|and)[ ])?${NAME_WORD}){0,3}`;
+const LEADING_VERBS = ['Play', 'Use', 'Run', 'Start', 'Try', 'Begin'];
+const NAME = String.raw`(?<![\w&'+-])(?!(?:${LEADING_VERBS.join('|')})[ ])${NAME_WORD}(?:[ ](?:(?:of|the|and)[ ])?${NAME_WORD}){0,3}`;
 const PACE = String.raw`[ -]pac(?:e|ed|ing)\b`;
 const EDITION = String.raw`\d+(?:st|nd|rd|th)[ ][Ee]dition|\d+e`;
 const VERSION = String.raw`\d+(?:\.\d+)+|\d+(?:st|nd|rd|th)?[ ]?(?:e|ed|[Ee]dition)\b`;
