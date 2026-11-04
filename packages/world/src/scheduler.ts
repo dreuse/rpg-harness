@@ -17,7 +17,7 @@ export const MAX_TICKS_PER_ADVANCE = 32;
 export const MAX_DEFERRED_ACTIONS = 64;
 const BUDGET_REASONS = [ACTION_BUDGET_EXCEEDED, ACTOR_BUDGET_EXCEEDED];
 const QUEUE_FULL = 'deferred action queue full';
-const FOREIGN_ACTOR = 'planner proposed for another actor';
+export const FOREIGN_ACTOR = 'planner proposed for another actor';
 const FOREIGN_TICK = 'planner proposed for another tick';
 
 export type TimedEvent = { readonly tick: number; readonly type: string };
