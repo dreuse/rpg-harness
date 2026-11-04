@@ -29,6 +29,18 @@ WorldActor: goal list, resources, capabilities, current plan, relationships, kno
 6. Update projections; generate a relevance candidate for Narrative Director.
 7. Present immediate consequences and select appropriate discoveries, rumors and plot hooks later.
 
+## Conflict resolution
+
+`resolveConflicts` in `packages/world/src/conflict.ts` takes a batch of proposals and a ruleset claim port. It returns accepted and rejected proposals with reasons. It writes no state.
+
+1. The claim port returns each proposal's exclusive claim keys and a numeric priority. Keys are opaque strings, such as `item:relic`, `territory:valley` or `stance:elves-dwarves`.
+2. Contested resources, races and incompatible actions all share one rule: two actions that claim the same key conflict.
+3. Malformed proposals are rejected and take no part in resolution. Proposals that share an action ID are all rejected. Proposals with a malformed or failed claim are rejected.
+4. The resolver sorts the rest by logical tick (earliest first), then priority (highest first), then action ID.
+5. In that order, a proposal wins when none of its keys is taken. A winner takes all its keys. A loser takes none and records the key and the winner.
+
+The order is total, so the result does not depend on input order. The engine still validates and commits each accepted action.
+
 ## Narrative Director
 
 Pacing is not outcome manipulation. It operates on presentation timing and optional hook selection, not rule math. Event buckets: background, emerging, major, critical. Suggested balanced heuristics: introduce ~one new major optional storyline at a time, avoid repeated unsolicited interruptions, allow recovery after high tension; these are tunable heuristics, not hardcoded caps. Immediate, obvious major consequences still happen.
