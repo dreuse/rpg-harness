@@ -15,7 +15,14 @@ const lines: AsyncIterable<string> = {
       output: isTerminal ? process.stdout : undefined,
       terminal: isTerminal,
     });
-    return readline[Symbol.asyncIterator]();
+    const iterator = readline[Symbol.asyncIterator]();
+    return {
+      next: () => iterator.next(),
+      return: async () => {
+        readline.close();
+        return { done: true, value: undefined };
+      },
+    };
   },
 };
 

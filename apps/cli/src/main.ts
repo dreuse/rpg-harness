@@ -1,4 +1,5 @@
 import { parseArgs } from 'node:util';
+import type { Ask } from './character-creation.ts';
 import { PLAIN_TERMINAL, type Terminal } from './tui.ts';
 import { VIEW_NAMES, type ViewName } from './views.ts';
 
@@ -12,7 +13,7 @@ export type CampaignMode = 'play' | 'resume';
 
 export type CampaignGateway = {
   launch: () => string;
-  create: (name: string, intent?: string) => string;
+  create: (name: string, intent: string | undefined, ask: Ask) => AsyncIterable<string>;
   list: () => string;
   archive: (campaign: string) => string;
   remove: (campaign: string, lines: AsyncIterable<string>) => AsyncIterable<string>;
@@ -100,6 +101,19 @@ const fail = (io: Io, error: unknown): number => {
   return EXIT_FAILURE;
 };
 
+const withAsk = async function* (io: Io, create: (ask: Ask) => AsyncIterable<string>): AsyncGenerator<string> {
+  const answers = io.lines[Symbol.asyncIterator]();
+  try {
+    yield* create(async (question) => {
+      say(io, question);
+      const next = await answers.next();
+      return next.done ? undefined : next.value;
+    });
+  } finally {
+    await answers.return?.();
+  }
+};
+
 const CONTROL_PREFIX = '/';
 const sessionHelp = (views: readonly ViewName[]) =>
   [
@@ -184,7 +198,7 @@ export const main = async (argv: readonly string[], io: Io, gateway: CampaignGat
     if (unexpected.length > 0) return usageError(io, `Unexpected argument: ${unexpected[0]}.`);
     return run(io, () =>
       command === 'new'
-        ? [gateway.create(name, intent)]
+        ? withAsk(io, (ask) => gateway.create(name, intent, ask))
         : gateway.open(
             name,
             command,

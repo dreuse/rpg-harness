@@ -1,3 +1,4 @@
+import { creationRulesOf } from './character-builder.ts';
 import {
   isNonEmptyString,
   type ManifestIssue,
@@ -16,6 +17,8 @@ export const NARRATIVE_MANIFEST: RulePackManifest = {
   capabilities: { checks: ADJUDICATED_MODE, combat: ADJUDICATED_MODE, resources: false, progression: false },
   sourceRefs: [],
 };
+
+export const NARRATIVE_CREATION = creationRulesOf(NARRATIVE_MANIFEST);
 
 export type NarrativeAction = { actionId: string; intent: string; outcome: string };
 export type Adjudication = NarrativeAction & { mode: typeof ADJUDICATED_MODE };

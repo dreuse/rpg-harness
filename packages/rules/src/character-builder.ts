@@ -1,7 +1,14 @@
 import { type CharacterProfile, type ProfileTraitValue, parseCharacterProfile } from '../../domain/src/character.ts';
 import { computeDerivedStats, NUMERIC_WIDGETS, type StatConstraint } from './derived-stats.ts';
 import { isBounded } from './dsl.ts';
-import type { SheetField, SheetProvenance, SheetSchema, WidgetType } from './sheet-schema.ts';
+import type { RulePackManifest } from './rulepack.ts';
+import {
+  SHEET_SCHEMA_VERSION,
+  type SheetField,
+  type SheetProvenance,
+  type SheetSchema,
+  type WidgetType,
+} from './sheet-schema.ts';
 
 export const BUILDER_ISSUE_CODES = [
   'out_of_range',
@@ -53,6 +60,22 @@ export type BuildResult =
   | { status: 'rejected'; issues: BuilderIssue[] };
 
 type Bounds = { min?: number; max?: number };
+
+export const creationRulesOf = (
+  { id, edition, revision, sourceRefs }: RulePackManifest,
+  fields: SheetField[] = [],
+  constraints: StatConstraint[] = [],
+  startingEquipment: string[] = [],
+): CreationRules => ({
+  schema: {
+    schemaVersion: SHEET_SCHEMA_VERSION,
+    rulepack: { id, edition, revision, sourceRefs: [...sourceRefs] },
+    fields,
+  },
+  constraints,
+  startingEquipment,
+  overridableFields: [],
+});
 
 const fitsWidget = (field: SheetField, value: unknown) => {
   if (NUMERIC_WIDGETS.includes(field.widget)) return isBounded(value);

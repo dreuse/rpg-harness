@@ -4,6 +4,8 @@ import { chmodSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
+import { MAX_INPUT_LENGTH } from '../../../packages/client-protocol/src/protocol.ts';
+import { CHARACTER_CREATED } from '../../../packages/engine/src/character.ts';
 import { readCampaignState } from './engine-gateway.ts';
 
 const BIN = join(import.meta.dirname, 'bin.ts');
@@ -14,6 +16,9 @@ const EXIT_OK = 0;
 const NO_INPUT = '';
 const READ_ONLY = 0o444;
 const SAVE_FILE = `${CAMPAIGN}.sqlite`;
+const D20_INTENT = 'A fantasy adventure using the D20-lite rules';
+const CHARACTER = 'A scout named Ash with might 6, agility 5, wits 7 and presence 4, carrying a draught.';
+const VAGUE_CHARACTER = 'A scout named Ash.';
 
 const withDataDir = (run: (dataDir: string) => void) => {
   const dataDir = mkdtempSync(join(tmpdir(), 'rpg-cli-'));
@@ -85,3 +90,37 @@ test('a failed action mid-play reports each error, keeps the session alive and l
     assert.ok(!failed.stdout.includes(FIRST_ACTION));
     assert.deepEqual(readCampaignState(dataDir, CAMPAIGN), before);
   }));
+
+const createdCharacters = (dataDir: string) =>
+  readCampaignState(dataDir, CAMPAIGN).events.filter(({ type }) => type === CHARACTER_CREATED);
+
+test('new creates a character from a description when the ruleset supplies creation rules', () =>
+  withDataDir((dataDir) => {
+    const out = succeed(dataDir, ['new', CAMPAIGN, D20_INTENT], `${CHARACTER}\n`);
+    assert.match(out, /Ash/);
+    const events = createdCharacters(dataDir);
+    assert.deepEqual(
+      events.map(({ payload }) => (payload as { profile: { identity: { name: string } } }).profile.identity.name),
+      ['Ash'],
+    );
+  }));
+
+test('new cuts a long character description to the player input limit', () =>
+  withDataDir((dataDir) => {
+    succeed(dataDir, ['new', CAMPAIGN, D20_INTENT], `${CHARACTER} ${'x'.repeat(MAX_INPUT_LENGTH)}\n`);
+    const backstories = createdCharacters(dataDir).map(
+      ({ payload }) => (payload as { profile: { background: string } }).profile.background,
+    );
+    assert.deepEqual(
+      backstories.map(({ length }) => length),
+      [MAX_INPUT_LENGTH],
+    );
+  }));
+
+test('new keeps the default hero when the player skips or leaves character creation unfinished', () => {
+  for (const input of [NO_INPUT, '\n', `${VAGUE_CHARACTER}\n`])
+    withDataDir((dataDir) => {
+      assert.ok(succeed(dataDir, ['new', CAMPAIGN, D20_INTENT], input).trim().length > 0);
+      assert.deepEqual(createdCharacters(dataDir), []);
+    });
+});

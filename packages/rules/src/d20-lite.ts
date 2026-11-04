@@ -1,3 +1,4 @@
+import { creationRulesOf } from './character-builder.ts';
 import { createRoller, type Rng, type TrustedRoll } from './dice.ts';
 import { type Condition, type NumberExpr, RULE_DSL_VERSION, type RuleDsl, type RuleEffect } from './dsl.ts';
 import { rejectPrecondition, type SheetResult } from './inventory.ts';
@@ -53,6 +54,13 @@ export const D20_LITE_MANIFEST: RulePackManifest = {
   capabilities: { checks: true, combat: true, resources: true, progression: true },
   sourceRefs: [],
 };
+
+export const D20_LITE_CREATION = creationRulesOf(
+  D20_LITE_MANIFEST,
+  ATTRIBUTES.map((id) => ({ id, widget: 'number', custom: false, visibility: 'public' })),
+  ATTRIBUTES.map((field) => ({ field, min: ATTRIBUTE_MIN, max: ATTRIBUTE_MAX, onViolation: 'report' })),
+  [DRAUGHT],
+);
 
 const modId = (attribute: Attribute) => `${attribute}${MOD_SUFFIX}`;
 const constant = (value: number): NumberExpr => ({ kind: 'const', value });

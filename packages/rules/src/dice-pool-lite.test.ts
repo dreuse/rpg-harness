@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { buildCharacter } from './character-builder.ts';
 import { createSeededRng, MAX_DICE_PER_TERM, type Rng, verifyRollClaim } from './dice.ts';
 import {
   DEFAULT_POOL_CONFIG,
+  DICE_POOL_LITE_CREATION,
   DICE_POOL_LITE_MANIFEST,
   opposedCheck,
   type PoolConfig,
@@ -108,4 +110,19 @@ test('rejects invalid pool sizes and configs', () => {
   for (const config of invalid) assert.equal(validatePoolConfig(config).ok, false);
   assert.equal(rollPool({ actionId: ACTION_ID, dice: 1, config: invalid[1] as PoolConfig, rng }).ok, false);
   assert.deepEqual(validatePoolConfig(D10), { ok: true, config: D10 });
+});
+
+test('dice-pool-lite supplies creation rules for a named character with a backstory', () => {
+  const result = buildCharacter({
+    rules: DICE_POOL_LITE_CREATION,
+    backstory: 'A drifter.',
+    proposal: { name: 'Ash', values: {}, equipment: [] },
+  });
+  assert.equal(result.status, 'created', JSON.stringify(result));
+  const { id, edition, revision } = DICE_POOL_LITE_MANIFEST;
+  assert.deepEqual(result.status === 'created' ? result.character.profile.rulepack : undefined, {
+    id,
+    edition,
+    revision,
+  });
 });

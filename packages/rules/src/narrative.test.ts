@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { buildCharacter } from './character-builder.ts';
 import { createSeededRng } from './dice.ts';
 import { RULE_DSL_VERSION } from './dsl.ts';
-import { ADJUDICATED_MODE, adjudicate, NARRATIVE_MANIFEST } from './narrative.ts';
+import { ADJUDICATED_MODE, adjudicate, NARRATIVE_CREATION, NARRATIVE_MANIFEST } from './narrative.ts';
 import { resolveAction } from './resolve.ts';
 import { CapabilityDisabledError, requireCapability, validateManifest } from './rulepack.ts';
 import type { TraitSheet } from './traits.ts';
@@ -54,4 +55,19 @@ test('R05: narrative adjudication is clearly marked rather than masquerading as 
   assert.ok(strict.ok);
   assert.equal(Object.hasOwn(strict, 'mode'), false);
   assert.notDeepEqual(Object.keys(narrative).sort(), Object.keys(strict).sort());
+});
+
+test('narrative supplies creation rules for a named character with a backstory', () => {
+  const result = buildCharacter({
+    rules: NARRATIVE_CREATION,
+    backstory: 'A drifter.',
+    proposal: { name: 'Ash', values: {}, equipment: [] },
+  });
+  assert.equal(result.status, 'created', JSON.stringify(result));
+  const { id, edition, revision } = NARRATIVE_MANIFEST;
+  assert.deepEqual(result.status === 'created' ? result.character.profile.rulepack : undefined, {
+    id,
+    edition,
+    revision,
+  });
 });

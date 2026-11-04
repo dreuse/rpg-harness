@@ -1,13 +1,18 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { buildCharacter } from './character-builder.ts';
 import {
+  ATTRIBUTE_MAX,
+  ATTRIBUTES,
   advanceTurn,
   attack,
   attemptCheck,
   attributeModifier,
   createSheet,
+  D20_LITE_CREATION,
   D20_LITE_MANIFEST,
   D20_LITE_RULES,
+  DRAUGHT,
   gainExperience,
   rollInitiative,
   XP_PER_LEVEL,
@@ -16,6 +21,7 @@ import { createSeededRng, type Rng, verifyRollClaim } from './dice.ts';
 import { RULE_DSL_VERSION } from './dsl.ts';
 import { resolveAction } from './resolve.ts';
 import { capabilityState, validateManifest } from './rulepack.ts';
+import { validateSheetSchema } from './sheet-schema.ts';
 import { resolveDerived, type TraitSheet } from './traits.ts';
 
 const D20 = 20;
@@ -306,4 +312,26 @@ test('a feeble character still gains hit points on level up', () => {
   const sheet = hero({ might: FEEBLE });
   const result = gainExperience(sheet, XP_PER_LEVEL);
   assert.ok((maxOf(result.sheet, 'hp') as number) > (maxOf(sheet, 'hp') as number));
+});
+
+test('d20-lite supplies creation rules that build a pinned character from attribute choices', () => {
+  const build = (values: Record<string, number>) =>
+    buildCharacter({
+      rules: D20_LITE_CREATION,
+      backstory: 'A scout.',
+      proposal: { name: 'Ash', values, equipment: [DRAUGHT] },
+    });
+  assert.ok(validateSheetSchema(D20_LITE_CREATION.schema).ok);
+  const created = build({ might: 6, agility: 5, wits: 7, presence: 4 });
+  assert.equal(created.status, 'created', JSON.stringify(created));
+  if (created.status === 'created') {
+    const { id, edition, revision } = D20_LITE_MANIFEST;
+    assert.deepEqual(created.character.profile.rulepack, { id, edition, revision });
+    assert.deepEqual(created.character.equipment, [DRAUGHT]);
+  }
+  const pending = build({});
+  assert.deepEqual(pending.status === 'pending' ? pending.questions.map(({ fieldId }) => fieldId) : [], [
+    ...ATTRIBUTES,
+  ]);
+  assert.equal(build({ might: ATTRIBUTE_MAX + 1, agility: 5, wits: 5, presence: 5 }).status, 'rejected');
 });

@@ -1,3 +1,4 @@
+import { creationRulesOf } from './character-builder.ts';
 import { createRoller, MAX_DICE_PER_TERM, MAX_SIDES, MIN_SIDES, type Rng, type TrustedRoll } from './dice.ts';
 import {
   isNonEmptyString,
@@ -25,6 +26,8 @@ export const DICE_POOL_LITE_MANIFEST: RulePackManifest = {
   capabilities: { checks: true },
   sourceRefs: [],
 };
+
+export const DICE_POOL_LITE_CREATION = creationRulesOf(DICE_POOL_LITE_MANIFEST);
 
 export type PoolConfig = {
   readonly sides: number;

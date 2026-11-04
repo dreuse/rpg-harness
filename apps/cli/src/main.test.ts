@@ -17,9 +17,9 @@ const setup = (input: readonly string[] = PLAYER_LINES) => {
       calls.push('launch');
       return 'Launched.';
     },
-    create: (name, intent) => {
+    create: async function* (name, intent) {
       calls.push(intent === undefined ? `create:${name}` : `create:${name}:${intent}`);
-      return `Created campaign ${name}.`;
+      yield `Created campaign ${name}.`;
     },
     list: () => {
       calls.push('list');
@@ -101,6 +101,42 @@ test('help lists every command with a one-line description in plain text', async
       assert.match(text, new RegExp(`^  ${command}\\b.* - .+$`, 'm'));
     }
     assert.deepEqual(err, []);
+  }
+});
+
+test('new asks questions on stdout and reads each answer from the input lines', async () => {
+  const { gateway, io, out, err } = setup(['Ash']);
+  const answers: (string | undefined)[] = [];
+  gateway.create = async function* (_name, _intent, ask) {
+    answers.push(await ask('Name?'), await ask('Calling?'));
+    yield 'Done.';
+  };
+  assert.equal(await main(['new', 'Ember'], io, gateway), 0);
+  assert.deepEqual(answers, ['Ash', undefined]);
+  assert.deepEqual(out, ['Name?\n', 'Calling?\n', 'Done.\n']);
+  assert.deepEqual(err, []);
+});
+
+test('new releases the input lines exactly once whether or not it asks anything', async () => {
+  for (const questions of [[], ['Name?']]) {
+    const { gateway, io } = setup();
+    let released = 0;
+    const source = lines(['Ash']);
+    const counted: AsyncIterable<string> = {
+      [Symbol.asyncIterator]: () => ({
+        next: () => source.next(),
+        return: async () => {
+          released += 1;
+          return { done: true, value: undefined };
+        },
+      }),
+    };
+    gateway.create = async function* (_name, _intent, ask) {
+      for (const question of questions) await ask(question);
+      yield 'Done.';
+    };
+    assert.equal(await main(['new', 'Ember'], { ...io, lines: counted }, gateway), 0);
+    assert.equal(released, 1);
   }
 });
 

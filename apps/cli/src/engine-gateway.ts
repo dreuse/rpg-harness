@@ -1,8 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import { closeSync, existsSync, linkSync, mkdirSync, openSync, readdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
+import { MAX_INPUT_LENGTH } from '../../../packages/client-protocol/src/protocol.ts';
 import type { CampaignState, Turn } from '../../../packages/domain/src/campaign.ts';
 import type { Visibility } from '../../../packages/domain/src/entity.ts';
+import { commitCharacter } from '../../../packages/engine/src/character.ts';
 import { createEngine, type Engine } from '../../../packages/engine/src/engine.ts';
 import { campaignConfigOf, openScene, performAction } from '../../../packages/engine/src/turn.ts';
 import { type CampaignConfig, parseCampaignConfig } from '../../../packages/intent/src/config.ts';
@@ -10,7 +12,12 @@ import { PLAYER_VIEWER } from '../../../packages/memory/src/knowledge.ts';
 import { createCampaignStore } from '../../../packages/persistence/src/campaign-store.ts';
 import { openDatabase } from '../../../packages/persistence/src/database.ts';
 import { createEntityStore } from '../../../packages/persistence/src/entity-store.ts';
+import type { BuildInput, BuildResult } from '../../../packages/rules/src/character-builder.ts';
+import { D20_LITE_CREATION } from '../../../packages/rules/src/d20-lite.ts';
+import { DICE_POOL_LITE_CREATION } from '../../../packages/rules/src/dice-pool-lite.ts';
+import { NARRATIVE_CREATION } from '../../../packages/rules/src/narrative.ts';
 import { exportArchive, restoreArchive } from './campaign-archive.ts';
+import { type Ask, createCharacter } from './character-creation.ts';
 import { createClientSessions, scopedEventsOf, worldOf } from './client-session.ts';
 import { importRules } from './import-gateway.ts';
 import type { CampaignGateway } from './main.ts';
@@ -36,6 +43,9 @@ const TIME_SEPARATOR = /:/g;
 const SAFE_TIME_SEPARATOR = '-';
 const NONE = 'none';
 const SAVED_SETTINGS = 'Saved settings:';
+const CREATION_RULES = [D20_LITE_CREATION, DICE_POOL_LITE_CREATION, NARRATIVE_CREATION];
+const CHARACTER_PROMPT = `Describe your character, or press Enter to play as ${HERO_NAME}.`;
+const CREATE_CHARACTER_INTENT = 'create character';
 const LAUNCH_TEXT = 'Run rpg new <name> "<one sentence>" to start a campaign, or rpg resume <name> to continue one.';
 
 const databasePath = (dataDir: string, name: string) =>
@@ -138,6 +148,47 @@ const createCampaign = (dataDir: string, name: string, opening: Opening, config:
     throw error;
   }
   return sceneText(opening.title, opening.narration);
+};
+
+const creationRulesFor = (rulepack: CampaignConfig['rulepack']) =>
+  CREATION_RULES.find(
+    ({ schema: { rulepack: pack } }) =>
+      pack.id === rulepack?.id && pack.edition === rulepack.edition && pack.revision === rulepack.revision,
+  );
+
+const unfinishedText = (result: Exclude<BuildResult, { status: 'created' }>) =>
+  `Character not created, you play as ${HERO_NAME}: ${
+    result.status === 'pending'
+      ? `no answer for ${result.questions.map(({ label, fieldId }) => label ?? fieldId).join(', ')}`
+      : result.issues.map(({ path, message }) => `${path} ${message}`).join('; ')
+  }.`;
+
+const addCharacter = (dataDir: string, name: string, build: BuildInput): string =>
+  withSession(dataDir, name, ({ engine, store, campaignId }) => {
+    const state = engine.getState(campaignId);
+    const [actor] = state.characters;
+    const scene = state.currentScene;
+    if (actor === undefined || scene === undefined) throw new Error(`Campaign ${name} has no opening scene.`);
+    commitCharacter(store, {
+      campaignId,
+      actionId: randomUUID(),
+      expectedRevision: state.revision,
+      sceneId: scene.id,
+      actorId: actor.id,
+      input: build.backstory,
+      intent: CREATE_CHARACTER_INTENT,
+      build,
+    });
+    return `Created ${build.proposal.name}.`;
+  });
+
+const characterFor = async (dataDir: string, name: string, config: CampaignConfig, ask: Ask) => {
+  const rules = creationRulesFor(config.rulepack);
+  const description =
+    rules === undefined ? undefined : (await ask(CHARACTER_PROMPT))?.trim().slice(0, MAX_INPUT_LENGTH);
+  if (rules === undefined || !description) return undefined;
+  const { build, result } = await createCharacter(rules, description, ask);
+  return result.status === 'created' ? addCharacter(dataDir, name, build) : unfinishedText(result);
 };
 
 const act = (dataDir: string, name: string, input: string): string =>
@@ -297,10 +348,12 @@ export const createEngineGateway = (dataDir: string): CampaignGateway => ({
   exportCampaign: (name, file) => exportCampaign(dataDir, name, file),
   backup: (name) => backup(dataDir, name),
   restore: (file) => restore(dataDir, file),
-  create: (name, intent) => {
+  create: async function* (name, intent, ask) {
     const config = planCampaign(intent);
     const scene = createCampaign(dataDir, name, openingFor(config, DEFAULT_OPENING), config);
-    return `${SAVED_SETTINGS}\n${describeConfig(config)}\n${scene}`;
+    yield `${SAVED_SETTINGS}\n${describeConfig(config)}\n${scene}`;
+    const character = await characterFor(dataDir, name, config, ask);
+    if (character !== undefined) yield character;
   },
   view: (name, view) => readView(dataDir, name, view),
   tui: (name, terminal) => playTui(dataDir, name, terminal),
