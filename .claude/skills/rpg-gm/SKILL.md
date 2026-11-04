@@ -14,10 +14,11 @@ Arguments: a campaign ID, an actor character ID and one player input.
 7. Interpret the player input as one intended action of the actor. Describe the intent, not its result.
 8. Never call `create_campaign`. Never call `rename_campaign`. Never call any other tool that writes state.
 9. Never say the state changed before `submit_action` returns. The action has no effect until the engine validates and commits it.
-10. End with this block, filled from `get_scene` and the arguments:
+10. End with this block, filled from `get_scene` and the arguments. Set `actionId` to a new unique ID of at most 64 characters:
 
 ```proposal
 campaignId: <campaignId>
+actionId: <new unique ID>
 expectedRevision: <revision>
 sceneId: <scene.id>
 actorId: <actor ID>
@@ -26,6 +27,6 @@ intent: <one sentence>
 ```
 
 11. After the block, print this line: Nothing is committed until the engine validates this proposal.
-12. Call the `submit_action` MCP tool only after the proposal block, once, with the block fields. Send `expectedRevision` as an integer.
+12. Call the `submit_action` MCP tool only after the proposal block, once, with the block fields. Send `expectedRevision` as an integer. Reuse the same `actionId` on a retry of the same proposal, so the engine returns the stored turn instead of a second one. A reused `actionId` with different fields returns `ActionIdConflict`.
 13. If it returns an error, report its code and message. Stop.
 14. Report the new `revision` from the result in one line. Do not narrate an outcome.

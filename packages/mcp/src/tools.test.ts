@@ -160,7 +160,7 @@ test('get_scene reads the current scene and characters without changing state', 
   connection.close();
 });
 
-test('submit_action commits one validated action and returns the next scene state', () => {
+test('submit_action commits one validated action, returns the next scene state and replays a retried actionId', () => {
   const { connection, database, engine } = openEngine();
   const campaignId = String(ok(callTool(engine, 'create_campaign', { name: FIRST_NAME })).id);
   openScene(createCampaignStore(database), {
@@ -176,6 +176,7 @@ test('submit_action commits one validated action and returns the next scene stat
   };
   const action = {
     campaignId,
+    actionId: 'action-retry-1',
     expectedRevision: before.revision,
     sceneId: before.scene.id,
     actorId: before.characters[0]?.id,
@@ -185,10 +186,23 @@ test('submit_action commits one validated action and returns the next scene stat
 
   const after = ok(callTool(engine, 'submit_action', action));
   assert.equal(after.revision, before.revision + 1);
-  assert.equal(engine.getState(campaignId).turns.at(-1)?.input, action.input);
+  const committed = engine.getState(campaignId).turns.at(-1);
+  assert.equal(committed?.input, action.input);
+  assert.equal(after.turnId, committed?.id);
+  const eventsAfter = countRows(database, 'event_log');
 
-  assert.equal(errorCode(callTool(engine, 'submit_action', action)), 'StaleRevision');
-  const next = { ...action, expectedRevision: after.revision };
+  assert.deepEqual(ok(callTool(engine, 'submit_action', action)), after);
+  assert.equal(countRows(database, 'event_log'), eventsAfter);
+  const reused = { ...action, expectedRevision: after.revision, input: 'I ask the stranger for a map.' };
+  assert.equal(errorCode(callTool(engine, 'submit_action', reused)), 'ActionIdConflict');
+  assert.equal(countRows(database, 'event_log'), eventsAfter);
+  const { actionId: _omitted, ...withoutActionId } = action;
+  assert.equal(errorCode(callTool(engine, 'submit_action', withoutActionId)), 'InvalidArguments');
+  const next = { ...action, actionId: 'action-retry-2', expectedRevision: after.revision };
+  assert.equal(
+    errorCode(callTool(engine, 'submit_action', { ...next, expectedRevision: before.revision })),
+    'StaleRevision',
+  );
   assert.equal(errorCode(callTool(engine, 'submit_action', { ...next, actorId: MISSING_ID })), 'InvalidAction');
   assert.equal(errorCode(callTool(engine, 'submit_action', { ...next, expectedRevision: '2' })), 'InvalidArguments');
   assert.equal(errorCode(callTool(engine, 'submit_action', { ...next, expectedRevision: -1 })), 'InvalidArguments');

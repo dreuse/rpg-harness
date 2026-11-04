@@ -31,6 +31,12 @@ export class InvalidActionError extends Error {
   }
 }
 
+export class ActionIdConflictError extends InvalidActionError {
+  constructor(actionId: string) {
+    super(actionId, 'action id was already used for a different action');
+  }
+}
+
 export type OpeningScene = {
   readonly campaignId: CampaignId;
   readonly actorName: string;
@@ -115,9 +121,16 @@ export const commit = (
   });
 };
 
+const sameAction = ({ turn, events }: CommittedTurn, action: PlayerAction) =>
+  turn.sceneId === action.sceneId &&
+  turn.actorId === action.actorId &&
+  turn.input === action.input &&
+  events.find(({ type }) => type === SUBMITTED)?.payload.intent === action.intent;
+
 export const performAction = (store: CampaignStore, action: PlayerAction): CommittedTurn => {
   const state = loadState(store, action.campaignId);
   const stored = storedTurn(state, action.actionId);
+  if (stored !== undefined && !sameAction(stored, action)) throw new ActionIdConflictError(action.actionId);
   if (stored !== undefined) return stored;
   validate(state, action);
   return store.commitTurn({

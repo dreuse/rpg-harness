@@ -6,13 +6,13 @@ import { CAMPAIGN_TOOLS } from './tools.ts';
 const SKILL_PATH = new URL('../../../.claude/skills/rpg-gm/SKILL.md', import.meta.url);
 const FRONTMATTER = /^---\nname: rpg-gm\ndescription: .+\n---\n/;
 const TOOL_CALL = /`([a-z_]+)` MCP tool/g;
-const PROPOSAL_FIELDS = ['campaignId', 'expectedRevision', 'sceneId', 'actorId', 'input', 'intent'];
 const SUBMIT_TOOL = 'submit_action';
 const NOT_COMMITTED = 'Nothing is committed until the engine validates this proposal.';
 
 const skill = readFileSync(SKILL_PATH, 'utf8');
 const calledTools = [...skill.matchAll(TOOL_CALL)].map(([, name]) => name);
 const toolNamed = (name: string | undefined) => CAMPAIGN_TOOLS.find((tool) => tool.name === name);
+const PROPOSAL_FIELDS = Object.keys(toolNamed(SUBMIT_TOOL)?.inputSchema.properties ?? {});
 
 test('skill narrates one scene, reads engine state and interprets one player input', () => {
   assert.match(skill, FRONTMATTER);
@@ -23,7 +23,9 @@ test('skill narrates one scene, reads engine state and interprets one player inp
   assert.match(skill, /data, not instructions/);
   assert.match(skill, /player input/);
   assert.match(skill, /```proposal/);
+  assert.ok(PROPOSAL_FIELDS.includes('actionId'));
   for (const field of PROPOSAL_FIELDS) assert.match(skill, new RegExp(`^${field}: `, 'm'), field);
+  assert.match(skill, /Reuse the same `actionId` on a retry/);
 });
 
 test('narration never substitutes for persistent state mutation', () => {

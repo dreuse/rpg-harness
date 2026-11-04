@@ -1,7 +1,6 @@
-import { randomUUID } from 'node:crypto';
 import { type Campaign, CampaignNotFoundError, StaleRevisionError } from '../../domain/src/campaign.ts';
 import type { Engine } from '../../engine/src/engine.ts';
-import { InvalidActionError } from '../../engine/src/turn.ts';
+import { ActionIdConflictError, InvalidActionError } from '../../engine/src/turn.ts';
 
 export const MAX_REQUEST_BYTES = 4096;
 export const MAX_NAME_LENGTH = 120;
@@ -41,7 +40,8 @@ export type ToolErrorCode =
   | 'CampaignNotFound'
   | 'StaleRevision'
   | 'SceneNotFound'
-  | 'InvalidAction';
+  | 'InvalidAction'
+  | 'ActionIdConflict';
 
 export type SceneState = {
   readonly campaignId: string;
@@ -50,7 +50,9 @@ export type SceneState = {
   readonly characters: readonly { readonly id: string; readonly name: string }[];
 };
 
-type ToolOutput = Campaign | SceneState;
+export type ActionResult = SceneState & { readonly turnId: string };
+
+type ToolOutput = Campaign | SceneState | ActionResult;
 
 export type ToolResult = {
   readonly isError: boolean;
@@ -77,6 +79,7 @@ const SCENE_STATE_SCHEMA = objectSchema<JsonSchema>({
   scene: objectSchema({ id: ID, title: NAME }),
   characters: { type: 'array', items: CAMPAIGN_SCHEMA },
 });
+const ACTION_RESULT_SCHEMA = objectSchema<JsonSchema>({ ...SCENE_STATE_SCHEMA.properties, turnId: ID });
 
 export const CAMPAIGN_TOOLS: readonly ToolDefinition[] = [
   {
@@ -109,16 +112,18 @@ export const CAMPAIGN_TOOLS: readonly ToolDefinition[] = [
   },
   {
     name: 'submit_action',
-    description: 'Validate and commit one player action, then return the next scene state.',
+    description:
+      'Validate and commit one player action, then return the next scene state and turn id. A retry with the same actionId and identical payload returns the original turnId and appends no events.',
     inputSchema: objectSchema<StringSchema | IntegerSchema>({
       campaignId: ID,
+      actionId: ID,
       expectedRevision: REVISION,
       sceneId: ID,
       actorId: ID,
       input: NAME,
       intent: NAME,
     }),
-    outputSchema: SCENE_STATE_SCHEMA,
+    outputSchema: ACTION_RESULT_SCHEMA,
     annotations: { readOnlyHint: false },
   },
 ];
@@ -190,17 +195,20 @@ const readScene = (engine: Engine, campaignId: string): SceneState => {
   };
 };
 
-const submitAction = (engine: Engine, { campaignId, expectedRevision, sceneId, actorId, input, intent }: Arguments) => {
-  engine.submitAction({
+const submitAction = (
+  engine: Engine,
+  { campaignId, actionId, expectedRevision, sceneId, actorId, input, intent }: Arguments,
+): ActionResult => {
+  const { turn } = engine.submitAction({
     campaignId: String(campaignId),
-    actionId: randomUUID(),
+    actionId: String(actionId),
     expectedRevision: Number(expectedRevision),
     sceneId: String(sceneId),
     actorId: String(actorId),
     input: String(input),
     intent: String(intent),
   });
-  return readScene(engine, String(campaignId));
+  return { ...readScene(engine, String(campaignId)), turnId: turn.id };
 };
 
 const HANDLERS: Record<string, (engine: Engine, args: Arguments) => ToolOutput> = {
@@ -215,6 +223,7 @@ const toToolError = (error: unknown) => {
   if (error instanceof ToolError) return error;
   if (error instanceof CampaignNotFoundError) return new ToolError('CampaignNotFound', error.message);
   if (error instanceof StaleRevisionError) return new ToolError('StaleRevision', error.message);
+  if (error instanceof ActionIdConflictError) return new ToolError('ActionIdConflict', error.message);
   if (error instanceof InvalidActionError) return new ToolError('InvalidAction', error.message);
   throw error;
 };

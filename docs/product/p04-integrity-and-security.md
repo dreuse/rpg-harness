@@ -13,7 +13,7 @@ Traces to: `docs/08-storage-and-events.md`, `docs/11-security-and-content.md`, A
 
 | Field | Rule | Enforcement |
 |---|---|---|
-| `actionId` | Unique per branch | `UNIQUE(branch_id, action_id)`; repeat returns the stored turn |
+| `actionId` | Unique per branch | `UNIQUE(branch_id, action_id)`; repeat returns the stored turn; a repeat with a different action is rejected |
 | `expectedRevision` | Must equal current branch revision | Checked inside the transaction; mismatch → `StaleRevision` |
 | Events | Append-only | No `UPDATE`/`DELETE` on the events table; corrections are new events |
 | RNG draws | Stored in events | Replay reads stored draws; it never re-rolls |
@@ -48,7 +48,7 @@ Untrusted: imported documents, fichas, setting text, tool results, transcripts, 
 | Archive attacks | Reject symlinks, `..` paths, absolute paths, files above a size limit and unexpected types. Cap total extracted size. |
 | Model invents state | Proposals are typed and validated; free text never mutates state. |
 | HTML/Markdown in views | Sanitize; block remote resources. |
-| MCP tool misuse | Tools are typed, campaign-scoped and read-only except `submit_proposal`, which goes through the engine. |
+| MCP tool misuse | Tools are typed, campaign-scoped and read-only except `submit_action`, which goes through the engine. |
 | Secrets in logs | Provider keys never enter events, logs or exports. |
 
 ## Typed failures

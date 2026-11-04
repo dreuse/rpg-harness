@@ -37,7 +37,7 @@ claude -p "/rpg-gm <campaignId> <actorId> I ask the stranger by the fire for new
 | `is_error` | false |
 | Turns | 5 |
 | Cost | $0.0061 |
-| Tool calls | `get_campaign`, `get_scene`, `submit_action` (`expectedRevision: 1`) |
+| Tool calls | `get_campaign`, `get_scene`, `submit_action` (`expectedRevision: 1`, before `actionId` was an input) |
 
 Narration: "The campaign **m1** is at scene **The Crossroads Inn**, where **The Wanderer** sits near the fire. A stranger is there too." A `proposal` block and the not-committed line followed. Final line: "The engine accepted the action. The campaign revision is now 2."
 

@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { CampaignNotFoundError, type CampaignStore, StaleRevisionError } from '../../domain/src/campaign.ts';
 import { createCampaignStore } from '../../persistence/src/campaign-store.ts';
 import { openDatabase } from '../../persistence/src/database.ts';
-import { InvalidActionError, openScene, type PlayerAction, performAction } from './turn.ts';
+import { ActionIdConflictError, InvalidActionError, openScene, type PlayerAction, performAction } from './turn.ts';
 
 const IN_MEMORY = ':memory:';
 const SETUP_REVISION = 1;
@@ -84,6 +84,24 @@ test('player can perform an action and persist a validated corresponding state c
 
   assert.deepEqual(performAction(store, ACTION), committed);
   assert.deepEqual(store.load(CAMPAIGN.id), state);
+  close();
+});
+
+test('a repeated action id with a different action is rejected without writing', () => {
+  const { store, close } = openEngineStore();
+  performAction(store, ACTION);
+  const before = store.load(CAMPAIGN.id);
+  const conflicts: PlayerAction[] = [
+    { ...ACTION, input: 'I look for the harbour master.' },
+    { ...ACTION, intent: 'Mara waits for the ferryman.' },
+    { ...ACTION, actorId: 'character-2' },
+    { ...ACTION, sceneId: 'scene-2' },
+    { ...ACTION, actionId: SETUP_TURN.actionId, expectedRevision: SETUP_REVISION + 1 },
+  ];
+  for (const action of conflicts) {
+    assert.throws(() => performAction(store, action), ActionIdConflictError, action.actionId);
+    assert.deepEqual(store.load(CAMPAIGN.id), before);
+  }
   close();
 });
 

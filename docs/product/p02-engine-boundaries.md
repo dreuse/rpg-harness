@@ -70,7 +70,7 @@ States: `RECEIVED → INTERPRETED → RULES_RESOLVED → VALIDATED → COMMITTED
 |---|---|---|
 | UI renderers (CLI/TUI/desktop) | No | Receive `client-protocol` types only |
 | Voice adapters | No | No engine or store import |
-| Model provider (Claude) | No | Only returns proposals; MCP tools expose reads plus `submit_proposal` |
+| Model provider (Claude) | No | Only returns proposals; MCP tools expose reads plus `submit_action` |
 | WorldActor planners | No | Proposals go through the engine |
 | Importers | No canonical game state | Write staged RulePack drafts, activated by an engine command |
 
