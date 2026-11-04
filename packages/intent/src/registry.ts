@@ -6,6 +6,7 @@ export type InstalledRulePack = {
   revision: string;
   capabilities: Record<string, boolean | string>;
   sourceRefs: string[];
+  aliases?: string[];
 };
 export type InstalledGenrePack = { id: string; version: string };
 export type Registry = { rulepacks: readonly InstalledRulePack[]; genres: readonly InstalledGenrePack[] };
