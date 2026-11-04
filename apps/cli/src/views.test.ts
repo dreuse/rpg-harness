@@ -125,6 +125,44 @@ const seed = (dataDir: string, profileVisibility: Visibility & ('player' | 'gm')
   }
 };
 
+const ENCOUNTER_ID = 'ambush';
+const roll = (rollId: string, sides: number, faces: number[], modifier: number) => ({
+  type: 'roll.resolved',
+  rollId,
+  pool: { dice: [{ count: faces.length, sides }], modifier },
+  draws: [faces],
+  total: faces.reduce((sum, face) => sum + face, modifier),
+});
+
+const seedEncounter = (dataDir: string, actions: readonly (readonly [object, Visibility])[], outcome: string) => {
+  const state = readCampaignState(dataDir, CAMPAIGN);
+  const [hero] = state.characters;
+  const [opening] = state.turns;
+  assert.ok(hero !== undefined && opening !== undefined);
+  const connection = openDatabase(join(dataDir, `${CAMPAIGN}.sqlite`));
+  try {
+    const event = (type: string, payload: object, visibility: Visibility) =>
+      connection.database
+        .prepare(INSERT_EVENT)
+        .run(
+          randomUUID(),
+          state.campaign.id,
+          opening.id,
+          type,
+          JSON.stringify({ encounterId: ENCOUNTER_ID, ...payload }),
+          visibility,
+          null,
+        );
+    event('EncounterStarted', { participants: [hero.id], sheets: [] }, PLAYER);
+    for (const [action, visibility] of actions) {
+      event('EncounterActionResolved', { actorId: hero.id, round: 1, dslVersion: 1, ...action }, visibility);
+    }
+    event('EncounterResolved', { outcome }, PLAYER);
+  } finally {
+    connection.close();
+  }
+};
+
 const lines = async function* (input: readonly string[]) {
   yield* input;
 };
@@ -220,4 +258,74 @@ test('resume and views upgrade a campaign saved before the latest migration', ()
     }
     assert.match(await run(dataDir, ['sheet', CAMPAIGN]), /No character sheet yet\./);
     assert.match(await run(dataDir, ['play', CAMPAIGN]), /Old Inn/);
+  }));
+
+test('display trusted rolls, modifiers and encounter outcomes in readable text', () =>
+  withDataDir(async (dataDir) => {
+    await run(dataDir, ['new', CAMPAIGN]);
+    assert.match(await run(dataDir, ['encounter', CAMPAIGN]), /No encounter yet\./);
+    seedEncounter(
+      dataDir,
+      [
+        [
+          {
+            ruleId: 'strike',
+            modifiers: { flank: 2, cover: -1 },
+            resolution: {
+              ok: true,
+              changes: [{ id: 'stamina', from: 5, to: 3 }],
+              events: [{ actionId: 'a1', ruleId: 'strike', event: 'hit' }],
+              rolls: [roll('r1', 6, [3, 4], 1)],
+            },
+          },
+          PLAYER,
+        ],
+        [
+          {
+            ruleId: 'parry',
+            modifiers: {},
+            resolution: { ok: false, error: { code: 'RollFailed', issues: [] }, rolls: [roll('r2', 8, [2], 0)] },
+          },
+          PLAYER,
+        ],
+      ],
+      'The bandits flee.',
+    );
+    const expected = [
+      'Encounter (resolved, round 1):',
+      '  - The Wanderer: strike',
+      '    Roll: 2d6+1 [3, 4] = 8',
+      '    Modifiers: flank +2, cover -1',
+      '    Result: hit',
+      '    Changes: stamina 5 -> 3',
+      '  - The Wanderer: parry',
+      '    Roll: 1d8 [2] = 2',
+      '    Result: failed (RollFailed)',
+      'Outcome: The bandits flee.',
+    ].join('\n');
+    assert.ok((await run(dataDir, ['encounter', CAMPAIGN])).includes(expected));
+    assert.match(await run(dataDir, ['play', CAMPAIGN], ['/encounter']), /Roll: 2d6\+1 \[3, 4\] = 8/);
+  }));
+
+test('hidden gm rolls and narrative-only rulesets do not expose invented dice', () =>
+  withDataDir(async (dataDir) => {
+    await run(dataDir, ['new', CAMPAIGN]);
+    seedEncounter(
+      dataDir,
+      [
+        [
+          {
+            ruleId: 'SECRET_ROLL',
+            modifiers: { SECRET_EDGE: 3 },
+            resolution: { ok: true, changes: [], events: [], rolls: [roll('r3', 20, [17], 0)] },
+          },
+          GM,
+        ],
+        [{ ruleId: 'talk', modifiers: {}, resolution: { ok: true, changes: [], events: [], rolls: [] } }, PLAYER],
+      ],
+      'The guard waves you through.',
+    );
+    const output = await run(dataDir, ['encounter', CAMPAIGN]);
+    assert.match(output, /- The Wanderer: talk\nOutcome: The guard waves you through\./);
+    assert.doesNotMatch(output, /SECRET|Roll|Modifiers|\d+d\d+|17/);
   }));

@@ -1,12 +1,14 @@
 import type { CampaignState, Character, EventId } from '../../../packages/domain/src/campaign.ts';
 import { CHARACTER_KIND, isProfileVisibility, parseCharacterProfile } from '../../../packages/domain/src/character.ts';
 import type { CampaignEntity, EntityKind, Relationship } from '../../../packages/domain/src/entity.ts';
+import { currentEncounter, type EncounterAction } from '../../../packages/engine/src/encounter.ts';
 import { questLog } from '../../../packages/engine/src/quest.ts';
 import { PLAYER_VIEWER, type Scoped, visibleTo } from '../../../packages/memory/src/knowledge.ts';
+import type { RollEvent } from '../../../packages/rules/src/dice.ts';
 import { SHEET_SCHEMA_VERSION, type SheetField, type WidgetType } from '../../../packages/rules/src/sheet-schema.ts';
 import { buildSheetView, exportSheet, type SheetViewInput } from '../../../packages/rules/src/sheet-view.ts';
 
-export const VIEW_NAMES = ['sheet', 'sheet-export', 'inventory', 'journal', 'quests', 'recap'] as const;
+export const VIEW_NAMES = ['sheet', 'sheet-export', 'inventory', 'journal', 'quests', 'encounter', 'recap'] as const;
 export type ViewName = (typeof VIEW_NAMES)[number];
 export type ReadView = Exclude<ViewName, 'recap'>;
 
@@ -26,7 +28,9 @@ const NO_SHEET = 'No character sheet yet.';
 const NO_ITEMS = 'No items yet.';
 const NO_QUESTS = 'No quests yet.';
 const NO_EVENTS = 'No events yet.';
+const NO_ENCOUNTER = 'No encounter yet.';
 const DONE = '[x]';
+const LIST_SEPARATOR = ', ';
 const JSON_INDENT = 2;
 const OPEN = '[ ]';
 
@@ -79,13 +83,47 @@ const inventory = (hero: Character, { entities, relationships }: ViewSource) => 
   );
 };
 
-const quests = ({ state, eventScopes }: ViewSource) => {
+const playerEvents = ({ state, eventScopes }: ViewSource) => {
   const shown = new Set(visibleTo(eventScopes, PLAYER_VIEWER).map(({ id }) => id));
-  const rows = questLog(state.events.filter(({ id }) => shown.has(id))).flatMap((quest) => [
+  return state.events.filter(({ id }) => shown.has(id));
+};
+
+const quests = (source: ViewSource) => {
+  const rows = questLog(playerEvents(source)).flatMap((quest) => [
     `  - ${quest.title} (${quest.status})`,
     ...quest.objectives.map(({ done, summary }) => `    ${done ? DONE : OPEN} ${summary}`),
   ]);
   return section('Quests:', rows, NO_QUESTS);
+};
+
+const signed = (value: number) => (value < 0 ? `${value}` : `+${value}`);
+
+const rollText = ({ pool, draws, total }: RollEvent) => {
+  const dice = pool.dice.map(({ count, sides }) => `${count}d${sides}`).join('+');
+  const modifier = pool.modifier === 0 ? '' : signed(pool.modifier);
+  return `    Roll: ${dice}${modifier} [${draws.flat().join(LIST_SEPARATOR)}] = ${total}`;
+};
+
+const actionRows = (name: string, { ruleId, modifiers, resolution }: EncounterAction) => {
+  const applied = Object.entries(modifiers).map(([id, value]) => `${id} ${signed(value)}`);
+  const results = resolution.ok ? resolution.events.map(({ event }) => event) : [`failed (${resolution.error.code})`];
+  const changes = resolution.ok ? resolution.changes.map(({ id, from, to }) => `${id} ${from} -> ${to}`) : [];
+  return [
+    `  - ${name}: ${ruleId}`,
+    ...resolution.rolls.map(rollText),
+    ...(applied.length === 0 ? [] : [`    Modifiers: ${applied.join(LIST_SEPARATOR)}`]),
+    ...(results.length === 0 ? [] : [`    Result: ${results.join(LIST_SEPARATOR)}`]),
+    ...(changes.length === 0 ? [] : [`    Changes: ${changes.join(LIST_SEPARATOR)}`]),
+  ];
+};
+
+const encounter = (source: ViewSource) => {
+  const current = currentEncounter(playerEvents(source));
+  if (current === undefined) return NO_ENCOUNTER;
+  const names = new Map(source.state.characters.map(({ id, name }) => [id, name]));
+  const rows = current.actions.flatMap((action) => actionRows(names.get(action.actorId) ?? action.actorId, action));
+  const outcome = current.outcome === undefined ? [] : [`Outcome: ${current.outcome}`];
+  return [`Encounter (${current.status}, round ${current.round}):`, ...rows, ...outcome].join('\n');
 };
 
 const journal = ({ characters, turns }: CampaignState) => {
@@ -100,6 +138,7 @@ const journal = ({ characters, turns }: CampaignState) => {
 export const renderView = (view: ReadView, source: ViewSource): string => {
   if (view === 'journal') return journal(source.state);
   if (view === 'quests') return quests(source);
+  if (view === 'encounter') return encounter(source);
   const [hero] = source.state.characters;
   if (hero === undefined) return NO_CHARACTER;
   const visible = { ...source, entities: visibleTo(source.entities, PLAYER_VIEWER) };

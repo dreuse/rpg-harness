@@ -63,6 +63,11 @@ const COMMANDS = [
   { name: 'inventory', usage: 'inventory <campaign>', description: 'Show the items you carry.' },
   { name: 'journal', usage: 'journal <campaign>', description: 'Show the important events so far.' },
   { name: 'quests', usage: 'quests <campaign>', description: 'Show your quests and their objectives.' },
+  {
+    name: 'encounter',
+    usage: 'encounter <campaign>',
+    description: 'Show the current encounter, its rolls and outcome.',
+  },
   { name: 'recap', usage: 'recap <campaign>', description: 'Show the current scene and the latest event.' },
   { name: 'help', usage: 'help', description: 'Show this help.' },
 ] as const;

@@ -91,6 +91,7 @@ test('help lists every command with a one-line description in plain text', async
       'inventory',
       'journal',
       'quests',
+      'encounter',
       'recap',
       'help',
     ]) {
@@ -119,6 +120,7 @@ test('launch, new, play and resume dispatch to the gateway and confirm', async (
     [['inventory', 'Ember'], 'inventory:Ember'],
     [['journal', 'Ember'], 'journal:Ember'],
     [['quests', 'Ember'], 'quests:Ember'],
+    [['encounter', 'Ember'], 'encounter:Ember'],
     [['recap', 'Ember'], 'recap:Ember'],
   ];
   for (const [argv, call] of cases) {
