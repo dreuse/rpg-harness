@@ -1,0 +1,9 @@
+{
+  "raw": "I want a D&D 5e dark fantasy adventure in a dynamic world, balanced story pace, as a level 3 rogue, with voice off",
+  "requestedRulePack": {"system": "dnd", "edition": "5e", "source": "installed_or_imported", "resolution": "verify_before_activation"},
+  "requestedGenre": "dark-fantasy",
+  "characterConcept": "level 3 rogue",
+  "preferences": {"simulation": "dynamic", "storyIntensity": 40, "worldAutonomy": 75, "consequenceSeverity": 65, "voice": "off", "pacing": "balanced"},
+  "provenance": {"requestedRulePack": "explicit", "requestedGenre": "explicit", "characterConcept": "explicit", "preferences.simulation": "explicit", "preferences.voice": "explicit", "preferences.storyIntensity": "default"},
+  "note": "Illustrative data only; this package does not include licensed D&D 5e rules. Resolve the edition/source before starting."
+}

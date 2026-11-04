@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "campaignId": "camp-example",
+  "branchId": "branch-main",
+  "turnId": "turn-0012",
+  "actionId": "turn-0012-action-steal",
+  "expectedPreviousRevision": 11,
+  "events": [
+    {"eventId": "evt-001", "type": "item_transferred", "actorId": "char-player", "logicalTime": 104, "visibility": "player", "payload": {"itemId": "sword-merchant", "from": "npc-merchant", "to": "char-player"}},
+    {"eventId": "evt-002", "type": "npc_relationship_changed", "actorId": "npc-merchant", "logicalTime": 104, "visibility": "gm", "payload": {"targetId": "char-player", "relation": "hostile", "cause": "evt-001"}}
+  ],
+  "note": "Illustrative example; real event schema must be versioned and validated."
+}

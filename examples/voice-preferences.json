@@ -1,0 +1,11 @@
+{
+  "input": "push-to-talk",
+  "output": "narrator-and-npcs",
+  "language": "pt-BR",
+  "speed": 1.0,
+  "subtitles": true,
+  "ambience": false,
+  "provider": "user-configured",
+  "storeRawAudio": false,
+  "costBudget": {"maxPerSessionUsd": 2.0, "onBudgetExceeded": "text-fallback"}
+}

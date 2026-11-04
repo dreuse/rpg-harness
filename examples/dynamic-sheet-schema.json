@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "id": "example-narrative-investigator-v1",
+  "rulePackRevision": "original-narrative@1.0.0",
+  "groups": [
+    {"id": "identity", "title": "Character", "fields": [
+      {"id": "name", "type": "text", "label": "Name", "editable": true},
+      {"id": "motivation", "type": "long_text", "label": "Motivation", "editable": true}
+    ]},
+    {"id": "mysteries", "title": "Investigation", "fields": [
+      {"id": "leads", "type": "list", "label": "Known leads", "visibility": "player"},
+      {"id": "stress", "type": "resource", "label": "Stress", "min": 0, "max": 6}
+    ]}
+  ],
+  "note": "Example only: renderer handles unknown fields, domain validates values."
+}

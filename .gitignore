@@ -1,0 +1,26 @@
+node_modules/
+dist/
+coverage/
+.rpg-agent-runs/
+.env
+.env.*
+!.env.example
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.db
+*.db-wal
+*.db-shm
+*.mp3
+*.wav
+*.ogg
+.private-campaigns/
+
+# Beads / Dolt files (added by bd init)
+.dolt/
+.beads-credential-key
+.beads/proxieddb/
+*.gate.lock*
+!.claude/
+.claude/worktrees/
+.claude/settings.local.json

@@ -1,0 +1,181 @@
+{
+  "package": "RPG Harness \u2014 complete development planning package",
+  "date": "2026-11-04",
+  "files": [
+    {
+      "path": ".claude/skills/rpg-harness-build/SKILL.md",
+      "size": 1088,
+      "sha256": "e365eb9918100e7b1fc73562ff73615db2f84832927b6533e73a3c51facb62a4"
+    },
+    {
+      "path": ".gitignore",
+      "size": 169,
+      "sha256": "c2f73a0144d589372cf93c1fb8ed03e815550ca9744fa506169ebaadcfcf4876"
+    },
+    {
+      "path": "CLAUDE.md",
+      "size": 2694,
+      "sha256": "889396223a23d91c10c8b70f8f666d4dbf569ad1f740252215bf4e3c794c72ee"
+    },
+    {
+      "path": "PROMPT_CLAUDE_CODE.md",
+      "size": 5374,
+      "sha256": "6532d0dc3350519bf1834ca797388d21f2aac2b6f99f75ee33515e915b83e976"
+    },
+    {
+      "path": "README.md",
+      "size": 5800,
+      "sha256": "95037dc8bf35efb7af1c5b58dbed99df8d4050a79f9573d62b6d94ebe768289b"
+    },
+    {
+      "path": "beads/BACKLOG.md",
+      "size": 219716,
+      "sha256": "0ad48f18c0795a7a0f8176211759655e6852b7a0c5097fc64a88d847a36358f3"
+    },
+    {
+      "path": "beads/VALIDATION.md",
+      "size": 692,
+      "sha256": "dfbc2ed94a027987c6865667f2524666d8c68007bbe6c418295b9fddabfc82ef"
+    },
+    {
+      "path": "beads/beads-graph.json",
+      "size": 322246,
+      "sha256": "c254479d7c02cd985fefc430aef63b570831c589713d665948c2c90ad93441da"
+    },
+    {
+      "path": "beads/catalog.json",
+      "size": 273173,
+      "sha256": "5aea9499ea8b54e1f0dea16ec878b0f4ed570f0815ee938b18b25428944a128e"
+    },
+    {
+      "path": "docs/01-product-contract.md",
+      "size": 5032,
+      "sha256": "a4d6c4553270b255c518e6b40093ecba3e54a4fa7016a60a76aa983153a4e41f"
+    },
+    {
+      "path": "docs/02-architecture.md",
+      "size": 5319,
+      "sha256": "3369a838125faa168399988c500d6f3a548f0989d6eafcb1fcd0bf130ac33235"
+    },
+    {
+      "path": "docs/03-rules-and-ingestion.md",
+      "size": 3598,
+      "sha256": "f7424e097e81873fac9a514f92f2bbe636a0cc08d92d98294da7c91cd06a7cbf"
+    },
+    {
+      "path": "docs/04-character-sheets.md",
+      "size": 2906,
+      "sha256": "0ca456574ae25ee901f2617cddf4c35906d709372252f4eb5155ac092c71edcc"
+    },
+    {
+      "path": "docs/05-living-world.md",
+      "size": 3564,
+      "sha256": "8e18d731b75d92851d1c682dfc8e6115e82efd6839855931a3746e9dbeb42e60"
+    },
+    {
+      "path": "docs/06-conversational-intent.md",
+      "size": 2171,
+      "sha256": "9d9d5176f7ebc5022ac8207fd575f0a831b2210fdf0819c8caf6ba4fa242a857"
+    },
+    {
+      "path": "docs/07-clients-voice.md",
+      "size": 3300,
+      "sha256": "20aa02ea045b72b1866da8b4d6b364c0f3c6991e09dcf639e614d3dfebeffeab"
+    },
+    {
+      "path": "docs/08-storage-and-events.md",
+      "size": 2211,
+      "sha256": "479d35ce65a5500773e4853eca345bcef7e1d8cc6ef7035f0f57c9790ed72624"
+    },
+    {
+      "path": "docs/09-quality-and-testing.md",
+      "size": 4143,
+      "sha256": "ff3533bf34c48fe48e7dff3be25ee8c62659a191282deb3453659ef3ca55f5ad"
+    },
+    {
+      "path": "docs/10-roadmap-and-autonomy.md",
+      "size": 4527,
+      "sha256": "94856bc576d46f41d4cc64208405ccc76d898da6bab64638ad0b77d9129bc3f9"
+    },
+    {
+      "path": "docs/11-security-and-content.md",
+      "size": 2848,
+      "sha256": "671ad1c7eeaac53b9a9fdc980042d84ff0f6a14031e8b0353b47b0c3f0fc4776"
+    },
+    {
+      "path": "docs/12-contract-examples.md",
+      "size": 2811,
+      "sha256": "ab8533bf7e60d2a416c80979825e76949019287c1d00456ddbc82aa79dffcfc4"
+    },
+    {
+      "path": "docs/adr/0001-sqlite-primary-dolt-optional.md",
+      "size": 763,
+      "sha256": "af37d4cc89ae9a34d0b2d748c2550b821763199ebae767133a592dc219e5e3ec"
+    },
+    {
+      "path": "docs/adr/0002-claude-proposes-engine-commits.md",
+      "size": 634,
+      "sha256": "1ad3db51faf09ab2297e53011124aef445c05075a39b4fc3ccab64cc80f909c3"
+    },
+    {
+      "path": "docs/adr/0003-capabilities-never-forced.md",
+      "size": 710,
+      "sha256": "3988bfa87691c9f887ea456130e42b80f51f4bd559564fcdd6c5a9694209ffc1"
+    },
+    {
+      "path": "docs/adr/0004-hybrid-living-world-and-narrative-director.md",
+      "size": 741,
+      "sha256": "5176bdd3e10eb41089e9ff7f043e252619e65db9d0385f80bb25c93239119462"
+    },
+    {
+      "path": "docs/adr/0005-headless-core-multiclient-voice.md",
+      "size": 704,
+      "sha256": "747efa89910614ac3af689bd76006e649cd51ec0ff1d68f7d5d8b4b2c95c6225"
+    },
+    {
+      "path": "docs/adr/0006-rulebook-import-safe-declarative-dsl.md",
+      "size": 761,
+      "sha256": "47a65145a0710513cd9b9c657e27a4d0de40ea53ed6d3ed339afb9feb4a428c1"
+    },
+    {
+      "path": "examples/campaign-intent.json",
+      "size": 852,
+      "sha256": "164faa35a28db3603eb2e1cc4437806f9fa7fa6c14999c87006540332302ed74"
+    },
+    {
+      "path": "examples/domain-events.json",
+      "size": 715,
+      "sha256": "1b60365f87adc3861da42f55020cf3d661abf8af7375778ac044f396d7568a40"
+    },
+    {
+      "path": "examples/dynamic-sheet-schema.json",
+      "size": 689,
+      "sha256": "a9e210273c1b18b2f7b04f65ca674c2316d55ea19a1a39de8a7aa7362f0e32dc"
+    },
+    {
+      "path": "examples/voice-preferences.json",
+      "size": 283,
+      "sha256": "b984af97caa4ca1611d7102f30e84827c86e3e1562c0f01cf1a0f77265484fa8"
+    },
+    {
+      "path": "scripts/agent_loop.py",
+      "size": 8618,
+      "sha256": "1c219c5e356394b40803b3343f4ed4304aa86a491811ab080c48e2a107e7e808"
+    },
+    {
+      "path": "scripts/bootstrap_beads.py",
+      "size": 3224,
+      "sha256": "bfb5283604e72032a79549ef0a35f407f380dd0fd6051efe34078b6129ddbf99"
+    },
+    {
+      "path": "scripts/build_catalog.py",
+      "size": 42052,
+      "sha256": "2b5465f71d85730e0e96f54763ab2e2f025e6b897bcd61eb264175be4b04347d"
+    },
+    {
+      "path": "scripts/validate_plan.py",
+      "size": 4976,
+      "sha256": "c4cacaffae660cf8b834febb49db054aa6cd739e3b39d0e432a31c9e18974ca5"
+    }
+  ]
+}
