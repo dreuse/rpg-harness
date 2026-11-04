@@ -68,7 +68,7 @@ const EXPECTED_STATE: CampaignState = {
 const OTHER_CAMPAIGN = { id: 'campaign-2', name: 'Salt Roads' };
 const MISSING_ID = 'missing';
 const DUPLICATE_ACTION = /UNIQUE constraint failed: turn\.campaign_id, turn\.action_id/;
-const DUPLICATE_EVENT = /UNIQUE constraint failed: event_log\.id/;
+const DUPLICATE_EVENT = /event_log is append-only/;
 
 const emptyState = (campaign: Campaign): CampaignState => ({
   campaign,

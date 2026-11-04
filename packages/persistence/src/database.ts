@@ -8,6 +8,7 @@ export type OpenOptions = { readonly migrations?: readonly Migration[]; readonly
 
 const GM_VISIBILITY: Visibility = 'gm';
 const ACTOR_SCOPED_VISIBILITY: Visibility = 'actor-scoped';
+const APPEND_ONLY_EVENTS = 'event_log is append-only';
 const FACT_LAYERS = ['canon', 'belief', 'rumor', 'invalidated'] as const;
 const sqlList = (values: readonly string[]) => values.map((value) => `'${value}'`).join(', ');
 const VISIBILITY_CHECK = `CHECK (visibility IN (${sqlList(VISIBILITY_LEVELS)}))`;
@@ -109,6 +110,18 @@ export const MIGRATIONS: readonly Migration[] = [
         target_id TEXT NOT NULL REFERENCES entity (id),
         data TEXT NOT NULL DEFAULT '{}'
       );
+    `,
+  },
+  {
+    version: 7,
+    sql: `
+      CREATE TRIGGER event_log_no_overwrite BEFORE INSERT ON event_log
+        WHEN EXISTS (SELECT 1 FROM event_log WHERE id = NEW.id OR seq = NEW.seq)
+        BEGIN SELECT RAISE(ABORT, '${APPEND_ONLY_EVENTS}'); END;
+      CREATE TRIGGER event_log_no_update BEFORE UPDATE ON event_log
+        BEGIN SELECT RAISE(ABORT, '${APPEND_ONLY_EVENTS}'); END;
+      CREATE TRIGGER event_log_no_delete BEFORE DELETE ON event_log
+        BEGIN SELECT RAISE(ABORT, '${APPEND_ONLY_EVENTS}'); END;
     `,
   },
 ];
