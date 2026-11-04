@@ -6,6 +6,7 @@ import type { CampaignEntity } from '../../domain/src/entity.ts';
 import { type Fact, GM_VIEWER, PLAYER_VIEWER } from '../../memory/src/knowledge.ts';
 import type { ContextSnapshot } from '../../memory/src/retrieval.ts';
 import { assembleGmContext, type RuleEntry } from './context.ts';
+import type { NpcState } from './npc.ts';
 
 const CAMPAIGN_ID = 'campaign-1';
 const BUDGET = 10_000;
@@ -75,6 +76,15 @@ const SNAPSHOT: ContextSnapshot = {
   events: [EVENT],
 };
 const INPUT = { snapshot: SNAPSHOT, rulepack: RULEPACK, rules: [OPEN_RULE, HIDDEN_RULE], budget: BUDGET };
+const HERO_ID = 'character-hero';
+const WARDEN_NPC: NpcState = {
+  id: WARDEN.id,
+  goals: ['guard the key'],
+  disposition: 'stern',
+  relationships: { [HERO_ID]: 'wary' },
+  learned: [{ factId: NPC_BELIEF.id, channel: 'witnessed', sourceId: null, eventId: EVENT.id }],
+};
+const DIALOGUE_INPUT = { ...INPUT, dialogue: { npc: WARDEN_NPC, speakerId: HERO_ID } };
 
 test('construct scoped relevant context for claude with rules and source references', () => {
   const context = assembleGmContext(INPUT, GM_VIEWER);
@@ -125,4 +135,26 @@ test('no hidden npc knowledge or gm-only secret appears in player-facing context
     context.rules.map(({ id }) => id),
     [OPEN_RULE.id],
   );
+});
+
+test('gm and the npc itself receive the npc dialogue context', () => {
+  for (const viewer of [GM_VIEWER, { scope: 'actor', actorId: WARDEN.id } as const]) {
+    const { dialogue } = assembleGmContext(DIALOGUE_INPUT, viewer);
+    assert.equal(dialogue?.npcId, WARDEN.id);
+    assert.equal(dialogue?.stance, 'wary');
+    assert.deepEqual(dialogue?.goals, WARDEN_NPC.goals);
+    assert.deepEqual(
+      dialogue?.knownFacts.map(({ factId, sourceEventIds }) => [factId, sourceEventIds]),
+      [[NPC_BELIEF.id, [EVENT.id]]],
+    );
+  }
+});
+
+test('npc dialogue context stays out of player and other actor context', () => {
+  for (const viewer of [PLAYER_VIEWER, { scope: 'actor', actorId: TRAITOR.id } as const]) {
+    const context = assembleGmContext(DIALOGUE_INPUT, viewer);
+    assert.equal(context.dialogue, undefined);
+    assert.ok(!JSON.stringify(context).includes(WARDEN_NPC.disposition));
+  }
+  assert.equal(assembleGmContext(INPUT, GM_VIEWER).dialogue, undefined);
 });

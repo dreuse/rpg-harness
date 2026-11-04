@@ -5,6 +5,8 @@
   "type": "module",
   "dependencies": {
     "@rpg/domain": "workspace:*",
+    "@rpg/memory": "workspace:*",
+    "@rpg/narrative": "workspace:*",
     "@rpg/rules": "workspace:*"
   }
 }

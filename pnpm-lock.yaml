@@ -45,6 +45,12 @@ importers:
       '@rpg/domain':
         specifier: workspace:*
         version: link:../domain
+      '@rpg/memory':
+        specifier: workspace:*
+        version: link:../memory
+      '@rpg/narrative':
+        specifier: workspace:*
+        version: link:../narrative
       '@rpg/rules':
         specifier: workspace:*
         version: link:../rules

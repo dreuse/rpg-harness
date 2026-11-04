@@ -1,5 +1,6 @@
 import type { EventId } from '../../domain/src/campaign.ts';
 import type { RulePackLink } from '../../domain/src/character.ts';
+import type { EntityId } from '../../domain/src/entity.ts';
 import { type Scoped, type Viewer, visibleTo } from '../../memory/src/knowledge.ts';
 import {
   type ContextItem,
@@ -7,6 +8,7 @@ import {
   type ContextSnapshot,
   retrieveContext,
 } from '../../memory/src/retrieval.ts';
+import { type DialogueContext, dialogueContext, type NpcState } from './npc.ts';
 
 export type RuleEntry = Scoped & { readonly id: string; readonly summary: string; readonly section: string };
 
@@ -28,6 +30,7 @@ export type GmContextInput = {
   readonly rulepack: RulePackLink;
   readonly rules: readonly RuleEntry[];
   readonly budget: number;
+  readonly dialogue?: { readonly npc: NpcState; readonly speakerId: EntityId };
 };
 
 export type GmContext = {
@@ -39,6 +42,7 @@ export type GmContext = {
   readonly usedTokens: number;
   readonly requiredExceedsBudget: boolean;
   readonly truncated: readonly { readonly kind: ContextKind; readonly id: string }[];
+  readonly dialogue: DialogueContext | undefined;
 };
 
 const toEntry =
@@ -49,6 +53,9 @@ const toEntry =
     text,
     sources: sourceEventIds.map((eventId) => ({ type: 'event', id: eventId })),
   });
+
+const voices = (viewer: Viewer, npc: NpcState) =>
+  viewer.scope === 'gm' || (viewer.scope === 'actor' && viewer.actorId === npc.id);
 
 export const assembleGmContext = (input: GmContextInput, viewer: Viewer): GmContext => {
   const retrieved = retrieveContext(input.snapshot, viewer, input.budget);
@@ -71,5 +78,9 @@ export const assembleGmContext = (input: GmContextInput, viewer: Viewer): GmCont
     usedTokens: retrieved.usedTokens,
     requiredExceedsBudget: retrieved.requiredExceedsBudget,
     truncated: retrieved.truncated,
+    dialogue:
+      input.dialogue && voices(viewer, input.dialogue.npc)
+        ? dialogueContext(input.dialogue.npc, input.snapshot.facts, input.dialogue.speakerId)
+        : undefined,
   };
 };
