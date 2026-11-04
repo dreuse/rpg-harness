@@ -11,7 +11,12 @@ export type CampaignMode = 'play' | 'resume';
 export type CampaignGateway = {
   launch: () => string;
   create: (name: string) => string;
-  open: (campaign: string, mode: CampaignMode, lines: AsyncIterable<string>) => AsyncIterable<string>;
+  open: (
+    campaign: string,
+    mode: CampaignMode,
+    lines: AsyncIterable<string>,
+    onTurnError: (error: unknown) => void,
+  ) => AsyncIterable<string>;
 };
 
 export type Io = {
@@ -41,9 +46,44 @@ const say = (io: Io, text: string): number => {
   return EXIT_OK;
 };
 
-const fail = (io: Io, error: unknown): number => {
+const reportError = (io: Io, error: unknown) =>
   io.stderr(`${error instanceof Error ? error.message : String(error)}\n`);
+
+const fail = (io: Io, error: unknown): number => {
+  reportError(io, error);
   return EXIT_FAILURE;
+};
+
+const CONTROL_PREFIX = '/';
+const SESSION_HELP = [
+  'Type what you do in plain text. Plain text is a normal action.',
+  'Controls:',
+  '  /help - Show this help.',
+  '  /history - Show your previous inputs.',
+  '  /quit - End the session.',
+].join('\n');
+const QUIT_CONTROL = '/quit';
+const HELP_CONTROL = '/help';
+const HISTORY_CONTROL = '/history';
+const NO_HISTORY = 'No inputs yet.';
+
+const withControls = async function* (io: Io): AsyncGenerator<string> {
+  const history: string[] = [];
+  for await (const line of io.lines) {
+    const text = line.trim();
+    if (!text.startsWith(CONTROL_PREFIX)) {
+      if (text !== '') history.push(text);
+      yield line;
+    } else if (text === QUIT_CONTROL) {
+      return;
+    } else if (text === HELP_CONTROL) {
+      say(io, SESSION_HELP);
+    } else if (text === HISTORY_CONTROL) {
+      say(io, history.length === 0 ? NO_HISTORY : history.map((entry, index) => `${index + 1}. ${entry}`).join('\n'));
+    } else {
+      io.stderr(`Unknown control ${text}. Type /help for help.\n`);
+    }
+  }
 };
 
 const run = async (io: Io, outputs: () => Iterable<string> | AsyncIterable<string>): Promise<number> => {
@@ -79,7 +119,11 @@ export const main = async (argv: readonly string[], io: Io, gateway: CampaignGat
     const [name, ...extra] = rest;
     if (name === undefined || name.trim() === '') return usageError(io, `Missing campaign name for ${command}.`);
     if (extra.length > 0) return usageError(io, `Unexpected argument: ${extra[0]}.`);
-    return run(io, () => (command === 'new' ? [gateway.create(name)] : gateway.open(name, command, io.lines)));
+    return run(io, () =>
+      command === 'new'
+        ? [gateway.create(name)]
+        : gateway.open(name, command, withControls(io), (error) => reportError(io, error)),
+    );
   }
   return usageError(io, `Unsupported command: ${command}.`);
 };

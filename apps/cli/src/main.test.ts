@@ -6,11 +6,11 @@ const ESCAPE = String.fromCharCode(27);
 const FAILURE = 'Campaign Ember is broken.';
 const PLAYER_LINES = ['I wave.', 'I sit.'];
 
-const lines = async function* () {
-  yield* PLAYER_LINES;
+const lines = async function* (input: readonly string[]) {
+  yield* input;
 };
 
-const setup = () => {
+const setup = (input: readonly string[] = PLAYER_LINES) => {
   const calls: string[] = [];
   const gateway: CampaignGateway = {
     launch: () => {
@@ -32,7 +32,7 @@ const setup = () => {
   const io = {
     stdout: (text: string) => out.push(text),
     stderr: (text: string) => err.push(text),
-    lines: lines(),
+    lines: lines(input),
   };
   return { calls, gateway, io, out, err };
 };
@@ -129,4 +129,31 @@ test('output contains no ANSI escape sequences', async () => {
     await main(argv, io, gateway);
     assert.ok(![...out, ...err].join('').includes(ESCAPE));
   }
+});
+
+const FREEFORM_HELP_LINE = 'ask the stranger for help';
+const FREEFORM_QUIT_LINE = 'I quit my job and leave';
+
+test('cli accepts freeform turns and supports keyboard-friendly history, help and errors', async () => {
+  const { gateway, io, out, err } = setup(['I wave.', '/history', '/help', '/bogus', 'I sit.', '/quit', 'never seen']);
+  assert.equal(await main(['play', 'Ember'], io, gateway), 0);
+  const text = out.join('');
+  assert.match(text, /^1\. I wave\.$/m);
+  assert.match(text, /plain text/i);
+  for (const control of ['/help', '/history', '/quit']) assert.ok(text.includes(control));
+  assert.match(err.join(''), /\/bogus/);
+  assert.match(err.join(''), /\/help/);
+  assert.ok(text.includes('I sit.'));
+  assert.ok(!text.includes('never seen'));
+  assert.ok(!text.includes('/bogus'));
+});
+
+test('gameplay does not require commands for normal actions', async () => {
+  const { gateway, io, out, err } = setup([FREEFORM_HELP_LINE, FREEFORM_QUIT_LINE]);
+  assert.equal(await main(['play', 'Ember'], io, gateway), 0);
+  assert.deepEqual(
+    out.slice(1),
+    [FREEFORM_HELP_LINE, FREEFORM_QUIT_LINE].map((line) => `${line}\n`),
+  );
+  assert.deepEqual(err, []);
 });

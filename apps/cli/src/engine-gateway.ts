@@ -116,13 +116,21 @@ const recap = (characters: CampaignState['characters'], last: Turn | undefined) 
 export const createEngineGateway = (dataDir: string): CampaignGateway => ({
   launch: () => LAUNCH_TEXT,
   create: (name) => createCampaign(dataDir, name),
-  open: async function* (name, _mode, lines) {
+  open: async function* (name, _mode, lines, onTurnError) {
     yield withSession(dataDir, name, ({ engine, campaignId }) => {
       const { currentScene, characters, turns } = engine.getState(campaignId);
       return sceneText(currentScene?.title ?? name, recap(characters, turns.at(-1)));
     });
     for await (const line of lines) {
-      if (line.trim() !== '') yield act(dataDir, name, line.trim());
+      if (line.trim() === '') continue;
+      let narration: string;
+      try {
+        narration = act(dataDir, name, line.trim());
+      } catch (error) {
+        onTurnError(error);
+        continue;
+      }
+      yield narration;
     }
   },
 });

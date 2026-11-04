@@ -74,14 +74,14 @@ test('failed commands exit non-zero and leave state unchanged', () =>
     assert.deepEqual(readCampaignState(dataDir, CAMPAIGN), created);
   }));
 
-test('a failed action mid-play exits non-zero and leaves state unchanged', () =>
+test('a failed action mid-play reports each error, keeps the session alive and leaves state unchanged', () =>
   withDataDir((dataDir) => {
     succeed(dataDir, ['new', CAMPAIGN]);
     const before = readCampaignState(dataDir, CAMPAIGN);
     chmodSync(join(dataDir, SAVE_FILE), READ_ONLY);
     const failed = rpg(dataDir, ['play', CAMPAIGN], `${FIRST_ACTION}\n${SECOND_ACTION}\n`);
-    assert.notEqual(failed.status, EXIT_OK);
-    assert.ok(failed.stderr.trim().length > 0);
+    assert.equal(failed.status, EXIT_OK);
+    assert.equal(failed.stderr.trim().split('\n').length, 2);
     assert.ok(!failed.stdout.includes(FIRST_ACTION));
     assert.deepEqual(readCampaignState(dataDir, CAMPAIGN), before);
   }));

@@ -9,7 +9,15 @@ process.exitCode = await main(
     stdout: (text) => process.stdout.write(text),
     stderr: (text) => process.stderr.write(text),
     lines: {
-      [Symbol.asyncIterator]: () => createInterface({ input: process.stdin, terminal: false })[Symbol.asyncIterator](),
+      [Symbol.asyncIterator]: () => {
+        const isTerminal = process.stdin.isTTY === true;
+        const readline = createInterface({
+          input: process.stdin,
+          output: isTerminal ? process.stdout : undefined,
+          terminal: isTerminal,
+        });
+        return readline[Symbol.asyncIterator]();
+      },
     },
   },
   createEngineGateway(dataDirFromEnv()),
