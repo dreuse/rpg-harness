@@ -47,7 +47,7 @@ const isRefs = (v: unknown, min: number): v is string[] =>
 const owns = (actor: WorldActor, ref: string) =>
   Object.hasOwn(actor.resources, ref) && (actor.resources[ref] as number) > 0;
 
-const scopeIssue = (actor: WorldActor, behavior: SimpleBehavior, tick: number) => {
+export const scopeIssue = (actor: WorldActor, behavior: SimpleBehavior, tick: number) => {
   if (behavior.knowledgeRefs.length === 0 || unknownRefs(actor, behavior.knowledgeRefs).length > 0) return UNKNOWN_FACT;
   if (!behavior.resourceRefs.every((ref) => owns(actor, ref))) return INVENTED_RESOURCE;
   if (!canDecide(actor, behavior.kind, tick)) return ON_COOLDOWN;
