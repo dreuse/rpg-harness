@@ -2,12 +2,22 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { VISUALIZATION_EVENT } from '../../../packages/client-protocol/src/visualization.ts';
 import { CAMPAIGN_CONFIGURED, type CampaignEvent } from '../../../packages/domain/src/campaign.ts';
+import { CHARACTER_CREATED, SHEET_FIELD_EDITED } from '../../../packages/engine/src/character.ts';
 import { generateCampaignConfig } from '../../../packages/intent/src/config.ts';
 import { createCampaignIntent } from '../../../packages/intent/src/intent.ts';
-import { attemptCheck, checkBonus, createSheet } from '../../../packages/rules/src/d20-lite.ts';
+import {
+  attemptCheck,
+  checkBonus,
+  createSheet,
+  D20_LITE_MANIFEST,
+  DEFAULT_CHECK_ATTRIBUTE,
+  DEFAULT_CHECK_DC,
+} from '../../../packages/rules/src/d20-lite.ts';
 import { createSeededRng } from '../../../packages/rules/src/dice.ts';
 import { DEFAULT_POOL_CONFIG, rollPool } from '../../../packages/rules/src/dice-pool-lite.ts';
+import { BUILT_IN_PACKS } from './import-gateway.ts';
 import {
+  checkFor,
   checkResult,
   DICE_MECHANIC,
   emitVisualizations,
@@ -138,4 +148,101 @@ test('reads the visualization preference from the saved campaign config, off by 
   assert.deepEqual(visualizationPreferenceOf(configured({ broken: true })), { enabled: false });
   assert.deepEqual(visualizationPreferenceOf(configured(visualizingConfig(false))), { enabled: false });
   assert.deepEqual(visualizationPreferenceOf(configured(visualizingConfig(true))), { enabled: true });
+});
+
+const builtInConfig = (id: string, dice: 'rulepack' | 'on' | 'off' = 'rulepack') => {
+  const intent = createCampaignIntent({ ruleset: explicit({ id, edition: 'original' }), dice: explicit(dice) });
+  const generated = generateCampaignConfig(intent, { rulepacks: BUILT_IN_PACKS, genres: [] });
+  assert.ok(generated.ok, JSON.stringify(generated));
+  return generated.config;
+};
+
+test('built-in dice rulepacks let a campaign turn dice visualization on', () => {
+  for (const id of ['d20-lite', 'dice-pool-lite']) {
+    const intent = createCampaignIntent({
+      ruleset: explicit({ id, edition: 'original' }),
+      diceVisualization: explicit(true),
+      client: explicit('tui'),
+    });
+    const generated = generateCampaignConfig(intent, { rulepacks: BUILT_IN_PACKS, genres: [] });
+    assert.ok(generated.ok, JSON.stringify(generated));
+    assert.deepEqual(visualizationPreferenceOf(configured(generated.config)), ENABLED);
+  }
+});
+
+const HERO = 'hero';
+const heroCreated = (values: Readonly<Record<string, number>>) =>
+  ({
+    type: CHARACTER_CREATED,
+    payload: {
+      actorId: HERO,
+      profile: {
+        identity: { name: 'Wren' },
+        motivations: [],
+        background: 'A scout.',
+        traits: Object.entries(values).map(([id, value]) => ({ id, value })),
+        conditions: [],
+        rulepack: {
+          id: D20_LITE_MANIFEST.id,
+          edition: D20_LITE_MANIFEST.edition,
+          revision: D20_LITE_MANIFEST.revision,
+        },
+      },
+    },
+  }) as unknown as CampaignEvent;
+const sheetEdited = (fieldId: string, value: unknown) =>
+  ({ type: SHEET_FIELD_EDITED, payload: { actorId: HERO, fieldId, value } }) as unknown as CampaignEvent;
+
+test('a d20-lite attempt checks the hero default attribute against the pack DC and shows the outcome', () => {
+  const TRY = 'I try to climb the wall';
+  const campaign = [...configured(builtInConfig('d20-lite')), heroCreated(ATTRIBUTES)];
+  const resolved = checkFor(campaign, TRY, HERO)?.('climb', createSeededRng(SEED));
+  const expected = attemptCheck({
+    actionId: 'climb',
+    sheet: createSheet({ characterId: HERO as never, attributes: ATTRIBUTES }),
+    attribute: DEFAULT_CHECK_ATTRIBUTE,
+    dc: DEFAULT_CHECK_DC,
+    rng: createSeededRng(SEED),
+  });
+  assert.ok(resolved && expected.ok);
+  assert.deepEqual(resolved.events[0]?.event, expected.events[0]?.event);
+  assert.equal(resolved.bonus, 0);
+
+  const strong = checkFor(
+    [...campaign, sheetEdited(DEFAULT_CHECK_ATTRIBUTE, STRONG.might)],
+    TRY,
+    HERO,
+  )?.('climb', createSeededRng(SEED));
+  assert.ok(strong);
+  const [shown] = resultsOf({ resolution: { ok: true, ...strong } }, 'player');
+  assert.equal(shown?.modifier, MIGHT_MOD);
+  assert.match(shown?.outcome ?? '', /^check\./);
+
+  assert.equal(checkFor(configured(builtInConfig('d20-lite')), TRY, HERO), undefined);
+  assert.equal(checkFor([...campaign, sheetEdited(DEFAULT_CHECK_ATTRIBUTE, 99)], TRY, HERO), undefined);
+  assert.equal(checkFor(campaign, TRY, 'stranger'), undefined);
+});
+
+test('an attempt in a dice campaign gets the rulepack check and every other turn rolls nothing', () => {
+  const TRY = 'I try to climb the wall';
+  const pool = checkFor(
+    configured(builtInConfig('dice-pool-lite')),
+    'I attempt the lock',
+    HERO,
+  )?.('lock', createSeededRng(SEED));
+  assert.ok(pool);
+  assert.equal(pool.rolls[0]?.pool.dice[0]?.sides, DEFAULT_POOL_CONFIG.sides);
+  assert.ok(['success', 'mixed', 'complication', 'failure'].includes(pool.events[0]?.event ?? ''));
+
+  assert.equal(
+    checkFor([...configured(builtInConfig('d20-lite')), heroCreated(ATTRIBUTES)], 'I wave at the stranger', HERO),
+    undefined,
+  );
+  assert.equal(
+    checkFor([...configured(builtInConfig('d20-lite', 'off')), heroCreated(ATTRIBUTES)], TRY, HERO),
+    undefined,
+  );
+  assert.equal(checkFor(configured(builtInConfig('narrative')), TRY, HERO), undefined);
+  assert.equal(checkFor(configured(visualizingConfig(true)), TRY, HERO), undefined);
+  assert.equal(checkFor([], TRY, HERO), undefined);
 });

@@ -74,7 +74,7 @@ test('manifest is valid, original and declares baseline capabilities', () => {
   const parsed = validateManifest(D20_LITE_MANIFEST);
   assert.equal(parsed.ok, true);
   assert.equal(D20_LITE_MANIFEST.id, 'd20-lite');
-  for (const capability of ['checks', 'combat', 'resources', 'progression']) {
+  for (const capability of ['checks', 'combat', 'resources', 'progression', 'dice']) {
     assert.equal(capabilityState(D20_LITE_MANIFEST, capability), 'deterministic');
   }
 });

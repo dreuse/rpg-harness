@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { MAX_INPUT_LENGTH } from '../../../packages/client-protocol/src/protocol.ts';
 import type { CampaignState, Turn } from '../../../packages/domain/src/campaign.ts';
 import type { Visibility } from '../../../packages/domain/src/entity.ts';
-import { commitCharacter } from '../../../packages/engine/src/character.ts';
+import { commitCharacter, editSheetField } from '../../../packages/engine/src/character.ts';
 import { createEngine, type Engine } from '../../../packages/engine/src/engine.ts';
 import { campaignConfigOf, openScene, performAction } from '../../../packages/engine/src/turn.ts';
 import { type CampaignConfig, parseCampaignConfig } from '../../../packages/intent/src/config.ts';
@@ -18,12 +18,13 @@ import { DICE_POOL_LITE_CREATION } from '../../../packages/rules/src/dice-pool-l
 import { NARRATIVE_CREATION } from '../../../packages/rules/src/narrative.ts';
 import { exportArchive, restoreArchive } from './campaign-archive.ts';
 import { type Ask, createCharacter } from './character-creation.ts';
-import { createClientSessions, scopedEventsOf, worldOf } from './client-session.ts';
+import { createClientSessions, type SheetPort, scopedEventsOf, type WorldSource, worldOf } from './client-session.ts';
 import { importRules } from './import-gateway.ts';
 import type { CampaignGateway } from './main.ts';
 import { describeConfig, type Opening, openingFor, planCampaign } from './quickstart.ts';
+import { checkFor } from './roll-visualization.ts';
 import { runTui, type Terminal } from './tui.ts';
-import { renderView, type ViewName } from './views.ts';
+import { editableSheet, renderView, type ViewName } from './views.ts';
 
 const DATABASE_EXTENSION = '.sqlite';
 const SELECT_CAMPAIGN_ID = 'SELECT id FROM campaign LIMIT 1';
@@ -92,10 +93,26 @@ const withSession = <T>(dataDir: string, name: string, run: (session: Session) =
   }
 };
 
+const sheetsOf = ({ engine, store }: Session, readWorld: WorldSource): SheetPort => ({
+  read: (campaignId, actorId) =>
+    editableSheet({ state: engine.getState(campaignId), eventScopes: [], ...readWorld(campaignId, actorId) }, actorId),
+  commit: (edit) => {
+    editSheetField(store, edit);
+  },
+});
+
 export const openClientSession = (dataDir: string, name: string) => {
-  const { engine, campaignId, database, close } = openSession(dataDir, name);
+  const opened = openSession(dataDir, name);
+  const { engine, campaignId, database, close } = opened;
   try {
-    const sessions = createClientSessions(engine, campaignId, scopedEventsOf(database), worldOf(database));
+    const readWorld = worldOf(database);
+    const sessions = createClientSessions(
+      engine,
+      campaignId,
+      scopedEventsOf(database),
+      readWorld,
+      sheetsOf(opened, readWorld),
+    );
     return { session: sessions(PLAYER_VIEWER), campaignId, close };
   } catch (error) {
     close();
@@ -202,15 +219,19 @@ const act = (dataDir: string, name: string, input: string): string =>
     const [actor] = state.characters;
     const scene = state.currentScene;
     if (actor === undefined || scene === undefined) throw new Error(`Campaign ${name} has no opening scene.`);
-    const committed = performAction(store, {
-      campaignId,
-      actionId: randomUUID(),
-      expectedRevision: state.revision,
-      sceneId: scene.id,
-      actorId: actor.id,
-      input,
-      intent: input,
-    });
+    const committed = performAction(
+      store,
+      {
+        campaignId,
+        actionId: randomUUID(),
+        expectedRevision: state.revision,
+        sceneId: scene.id,
+        actorId: actor.id,
+        input,
+        intent: input,
+      },
+      checkFor(state.events, input, actor.id),
+    );
     return narrate(actor.name, committed.turn);
   });
 

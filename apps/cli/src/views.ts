@@ -1,4 +1,5 @@
 import type { CampaignPanels, CitationEntry } from '../../../packages/client-protocol/src/protocol.ts';
+import type { SheetSchema, SheetValueType } from '../../../packages/client-protocol/src/sheet-widgets.ts';
 import type { CampaignEvent, CampaignState, Character, EventId, Turn } from '../../../packages/domain/src/campaign.ts';
 import {
   CHARACTER_KIND,
@@ -7,7 +8,7 @@ import {
   parseCharacterProfile,
 } from '../../../packages/domain/src/character.ts';
 import type { CampaignEntity, EntityKind, Relationship } from '../../../packages/domain/src/entity.ts';
-import { CHARACTER_CREATED } from '../../../packages/engine/src/character.ts';
+import { CHARACTER_CREATED, profileOf } from '../../../packages/engine/src/character.ts';
 import { currentEncounter, type EncounterAction } from '../../../packages/engine/src/encounter.ts';
 import { questLog } from '../../../packages/engine/src/quest.ts';
 import { PLAYER_VIEWER, type Scoped, type Viewer, visibleTo } from '../../../packages/memory/src/knowledge.ts';
@@ -43,6 +44,12 @@ const HIDDEN_FIELD: FieldVisibility = 'hidden';
 const PLAYER_OWNER = { role: 'player', owner: true } as const;
 const OWNER_PROFILE: ProfileVisibility = 'player';
 const WIDGET_BY_TYPE: Readonly<Record<string, WidgetType>> = { number: 'number', boolean: 'toggle', string: 'text' };
+const EDIT_TYPE_BY_VALUE: Readonly<Record<string, SheetValueType>> = {
+  number: 'number',
+  boolean: 'flag',
+  string: 'text',
+};
+const EDITABLE_FIELDS: readonly FieldVisibility[] = ['public', OWNER_FIELD];
 const NO_CHARACTER = 'No character yet.';
 const NO_SHEET = 'No character sheet yet.';
 const NO_ITEMS = 'No items yet.';
@@ -74,9 +81,9 @@ const storedProfile = ({ entities, state }: ViewSource, hero: Character) => {
     ({ type, payload }) => type === CHARACTER_CREATED && payload.actorId === hero.id,
   );
   if (created === undefined) return undefined;
-  const { profile, traitVisibility } = created.payload;
+  const { traitVisibility } = created.payload;
   return {
-    data: profile,
+    data: profileOf(state.events, hero.id),
     visibility: OWNER_PROFILE,
     traitVisibility: isRecord(traitVisibility) ? traitVisibility : undefined,
   };
@@ -126,6 +133,25 @@ const sheetViewerOf = (viewer: Viewer, hero: Character): SheetViewer | undefined
   if (viewer.scope === GM_SCOPE) return GM_SHEET_VIEWER;
   if (viewer.scope === ACTOR_SCOPE && viewer.actorId !== hero.id) return undefined;
   return PLAYER_OWNER;
+};
+
+export const editableSheet = (
+  source: ViewSource,
+  actorId: string,
+): { readonly schema: SheetSchema; readonly values: Readonly<Record<string, unknown>> } | undefined => {
+  const hero = source.state.characters.find(({ id }) => id === actorId);
+  const stored = hero === undefined ? undefined : storedProfile(source, hero);
+  const parsed = stored === undefined ? undefined : parseCharacterProfile(stored.data);
+  if (stored === undefined || !parsed?.ok) return undefined;
+  const fields = parsed.profile.traits.flatMap(({ id, value }) => {
+    const type = EDIT_TYPE_BY_VALUE[typeof value];
+    const editable = EDITABLE_FIELDS.includes(fieldVisibility(stored.traitVisibility, id));
+    return type === undefined || !editable ? [] : [{ id, label: id, type, editable, value }];
+  });
+  return {
+    schema: { fields: fields.map(({ value: _, ...field }) => field) },
+    values: Object.fromEntries(fields.map(({ id, value }) => [id, value])),
+  };
 };
 
 export const sheetFields = (source: ViewSource, viewer: Viewer) => {

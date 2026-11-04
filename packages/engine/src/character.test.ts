@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { StaleRevisionError } from '../../domain/src/campaign.ts';
 import type { CharacterProfile } from '../../domain/src/character.ts';
 import { createCampaignStore } from '../../persistence/src/campaign-store.ts';
 import { openDatabase } from '../../persistence/src/database.ts';
 import { type BuildInput, buildCharacter, type CreationRules } from '../../rules/src/character-builder.ts';
 import { SHEET_SCHEMA_VERSION } from '../../rules/src/sheet-schema.ts';
-import { CHARACTER_CREATED, commitCharacter } from './character.ts';
+import { CHARACTER_CREATED, commitCharacter, editSheetField, SHEET_FIELD_EDITED } from './character.ts';
 import { createEngine } from './engine.ts';
 import { commit, InvalidActionError, openScene } from './turn.ts';
 
@@ -131,4 +132,36 @@ test('a retried creation replays an event committed with owner-visible traits on
     const committed = commit(store, action, [[CHARACTER_CREATED, legacy]], []);
     assert.deepEqual(commitCharacter(store, { ...action, build: guarded }), committed);
     assert.equal(engine.getState(campaignId).revision, action.expectedRevision + 1);
+  }));
+
+test('the engine commits a sheet field edit once and rejects stale or non-primitive values', () =>
+  withCampaign(({ store, engine, campaignId, action }) => {
+    commitCharacter(store, { ...action, build });
+    const { revision } = engine.getState(campaignId);
+    const edit = { campaignId, actionId: 'edit-grit', expectedRevision: revision, actorId: action.actorId };
+    const committed = editSheetField(store, { ...edit, fieldId: 'grit', value: 4 });
+    const state = engine.getState(campaignId);
+    assert.equal(state.revision, revision + 1);
+    assert.deepEqual(state.events.at(-1)?.type, SHEET_FIELD_EDITED);
+    assert.deepEqual(state.events.at(-1)?.payload, { actorId: action.actorId, fieldId: 'grit', value: 4 });
+    assert.deepEqual(editSheetField(store, { ...edit, fieldId: 'grit', value: 4 }).turn, committed.turn);
+    assert.equal(engine.getState(campaignId).revision, revision + 1);
+    assert.throws(
+      () => editSheetField(store, { ...edit, actionId: 'edit-2', fieldId: 'grit', value: 5 }),
+      StaleRevisionError,
+    );
+    const fresh = { ...edit, actionId: 'edit-3', expectedRevision: revision + 1, fieldId: 'grit' };
+    assert.throws(() => editSheetField(store, { ...fresh, value: { hp: 999 } }), InvalidActionError);
+    assert.throws(() => editSheetField(store, { ...fresh, actorId: 'stranger', value: 1 }), InvalidActionError);
+    assert.equal(engine.getState(campaignId).revision, revision + 1);
+    const cellar = { id: 'cellar', campaignId, title: 'Cellar' };
+    store.commitTurn({
+      expectedRevision: revision + 1,
+      turn: { ...committed.turn, id: 'descend', sceneId: cellar.id, actionId: 'descend', input: 'Down.' },
+      characters: [],
+      scenes: [cellar],
+      events: [],
+    });
+    assert.equal(engine.getState(campaignId).currentScene?.id, cellar.id);
+    assert.deepEqual(editSheetField(store, { ...edit, fieldId: 'grit', value: 4 }).turn, committed.turn);
   }));

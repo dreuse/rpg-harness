@@ -33,6 +33,8 @@ export const XP_PER_LEVEL = 100;
 export const MAX_LEVEL = 10;
 export const PROFICIENCY_BASE = 1;
 export const PROFICIENCY_INTERVAL = 3;
+export const DEFAULT_CHECK_ATTRIBUTE: Attribute = 'might';
+export const DEFAULT_CHECK_DC = 10;
 export const DRAUGHT = 'draught';
 export const DRAUGHT_COST = 1;
 export const DRAUGHT_SIDES = 4;
@@ -57,7 +59,7 @@ export const D20_LITE_MANIFEST: RulePackManifest = {
   id: 'd20-lite',
   edition: 'original',
   revision: '1',
-  capabilities: { checks: true, combat: true, resources: true, progression: true },
+  capabilities: { checks: true, combat: true, resources: true, progression: true, dice: true },
   sourceRefs: [],
 };
 

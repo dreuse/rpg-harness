@@ -137,6 +137,35 @@ test('store and retrieve a campaign, character, current scene and single turn', 
   connection.close();
 });
 
+test('a turn stores the visibility the engine assigns per event and gm for the rest', () => {
+  const { connection, store } = openStore(IN_MEMORY);
+  create(store, CAMPAIGN);
+  assert.deepEqual(store.commitTurn({ ...COMMIT, visibility: { [ACTION_EVENT.id]: 'player' } }), {
+    turn: TURN,
+    events: COMMIT.events,
+  });
+  const rows = connection.database
+    .prepare('SELECT id, visibility FROM event_log WHERE turn_id = ? ORDER BY seq')
+    .all(TURN.id);
+  assert.deepEqual(
+    rows.map(({ id, visibility }) => [id, visibility]),
+    [
+      [ACTION_EVENT.id, 'player'],
+      [NARRATION_EVENT.id, 'gm'],
+    ],
+  );
+  connection.close();
+});
+
+test('a turn refuses actor-scoped visibility because a turn event has no owner scope', () => {
+  const { connection, store } = openStore(IN_MEMORY);
+  create(store, CAMPAIGN);
+  const scoped = { [ACTION_EVENT.id]: 'actor-scoped' } as unknown as NonNullable<TurnCommit['visibility']>;
+  assert.throws(() => store.commitTurn({ ...COMMIT, visibility: scoped }), RangeError);
+  assert.equal(store.load(CAMPAIGN.id)?.revision, INITIAL_REVISION);
+  connection.close();
+});
+
 test('stale revision or failed turn writes nothing', () => {
   const { connection, store } = openStore(IN_MEMORY);
   create(store, CAMPAIGN);

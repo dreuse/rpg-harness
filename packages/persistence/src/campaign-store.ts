@@ -11,10 +11,13 @@ import {
   MAIN_BRANCH,
   type Scene,
   StaleRevisionError,
+  TURN_VISIBILITIES,
   type Turn,
   type TurnCommit,
 } from '../../domain/src/campaign.ts';
+import type { Visibility } from '../../domain/src/entity.ts';
 
+const GM_VISIBILITY: Visibility = 'gm';
 const INSERT_CAMPAIGN = 'INSERT INTO campaign (id, name) VALUES (?, ?)';
 const SELECT_CAMPAIGN = 'SELECT id, name, revision FROM campaign WHERE id = ?';
 const SELECT_REVISION = 'SELECT revision FROM campaign WHERE id = ?';
@@ -30,7 +33,7 @@ const OWNED_EVENT = 'SELECT 1 FROM event_log WHERE id = ? AND campaign_id = ?';
 const INSERT_TURN =
   'INSERT INTO turn (id, campaign_id, scene_id, action_id, actor_id, input, narration, revision) VALUES (?, ?, ?, ?, ?, ?, ?, ?)';
 const APPEND_EVENT =
-  'INSERT INTO event_log (id, campaign_id, branch_id, revision, action_id, turn_id, causation_id, type, payload) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)';
+  'INSERT INTO event_log (id, campaign_id, branch_id, revision, action_id, turn_id, causation_id, type, payload, visibility) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
 const RECORD_NARRATION = 'UPDATE turn SET narration = ? WHERE id = ? AND campaign_id = ?';
 const SELECT_CHARACTERS = 'SELECT id, campaign_id, name FROM character WHERE campaign_id = ? ORDER BY rowid';
 const SELECT_CURRENT_SCENE =
@@ -124,6 +127,7 @@ const appendCampaignChange = (database: DatabaseSync, campaignId: string, event:
       null,
       event.type,
       JSON.stringify(event.payload),
+      GM_VISIBILITY,
     );
 };
 
@@ -136,9 +140,11 @@ const storedTurn = (database: DatabaseSync, { campaignId, actionId }: Turn): Com
 
 const writeTurn = (
   database: DatabaseSync,
-  { expectedRevision, turn, characters, scenes, events }: TurnCommit,
+  { expectedRevision, turn, characters, scenes, events, visibility }: TurnCommit,
 ): CommittedTurn => {
   const { campaignId } = turn;
+  for (const [id, shown] of Object.entries(visibility ?? {}))
+    if (!TURN_VISIBILITIES.includes(shown)) throw new RangeError(`event ${id} cannot be ${shown} in a turn`);
   const revision = nextRevision(database, campaignId, expectedRevision);
   for (const { id, campaignId: owner, name } of characters) {
     const reference = `character ${id}`;
@@ -178,6 +184,7 @@ const writeTurn = (
         event.causationId,
         event.type,
         JSON.stringify(event.payload),
+        visibility?.[event.id] ?? GM_VISIBILITY,
       );
   }
   database.prepare(ADVANCE_CAMPAIGN).run(revision, turn.sceneId, campaignId);

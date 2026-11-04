@@ -225,7 +225,8 @@ describe('serve client-protocol commands over the desktop engine daemon', () => 
       rejectionOf(await daemon.command({ ...scoped, type: 'RequestView', viewId: UNKNOWN_VIEW })),
       'Rejected',
     );
-    const edit = { ...scoped, type: 'EditSheetField', actionId: 'edit', expectedRevision: 0, actorId: 'h' };
+    const { revision } = await snapshotOf(daemon, campaignId);
+    const edit = { ...scoped, type: 'EditSheetField', actionId: 'edit', expectedRevision: revision, actorId: 'h' };
     assert.equal(rejectionOf(await daemon.command({ ...edit, fieldId: 'stress', value: 1 })), 'Rejected');
   });
 

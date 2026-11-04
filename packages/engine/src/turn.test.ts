@@ -8,8 +8,12 @@ import {
 } from '../../domain/src/campaign.ts';
 import { createCampaignStore } from '../../persistence/src/campaign-store.ts';
 import { openDatabase } from '../../persistence/src/database.ts';
+import { createRoller, createSeededRng, type Rng } from '../../rules/src/dice.ts';
+import { createEngine } from './engine.ts';
 import {
   ActionIdConflictError,
+  CHECK_RESOLVED,
+  type Check,
   campaignConfigOf,
   InvalidActionError,
   openScene,
@@ -50,13 +54,54 @@ const CREATED_EVENT = {
   payload: { name: CAMPAIGN.name },
 };
 
-const openEngineStore = (): { store: CampaignStore; close: () => void } => {
+const openEngineStore = () => {
   const connection = openDatabase(IN_MEMORY);
-  const store = createCampaignStore(connection.database);
+  const store: CampaignStore = createCampaignStore(connection.database);
   store.createCampaign(CAMPAIGN, CREATED_EVENT);
   store.commitTurn({ expectedRevision: 0, turn: SETUP_TURN, characters: [CHARACTER], scenes: [SCENE], events: [] });
-  return { store, close: () => connection.close() };
+  return { store, database: connection.database, close: () => connection.close() };
 };
+
+const CHECK_SEED = 7;
+const D20 = { dice: [{ count: 1, sides: 20 }], modifier: 0 };
+const SELECT_VISIBILITY = 'SELECT visibility FROM event_log WHERE id = ?';
+
+const d20Check =
+  (calls: string[]): Check =>
+  (actionId: string, rng: Rng) => {
+    calls.push(actionId);
+    const rolled = createRoller(rng)(`${actionId}:d20`, D20);
+    if (!rolled.ok) throw new Error('roll failed');
+    return { rolls: [rolled.roll], events: [] };
+  };
+
+test('an action with a check resolves its roll in the same turn and shows it to the player', () => {
+  const { store, database, close } = openEngineStore();
+  const calls: string[] = [];
+  const engine = createEngine(store, createSeededRng(CHECK_SEED));
+  const committed = engine.submitAction(ACTION, d20Check(calls));
+  const resolved = committed.events.at(-1);
+  const expected = createRoller(createSeededRng(CHECK_SEED))(`${ACTION.actionId}:d20`, D20);
+  assert.ok(expected.ok);
+  assert.deepEqual(
+    committed.events.map(({ type }) => type),
+    ['PlayerActionSubmitted', 'ActionValidated', CHECK_RESOLVED],
+  );
+  assert.equal(resolved?.causationId, committed.events[1]?.id);
+  assert.deepEqual(JSON.parse(JSON.stringify(resolved?.payload)), {
+    resolution: { ok: true, rolls: [JSON.parse(JSON.stringify(expected.roll))], events: [] },
+  });
+  assert.equal(database.prepare(SELECT_VISIBILITY).get(String(resolved?.id))?.visibility, 'player');
+  assert.equal(database.prepare(SELECT_VISIBILITY).get(String(committed.events[0]?.id))?.visibility, 'gm');
+  assert.equal(store.load(CAMPAIGN.id)?.revision, SETUP_REVISION + 1);
+
+  assert.deepEqual(
+    engine.submitAction(ACTION, d20Check(calls)).events.map(({ id }) => id),
+    committed.events.map(({ id }) => id),
+  );
+  assert.deepEqual(calls, [ACTION.actionId]);
+  close();
+});
 
 test('player can perform an action and persist a validated corresponding state change', () => {
   const { store, close } = openEngineStore();

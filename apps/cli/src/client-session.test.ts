@@ -11,8 +11,9 @@ import {
 } from '../../../packages/client-protocol/src/protocol.ts';
 import { parseSheetSchema, type SheetEdit } from '../../../packages/client-protocol/src/sheet-widgets.ts';
 import { VISUALIZATION_EVENT } from '../../../packages/client-protocol/src/visualization.ts';
-import { CAMPAIGN_CONFIGURED, MAIN_BRANCH } from '../../../packages/domain/src/campaign.ts';
+import { CAMPAIGN_CONFIGURED, MAIN_BRANCH, StaleRevisionError } from '../../../packages/domain/src/campaign.ts';
 import type { Visibility } from '../../../packages/domain/src/entity.ts';
+import { CHARACTER_CREATED } from '../../../packages/engine/src/character.ts';
 import { createEngine } from '../../../packages/engine/src/engine.ts';
 import { openScene } from '../../../packages/engine/src/turn.ts';
 import { type CampaignConfig, generateCampaignConfig } from '../../../packages/intent/src/config.ts';
@@ -24,6 +25,7 @@ import { openDatabase } from '../../../packages/persistence/src/database.ts';
 import { createEntityStore } from '../../../packages/persistence/src/entity-store.ts';
 import { createRoller, createSeededRng } from '../../../packages/rules/src/dice.ts';
 import { createClientSessions, type SheetPort, scopedEventsOf, worldOf } from './client-session.ts';
+import { BUILT_IN_PACKS } from './import-gateway.ts';
 
 const IN_MEMORY = ':memory:';
 const RULEPACK = { id: 'house', edition: '1', revision: 'r1' };
@@ -79,6 +81,8 @@ const fakeSheets = (owner: string) => {
   const sheets: SheetPort = {
     read: (_, actorId) => (actorId === owner ? { schema: SHEET_SCHEMA.value, values } : undefined),
     commit: (edit) => {
+      if (edit.expectedRevision !== OPENING_REVISION)
+        throw new StaleRevisionError(edit.expectedRevision, OPENING_REVISION);
       commits.push(edit);
     },
   };
@@ -741,4 +745,35 @@ test('stale ui action cannot overwrite newer state from another client', () => {
     input: 'I open the door.',
   });
   assert.deepEqual(retried, { ok: true, value: { revision: newer.value.revision + 1 } });
+});
+
+test('an attempt in a d20-lite campaign rolls through the engine and reaches the player mechanics feed', () => {
+  const explicit = <T>(value: T) => ({ value, provenance: 'explicit' as const });
+  const intent = createCampaignIntent({
+    ruleset: explicit({ id: 'd20-lite', edition: 'original' }),
+    client: explicit('tui'),
+    diceVisualization: explicit(true),
+  });
+  const generated = generateCampaignConfig(intent, { rulepacks: BUILT_IN_PACKS, genres: [] });
+  assert.ok(generated.ok, JSON.stringify(generated));
+  const { sessionFor, envelope, turn, seed } = setup(generated.config);
+  const traits = ['might', 'agility', 'wits', 'presence'].map((id) => ({ id, value: 5 }));
+  const profile = { identity: { name: 'Wren' }, motivations: [], background: '', traits, conditions: [] };
+  const rulepack = { id: 'd20-lite', edition: 'original', revision: '1' };
+  seed('wren', CHARACTER_CREATED, { actorId: turn.actorId, profile: { ...profile, rulepack } }, 'player');
+  const player = collect(sessionFor(PLAYER_VIEWER), envelope);
+  const accepted = sessionFor(PLAYER_VIEWER).submitPlayerAction({
+    ...envelope,
+    type: 'SubmitPlayerAction',
+    actionId: 'climb',
+    expectedRevision: OPENING_REVISION,
+    sceneId: turn.sceneId,
+    actorId: turn.actorId,
+    input: 'I try to climb the wall',
+  });
+  assert.ok(accepted.ok, JSON.stringify(accepted));
+  const [shown] = mechanics(player);
+  const reveal = shown?.type === VISUALIZATION_EVENT ? shown.frames[0]?.reveal : undefined;
+  assert.deepEqual(reveal?.kind === 'die' && reveal.sides, 20);
+  assert.match((shown?.type === VISUALIZATION_EVENT && shown.final.outcome) || '', /^check\./);
 });

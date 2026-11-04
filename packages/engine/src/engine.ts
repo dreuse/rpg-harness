@@ -11,14 +11,15 @@ import {
   type CommittedTurn,
   MAIN_BRANCH,
 } from '../../domain/src/campaign.ts';
-import { type PlayerAction, performAction } from './turn.ts';
+import type { Rng } from '../../rules/src/dice.ts';
+import { type Check, type PlayerAction, performAction } from './turn.ts';
 
 export type Engine = {
   createCampaign(name: string): Campaign;
   getCampaign(id: CampaignId): Campaign;
   getState(id: CampaignId): CampaignState;
   renameCampaign(id: CampaignId, name: string): Campaign;
-  submitAction(action: PlayerAction): CommittedTurn;
+  submitAction(action: PlayerAction, check?: Check): CommittedTurn;
 };
 
 const change = ({ id, name }: Campaign, type: string): CampaignChange => ({
@@ -36,7 +37,7 @@ const loadState = (store: CampaignStore, id: CampaignId) => {
   return state;
 };
 
-export const createEngine = (store: CampaignStore): Engine => ({
+export const createEngine = (store: CampaignStore, rng: Rng = Math.random): Engine => ({
   createCampaign: (name) => {
     const campaign = { id: randomUUID(), name };
     store.createCampaign(campaign, change(campaign, CAMPAIGN_CREATED));
@@ -50,5 +51,5 @@ export const createEngine = (store: CampaignStore): Engine => ({
     store.renameCampaign({ expectedRevision: revision, campaign, event: change(campaign, CAMPAIGN_RENAMED) });
     return campaign;
   },
-  submitAction: (action) => performAction(store, action),
+  submitAction: (action, check) => performAction(store, action, check, rng),
 });

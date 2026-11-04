@@ -1,4 +1,4 @@
-import type { EntityId } from './entity.ts';
+import type { EntityId, Visibility } from './entity.ts';
 
 export type CampaignId = string;
 export type CharacterId = string;
@@ -48,12 +48,16 @@ export type DomainEvent = Omit<CampaignEvent, 'turnId'> & {
   readonly revision: number;
 };
 
+export const TURN_VISIBILITIES = ['public', 'player', 'gm'] as const satisfies readonly Visibility[];
+export type TurnVisibility = (typeof TURN_VISIBILITIES)[number];
+
 export type TurnCommit = {
   readonly expectedRevision: number;
   readonly turn: Turn;
   readonly characters: readonly Character[];
   readonly scenes: readonly Scene[];
   readonly events: readonly CampaignEvent[];
+  readonly visibility?: Readonly<Record<EventId, TurnVisibility>>;
 };
 
 export type CommittedTurn = { readonly turn: Turn; readonly events: readonly CampaignEvent[] };

@@ -41,7 +41,7 @@ import type { Engine } from '../../../packages/engine/src/engine.ts';
 import { type Scoped, type Viewer, visibleTo } from '../../../packages/memory/src/knowledge.ts';
 import { createEntityStore } from '../../../packages/persistence/src/entity-store.ts';
 import { createEventStore } from '../../../packages/persistence/src/event-store.ts';
-import { emitVisualizations, resultsOf, visualizationPreferenceOf } from './roll-visualization.ts';
+import { checkFor, emitVisualizations, resultsOf, visualizationPreferenceOf } from './roll-visualization.ts';
 import { panelsOf, sheetFields, type ViewSource } from './views.ts';
 
 export type ScopedEvent = DomainEvent & Scoped;
@@ -211,9 +211,6 @@ export const createClientSessions = (
   };
 
   const editSheet = (port: SheetPort, { version: _, type: __, ...edit }: EditSheetField): Result<Accepted> => {
-    const { revision } = engine.getState(campaignId);
-    if (edit.expectedRevision !== revision)
-      return failure('StaleRevision', `stale revision ${edit.expectedRevision}, current is ${revision}`);
     const sheet = port.read(campaignId, edit.actorId);
     if (sheet === undefined) return failure('Rejected', `${edit.actorId} has no character sheet`);
     const checked = requestSheetEdit(sheet.schema, sheet.values, edit);
@@ -253,7 +250,10 @@ export const createClientSessions = (
         if (!accepted.ok) return accepted;
         const { actionId, expectedRevision, sceneId, actorId, input } = accepted.value;
         return attempt(() => {
-          engine.submitAction({ campaignId, actionId, expectedRevision, sceneId, actorId, input, intent: input });
+          engine.submitAction(
+            { campaignId, actionId, expectedRevision, sceneId, actorId, input, intent: input },
+            checkFor(engine.getState(campaignId).events, input, actorId),
+          );
           sync();
           return { revision: engine.getState(campaignId).revision };
         });

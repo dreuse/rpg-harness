@@ -4,10 +4,11 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
+import { PROTOCOL_VERSION } from '../../../packages/client-protocol/src/protocol.ts';
 import type { Visibility } from '../../../packages/domain/src/entity.ts';
 import { CHARACTER_CREATED, commitCharacter } from '../../../packages/engine/src/character.ts';
 import { createEngine } from '../../../packages/engine/src/engine.ts';
-import { openScene } from '../../../packages/engine/src/turn.ts';
+import { CHECK_RESOLVED, openScene } from '../../../packages/engine/src/turn.ts';
 import { createCampaignStore } from '../../../packages/persistence/src/campaign-store.ts';
 import { createCharacterStore } from '../../../packages/persistence/src/character-store.ts';
 import { MIGRATIONS, openDatabase } from '../../../packages/persistence/src/database.ts';
@@ -15,7 +16,7 @@ import { createEntityStore } from '../../../packages/persistence/src/entity-stor
 import type { CreationRules } from '../../../packages/rules/src/character-builder.ts';
 import { SHEET_SCHEMA_VERSION } from '../../../packages/rules/src/sheet-schema.ts';
 import { importSheet, SHEET_EXPORT_FORMAT } from '../../../packages/rules/src/sheet-view.ts';
-import { createEngineGateway, readCampaignState } from './engine-gateway.ts';
+import { createEngineGateway, openClientSession, readCampaignState } from './engine-gateway.ts';
 import { main } from './main.ts';
 import { printable, renderView } from './views.ts';
 
@@ -518,4 +519,37 @@ test('hidden gm rolls and narrative-only rulesets do not expose invented dice', 
     const output = await run(dataDir, ['encounter', CAMPAIGN]);
     assert.match(output, /- The Wanderer: talk\nOutcome: The guard waves you through\./);
     assert.doesNotMatch(output, /SECRET|Roll|Modifiers|\d+d\d+|17/);
+  }));
+
+test('a d20-lite campaign accepts sheet edits from the client session and rolls attempts through the engine', () =>
+  withDataDir(async (dataDir) => {
+    await run(
+      dataDir,
+      ['new', CAMPAIGN, 'A fantasy adventure using the D20-Lite rules'],
+      ['A scout named Wren with might 6, agility 5, wits 7 and presence 4.'],
+    );
+    const { session, campaignId, close } = openClientSession(dataDir, CAMPAIGN);
+    try {
+      const envelope = { version: PROTOCOL_VERSION, campaignId } as const;
+      const snapshot = session.getSnapshot({ ...envelope, type: 'GetCampaignSnapshot' });
+      assert.ok(snapshot.ok);
+      const [hero] = snapshot.value.characters;
+      const edit = {
+        ...envelope,
+        type: 'EditSheetField',
+        actionId: randomUUID(),
+        expectedRevision: snapshot.value.revision,
+        actorId: hero?.id ?? '',
+        fieldId: 'might',
+        value: 8,
+      } as const;
+      const edited = { ok: true, value: { revision: snapshot.value.revision + 1 } };
+      assert.deepEqual(session.editSheetField(edit), edited);
+      assert.deepEqual(session.editSheetField(edit), edited);
+    } finally {
+      close();
+    }
+    assert.match(await run(dataDir, ['sheet', CAMPAIGN]), /might: 8/i);
+    await run(dataDir, ['play', CAMPAIGN], ['I try to climb the wall']);
+    assert.equal(readCampaignState(dataDir, CAMPAIGN).events.at(-1)?.type, CHECK_RESOLVED);
   }));

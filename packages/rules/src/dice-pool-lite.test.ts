@@ -39,6 +39,7 @@ test('manifest is valid, original and declares deterministic checks', () => {
   assert.equal(DICE_POOL_LITE_MANIFEST.id, 'dice-pool-lite');
   assert.equal(DICE_POOL_LITE_MANIFEST.edition, 'original');
   assert.equal(capabilityState(DICE_POOL_LITE_MANIFEST, 'checks'), 'deterministic');
+  assert.equal(capabilityState(DICE_POOL_LITE_MANIFEST, 'dice'), 'deterministic');
 });
 
 test('support pool rolls, success counting, complications and configurable thresholds', () => {

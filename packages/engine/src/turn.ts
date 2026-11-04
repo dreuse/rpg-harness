@@ -10,11 +10,14 @@ import {
   type Character,
   type CharacterId,
   type CommittedTurn,
+  type EventId,
   SCENE_OPENED,
   type SceneId,
   StaleRevisionError,
   type Turn,
+  type TurnVisibility,
 } from '../../domain/src/campaign.ts';
+import type { Rng, RollEvent } from '../../rules/src/dice.ts';
 
 export type PlayerAction = {
   readonly campaignId: CampaignId;
@@ -25,6 +28,16 @@ export type PlayerAction = {
   readonly input: string;
   readonly intent: string;
 };
+
+export type CheckResolution = {
+  readonly rolls: readonly RollEvent[];
+  readonly events: readonly { readonly event: string }[];
+  readonly bonus?: number;
+};
+export type Check = (actionId: string, rng: Rng) => CheckResolution;
+export type Step = readonly [type: string, payload: Record<string, unknown>, visibility?: TurnVisibility];
+
+export const CHECK_RESOLVED = 'CheckResolved';
 
 export class InvalidActionError extends Error {
   readonly actionId: string;
@@ -53,6 +66,7 @@ const SUBMITTED = 'PlayerActionSubmitted';
 const VALIDATED = 'ActionValidated';
 const OPENING_ACTION = 'opening';
 const OPENING_INPUT = 'Begin.';
+const PLAYER_VISIBLE: TurnVisibility = 'player';
 
 export const turnEvent = (turn: Turn, causationId: string | null, type: string, payload: Record<string, unknown>) => ({
   id: randomUUID(),
@@ -111,18 +125,24 @@ export const toCommittedTurn = ({
 export const commit = (
   store: CampaignStore,
   action: PlayerAction,
-  steps: readonly (readonly [string, Record<string, unknown>])[],
+  steps: readonly Step[],
   characters: readonly Character[] = [],
 ): CommittedTurn => {
   const { turn, events } = toCommittedTurn(action);
   const chained: CampaignEvent[] = [...events];
-  for (const [type, payload] of steps) chained.push(turnEvent(turn, chained.at(-1)?.id ?? null, type, payload));
+  const visibility: Record<EventId, TurnVisibility> = {};
+  for (const [type, payload, shown] of steps) {
+    const event = turnEvent(turn, chained.at(-1)?.id ?? null, type, payload);
+    chained.push(event);
+    if (shown !== undefined) visibility[event.id] = shown;
+  }
   return store.commitTurn({
     expectedRevision: action.expectedRevision,
     turn,
     characters,
     scenes: [],
     events: chained,
+    visibility,
   });
 };
 
@@ -152,11 +172,20 @@ export const replayOf = (
   return stored;
 };
 
-export const performAction = (store: CampaignStore, action: PlayerAction): CommittedTurn => {
+export const performAction = (
+  store: CampaignStore,
+  action: PlayerAction,
+  check?: Check,
+  rng: Rng = Math.random,
+): CommittedTurn => {
   const state = loadState(store, action.campaignId);
   const stored = replayOf(state, action);
   if (stored !== undefined) return stored;
   validate(state, action);
+  if (check !== undefined)
+    return commit(store, action, [
+      [CHECK_RESOLVED, { resolution: { ok: true, ...check(action.actionId, rng) } }, PLAYER_VISIBLE],
+    ]);
   return store.commitTurn({
     expectedRevision: action.expectedRevision,
     characters: [],
