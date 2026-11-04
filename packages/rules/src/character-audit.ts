@@ -3,8 +3,8 @@ import type { RulePackLink } from '../../domain/src/character.ts';
 import type { ResolutionError } from './resolve.ts';
 import { isNonEmptyString, isRecord, type ManifestIssue, NON_EMPTY_STRING } from './rulepack.ts';
 
-export const REVISION_KINDS = ['resource', 'backstory', 'equipment'] as const;
-export const REVISION_ORIGINS = ['manual-correction', 'in-world'] as const;
+export const REVISION_KINDS = ['resource', 'backstory', 'equipment', 'rulepack'] as const;
+export const REVISION_ORIGINS = ['manual-correction', 'in-world', 'ruleset-migration', 'approved-migration'] as const;
 
 export type RevisionKind = (typeof REVISION_KINDS)[number];
 export type RevisionOrigin = (typeof REVISION_ORIGINS)[number];
@@ -26,6 +26,7 @@ export type RevisionResult = { ok: true; log: readonly CharacterRevision[] } | {
 
 const ID_FIELDS = ['characterId', 'targetId', 'cause', 'source'] as const;
 const RULEPACK_KEYS = ['id', 'edition', 'revision'] as const;
+const RULEPACK_KIND: RevisionKind = 'rulepack';
 const VALUE_FIELDS = ['previous', 'next'] as const;
 const UNCHANGED = 'must differ from previous';
 const STALE_PREVIOUS = 'must equal the latest recorded value';
@@ -35,6 +36,7 @@ const VALUE_CHECKS: Record<RevisionKind, { message: string; accepts: (value: unk
   resource: { message: 'must be a finite number', accepts: (value) => Number.isFinite(value) },
   backstory: { message: 'must be a string', accepts: (value) => typeof value === 'string' },
   equipment: { message: 'must be a boolean', accepts: (value) => typeof value === 'boolean' },
+  rulepack: { message: NON_EMPTY_STRING, accepts: isNonEmptyString },
 };
 
 const isOneOf = <T extends string>(list: readonly T[], value: unknown): value is T => list.includes(value as T);
@@ -57,8 +59,10 @@ const validate = (input: RevisionInput): ManifestIssue[] => {
 };
 
 const continuityIssues = (log: readonly CharacterRevision[], entry: CharacterRevision): ManifestIssue[] => {
+  const isRulePack = entry.kind === RULEPACK_KIND;
   const last = log.findLast(
-    ({ characterId, targetId }) => characterId === entry.characterId && targetId === entry.targetId,
+    ({ characterId, targetId, kind }) =>
+      characterId === entry.characterId && targetId === entry.targetId && (kind === RULEPACK_KIND) === isRulePack,
   );
   if (last === undefined) return [];
   if (last.kind !== entry.kind) return [{ path: 'kind', message: KIND_CHANGED }];

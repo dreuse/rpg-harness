@@ -1,6 +1,19 @@
 import { isDeepStrictEqual } from 'node:util';
+import type { EventId } from '../../domain/src/campaign.ts';
+import {
+  appendRevision,
+  type CharacterRevision,
+  type RevisionKind,
+  type RevisionOrigin,
+} from '../../rules/src/character-audit.ts';
 import { deepFreeze } from '../../rules/src/compile.ts';
-import { isNonEmptyString, isRecord, type ManifestIssue, type RulePackManifest } from '../../rules/src/rulepack.ts';
+import {
+  isNonEmptyString,
+  isRecord,
+  type ManifestIssue,
+  NON_EMPTY_STRING,
+  type RulePackManifest,
+} from '../../rules/src/rulepack.ts';
 import type { SheetField, SheetSchema, WidgetType } from '../../rules/src/sheet-schema.ts';
 import type { TraitValue } from '../../rules/src/traits.ts';
 import type { RulePackRef } from './preview.ts';
@@ -12,6 +25,11 @@ const CHANGED_TYPE_MAPPINGS: readonly MappingKind[] = ['reset'];
 const MAPPING_KEYS = ['kind'];
 const RENAME_KEYS = ['kind', 'to'];
 const MAPPINGS_PATH = 'mappings';
+const APPROVED_PATH = 'approved';
+const DESTRUCTIVE_MAPPINGS: readonly MappingKind[] = ['drop', 'reset'];
+const RULEPACK_KIND: RevisionKind = 'rulepack';
+const SAFE_ORIGIN: RevisionOrigin = 'ruleset-migration';
+const APPROVED_ORIGIN: RevisionOrigin = 'approved-migration';
 
 export type MappingKind = (typeof MAPPING_KINDS)[number];
 export type FieldMapping =
@@ -56,7 +74,10 @@ export type MigrationErrorCode =
   | 'DowngradeRefused'
   | 'InvalidMapping'
   | 'IncompatibleFields'
-  | 'SheetPinMismatch';
+  | 'SheetPinMismatch'
+  | 'AlreadyMigrated'
+  | 'ApprovalRequired'
+  | 'AuditRejected';
 export type MigrationError = { code: MigrationErrorCode; issues: ManifestIssue[] };
 type Failure = { ok: false; error: MigrationError };
 
@@ -249,4 +270,77 @@ export const applyMigration = (
     })),
   };
   return deepFreeze(structuredClone({ ok: true as const, ...migrated, preview }));
+};
+
+export type SheetMigrationRequest = Readonly<{
+  catalog: readonly RulesetRevision[];
+  pin: CampaignPin;
+  target: RulePackRef;
+  sheets: readonly CampaignSheet[];
+  mappings?: FieldMappings;
+}>;
+export type SheetMigrationApproval = SheetMigrationRequest &
+  Readonly<{ log: readonly CharacterRevision[]; cause: EventId; source: string; approved: readonly string[] }>;
+type Migrated = { pin: CampaignPin; sheets: readonly CampaignSheet[]; preview: MigrationPreview };
+export type SheetPreviewResult = ({ ok: true; approvals: readonly string[] } & Migrated) | Failure;
+export type SheetMigrationResult = ({ ok: true; log: readonly CharacterRevision[] } & Migrated) | Failure;
+
+export const previewSheetMigration = (request: SheetMigrationRequest): SheetPreviewResult => {
+  const migrated = applyMigration(request.catalog, request.pin, request.target, request.sheets, request.mappings);
+  if (!migrated.ok) return migrated;
+  const approvals = migrated.preview.changes.flatMap(({ fieldId, mapping }) =>
+    mapping && DESTRUCTIVE_MAPPINGS.includes(mapping.kind) ? [fieldId] : [],
+  );
+  return Object.freeze({ ...migrated, approvals: Object.freeze(approvals) });
+};
+
+const approvalIssues = (approved: unknown, approvals: readonly string[]): ManifestIssue[] => {
+  if (!Array.isArray(approved)) return [{ path: APPROVED_PATH, message: 'must be a list of field ids' }];
+  const needed = new Set(approvals);
+  const seen = new Set<string>();
+  const invalid = approved.flatMap((fieldId, index): ManifestIssue[] => {
+    const path = `${APPROVED_PATH}.${index}`;
+    if (!isNonEmptyString(fieldId)) return [{ path, message: NON_EMPTY_STRING }];
+    if (seen.has(fieldId)) return [{ path, message: 'is already approved' }];
+    seen.add(fieldId);
+    return needed.has(fieldId) ? [] : [{ path, message: 'is not a field that needs approval' }];
+  });
+  const missing = approvals
+    .filter((fieldId) => !seen.has(fieldId))
+    .map((fieldId) => ({ path: `${APPROVED_PATH}.${fieldId}`, message: 'needs explicit approval' }));
+  return [...invalid, ...missing];
+};
+
+export const applySheetMigration = (request: SheetMigrationApproval): SheetMigrationResult => {
+  const previewed = previewSheetMigration(request);
+  if (!previewed.ok) return previewed;
+  const { pin, sheets, preview, approvals } = previewed;
+  if (isDeepStrictEqual(preview.from, preview.to)) {
+    return fail('AlreadyMigrated', [{ path: 'target', message: `campaign is already on ${preview.to.revision}` }]);
+  }
+  const issues = approvalIssues(request.approved, approvals);
+  if (issues.length > 0) return fail('ApprovalRequired', issues);
+  const origin = approvals.length > 0 ? APPROVED_ORIGIN : SAFE_ORIGIN;
+  let log: readonly CharacterRevision[] = Object.freeze([...request.log]);
+  for (const [index, { characterId }] of sheets.entries()) {
+    const appended = appendRevision(log, {
+      characterId,
+      kind: RULEPACK_KIND,
+      targetId: preview.to.id,
+      origin,
+      cause: request.cause,
+      source: request.source,
+      rulepack: preview.to,
+      previous: preview.from.revision,
+      next: preview.to.revision,
+    });
+    if (!appended.ok) {
+      return fail(
+        'AuditRejected',
+        appended.error.issues.map(({ path, message }) => ({ path: `sheets.${index}.${path}`, message })),
+      );
+    }
+    log = appended.log;
+  }
+  return Object.freeze({ ok: true as const, pin, sheets, preview, log });
 };

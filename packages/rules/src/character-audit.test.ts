@@ -9,6 +9,7 @@ const WOUNDED_HP = 7;
 const CRITICAL_HP = 3;
 const ORIGINAL_STORY = 'Raised by wolves.';
 const FIXED_TYPO = 'Raised by monks.';
+const NEXT_REVISION = 'r2';
 const GROWN_STORY = 'Raised by monks; swore vengeance after the fire.';
 
 const revision = (overrides: Partial<RevisionInput> = {}): RevisionInput => ({
@@ -164,4 +165,17 @@ test('reads each input field once', () => {
   const result = appendRevision([], input);
   assert.ok(result.ok);
   assert.equal(result.log[0]?.next, WOUNDED_HP);
+});
+
+test('a rulepack revision does not collide with a field that shares the rulepack id', () => {
+  const field = revision({ targetId: RULEPACK.id });
+  const rulepack = revision({
+    kind: 'rulepack',
+    targetId: RULEPACK.id,
+    origin: 'ruleset-migration',
+    previous: RULEPACK.revision,
+    next: NEXT_REVISION,
+  });
+  assert.equal(appendAll([field, rulepack]).length, 2);
+  assert.equal(appendAll([rulepack, field]).length, 2);
 });

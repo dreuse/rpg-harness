@@ -1,14 +1,18 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { appendRevision, type CharacterRevision } from '../../rules/src/character-audit.ts';
 import { deepFreeze } from '../../rules/src/compile.ts';
 import { RULEPACK_CONTRACT_VERSION } from '../../rules/src/rulepack.ts';
 import { SHEET_SCHEMA_VERSION, type SheetField, type WidgetType } from '../../rules/src/sheet-schema.ts';
 import {
   applyMigration,
+  applySheetMigration,
+  type CampaignPin,
   type CampaignSheet,
   type FieldMappings,
   pinRuleset,
   previewMigration,
+  previewSheetMigration,
   type RulesetRevision,
 } from './ruleset-migration.ts';
 
@@ -216,4 +220,225 @@ test('I10 never mutates its inputs', () => {
   assert.deepEqual({ catalog, pin, sheets, mappings }, snapshot);
   assert.ok(Object.isFrozen(result.sheets[0]?.values));
   assert.notEqual(result.sheets[0], sheets[0]);
+});
+
+const CHARACTER_ID = 'char-1';
+const MIGRATION_CAUSE = 'evt-migrate';
+const REPLAY_CAUSE = 'evt-replay';
+const OTHER_CHARACTER_ID = 'char-2';
+const APPROVER = 'player';
+const WOUNDED_VALUE = 5;
+const DESTRUCTIVE_FIELDS = ['field-c', 'field-d'];
+const RENAMED = revision('2', SOURCE_V2, [field('field-a'), field('field-z'), field('field-c'), field('field-d')]);
+const RENAME_CATALOG = [V1, RENAMED];
+const RENAME_MAPPINGS: FieldMappings = { 'field-b': { kind: 'rename', to: 'field-z' } };
+
+const migrationRevision = (
+  from: RulesetRevision,
+  to: RulesetRevision,
+  origin: CharacterRevision['origin'],
+): CharacterRevision => ({
+  characterId: CHARACTER_ID,
+  kind: 'rulepack',
+  targetId: PACK_ID,
+  origin,
+  cause: MIGRATION_CAUSE,
+  source: APPROVER,
+  rulepack: ref(to),
+  previous: from.rulePack.revision,
+  next: to.rulePack.revision,
+});
+
+const apply = (
+  pin: CampaignPin,
+  target: RulesetRevision,
+  sheets: readonly CampaignSheet[],
+  log: readonly CharacterRevision[],
+  options: { mappings?: FieldMappings; approved?: readonly string[]; catalog?: readonly RulesetRevision[] } = {},
+) =>
+  applySheetMigration({
+    catalog: options.catalog ?? CATALOG,
+    pin,
+    target: ref(target),
+    sheets,
+    mappings: options.mappings ?? {},
+    log,
+    cause: MIGRATION_CAUSE,
+    source: APPROVER,
+    approved: options.approved ?? [],
+  });
+
+const migratedToV2 = () => {
+  const { pin } = unwrap(pinRuleset(CATALOG, CAMPAIGN_ID, ref(V1)));
+  const wound = unwrap(
+    appendRevision([], {
+      characterId: CHARACTER_ID,
+      kind: 'resource',
+      targetId: 'field-a',
+      origin: 'in-world',
+      cause: 'evt-1',
+      source: 'act-1',
+      rulepack: ref(V1),
+      previous: KEPT_VALUE,
+      next: WOUNDED_VALUE,
+    }),
+  );
+  return unwrap(apply(pin, V2, [sheet()], wound.log));
+};
+
+test('S11 previews and applies safe field transformations on new ruleset versions', () => {
+  const { pin } = unwrap(pinRuleset(CATALOG, CAMPAIGN_ID, ref(V1)));
+  const compatible = unwrap(previewSheetMigration({ catalog: CATALOG, pin, target: ref(V2), sheets: [sheet()] }));
+  assert.deepEqual(compatible.approvals, []);
+  assert.deepEqual(compatible.sheets, [{ ...sheet(), rulePack: ref(V2) }]);
+  const toV2 = unwrap(apply(pin, V2, [sheet()], []));
+  assert.deepEqual(toV2.sheets, compatible.sheets);
+  assert.deepEqual(toV2.pin.rulePack, ref(V2));
+  assert.deepEqual(toV2.log, [migrationRevision(V1, V2, 'ruleset-migration')]);
+
+  const renamePin = unwrap(pinRuleset(RENAME_CATALOG, CAMPAIGN_ID, ref(V1))).pin;
+  const renamed = unwrap(
+    previewSheetMigration({
+      catalog: RENAME_CATALOG,
+      pin: renamePin,
+      target: ref(RENAMED),
+      sheets: [sheet()],
+      mappings: RENAME_MAPPINGS,
+    }),
+  );
+  assert.deepEqual(renamed.approvals, [], 'a rename keeps the value and needs no approval');
+  const applied = unwrap(
+    apply(renamePin, RENAMED, [sheet()], [], { catalog: RENAME_CATALOG, mappings: RENAME_MAPPINGS }),
+  );
+  assert.deepEqual(applied.sheets, [
+    {
+      characterId: CHARACTER_ID,
+      rulePack: ref(RENAMED),
+      values: { 'field-a': KEPT_VALUE, 'field-z': LEGACY_VALUE, 'field-c': LEGACY_VALUE, 'field-d': LEGACY_VALUE },
+    },
+  ]);
+  assert.deepEqual(applied.log, [migrationRevision(V1, RENAMED, 'ruleset-migration')]);
+});
+
+test('S11 historical sheets and events stay unchanged after a migration', () => {
+  const before = migratedToV2();
+  const snapshot = structuredClone({ sheets: before.sheets, log: before.log });
+  const after = unwrap(
+    apply(before.pin, V3, before.sheets, before.log, { mappings: V3_MAPPINGS, approved: DESTRUCTIVE_FIELDS }),
+  );
+  assert.deepEqual({ sheets: before.sheets, log: before.log }, snapshot);
+  assert.equal(after.log.length, before.log.length + 1);
+  for (const [index, entry] of before.log.entries()) assert.equal(after.log[index], entry);
+  assert.deepEqual(after.log.at(-1), migrationRevision(V2, V3, 'approved-migration'));
+});
+
+test('S11 incompatible migrations require explicit approval', () => {
+  const before = migratedToV2();
+  const preview = unwrap(
+    previewSheetMigration({
+      catalog: CATALOG,
+      pin: before.pin,
+      target: ref(V3),
+      sheets: before.sheets,
+      mappings: V3_MAPPINGS,
+    }),
+  );
+  assert.deepEqual(preview.approvals, DESTRUCTIVE_FIELDS);
+  for (const approved of [[], ['field-c']]) {
+    const refused = apply(before.pin, V3, before.sheets, before.log, { mappings: V3_MAPPINGS, approved });
+    assert.equal(!refused.ok && refused.error.code, 'ApprovalRequired');
+    assert.deepEqual(
+      !refused.ok && refused.error.issues.map(({ path }) => path),
+      DESTRUCTIVE_FIELDS.filter((fieldId) => !approved.includes(fieldId)).map((fieldId) => `approved.${fieldId}`),
+    );
+  }
+  const unmapped = apply(before.pin, V3, before.sheets, before.log, { approved: ['field-b', ...DESTRUCTIVE_FIELDS] });
+  assert.equal(!unmapped.ok && unmapped.error.code, 'IncompatibleFields');
+  const approved = unwrap(
+    apply(before.pin, V3, before.sheets, before.log, { mappings: V3_MAPPINGS, approved: DESTRUCTIVE_FIELDS }),
+  );
+  assert.equal(approved.log.at(-1)?.origin, 'approved-migration');
+  assert.equal(approved.log.at(-1)?.source, APPROVER);
+  assert.deepEqual(approved.sheets, [
+    { characterId: CHARACTER_ID, rulePack: ref(V3), values: { 'field-a': KEPT_VALUE, 'field-f': LEGACY_VALUE } },
+  ]);
+});
+
+test('S11 preview has no side effects; applying twice or against the wrong pin is refused', () => {
+  const before = migratedToV2();
+  const request = { catalog: CATALOG, pin: before.pin, target: ref(V3), sheets: before.sheets, mappings: V3_MAPPINGS };
+  const snapshot = structuredClone({ request, log: before.log });
+  assert.deepEqual(previewSheetMigration(request), previewSheetMigration(request));
+  assert.deepEqual({ request, log: before.log }, snapshot);
+
+  const again = apply(before.pin, V2, before.sheets, before.log);
+  assert.equal(!again.ok && again.error.code, 'AlreadyMigrated');
+
+  const { pin: stalePin } = unwrap(pinRuleset(CATALOG, CAMPAIGN_ID, ref(V1)));
+  const replay = applySheetMigration({
+    catalog: CATALOG,
+    pin: stalePin,
+    target: ref(V2),
+    sheets: [sheet()],
+    log: before.log,
+    cause: REPLAY_CAUSE,
+    source: APPROVER,
+    approved: [],
+  });
+  assert.equal(!replay.ok && replay.error.code, 'AuditRejected');
+  assert.deepEqual(!replay.ok && replay.error.issues, [
+    { path: 'sheets.0.previous', message: 'must equal the latest recorded value' },
+  ]);
+
+  const wrongPin = apply(before.pin, V3, [sheet()], before.log, {
+    mappings: V3_MAPPINGS,
+    approved: DESTRUCTIVE_FIELDS,
+  });
+  assert.equal(!wrongPin.ok && wrongPin.error.code, 'SheetPinMismatch');
+});
+
+test('S11 refuses malformed, unknown or duplicate approvals', () => {
+  const before = migratedToV2();
+  const cases: readonly [unknown, readonly string[]][] = [
+    ['I did not approve field-c or field-d', ['approved']],
+    [undefined, ['approved']],
+    [null, ['approved']],
+    [[...DESTRUCTIVE_FIELDS, ''], ['approved.2']],
+    [[...DESTRUCTIVE_FIELDS, 'field-a'], ['approved.2']],
+    [[...DESTRUCTIVE_FIELDS, 'field-c'], ['approved.2']],
+  ];
+  for (const [approved, paths] of cases) {
+    const result = applySheetMigration({
+      catalog: CATALOG,
+      pin: before.pin,
+      target: ref(V3),
+      sheets: before.sheets,
+      mappings: V3_MAPPINGS,
+      log: before.log,
+      cause: MIGRATION_CAUSE,
+      source: APPROVER,
+      approved: approved as readonly string[],
+    });
+    assert.equal(!result.ok && result.error.code, 'ApprovalRequired', JSON.stringify(approved));
+    assert.deepEqual(!result.ok && result.error.issues.map(({ path }) => path), paths, JSON.stringify(approved));
+  }
+});
+
+test('S11 a failed append returns no partial log and an empty migration copies the log', () => {
+  const { pin } = unwrap(pinRuleset(CATALOG, CAMPAIGN_ID, ref(V1)));
+  const other = { ...sheet(), characterId: OTHER_CHARACTER_ID };
+  const { log } = unwrap(apply(pin, V2, [other], []));
+  const partial = apply(pin, V2, [sheet(), other], log);
+  assert.deepEqual(partial, {
+    ok: false,
+    error: {
+      code: 'AuditRejected',
+      issues: [{ path: 'sheets.1.previous', message: 'must equal the latest recorded value' }],
+    },
+  });
+
+  const empty = unwrap(apply(pin, V2, [], log));
+  assert.deepEqual(empty.log, log);
+  assert.notEqual(empty.log, log);
+  assert.ok(Object.isFrozen(empty.log));
 });
