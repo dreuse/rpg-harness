@@ -1,12 +1,20 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
+import { createWorldActor } from './actor.ts';
+import type { ActionProposal } from './planner.ts';
+import { applyProposal, type RulesetCheckPort } from './validation.ts';
 import {
+  ACTION_BUDGET_EXCEEDED,
   type ActorAction,
   admitProposals,
   DEFAULT_WORLD_CONFIG,
   firingTriggers,
+  KNOB_FIELDS,
+  MODE_KNOBS,
   resolveWorldConfig,
   SIMULATION_MODES,
+  simulationDiagnostics,
+  type WorldConfig,
 } from './world.ts';
 
 const action = (n: number, actorId = 'a1'): ActorAction => ({
@@ -111,5 +119,106 @@ describe('W01 world simulation contracts', () => {
     assert.ok(partial.ok);
     if (!partial.ok) return;
     assert.deepEqual(partial.config.budget, { maxActors: 3, maxActions: DEFAULT_WORLD_CONFIG.budget.maxActions });
+  });
+});
+
+const SEED = 42;
+const DIE_SIDES = 20;
+const LCG_MULTIPLIER = 1_103_515_245;
+const LCG_INCREMENT = 12_345;
+const LCG_MODULUS = 2 ** 31;
+const SLIDER_VALUES = [0, 0.5, 1];
+const ROLLS_PER_CHECK = 3;
+
+const seededRolls = (seed: number) => {
+  let state = seed;
+  return () => {
+    state = (state * LCG_MULTIPLIER + LCG_INCREMENT) % LCG_MODULUS;
+    return (state % DIE_SIDES) + 1;
+  };
+};
+
+const resolved = (input: unknown): WorldConfig => {
+  const result = resolveWorldConfig(input);
+  assert.ok(result.ok);
+  return result.config;
+};
+
+const sliderGrid = () =>
+  SLIDER_VALUES.flatMap((worldAutonomy) =>
+    SLIDER_VALUES.flatMap((storyIntensity) =>
+      SLIDER_VALUES.map((consequenceSeverity) => ({ worldAutonomy, storyIntensity, consequenceSeverity })),
+    ),
+  );
+
+describe('W13 player simulation settings and diagnostics', () => {
+  const actor = createWorldActor({
+    id: 'a1',
+    kind: 'faction',
+    name: 'Guild',
+    resources: { coin: 5 },
+    knowledge: [{ factId: 'k1', channel: 'witnessed', sourceId: null, eventId: 'e1', tick: 0 }],
+  });
+  const proposal: ActionProposal = { ...action(1), knowledgeRefs: ['k1'], resourceRefs: ['coin'] };
+  const canon = { campaignId: 'c1', branchId: 'main', revision: 1, tick: proposal.tick, committed: [] };
+
+  const rollUnder = (config: WorldConfig) => {
+    const seen: unknown[] = [];
+    const roll = seededRolls(SEED);
+    const check: RulesetCheckPort = (...args) => {
+      seen.push(args);
+      return { ok: true, costs: { coin: 1 }, outcome: { rolls: Array.from({ length: ROLLS_PER_CHECK }, roll) } };
+    };
+    const result = applyProposal({
+      canon,
+      actor,
+      proposal,
+      expectedRevision: canon.revision,
+      check,
+      commit: () => true,
+      policy: { mode: config.mode, adjudicator: false },
+    });
+    return { result, seen, admitted: admitProposals(config, [action(1), action(2, 'a2')]) };
+  };
+
+  it('world autonomy, intensity and consequence-severity sliders do not cheat rolls', () => {
+    const baseline = rollUnder(resolved({ mode: 'custom' }));
+    assert.ok(baseline.result.ok);
+    for (const sliders of sliderGrid()) {
+      const config = resolved({ mode: 'custom', ...sliders });
+      assert.deepEqual(simulationDiagnostics(config, { accepted: [], rejected: [] }).knobs, sliders);
+      assert.deepEqual(rollUnder(config), baseline, JSON.stringify(sliders));
+    }
+  });
+
+  it('diagnostics explain the current settings and what the world simulation did or skipped', () => {
+    for (const mode of SIMULATION_MODES.filter((m) => m !== 'custom')) {
+      const config = resolved({ mode });
+      assert.deepEqual(simulationDiagnostics(config, { accepted: [], rejected: [] }).knobs, MODE_KNOBS[mode]);
+    }
+    const custom = simulationDiagnostics(resolved({ mode: 'custom', worldAutonomy: 1 }), {
+      accepted: [],
+      rejected: [],
+    });
+    assert.deepEqual(custom.knobs, { ...MODE_KNOBS.balanced, worldAutonomy: 1 });
+    assert.deepEqual(Object.keys(custom.knobs), [...KNOB_FIELDS]);
+
+    const off = resolved(undefined);
+    assert.deepEqual(simulationDiagnostics(off, admitProposals(off, [action(1)])), {
+      mode: 'off',
+      knobs: MODE_KNOBS.off,
+      budget: off.budget,
+      applied: [],
+      skipped: [{ actionId: 'act-1', reason: 'world simulation is off' }],
+    });
+
+    const tight = resolved({ mode: 'balanced', budget: { maxActors: 2, maxActions: 1 } });
+    const malformed = { kind: 'move' } as unknown as ActorAction;
+    const report = simulationDiagnostics(tight, admitProposals(tight, [action(1), action(2), malformed]));
+    assert.deepEqual(report.applied, ['act-1']);
+    assert.deepEqual(report.skipped, [
+      { actionId: 'act-2', reason: ACTION_BUDGET_EXCEEDED },
+      { actionId: null, reason: 'malformed action' },
+    ]);
   });
 });

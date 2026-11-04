@@ -13,6 +13,8 @@ The simulator is opt-in, capability-scoped and bound by **game time**, not wall-
 - `consequenceSeverity`: affects challenge generation, available recovery opportunities and prior disclosed difficulty policy; never cheats committed dice.
 - Optional budget settings: maximum agent calls, LLM token spend, per-cycle actor count.
 
+The campaign config field `simulation` stores the mode; players change it in conversation (N08). `MODE_KNOBS` gives the slider values for each preset mode. `custom` fills unset sliders from `balanced`. Sliders never reach the ruleset check port. `simulationDiagnostics` reports the mode, effective sliders, budget, and the action IDs applied or skipped with reasons.
+
 "Dynamic world but relaxed pacing" = a high number of background developments combined with a low narrative-attention budget. This is not contradictory.
 
 ## NPC/faction data

@@ -1,4 +1,5 @@
 import { isDeepStrictEqual } from 'node:util';
+import { SIMULATION_MODES, type SimulationMode } from '../../domain/src/simulation.ts';
 import type { CampaignIntentInput, IntentField, IntentValues } from './intent.ts';
 
 export const MAX_INTENT_TEXT_LENGTH = 2000;
@@ -39,13 +40,26 @@ const STORY_NOUNS = 'story|adventure|campaign|game|tale|mystery|saga|one-shot';
 const NEGATION_TOKEN = /\b(?:no|not|never|nothing|without)\b|n['’]t\b/i;
 const CLAUSE_END = /[,;.]|\bbut\b/i;
 const GAPS = /[\s,;:]+/g;
+const MODE = `(${SIMULATION_MODES.join('|')})`;
+const SIMULATION_MODE = new RegExp(
+  String.raw`\b(?:world[ ])?simulation[ ](?:mode[ ])?to[ ]${MODE}\b|\b${MODE}[ ](?:world[ ])?simulation\b`,
+  'gi',
+);
 
 const fixed = <K extends IntentField>(field: K, value: IntentValues[K], pattern: RegExp, off?: IntentValues[K]): Cue =>
   ({ field, pattern, confidence: CONFIDENCE.strong, read: () => value, off }) as Cue;
 
 const INTENT_CUES: Cue[] = [
-  fixed('simulation', true, /\b(?:dynamic|living|persistent|reactive|simulated)[ ]world\b/gi, false),
-  fixed('simulation', false, /\b(?:static[ ]world|no[ ](?:world[ ])?simulation)\b/gi),
+  fixed('simulation', 'dynamic', /\bdynamic[ ]world\b/gi, 'off'),
+  fixed('simulation', 'balanced', /\b(?:living|persistent|reactive|simulated)[ ]world\b/gi, 'off'),
+  fixed('simulation', 'off', /\b(?:static[ ]world|no[ ](?:world[ ])?simulation)\b/gi),
+  {
+    field: 'simulation',
+    pattern: SIMULATION_MODE,
+    confidence: CONFIDENCE.strong,
+    read: (match) => (match[1] ?? match[2] ?? '').toLowerCase() as SimulationMode,
+    off: 'off',
+  },
   fixed('pacing', 'slow', new RegExp(String.raw`\b(?:relaxed|slow|leisurely|unhurried|gentle)${PACE}`, 'gi')),
   fixed('pacing', 'balanced', new RegExp(String.raw`\b(?:balanced|moderate|steady)${PACE}`, 'gi')),
   fixed('pacing', 'fast', new RegExp(String.raw`\b(?:fast|quick|brisk|rapid|breakneck)${PACE}`, 'gi')),

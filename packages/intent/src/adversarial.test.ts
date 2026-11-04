@@ -160,7 +160,7 @@ test('N10 vague intent forces nothing and proposes only reversible capability-dr
   assert.deepEqual(config.config.capabilities.modes, { dice: 'rulepack', attributes: 'rulepack', combat: 'rulepack' });
   assert.equal(config.config.values.voiceOutput, false);
   assert.equal(config.config.values.voiceInput, false);
-  assert.equal(config.config.values.simulation, false);
+  assert.equal(config.config.values.simulation, 'off');
   assert.ok(INTENT_FIELDS.every((field) => config.config.provenance[field] === 'default'));
 });
 

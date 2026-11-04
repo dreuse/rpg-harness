@@ -1,4 +1,6 @@
-export const SIMULATION_MODES = ['off', 'ambient', 'balanced', 'dynamic', 'custom'] as const;
+import { SIMULATION_MODES, type SimulationMode } from '../../domain/src/simulation.ts';
+
+export { SIMULATION_MODES, type SimulationMode };
 export const DEFAULT_MODE: SimulationMode = 'off';
 export const DEFAULT_MAX_ACTORS = 8;
 export const DEFAULT_MAX_ACTIONS = 8;
@@ -10,8 +12,10 @@ export const KNOB_FIELDS = ['worldAutonomy', 'storyIntensity', 'consequenceSever
 export const MALFORMED_ACTION = 'malformed action';
 export const ACTION_BUDGET_EXCEEDED = 'action budget exceeded';
 export const ACTOR_BUDGET_EXCEEDED = 'actor budget exceeded';
+const KNOB_LOW = 0.25;
+const KNOB_MID = 0.5;
+const KNOB_HIGH = 0.75;
 
-export type SimulationMode = (typeof SIMULATION_MODES)[number];
 export type Trigger =
   | { readonly kind: 'tick'; readonly at: number }
   | { readonly kind: 'interval'; readonly every: number; readonly from: number }
@@ -32,6 +36,14 @@ export type ActorAction = {
   readonly knowledgeRefs: readonly string[];
   readonly tick: number;
 };
+export type Knobs = { readonly [K in (typeof KNOB_FIELDS)[number]]: number };
+export type SimulationDiagnostics = {
+  readonly mode: SimulationMode;
+  readonly knobs: Knobs;
+  readonly budget: AttentionBudget;
+  readonly applied: readonly string[];
+  readonly skipped: readonly { readonly actionId: string | null; readonly reason: string }[];
+};
 export type LogicalClock = { readonly tick: number; readonly events: readonly string[] };
 export type Rejection = { readonly action: ActorAction; readonly reason: string };
 export type ConfigResult =
@@ -42,6 +54,14 @@ export const DEFAULT_WORLD_CONFIG: WorldConfig = {
   mode: DEFAULT_MODE,
   budget: { maxActors: DEFAULT_MAX_ACTORS, maxActions: DEFAULT_MAX_ACTIONS },
   triggers: [],
+};
+
+const knobsAt = (value: number): Knobs => ({ worldAutonomy: value, storyIntensity: value, consequenceSeverity: value });
+export const MODE_KNOBS: Readonly<Record<Exclude<SimulationMode, 'custom'>, Knobs>> = {
+  off: knobsAt(MIN_KNOB),
+  ambient: knobsAt(KNOB_LOW),
+  balanced: knobsAt(KNOB_MID),
+  dynamic: knobsAt(KNOB_HIGH),
 };
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -141,3 +161,23 @@ export const admitProposals = (config: WorldConfig, proposals: readonly ActorAct
   }
   return { accepted, rejected };
 };
+
+const effectiveKnobs = (config: WorldConfig): Knobs => {
+  if (config.mode !== 'custom') return MODE_KNOBS[config.mode];
+  const base = MODE_KNOBS.balanced;
+  return Object.fromEntries(KNOB_FIELDS.map((field) => [field, config[field] ?? base[field]])) as Knobs;
+};
+
+export const simulationDiagnostics = (
+  config: WorldConfig,
+  admission: { readonly accepted: readonly ActorAction[]; readonly rejected: readonly Rejection[] },
+): SimulationDiagnostics => ({
+  mode: config.mode,
+  knobs: effectiveKnobs(config),
+  budget: config.budget,
+  applied: admission.accepted.map(({ actionId }) => actionId),
+  skipped: admission.rejected.map(({ action, reason }) => ({
+    actionId: isRecord(action) && isNonEmpty(action.actionId) ? action.actionId : null,
+    reason,
+  })),
+});

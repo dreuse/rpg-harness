@@ -46,7 +46,7 @@ const CLAUSE_BREAK = /[,;.!?]|\b(?:but|then)\b/i;
 const JOIN = /\b(?:and|or)\b/i;
 const BARE_JOIN = /^\s*(?:the\s*)?$/i;
 const OFF_VALUES: Partial<Record<IntentField, unknown>> = {
-  simulation: false,
+  simulation: 'off',
   combat: 'off',
   voiceInput: false,
   voiceOutput: false,

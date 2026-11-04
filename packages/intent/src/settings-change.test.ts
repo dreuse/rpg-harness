@@ -48,8 +48,8 @@ const changed = (result: SettingsChangeResult) => {
   return result;
 };
 
-const assertChanged = (text: string, field: IntentField, value: unknown, startOn = false) => {
-  const previous = configFor(FULL_EDITION, 'desktop', startOn ? { [field]: explicit(true) } : {});
+const assertChanged = (text: string, field: IntentField, value: unknown, start?: unknown) => {
+  const previous = configFor(FULL_EDITION, 'desktop', start === undefined ? {} : { [field]: explicit(start) });
   const { config, event } = changed(changeSettings(previous, text));
   assert.deepEqual(config.values[field], value);
   assert.equal(config.provenance[field], 'explicit');
@@ -62,7 +62,34 @@ const assertChanged = (text: string, field: IntentField, value: unknown, startOn
 };
 
 test('N08 change simulation setting via dialogue', () => {
-  assertChanged("Let's switch to a living world from now on.", 'simulation', true);
+  assertChanged("Let's switch to a living world from now on.", 'simulation', 'balanced');
+});
+
+test('off, ambient, balanced, dynamic and custom modes are persisted and editable conversationally', () => {
+  const steps = [
+    ['Set the world simulation to ambient.', 'ambient'],
+    ['Switch the simulation to balanced.', 'balanced'],
+    ["Let's make it a dynamic world.", 'dynamic'],
+    ['Change the simulation mode to custom.', 'custom'],
+    ['Set the simulation to off.', 'off'],
+  ] as const;
+  let config = configFor(FULL_EDITION, 'desktop');
+  assert.equal(config.values.simulation, 'off');
+  for (const [text, mode] of steps) {
+    const persisted = JSON.parse(JSON.stringify(config));
+    const { config: next, event } = changed(changeSettings(persisted, text));
+    assert.equal(next.values.simulation, mode, text);
+    assert.deepEqual(
+      event.payload.changes.map(({ field, to }) => [field, to]),
+      [['simulation', explicit(mode)]],
+    );
+    assert.deepEqual(parseCampaignConfig(JSON.parse(JSON.stringify(next))), { ok: true, config: next });
+    config = next;
+  }
+  assert.deepEqual(changeSettings(config, 'Set the simulation to always.'), {
+    ok: false,
+    issues: [{ code: 'unrecognized', path: '' }],
+  });
 });
 
 test('N08 change tone setting via dialogue', () => {
@@ -134,7 +161,7 @@ test('N08 conflicting tone requests in one message are ambiguous', () => {
 test('N08 off verbs turn settings off', () => {
   assertChanged('Turn off voice narration.', 'voiceOutput', false, true);
   assertChanged('Disable voice input.', 'voiceInput', false, true);
-  assertChanged('Stop the living world.', 'simulation', false, true);
+  assertChanged('Stop the living world.', 'simulation', 'off', 'balanced');
   const previous = configFor(FULL_EDITION, 'desktop');
   const on = changed(changeSettings(previous, 'Turn on voice narration.')).config;
   const { config } = changed(changeSettings(on, 'Set the tone to grim and turn off voice narration.'));

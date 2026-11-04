@@ -19,7 +19,7 @@ test('N02 extracts complex one-sentence requests into typed proposed settings wi
   const { settings, conflicts, input } = proposalOf(COMPLEX_REQUEST);
   assert.deepEqual(conflicts, []);
   assert.equal(settingFor(settings, 'genre')?.value, 'noir detective');
-  assert.equal(settingFor(settings, 'simulation')?.value, true);
+  assert.equal(settingFor(settings, 'simulation')?.value, 'dynamic');
   assert.equal(settingFor(settings, 'pacing')?.value, 'slow');
   assert.equal(settingFor(settings, 'combat')?.value, 'off');
   assert.equal(settingFor(settings, 'voiceOutput')?.value, true);
@@ -38,7 +38,7 @@ test('N02 extracts complex one-sentence requests into typed proposed settings wi
 test('N02 mixed requests such as dynamic world plus relaxed pacing are not treated as contradictory', () => {
   const { settings, conflicts } = proposalOf('I want a dynamic world but relaxed pacing');
   assert.deepEqual(conflicts, []);
-  assert.equal(settingFor(settings, 'simulation')?.value, true);
+  assert.equal(settingFor(settings, 'simulation')?.value, 'dynamic');
   assert.equal(settingFor(settings, 'pacing')?.value, 'slow');
 });
 
@@ -49,7 +49,7 @@ test('N02 true conflicts on the same field are reported and the field is not pro
   assert.equal(conflicts.length, 1);
   assert.equal(conflicts[0]?.field, 'pacing');
   assert.deepEqual(conflicts[0]?.candidates.map((candidate) => candidate.value).sort(), ['fast', 'slow']);
-  assert.equal(settingFor(settings, 'simulation')?.value, true);
+  assert.equal(settingFor(settings, 'simulation')?.value, 'dynamic');
 });
 
 test('N02 repeated consistent cues are not conflicts', () => {
@@ -126,13 +126,16 @@ test('N02 setting cues win over the genre phrase that contains them', () => {
     assert.equal(settingFor(settings, field)?.value, value, text);
     assert.equal(settingFor(settings, 'genre'), undefined, text);
   }
-  assert.equal(settingFor(proposalOf('a slow-paced mystery with a dynamic world').settings, 'simulation')?.value, true);
+  assert.equal(
+    settingFor(proposalOf('a slow-paced mystery with a dynamic world').settings, 'simulation')?.value,
+    'dynamic',
+  );
 });
 
 test('N02 negated cues map to the off value or are not proposed', () => {
   const probes: [string, ProposedSetting['field'], unknown][] = [
-    ['no dynamic world please', 'simulation', false],
-    ['no living world', 'simulation', false],
+    ['no dynamic world please', 'simulation', 'off'],
+    ['no living world', 'simulation', 'off'],
     ['no background music', 'ambience', false],
     ['without ambient music', 'ambience', false],
     ['no voice commands', 'voiceInput', false],
@@ -151,14 +154,14 @@ test('N02 negated cues map to the off value or are not proposed', () => {
 
 test('N02 a negation earlier in the same clause negates the cue', () => {
   const probes: [string, Partial<Record<ProposedSetting['field'], unknown>>][] = [
-    ["I don't want a dynamic world", { simulation: false }],
+    ["I don't want a dynamic world", { simulation: 'off' }],
     ['I do not want background music', { ambience: false }],
     ["I don't want voice narration", { voiceOutput: false }],
-    ['never a dynamic world', { simulation: false }],
+    ['never a dynamic world', { simulation: 'off' }],
     ['no voice narration or background music', { voiceOutput: false, ambience: false }],
     ['without voice commands or ambient music', { voiceInput: false, ambience: false }],
-    ['no dynamic world or branching story', { simulation: false, timeline: 'linear' }],
-    ['no combat but a dynamic world', { combat: 'off', simulation: true }],
+    ['no dynamic world or branching story', { simulation: 'off', timeline: 'linear' }],
+    ['no combat but a dynamic world', { combat: 'off', simulation: 'dynamic' }],
     ['not very fast-paced', {}],
     ['nothing fast-paced', {}],
     ["I don't want a fast-paced adventure", {}],

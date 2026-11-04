@@ -20,7 +20,7 @@ test('N01 represents ruleset with edition, genre, mood, simulation, pacing, char
     ruleset: { value: { id: 'open-d6', edition: '2' }, provenance: 'explicit' },
     genre: { value: 'noir', provenance: 'explicit' },
     mood: { value: 'tense', provenance: 'explicit' },
-    simulation: { value: true, provenance: 'explicit' },
+    simulation: { value: 'dynamic', provenance: 'explicit' },
     pacing: { value: 'fast', provenance: 'explicit' },
     character: { value: 'retired cartographer', provenance: 'explicit' },
     voiceInput: { value: true, provenance: 'explicit' },
@@ -30,7 +30,7 @@ test('N01 represents ruleset with edition, genre, mood, simulation, pacing, char
   assert.deepEqual(intent.ruleset.value, { id: 'open-d6', edition: '2' });
   assert.equal(intent.genre.value, 'noir');
   assert.equal(intent.mood.value, 'tense');
-  assert.equal(intent.simulation.value, true);
+  assert.equal(intent.simulation.value, 'dynamic');
   assert.equal(intent.pacing.value, 'fast');
   assert.equal(intent.character.value, 'retired cartographer');
   assert.equal(intent.voiceInput.value, true);
@@ -44,7 +44,7 @@ test('N01 unspecified capabilities are defaulted with provenance default and are
   assert.equal(intent.dice.value, 'rulepack');
   assert.equal(intent.attributes.value, 'rulepack');
   assert.equal(intent.combat.value, 'rulepack');
-  assert.equal(intent.simulation.value, false);
+  assert.equal(intent.simulation.value, 'off');
   assert.equal(intent.pacing.value, 'balanced');
   for (const key of [
     'voiceInput',

@@ -1,4 +1,5 @@
 import { isDeepStrictEqual } from 'node:util';
+import { SIMULATION_MODES, type SimulationMode } from '../../domain/src/simulation.ts';
 
 export const PROVENANCES = ['default', 'explicit', 'derived'] as const;
 export const CAPABILITY_MODES = ['rulepack', 'on', 'off'] as const;
@@ -20,7 +21,7 @@ export type IntentValues = {
   genre: string | null;
   mood: string | null;
   character: string | null;
-  simulation: boolean;
+  simulation: SimulationMode;
   pacing: Pacing;
   dice: CapabilityMode;
   attributes: CapabilityMode;
@@ -73,7 +74,7 @@ const FIELD_SPECS: { [K in IntentField]: FieldSpec<K> } = {
   genre: { fallback: null, accepts: nullable(isNonEmptyString) },
   mood: { fallback: null, accepts: nullable(isNonEmptyString) },
   character: { fallback: null, accepts: nullable(isNonEmptyString) },
-  simulation: { fallback: false, accepts: isBoolean },
+  simulation: { fallback: 'off', accepts: oneOf(SIMULATION_MODES) },
   pacing: { fallback: 'balanced', accepts: oneOf(PACINGS) },
   dice: { fallback: 'rulepack', accepts: oneOf(CAPABILITY_MODES) },
   attributes: { fallback: 'rulepack', accepts: oneOf(CAPABILITY_MODES) },
