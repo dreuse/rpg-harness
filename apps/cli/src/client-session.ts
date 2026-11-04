@@ -1,6 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { createEventLog } from '../../../packages/client-protocol/src/event-log.ts';
 import {
+  type CampaignPanels,
   type CampaignSnapshot,
   type ClientCommand,
   type ClientEvent,
@@ -12,20 +13,32 @@ import {
   type Result,
   toClientEvent,
 } from '../../../packages/client-protocol/src/protocol.ts';
-import { type CampaignId, type DomainEvent, type EventId, MAIN_BRANCH } from '../../../packages/domain/src/campaign.ts';
-import type { Visibility } from '../../../packages/domain/src/entity.ts';
+import {
+  type CampaignId,
+  type CharacterId,
+  type DomainEvent,
+  type EventId,
+  MAIN_BRANCH,
+} from '../../../packages/domain/src/campaign.ts';
+import type { CampaignEntity, Relationship, Visibility } from '../../../packages/domain/src/entity.ts';
 import type { Engine } from '../../../packages/engine/src/engine.ts';
 import { type Scoped, type Viewer, visibleTo } from '../../../packages/memory/src/knowledge.ts';
+import { createEntityStore } from '../../../packages/persistence/src/entity-store.ts';
 import { createEventStore } from '../../../packages/persistence/src/event-store.ts';
+import { panelsOf } from './views.ts';
 
 export type ScopedEvent = DomainEvent & Scoped;
 export type EventSource = (campaignId: CampaignId) => readonly ScopedEvent[];
+export type World = { readonly entities: readonly CampaignEntity[]; readonly relationships: readonly Relationship[] };
+export type WorldSource = (campaignId: CampaignId, heroId: CharacterId | undefined) => World;
 
 const SELECT_EVENT_VISIBILITY = 'SELECT id, visibility FROM event_log WHERE campaign_id = ?';
 const HIDDEN: Visibility = 'gm';
 const UNSUPPORTED_CAPABILITIES = 'this engine does not support capability selection yet';
 const UNSUPPORTED_VIEWS = 'this engine does not serve view descriptors yet';
 const NO_SUBSCRIPTION = () => {};
+const EMPTY_WORLD: World = { entities: [], relationships: [] };
+const NO_WORLD: WorldSource = () => EMPTY_WORLD;
 
 export const scopedEventsOf =
   (database: DatabaseSync): EventSource =>
@@ -37,6 +50,14 @@ export const scopedEventsOf =
       .map((event) => ({ ...event, visibility: visibility.get(event.id) ?? HIDDEN }));
   };
 
+export const worldOf =
+  (database: DatabaseSync): WorldSource =>
+  (campaignId, heroId) => {
+    const store = createEntityStore(database);
+    const relationships = heroId === undefined ? [] : store.listRelationships(campaignId, heroId);
+    return { entities: store.listEntities(campaignId), relationships };
+  };
+
 const attempt = <T>(run: () => T): Result<T> => {
   try {
     return { ok: true, value: run() };
@@ -45,7 +66,12 @@ const attempt = <T>(run: () => T): Result<T> => {
   }
 };
 
-export const createClientSessions = (engine: Engine, campaignId: CampaignId, readEvents: EventSource) => {
+export const createClientSessions = (
+  engine: Engine,
+  campaignId: CampaignId,
+  readEvents: EventSource,
+  readWorld: WorldSource = NO_WORLD,
+) => {
   const log = createEventLog({ campaignId, branchId: MAIN_BRANCH });
   const scopes = new Map<EventId, Scoped>();
 
@@ -64,6 +90,15 @@ export const createClientSessions = (engine: Engine, campaignId: CampaignId, rea
     return deepFreeze(
       structuredClone({ version: PROTOCOL_VERSION, campaignId, revision, campaign, characters, currentScene, turns }),
     );
+  };
+
+  const panels = (viewer: Viewer): CampaignPanels => {
+    sync();
+    const state = engine.getState(campaignId);
+    const eventScopes = [...scopes].map(([id, scope]) => ({ id, ...scope }));
+    const world = readWorld(campaignId, state.characters[0]?.id);
+    const shown = panelsOf({ state, eventScopes, ...world }, viewer);
+    return deepFreeze(structuredClone({ version: PROTOCOL_VERSION, campaignId, revision: state.revision, ...shown }));
   };
 
   const accept = <T extends ClientCommand>(command: unknown, type: T['type']): Result<T> => {
@@ -86,6 +121,10 @@ export const createClientSessions = (engine: Engine, campaignId: CampaignId, rea
       getSnapshot: (command) => {
         const accepted = accept(command, 'GetCampaignSnapshot');
         return accepted.ok ? attempt(snapshot) : accepted;
+      },
+      getPanels: (command) => {
+        const accepted = accept(command, 'GetCampaignSnapshot');
+        return accepted.ok ? attempt(() => panels(viewer)) : accepted;
       },
       submitPlayerAction: (command) => {
         const accepted = accept<typeof command>(command, 'SubmitPlayerAction');

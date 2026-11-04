@@ -11,7 +11,7 @@ import { createCampaignStore } from '../../../packages/persistence/src/campaign-
 import { openDatabase } from '../../../packages/persistence/src/database.ts';
 import { createEntityStore } from '../../../packages/persistence/src/entity-store.ts';
 import { exportArchive, restoreArchive } from './campaign-archive.ts';
-import { createClientSessions, scopedEventsOf } from './client-session.ts';
+import { createClientSessions, scopedEventsOf, worldOf } from './client-session.ts';
 import { importRules } from './import-gateway.ts';
 import type { CampaignGateway } from './main.ts';
 import { describeConfig, type Opening, openingFor, planCampaign } from './quickstart.ts';
@@ -85,7 +85,12 @@ const withSession = <T>(dataDir: string, name: string, run: (session: Session) =
 const playTui = async (dataDir: string, name: string, terminal: Terminal) => {
   const { engine, campaignId, database, close } = openSession(dataDir, name);
   try {
-    const session = createClientSessions(engine, campaignId, scopedEventsOf(database))(PLAYER_VIEWER);
+    const session = createClientSessions(
+      engine,
+      campaignId,
+      scopedEventsOf(database),
+      worldOf(database),
+    )(PLAYER_VIEWER);
     await runTui(session, campaignId, terminal);
   } finally {
     close();

@@ -72,6 +72,18 @@ const inMemorySession = (): ClientSession & { commit(event: DomainEvent): void }
       log.publish(toClientEvent(event));
     },
     getSnapshot: () => ({ ok: true, value: snapshot() }),
+    getPanels: () => ({
+      ok: true,
+      value: {
+        version: PROTOCOL_VERSION,
+        campaignId: CAMPAIGN_ID,
+        revision,
+        inventory: [],
+        quests: [],
+        citations: [],
+        recap: { scene: undefined, latest: undefined },
+      },
+    }),
     submitPlayerAction: () => ({ ok: true, value: { revision } }),
     selectCapability: () => ({ ok: true, value: { revision } }),
     requestView: (command) => ({ ok: true, value: { viewId: command.viewId, components: [] } }),

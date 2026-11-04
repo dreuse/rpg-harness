@@ -4,10 +4,12 @@ import type {
   Character,
   CharacterId,
   DomainEvent,
+  EventId,
   Scene,
   SceneId,
   Turn,
 } from '../../domain/src/campaign.ts';
+import type { RuleCitation } from '../../domain/src/character.ts';
 
 export type { VoiceFallback, VoiceProfile } from '../../domain/src/voice.ts';
 
@@ -86,6 +88,26 @@ export type CampaignSnapshot = {
   readonly turns: readonly Turn[];
 };
 
+export type InventoryEntry = { readonly id: string; readonly name: string };
+export type QuestEntry = {
+  readonly id: string;
+  readonly title: string;
+  readonly status: string;
+  readonly objectives: readonly { readonly summary: string; readonly done: boolean }[];
+};
+export type CitationEntry = { readonly eventId: EventId } & RuleCitation;
+export type WorldRecap = { readonly scene: string | undefined; readonly latest: string | undefined };
+
+export type CampaignPanels = {
+  readonly version: ProtocolVersion;
+  readonly campaignId: CampaignId;
+  readonly revision: number;
+  readonly inventory: readonly InventoryEntry[];
+  readonly quests: readonly QuestEntry[];
+  readonly citations: readonly CitationEntry[];
+  readonly recap: WorldRecap;
+};
+
 export type ViewComponent = {
   readonly kind: ViewComponentKind;
   readonly id: string;
@@ -115,6 +137,7 @@ export type Unsubscribe = () => void;
 
 export interface ClientSession {
   getSnapshot(command: GetCampaignSnapshot): Result<CampaignSnapshot>;
+  getPanels(command: GetCampaignSnapshot): Result<CampaignPanels>;
   submitPlayerAction(command: SubmitPlayerAction): Result<Accepted>;
   selectCapability(command: SelectCapability): Result<Accepted>;
   requestView(command: RequestView): Result<ViewDescriptor>;

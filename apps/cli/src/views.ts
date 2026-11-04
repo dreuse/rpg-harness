@@ -1,9 +1,10 @@
-import type { CampaignState, Character, EventId } from '../../../packages/domain/src/campaign.ts';
+import type { CampaignPanels, CitationEntry } from '../../../packages/client-protocol/src/protocol.ts';
+import type { CampaignEvent, CampaignState, Character, EventId, Turn } from '../../../packages/domain/src/campaign.ts';
 import { CHARACTER_KIND, isProfileVisibility, parseCharacterProfile } from '../../../packages/domain/src/character.ts';
 import type { CampaignEntity, EntityKind, Relationship } from '../../../packages/domain/src/entity.ts';
 import { currentEncounter, type EncounterAction } from '../../../packages/engine/src/encounter.ts';
 import { questLog } from '../../../packages/engine/src/quest.ts';
-import { PLAYER_VIEWER, type Scoped, visibleTo } from '../../../packages/memory/src/knowledge.ts';
+import { PLAYER_VIEWER, type Scoped, type Viewer, visibleTo } from '../../../packages/memory/src/knowledge.ts';
 import type { RollEvent } from '../../../packages/rules/src/dice.ts';
 import { SHEET_SCHEMA_VERSION, type SheetField, type WidgetType } from '../../../packages/rules/src/sheet-schema.ts';
 import { buildSheetView, exportSheet, type SheetViewInput } from '../../../packages/rules/src/sheet-view.ts';
@@ -33,6 +34,9 @@ const DONE = '[x]';
 const LIST_SEPARATOR = ', ';
 const JSON_INDENT = 2;
 const OPEN = '[ ]';
+const RULEPACK_KEYS = ['id', 'edition', 'revision'] as const;
+
+export type Panels = Omit<CampaignPanels, 'version' | 'campaignId' | 'revision'>;
 
 const section = (title: string, rows: readonly string[], empty: string) =>
   rows.length === 0 ? `${title}\n${empty}` : [title, ...rows].join('\n');
@@ -73,20 +77,24 @@ const sheetExport = (hero: Character, entities: readonly CampaignEntity[]) => {
   return input === undefined ? `${hero.name}\n${NO_SHEET}` : JSON.stringify(exportSheet(input), null, JSON_INDENT);
 };
 
-const inventory = (hero: Character, { entities, relationships }: ViewSource) => {
+const heldItems = (hero: Character, { entities, relationships }: ViewSource) => {
   const held = new Set(relationships.filter(({ sourceId }) => sourceId === hero.id).map(({ targetId }) => targetId));
-  const items = entities.filter(({ id, kind }) => kind === ITEM_KIND && held.has(id));
-  return section(
-    'Inventory:',
-    items.map(({ name }) => `  - ${name}`),
-    NO_ITEMS,
-  );
+  return entities.filter(({ id, kind }) => kind === ITEM_KIND && held.has(id));
 };
 
-const playerEvents = ({ state, eventScopes }: ViewSource) => {
-  const shown = new Set(visibleTo(eventScopes, PLAYER_VIEWER).map(({ id }) => id));
+const inventory = (hero: Character, source: ViewSource) =>
+  section(
+    'Inventory:',
+    heldItems(hero, source).map(({ name }) => `  - ${name}`),
+    NO_ITEMS,
+  );
+
+const visibleEvents = ({ state, eventScopes }: ViewSource, viewer: Viewer) => {
+  const shown = new Set(visibleTo(eventScopes, viewer).map(({ id }) => id));
   return state.events.filter(({ id }) => shown.has(id));
 };
+
+const playerEvents = (source: ViewSource) => visibleEvents(source, PLAYER_VIEWER);
 
 const quests = (source: ViewSource) => {
   const rows = questLog(playerEvents(source)).flatMap((quest) => [
@@ -126,13 +134,51 @@ const encounter = (source: ViewSource) => {
   return [`Encounter (${current.status}, round ${current.round}):`, ...rows, ...outcome].join('\n');
 };
 
-const journal = ({ characters, turns }: CampaignState) => {
-  const names = new Map(characters.map(({ id, name }) => [id, name]));
-  const rows = turns.map(({ actorId, input, narration }, index) => {
-    const text = narration.trim() === '' ? `${names.get(actorId) ?? actorId}: ${input}` : narration;
-    return `  ${index + 1}. ${text}`;
-  });
+const turnText = (names: ReadonlyMap<string, string>, { actorId, input, narration }: Turn) =>
+  narration.trim() === '' ? `${names.get(actorId) ?? actorId}: ${input}` : narration;
+
+const namesOf = ({ characters }: CampaignState) => new Map(characters.map(({ id, name }) => [id, name]));
+
+const journal = (state: CampaignState) => {
+  const names = namesOf(state);
+  const rows = state.turns.map((turn, index) => `  ${index + 1}. ${turnText(names, turn)}`);
   return section('Journal:', rows, NO_EVENTS);
+};
+
+const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> =>
+  typeof value === 'object' && value !== null;
+
+const isText = (value: unknown): value is string => typeof value === 'string';
+
+const citationOf = ({ id, payload }: CampaignEvent): CitationEntry[] => {
+  const { citation } = payload;
+  if (!isRecord(citation) || !isText(citation.ruleId) || !isText(citation.section)) return [];
+  const { rulepack } = citation;
+  if (!isRecord(rulepack) || !RULEPACK_KEYS.every((key) => isText(rulepack[key]))) return [];
+  const pack = { id: String(rulepack.id), edition: String(rulepack.edition), revision: String(rulepack.revision) };
+  return [{ eventId: id, ruleId: citation.ruleId, section: citation.section, rulepack: pack }];
+};
+
+export const panelsOf = (source: ViewSource, viewer: Viewer): Panels => {
+  const { state } = source;
+  const [hero] = state.characters;
+  const events = visibleEvents(source, viewer);
+  const visible = { ...source, entities: visibleTo(source.entities, viewer) };
+  const last = state.turns.at(-1);
+  return {
+    inventory: hero === undefined ? [] : heldItems(hero, visible).map(({ id, name }) => ({ id, name })),
+    quests: questLog(events).map(({ id, title, status, objectives }) => ({
+      id,
+      title,
+      status,
+      objectives: objectives.map(({ summary, done }) => ({ summary, done })),
+    })),
+    citations: events.flatMap(citationOf),
+    recap: {
+      scene: state.currentScene?.title,
+      latest: last === undefined ? undefined : turnText(namesOf(state), last),
+    },
+  };
 };
 
 export const renderView = (view: ReadView, source: ViewSource): string => {

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { type CampaignPanels, watchPanels } from '../../../packages/client-protocol/src/panels.ts';
 import {
   type ClientEvent,
   type ClientSession,
@@ -14,9 +15,10 @@ import { GM_VIEWER, PLAYER_VIEWER, type Viewer } from '../../../packages/memory/
 import { createCampaignStore } from '../../../packages/persistence/src/campaign-store.ts';
 import { openDatabase } from '../../../packages/persistence/src/database.ts';
 import { createEntityStore } from '../../../packages/persistence/src/entity-store.ts';
-import { createClientSessions, scopedEventsOf } from './client-session.ts';
+import { createClientSessions, scopedEventsOf, worldOf } from './client-session.ts';
 
 const IN_MEMORY = ':memory:';
+const RULEPACK = { id: 'house', edition: '1', revision: 'r1' };
 const GM_SECRET = 'The stranger is Duke Varn in disguise.';
 const RIVAL = 'rival';
 const RIVAL_VIEWER: Viewer = { scope: 'actor', actorId: RIVAL };
@@ -51,9 +53,40 @@ const setup = () => {
   seed('gm-note', 'GmNoteRecorded', { gmOnly: GM_SECRET }, 'gm');
   seed('clue', 'CluePosted', { clue: 'muddy boots' }, 'player');
   seed('rival-plan', 'PlanFormed', { plan: 'follow the wanderer' }, 'actor-scoped', RIVAL);
-  const sessionFor = createClientSessions(engine, campaign.id, scopedEventsOf(database));
+  const entities = createEntityStore(database);
+  const carry = (id: string, name: string, visibility: Visibility) => {
+    entities.saveEntity({ id, campaignId: campaign.id, kind: 'item', name, data: {}, visibility, actorId: null });
+    entities.saveRelationship({
+      id: `carries-${id}`,
+      campaignId: campaign.id,
+      kind: 'carries',
+      sourceId: turn.actorId,
+      targetId: id,
+      data: {},
+    });
+  };
+  const quest = (questId: string, title: string) => ({ questId, title, objectives: [], prerequisites: [] });
+  const citation = (ruleId: string, section: string) => ({ citation: { ruleId, section, rulepack: RULEPACK } });
+  const furnish = () => {
+    entities.saveEntity({
+      id: turn.actorId,
+      campaignId: campaign.id,
+      kind: 'character',
+      name: 'The Wanderer',
+      data: {},
+      visibility: 'player',
+      actorId: null,
+    });
+    carry('lantern', 'Brass lantern', 'player');
+    carry('seal', GM_SECRET, 'gm');
+    seed('ferry-quest', 'QuestDefined', quest('ferry', 'Find the ferryman'), 'player');
+    seed('duke-quest', 'QuestDefined', quest('duke', GM_SECRET), 'gm');
+    seed('swim-check', 'RuleResolved', citation('swim', 'Chapter 2'), 'player');
+    seed('duke-check', 'RuleResolved', citation('disguise', GM_SECRET), 'gm');
+  };
+  const sessionFor = createClientSessions(engine, campaign.id, scopedEventsOf(database), worldOf(database));
   const envelope = { version: PROTOCOL_VERSION, campaignId: campaign.id } as const;
-  return { engine, campaignId: campaign.id, turn, sessionFor, envelope };
+  return { engine, campaignId: campaign.id, turn, sessionFor, envelope, furnish, seed, quest };
 };
 
 type Envelope = ReturnType<typeof setup>['envelope'];
@@ -140,4 +173,69 @@ test('UI01: session validates every command at the boundary', () => {
     ignored.push(event),
   );
   assert.deepEqual(ignored, []);
+});
+
+test('UI04 display inventory, quest journal, rule citations and world recap with live updates', () => {
+  const { campaignId, turn, sessionFor, envelope, furnish, seed, quest } = setup();
+  furnish();
+  const received: CampaignPanels[] = [];
+  const unsubscribe = watchPanels(sessionFor(PLAYER_VIEWER), campaignId, (panels) => received.push(panels));
+  const [first] = received;
+  assert.ok(first !== undefined);
+  assert.equal(first.revision, OPENING_REVISION);
+  assert.deepEqual(first.inventory, [{ id: 'lantern', name: 'Brass lantern' }]);
+  assert.deepEqual(first.quests, [{ id: 'ferry', title: 'Find the ferryman', status: 'pending', objectives: [] }]);
+  assert.deepEqual(first.citations, [
+    { eventId: 'swim-check', ruleId: 'swim', section: 'Chapter 2', rulepack: RULEPACK },
+  ]);
+  assert.deepEqual(first.recap, { scene: 'The Crossroads Inn', latest: 'Rain drums on the roof.' });
+  assert.ok(Object.isFrozen(first.inventory));
+
+  seed('letter-quest', 'QuestDefined', quest('letter', 'Trace the letter'), 'player');
+  const snapshot = { ...envelope, type: 'GetCampaignSnapshot' } as const;
+  assert.ok(sessionFor(PLAYER_VIEWER).getSnapshot(snapshot).ok);
+  assert.deepEqual(
+    received.at(-1)?.quests.map(({ id }) => id),
+    ['ferry', 'letter'],
+  );
+
+  const seen = received.length;
+  unsubscribe();
+  seed('late-quest', 'QuestDefined', quest('late', 'Too late'), 'player');
+  assert.ok(sessionFor(PLAYER_VIEWER).getSnapshot(snapshot).ok);
+  assert.equal(received.length, seen);
+
+  const gmPanels: CampaignPanels[] = [];
+  watchPanels(sessionFor(GM_VIEWER), campaignId, (panels) => gmPanels.push(panels));
+  const accepted = sessionFor(GM_VIEWER).submitPlayerAction({
+    ...envelope,
+    type: 'SubmitPlayerAction',
+    actionId: 'action-1',
+    expectedRevision: OPENING_REVISION,
+    sceneId: turn.sceneId,
+    actorId: turn.actorId,
+    input: 'I ask the stranger for news.',
+  });
+  assert.ok(accepted.ok);
+  assert.equal(gmPanels.at(-1)?.revision, OPENING_REVISION + 1);
+  assert.match(gmPanels.at(-1)?.recap.latest ?? '', /I ask the stranger for news\./);
+});
+
+test('UI04 secret facts are filtered server-side, not hidden only with css', () => {
+  const { campaignId, sessionFor, envelope, furnish } = setup();
+  furnish();
+  const command = { ...envelope, type: 'GetCampaignSnapshot' } as const;
+  const player = sessionFor(PLAYER_VIEWER).getPanels(command);
+  const gm = sessionFor(GM_VIEWER).getPanels(command);
+  assert.ok(player.ok && gm.ok);
+  assert.doesNotMatch(JSON.stringify(player.value), /Duke Varn/);
+  assert.ok(gm.value.inventory.some(({ name }) => name === GM_SECRET));
+  assert.ok(gm.value.quests.some(({ title }) => title === GM_SECRET));
+  assert.ok(gm.value.citations.some(({ section }) => section === GM_SECRET));
+  const delivered: CampaignPanels[] = [];
+  watchPanels(sessionFor(PLAYER_VIEWER), campaignId, (panels) => delivered.push(panels))();
+  assert.ok(delivered.length > 0);
+  assert.doesNotMatch(JSON.stringify(delivered), /Duke Varn/);
+  const rejected = sessionFor(PLAYER_VIEWER).getPanels({ ...command, campaignId: 'someone-else' });
+  assert.equal(rejected.ok ? undefined : rejected.error.code, 'Rejected');
 });
