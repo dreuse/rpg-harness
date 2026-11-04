@@ -4,6 +4,7 @@ import { createWorldActor, type WorldActor } from './actor.ts';
 import type { ActionProposal } from './planner.ts';
 import {
   DETERMINISTIC,
+  evaluatePolicy,
   FACTION_CONSTRAINT,
   GM_ADJUDICATED,
   HOUSE_RULE,
@@ -132,5 +133,11 @@ describe('W10 integrate genre and imported rule simulation policies', () => {
     const noMechanicsDeclared = applyWith({ ...bare, adjudicator: false }, 'smuggle');
     assert.equal(noMechanicsDeclared.result.ok, true);
     assert.equal(noMechanicsDeclared.commits[0]?.event.type, WORLD_ACTION_APPLIED);
+  });
+
+  it('faction constraints ignore inherited object keys', () => {
+    const inherited = createWorldActor({ id: 'constructor', kind: 'faction', name: 'Ctor' });
+    const decision = evaluatePolicy({ ...bare, factionKinds: { guild: ['trade'] } }, inherited, proposal);
+    assert.deepEqual(decision, { status: 'allowed' });
   });
 });

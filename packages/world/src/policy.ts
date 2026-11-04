@@ -26,7 +26,9 @@ export type PolicyDecision =
 
 const constraintIssue = (policy: SimulationPolicy, actor: WorldActor, { kind, tick }: ActionProposal) => {
   if (policy.time && (tick < policy.time.fromTick || tick > policy.time.untilTick)) return OUTSIDE_TIME_LIMIT;
-  const factionKinds = actor.kind === 'faction' ? policy.factionKinds?.[actor.id] : undefined;
+  const factions = policy.factionKinds;
+  const factionKinds =
+    actor.kind === 'faction' && factions && Object.hasOwn(factions, actor.id) ? factions[actor.id] : undefined;
   if (factionKinds && !factionKinds.includes(kind)) return FACTION_CONSTRAINT;
   if (policy.forbiddenKinds?.includes(kind)) return HOUSE_RULE;
   return undefined;
