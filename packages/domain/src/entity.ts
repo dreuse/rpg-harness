@@ -3,7 +3,7 @@ import type { CampaignId } from './campaign.ts';
 export type EntityId = string;
 export type RelationshipId = string;
 
-export const ENTITY_KINDS = ['npc', 'location', 'faction', 'item'] as const;
+export const ENTITY_KINDS = ['npc', 'location', 'faction', 'item', 'character'] as const;
 export type EntityKind = (typeof ENTITY_KINDS)[number];
 
 export const VISIBILITY_LEVELS = ['public', 'player', 'gm', 'actor-scoped'] as const;
