@@ -91,7 +91,7 @@ const join = (path: string, key: string | number) => (path ? `${path}.${key}` : 
 const isOneOf = <T extends string>(list: readonly T[], value: unknown): value is T => list.includes(value as T);
 const isIntegerIn = (value: unknown, min: number, max: number): value is number =>
   Number.isInteger(value) && (value as number) >= min && (value as number) <= max;
-const isBounded = (value: unknown): value is number =>
+export const isBounded = (value: unknown): value is number =>
   typeof value === 'number' && Number.isFinite(value) && Math.abs(value) <= MAX_DSL_VALUE;
 const isIdentifier = (value: unknown): value is string => typeof value === 'string' && IDENTIFIER.test(value);
 

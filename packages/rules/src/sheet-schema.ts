@@ -110,10 +110,34 @@ const reachesSelf = (start: string, byId: Map<string, SheetField>) => {
   return false;
 };
 
-const referenceIssues = (fields: SheetField[]): SheetIssue[] => {
+const reachingCycle = (byId: Map<string, SheetField>) => {
+  const pending = new Map<string, number>();
+  const dependents = new Map<string, string[]>();
+  for (const field of byId.values()) {
+    const refs = (field.derived?.refs ?? []).filter((ref) => byId.has(ref));
+    pending.set(field.id, refs.length);
+    for (const ref of refs)
+      dependents
+        .set(ref, dependents.get(ref) ?? [])
+        .get(ref)
+        ?.push(field.id);
+  }
+  const settled = [...pending.keys()].filter((id) => pending.get(id) === 0);
+  while (settled.length > 0) {
+    for (const dependent of dependents.get(settled.pop() as string) ?? []) {
+      const left = (pending.get(dependent) as number) - 1;
+      pending.set(dependent, left);
+      if (left === 0) settled.push(dependent);
+    }
+  }
+  return new Set([...pending.keys()].filter((id) => (pending.get(id) as number) > 0));
+};
+
+export const referenceIssues = (fields: SheetField[]): SheetIssue[] => {
   const issues: SheetIssue[] = [];
   const ids = new Set<string>();
   const byId = new Map(fields.map((field) => [field.id, field]));
+  const candidates = reachingCycle(byId);
   fields.forEach((field, index) => {
     if (ids.has(field.id)) issues.push({ path: `fields.${index}.id`, code: 'duplicate', message: 'must be unique' });
     ids.add(field.id);
@@ -128,7 +152,7 @@ const referenceIssues = (fields: SheetField[]): SheetIssue[] => {
         });
       }
     });
-    if (field.derived && reachesSelf(field.id, byId)) {
+    if (field.derived && candidates.has(field.id) && reachesSelf(field.id, byId)) {
       issues.push({ path: `fields.${index}.derived.refs`, code: 'cycle', message: 'must not form a cycle' });
     }
   });
