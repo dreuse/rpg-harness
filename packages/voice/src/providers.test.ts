@@ -1,0 +1,176 @@
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
+import { inspect } from 'node:util';
+import {
+  type Credential,
+  checkProviderHealth,
+  chooseProvider,
+  envSecretReader,
+  memorySecretStore,
+  type ProbeResult,
+  type ProviderDescriptor,
+  type ProviderProbe,
+  secretEnvName,
+} from './providers.ts';
+
+const LOCAL_STT_ID = 'local-whisper';
+const REMOTE_STT_ID = 'cloud-stt';
+const REMOTE_TTS_ID = 'cloud.tts-v2';
+const UNKNOWN_ID = 'dnd-1.9-voice';
+const API_KEY = 'sk-live-very-secret-4242';
+const REMOTE_TTS_ENV = 'RPG_VOICE_CLOUD_TTS_V2_API_KEY';
+
+const catalog: readonly ProviderDescriptor[] = [
+  { id: LOCAL_STT_ID, kind: 'stt', locality: 'local', retention: 'none', requiresCredential: false },
+  { id: REMOTE_STT_ID, kind: 'stt', locality: 'cloud', retention: 'session', requiresCredential: true },
+  { id: REMOTE_TTS_ID, kind: 'tts', locality: 'cloud', retention: 'none', requiresCredential: true },
+];
+
+const descriptor = (id: string): ProviderDescriptor => {
+  const found = catalog.find((provider) => provider.id === id);
+  assert.ok(found);
+  return found;
+};
+
+interface ProbeCall {
+  readonly providerId: string;
+  readonly secret: string | undefined;
+}
+
+const fakeProbe = (result: ProbeResult | Error, calls: ProbeCall[] = []): ProviderProbe => {
+  return async (provider, credential) => {
+    calls.push({ providerId: provider.id, secret: credential?.reveal() });
+    if (result instanceof Error) throw result;
+    return result;
+  };
+};
+
+test('allow local/provider choice, api key safe storage and availability diagnostics', async (t) => {
+  await t.test('chooses a local or a remote provider by kind', () => {
+    assert.deepEqual(chooseProvider(catalog, 'stt', LOCAL_STT_ID), { ok: true, provider: descriptor(LOCAL_STT_ID) });
+    assert.deepEqual(chooseProvider(catalog, 'stt', REMOTE_STT_ID), { ok: true, provider: descriptor(REMOTE_STT_ID) });
+    assert.deepEqual(chooseProvider(catalog, 'tts', REMOTE_TTS_ID), { ok: true, provider: descriptor(REMOTE_TTS_ID) });
+  });
+
+  await t.test('returns a typed error for an unknown id and never substitutes another provider', () => {
+    assert.deepEqual(chooseProvider(catalog, 'stt', UNKNOWN_ID), {
+      ok: false,
+      error: { code: 'unknown-provider', kind: 'stt', providerId: UNKNOWN_ID },
+    });
+    assert.deepEqual(chooseProvider(catalog, 'tts', LOCAL_STT_ID), {
+      ok: false,
+      error: { code: 'unknown-provider', kind: 'tts', providerId: LOCAL_STT_ID },
+    });
+    assert.deepEqual(chooseProvider([], 'tts', REMOTE_TTS_ID), {
+      ok: false,
+      error: { code: 'unknown-provider', kind: 'tts', providerId: REMOTE_TTS_ID },
+    });
+  });
+
+  await t.test('stores, reads and deletes a credential by provider id', async () => {
+    const store = memorySecretStore();
+    assert.equal(await store.get(REMOTE_STT_ID), undefined);
+    await store.set(REMOTE_STT_ID, API_KEY);
+    assert.equal((await store.get(REMOTE_STT_ID))?.reveal(), API_KEY);
+    assert.equal(await store.get(REMOTE_TTS_ID), undefined);
+    await store.delete(REMOTE_STT_ID);
+    assert.equal(await store.get(REMOTE_STT_ID), undefined);
+  });
+
+  await t.test('rejects an empty credential', async () => {
+    const store = memorySecretStore();
+    await assert.rejects(store.set(REMOTE_STT_ID, ''), RangeError);
+    await assert.rejects(store.set(REMOTE_STT_ID, '   '), RangeError);
+  });
+
+  await t.test('reads a credential from an environment variable named after the provider', async () => {
+    assert.equal(secretEnvName(REMOTE_TTS_ID), REMOTE_TTS_ENV);
+    const reader = envSecretReader({ [REMOTE_TTS_ENV]: API_KEY, [secretEnvName(REMOTE_STT_ID)]: '' });
+    assert.equal((await reader.get(REMOTE_TTS_ID))?.reveal(), API_KEY);
+    assert.equal(await reader.get(REMOTE_STT_ID), undefined);
+    assert.equal(await reader.get(LOCAL_STT_ID), undefined);
+  });
+
+  await t.test('reports ok for a local provider without asking for a credential', async () => {
+    const calls: ProbeCall[] = [];
+    const health = await checkProviderHealth(descriptor(LOCAL_STT_ID), memorySecretStore(), fakeProbe('ok', calls));
+    assert.deepEqual(health, { providerId: LOCAL_STT_ID, kind: 'stt', locality: 'local', status: 'ok' });
+    assert.deepEqual(calls, [{ providerId: LOCAL_STT_ID, secret: undefined }]);
+  });
+
+  await t.test('reports missing-credential without probing a remote provider', async () => {
+    const calls: ProbeCall[] = [];
+    const health = await checkProviderHealth(descriptor(REMOTE_STT_ID), memorySecretStore(), fakeProbe('ok', calls));
+    assert.equal(health.status, 'missing-credential');
+    assert.deepEqual(calls, []);
+  });
+
+  await t.test('passes the stored credential to the probe and reports its result', async () => {
+    const store = memorySecretStore();
+    await store.set(REMOTE_STT_ID, API_KEY);
+    const calls: ProbeCall[] = [];
+    const ok = await checkProviderHealth(descriptor(REMOTE_STT_ID), store, fakeProbe('ok', calls));
+    assert.equal(ok.status, 'ok');
+    assert.deepEqual(calls, [{ providerId: REMOTE_STT_ID, secret: API_KEY }]);
+    const down = await checkProviderHealth(descriptor(REMOTE_STT_ID), store, fakeProbe('unreachable'));
+    assert.equal(down.status, 'unreachable');
+    const unsupported = await checkProviderHealth(descriptor(LOCAL_STT_ID), store, fakeProbe('unsupported'));
+    assert.equal(unsupported.status, 'unsupported');
+  });
+
+  await t.test('reports unreachable when the probe throws', async () => {
+    const health = await checkProviderHealth(
+      descriptor(LOCAL_STT_ID),
+      memorySecretStore(),
+      fakeProbe(new Error('connect ECONNREFUSED')),
+    );
+    assert.equal(health.status, 'unreachable');
+  });
+});
+
+test('no credentials are logged or committed to campaign exports', async (t) => {
+  const store = memorySecretStore();
+  await store.set(REMOTE_TTS_ID, API_KEY);
+  const credential = (await store.get(REMOTE_TTS_ID)) as Credential;
+
+  const assertAbsent = (value: unknown): void => {
+    assert.doesNotMatch(JSON.stringify(value) ?? '', new RegExp(API_KEY));
+    assert.doesNotMatch(String(value), new RegExp(API_KEY));
+    assert.doesNotMatch(inspect(value, { showHidden: true, depth: Number.POSITIVE_INFINITY }), new RegExp(API_KEY));
+  };
+
+  await t.test('a credential never serializes, prints or inspects its value', () => {
+    assertAbsent(credential);
+    assertAbsent({ credential });
+    assert.doesNotMatch(`${credential}`, new RegExp(API_KEY));
+  });
+
+  await t.test('the store itself never exposes stored values when logged or exported', () => {
+    assertAbsent(store);
+  });
+
+  await t.test('provider choice config and diagnostics hold no credential', async () => {
+    const choice = chooseProvider(catalog, 'tts', REMOTE_TTS_ID);
+    assertAbsent(choice);
+    const diagnostics = await Promise.all([
+      checkProviderHealth(descriptor(REMOTE_TTS_ID), store, fakeProbe('ok')),
+      checkProviderHealth(descriptor(REMOTE_TTS_ID), store, fakeProbe('unreachable')),
+      checkProviderHealth(descriptor(REMOTE_TTS_ID), store, fakeProbe(new Error(`401 bad key ${API_KEY}`))),
+    ]);
+    assertAbsent(diagnostics);
+    assertAbsent({ campaign: { voice: { choice, diagnostics } } });
+  });
+
+  await t.test('an env reader never exposes the environment it reads', async () => {
+    const reader = envSecretReader({ [REMOTE_TTS_ENV]: API_KEY });
+    assertAbsent(reader);
+    assertAbsent(await reader.get(REMOTE_TTS_ID));
+  });
+
+  await t.test('rejected input errors never echo the credential', async () => {
+    const error = await memorySecretStore()
+      .set(REMOTE_TTS_ID, ' ')
+      .catch((caught: unknown) => caught);
+    assertAbsent(error);
+  });
+});
