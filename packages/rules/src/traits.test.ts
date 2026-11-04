@@ -20,6 +20,7 @@ test('model typed traits, resources, tags, conditions and derived fields without
     { id: 'stamina', kind: 'resource', current: 4, max: 6 },
     { id: 'outlaw', kind: 'tag' },
     { id: 'shaken', kind: 'condition' },
+    { id: 'bleeding', kind: 'condition', stacks: 2, remaining: 3 },
     { id: 'resolve', kind: 'derived', op: 'sum', refs: ['grit', 'stamina'], offset: 1 },
     { id: 'peak', kind: 'derived', op: 'max', refs: ['grit', 'resolve'], offset: 0 },
   ]);
@@ -62,6 +63,7 @@ test('rejects malformed and unknown trait input at the boundary', () => {
           id = 'i';
           kind = 'tag';
         })(),
+        { id: 'j', kind: 'condition', stacks: 0, remaining: 1.5 },
       ]),
     ),
     [
@@ -78,6 +80,8 @@ test('rejects malformed and unknown trait input at the boundary', () => {
       'traits.8.value',
       'traits.9',
       'traits.10',
+      'traits.11.stacks',
+      'traits.11.remaining',
     ],
   );
 });

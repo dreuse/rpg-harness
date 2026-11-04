@@ -12,13 +12,18 @@ export type Trait =
   | { id: string; kind: 'trait'; value: TraitValue }
   | { id: string; kind: 'resource'; current: number; max: number }
   | { id: string; kind: 'tag' }
-  | { id: string; kind: 'condition' }
+  | { id: string; kind: 'condition'; stacks?: number; remaining?: number }
   | { id: string; kind: 'derived'; op: DerivedOp; refs: string[]; offset: number };
 
 export type TraitSheet = { characterId: CharacterId; traits: Trait[] };
 export type TraitSheetResult = { ok: true; sheet: TraitSheet } | { ok: false; issues: ManifestIssue[] };
 
 const FINITE_NUMBER = 'must be a finite number';
+export const POSITIVE_INTEGER = 'must be a positive integer';
+const CONDITION_COUNTERS = ['stacks', 'remaining'] as const;
+
+export const isPositiveInteger = (value: unknown): value is number =>
+  Number.isSafeInteger(value) && (value as number) > 0;
 
 const isFiniteNumber = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value);
 
@@ -45,8 +50,12 @@ const parseTrait = (input: Record<string, unknown>, path: string, issues: Manife
       else if (isFiniteNumber(current) && current > max) at('current', 'must not exceed max');
       return { ...base, kind, current: current as number, max: max as number };
     case 'tag':
-    case 'condition':
       return { ...base, kind };
+    case 'condition': {
+      const counters = CONDITION_COUNTERS.filter((key) => Object.hasOwn(input, key));
+      for (const key of counters) if (!isPositiveInteger(input[key])) at(key, POSITIVE_INTEGER);
+      return { ...base, kind, ...Object.fromEntries(counters.map((key) => [key, input[key]])) };
+    }
     case 'derived':
       if (!isOneOf(DERIVED_OPS, op)) at('op', `must be one of ${DERIVED_OPS.join(', ')}`);
       if (!isRefList(refs)) at('refs', 'must be a non-empty array of trait ids');
