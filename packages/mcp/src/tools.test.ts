@@ -111,7 +111,12 @@ test('a stale revision from the engine maps to a StaleRevision tool error', () =
   const rejectStale = () => {
     throw new StaleRevisionError(EXPECTED_REVISION, EXPECTED_REVISION + 1);
   };
-  const stale: Engine = { createCampaign: rejectStale, getCampaign: rejectStale, renameCampaign: rejectStale };
+  const stale: Engine = {
+    createCampaign: rejectStale,
+    getCampaign: rejectStale,
+    getState: rejectStale,
+    renameCampaign: rejectStale,
+  };
   assert.equal(errorCode(callTool(stale, 'rename_campaign', { id: MISSING_ID, name: SECOND_NAME })), 'StaleRevision');
 });
 
