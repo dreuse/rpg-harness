@@ -1,10 +1,12 @@
 import type { BranchId, CampaignChange, CampaignId } from '../../domain/src/campaign.ts';
 import type { WorldActor } from './actor.ts';
 import { type ActionProposal, scopeIssue } from './planner.ts';
+import { evaluatePolicy, GM_ADJUDICATED, type SimulationPolicy } from './policy.ts';
 import { FOREIGN_ACTOR } from './scheduler.ts';
 import { isActorAction, MALFORMED_ACTION } from './world.ts';
 
 export const WORLD_ACTION_APPLIED = 'WorldActionApplied';
+export const WORLD_ACTION_ADJUDICATED = 'WorldActionAdjudicated';
 export const STALE_REVISION = 'stale world revision';
 export const STALE_TICK = 'proposal tick is not the current tick';
 export const ALREADY_COMMITTED = 'action already committed';
@@ -39,8 +41,11 @@ export type ApplyRequest = {
   readonly expectedRevision: number;
   readonly check: RulesetCheckPort;
   readonly commit: WorldCommitPort;
+  readonly policy?: SimulationPolicy;
 };
-export type ApplyResult = ({ readonly ok: true } & WorldCommit) | { readonly ok: false; readonly reason: string };
+export type ApplyResult =
+  | ({ readonly ok: true } & WorldCommit)
+  | { readonly ok: false; readonly reason: string; readonly disabled?: true };
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
@@ -78,12 +83,18 @@ const charged = (actor: WorldActor, costs: ResourceCosts): WorldActor => ({
   ),
 });
 
-const appliedEvent = (canon: CanonView, proposal: ActionProposal, costs: ResourceCosts, outcome: object) => ({
-  id: `${proposal.actionId}:${WORLD_ACTION_APPLIED}`,
+const appliedEvent = (
+  canon: CanonView,
+  proposal: ActionProposal,
+  costs: ResourceCosts,
+  outcome: object,
+  type = WORLD_ACTION_APPLIED,
+) => ({
+  id: `${proposal.actionId}:${type}`,
   campaignId: canon.campaignId,
   branchId: canon.branchId,
   actionId: proposal.actionId,
-  type: WORLD_ACTION_APPLIED,
+  type,
   payload: {
     actorId: proposal.actorId,
     kind: proposal.kind,
@@ -99,14 +110,26 @@ export const applyProposal = (request: ApplyRequest): ApplyResult => {
   const issue = precondition(request);
   if (issue !== undefined) return reject(issue);
   const { canon, actor, proposal, expectedRevision } = request;
+  const save = (commit: WorldCommit): ApplyResult =>
+    request.commit(structuredClone(commit)) ? { ok: true, ...commit } : reject(COMMIT_CONFLICT);
+  const decision = request.policy ? evaluatePolicy(request.policy, actor, proposal) : { status: 'allowed' as const };
+  if (decision.status === 'disabled') return { ok: false, reason: decision.reason, disabled: true };
+  if (decision.status === 'rejected') return reject(decision.reason);
+  if (decision.status === 'adjudicated') {
+    const outcome = { mode: GM_ADJUDICATED, reason: decision.reason };
+    return save({
+      expectedRevision,
+      actor,
+      event: appliedEvent(canon, proposal, {}, outcome, WORLD_ACTION_ADJUDICATED),
+    });
+  }
   const result = runCheck(request.check, proposal, actor);
   if (!result.ok) return reject(result.reason);
   const spend = costIssue(actor, proposal, result.costs);
   if (spend !== undefined) return reject(spend);
-  const commit: WorldCommit = {
+  return save({
     expectedRevision,
     actor: charged(actor, result.costs),
     event: appliedEvent(canon, proposal, result.costs, result.outcome),
-  };
-  return request.commit(structuredClone(commit)) ? { ok: true, ...commit } : reject(COMMIT_CONFLICT);
+  });
 };
