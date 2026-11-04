@@ -1,5 +1,5 @@
 import type { EventId } from '../../domain/src/campaign.ts';
-import type { RulePackLink } from '../../domain/src/character.ts';
+import type { RuleCitation, RulePackLink } from '../../domain/src/character.ts';
 import type { EntityId } from '../../domain/src/entity.ts';
 import { type Scoped, type Viewer, visibleTo } from '../../memory/src/knowledge.ts';
 import {
@@ -56,6 +56,11 @@ const toEntry =
 
 const voices = (viewer: Viewer, npc: NpcState) =>
   viewer.scope === 'gm' || (viewer.scope === 'actor' && viewer.actorId === npc.id);
+
+export const citeRule = (context: GmContext, ruleId: string): RuleCitation | undefined => {
+  const source = context.rules.find(({ id }) => id === ruleId)?.sources.find(({ type }) => type === 'rule');
+  return source?.type === 'rule' ? { ruleId, rulepack: source.rulepack, section: source.section } : undefined;
+};
 
 export const assembleGmContext = (input: GmContextInput, viewer: Viewer): GmContext => {
   const retrieved = retrieveContext(input.snapshot, viewer, input.budget);

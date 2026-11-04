@@ -68,6 +68,18 @@ export type CompiledRule = Readonly<{
   deterministic: boolean;
 }>;
 export type CapabilityDisabled = { code: 'CapabilityDisabled'; issues: ManifestIssue[] };
+export const GM_ADJUDICATED = 'gm-adjudicated';
+export type AdjudicationReason = 'AdjudicatedCapability' | CapabilityDisabled['code'] | InvalidRuleDsl['code'];
+export type MechanicSource = Readonly<{ kind: string; sourceRef: string; revision: string }>;
+export type EffectiveMechanic = Readonly<{
+  ruleId: string;
+  rulePack: CompiledRule['rulePack'];
+  source: MechanicSource;
+}> &
+  (
+    | Readonly<{ kind: 'deterministic'; rule: CompiledRule }>
+    | Readonly<{ kind: typeof GM_ADJUDICATED; reason: AdjudicationReason; issues: readonly ManifestIssue[] }>
+  );
 export type CompileRule = (
   input: RuleCompileInput,
 ) => { ok: true; rule: CompiledRule } | { ok: false; error: InvalidRuleDsl | CapabilityDisabled };

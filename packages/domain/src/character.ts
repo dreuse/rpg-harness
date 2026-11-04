@@ -6,6 +6,7 @@ export type ProfileTraitValue = string | number | boolean;
 export type ProfileTrait = { readonly id: string; readonly value: ProfileTraitValue };
 export type ProfileCondition = { readonly id: string };
 export type RulePackLink = { readonly id: string; readonly edition: string; readonly revision: string };
+export type RuleCitation = { readonly ruleId: string; readonly rulepack: RulePackLink; readonly section: string };
 
 export type CharacterProfile = {
   readonly identity: Readonly<{ name: string } & Record<string, string>>;

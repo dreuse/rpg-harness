@@ -1,4 +1,5 @@
 import type { CharacterId, SceneId } from '../../domain/src/campaign.ts';
+import type { RuleCitation } from '../../domain/src/character.ts';
 import type { GmContext, GmContextEntry } from './context.ts';
 
 export type IntentVerb = { readonly intent: string; readonly verbs: readonly string[]; readonly irreversible: boolean };
@@ -9,9 +10,10 @@ export type ActionProposal = {
   readonly actorId: CharacterId;
   readonly input: string;
   readonly intent: string;
+  readonly citation?: RuleCitation;
 };
 
-export type Utterance = Omit<ActionProposal, 'intent'>;
+export type Utterance = Omit<ActionProposal, 'intent' | 'citation'>;
 
 export type Interpretation =
   | { readonly kind: 'proposal'; readonly proposal: ActionProposal; readonly targetId: string | null }
