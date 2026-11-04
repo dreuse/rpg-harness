@@ -1,5 +1,6 @@
 import { posix, win32 } from 'node:path';
-import { type GmRoute, gmRouteOf } from '../../cli/src/desktop-daemon.ts';
+import type { GmRoute } from '../../../packages/client-protocol/src/wire.ts';
+import { gmRouteOf } from '../../cli/src/desktop-daemon.ts';
 import { type DataDirContext, userDataDir } from '../../cli/src/setup-check.ts';
 
 export const PLATFORMS = ['darwin', 'win32', 'linux'] as const;

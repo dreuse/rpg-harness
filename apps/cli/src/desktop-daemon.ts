@@ -6,11 +6,19 @@ import { fileURLToPath } from 'node:url';
 import {
   type ClientEvent,
   PROTOCOL_VERSION,
-  type ProtocolVersion,
   parseCommand,
-  type Result,
   type Unsubscribe,
 } from '../../../packages/client-protocol/src/protocol.ts';
+import {
+  EVENT,
+  type GmRoute,
+  type Pushed,
+  READY,
+  type Ready,
+  type Reply,
+  type Request,
+  type RequestType,
+} from '../../../packages/client-protocol/src/wire.ts';
 import { openClientSession } from './engine-gateway.ts';
 import { dataDirFromEnv } from './setup-check.ts';
 
@@ -26,7 +34,6 @@ export const MAX_RESTARTS = 3;
 export const SHUTDOWN_TIMEOUT_MS = 2000;
 
 const EXIT_OK = 0;
-const READY = 'Ready';
 const KILL = 'SIGKILL';
 const MEMORY_DATABASE = ':memory:';
 const SQLITE_PROBE = 'SELECT 1 AS ok';
@@ -34,32 +41,8 @@ const NEWLINE = '\n';
 const IGNORE = () => {};
 const UNKNOWN_PID = 0;
 const ENABLED = '1';
-const EVENT = 'Event';
 const ENGINE_STOPPED = 'The engine is not running.';
 
-export type GmRoute = 'api' | 'fake';
-export type Ready = {
-  readonly type: typeof READY;
-  readonly version: ProtocolVersion;
-  readonly pid: number;
-  readonly node: string;
-  readonly sqlite: boolean;
-  readonly gm: GmRoute;
-};
-export type RequestType = 'Ping' | 'Shutdown';
-export type Reply = {
-  readonly id: number;
-  readonly type: 'Pong' | 'Stopped' | 'Error' | 'Result' | 'Unsubscribed';
-  readonly message?: string;
-  readonly result?: Result<unknown>;
-};
-type Pushed = { readonly id: number; readonly type: typeof EVENT; readonly event: ClientEvent };
-type Request = {
-  readonly id: number;
-  readonly type: string;
-  readonly command?: unknown;
-  readonly subscription?: number;
-};
 type Campaign = ReturnType<typeof openClientSession>;
 type Served = { readonly campaign?: Campaign; readonly problem: string };
 export type DaemonOptions = {
@@ -121,17 +104,19 @@ const replier = ({ campaign, problem }: Served) => {
       return send({ id, type: 'Error', message: `Campaign ${command.campaignId} is not served by this engine.` });
     if (command.type === 'GetCampaignSnapshot')
       return send({ id, type: 'Result', result: session.getSnapshot(command) });
+    if (command.type === 'GetCampaignPanels') return send({ id, type: 'Result', result: session.getPanels(command) });
     if (command.type === 'SubmitPlayerAction')
       return send({ id, type: 'Result', result: session.submitPlayerAction(command) });
-    if (command.type === 'SubscribeEvents') {
-      subscriptions.get(id)?.();
-      subscriptions.set(
-        id,
-        session.subscribeEvents(command, (event) => send({ id, type: EVENT, event })),
-      );
-      return send({ id, type: 'Result', result: { ok: true, value: { subscription: id } } });
-    }
-    return send({ id, type: 'Error', message: `${command.type} is not served by the desktop engine yet.` });
+    if (command.type === 'SelectCapability')
+      return send({ id, type: 'Result', result: session.selectCapability(command) });
+    if (command.type === 'RequestView') return send({ id, type: 'Result', result: session.requestView(command) });
+    if (command.type === 'EditSheetField') return send({ id, type: 'Result', result: session.editSheetField(command) });
+    subscriptions.get(id)?.();
+    subscriptions.set(
+      id,
+      session.subscribeEvents(command, (event) => send({ id, type: EVENT, event })),
+    );
+    return send({ id, type: 'Result', result: { ok: true, value: { subscription: id } } });
   };
 
   return (line: string) => {

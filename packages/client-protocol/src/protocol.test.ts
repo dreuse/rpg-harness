@@ -61,6 +61,7 @@ const LIST_CAMPAIGNS = { version: PROTOCOL_VERSION, type: 'ListCampaigns' } as c
 const VALID_COMMANDS = [
   LIST_CAMPAIGNS,
   { ...envelope, type: 'GetCampaignSnapshot' },
+  { ...envelope, type: 'GetCampaignPanels' },
   ACTION,
   { ...envelope, type: 'SelectCapability', capabilityId: 'combat', enabled: true },
   { ...envelope, type: 'RequestView', viewId: 'character-sheet' },
@@ -104,7 +105,10 @@ const inMemorySession = (): ClientSession & { commit(event: DomainEvent): void }
     }),
     submitPlayerAction: () => ({ ok: true, value: { revision } }),
     selectCapability: () => ({ ok: true, value: { revision } }),
-    requestView: (command) => ({ ok: true, value: { viewId: command.viewId, components: [] } }),
+    requestView: (command) => ({
+      ok: true,
+      value: { campaignId: command.campaignId, viewId: command.viewId, components: [] },
+    }),
     subscribeEvents: (command, listener) => log.subscribe(command.fromRevision ?? 0, listener),
     editSheetField: () => ({ ok: true, value: { revision } }),
   };
@@ -163,6 +167,7 @@ test('UI01: clients cannot bypass the engine or trust unsolicited model state wr
   assert.deepEqual(COMMAND_TYPES, [
     'ListCampaigns',
     'GetCampaignSnapshot',
+    'GetCampaignPanels',
     'SubmitPlayerAction',
     'SelectCapability',
     'RequestView',

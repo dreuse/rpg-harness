@@ -21,6 +21,7 @@ export type ProtocolVersion = typeof PROTOCOL_VERSION;
 export const COMMAND_TYPES = [
   'ListCampaigns',
   'GetCampaignSnapshot',
+  'GetCampaignPanels',
   'SubmitPlayerAction',
   'SelectCapability',
   'RequestView',
@@ -53,6 +54,7 @@ type Envelope<T extends CommandType> = Header<T> & { readonly campaignId: Campai
 export type ListCampaigns = Header<'ListCampaigns'>;
 
 export type GetCampaignSnapshot = Envelope<'GetCampaignSnapshot'>;
+export type GetCampaignPanels = Envelope<'GetCampaignPanels'>;
 export type SubmitPlayerAction = Envelope<'SubmitPlayerAction'> & {
   readonly actionId: string;
   readonly expectedRevision: number;
@@ -77,6 +79,7 @@ export type EditSheetField = Envelope<'EditSheetField'> & {
 export type ClientCommand =
   | ListCampaigns
   | GetCampaignSnapshot
+  | GetCampaignPanels
   | SubmitPlayerAction
   | SelectCapability
   | RequestView
@@ -135,7 +138,11 @@ export type ViewComponent = {
   readonly value?: ViewValue;
 };
 
-export type ViewDescriptor = { readonly viewId: string; readonly components: readonly ViewComponent[] };
+export type ViewDescriptor = {
+  readonly campaignId: CampaignId;
+  readonly viewId: string;
+  readonly components: readonly ViewComponent[];
+};
 
 export type Accepted = { readonly revision: number };
 
@@ -160,7 +167,7 @@ export type Unsubscribe = () => void;
 export interface ClientSession {
   listCampaigns(command: ListCampaigns): Result<CampaignList>;
   getSnapshot(command: GetCampaignSnapshot): Result<CampaignSnapshot>;
-  getPanels(command: GetCampaignSnapshot): Result<CampaignPanels>;
+  getPanels(command: GetCampaignPanels): Result<CampaignPanels>;
   submitPlayerAction(command: SubmitPlayerAction): Result<Accepted>;
   selectCapability(command: SelectCapability): Result<Accepted>;
   requestView(command: RequestView): Result<ViewDescriptor>;
@@ -179,6 +186,7 @@ const ID: FieldSpec = { kind: 'id' };
 const COMMAND_FIELDS: Record<CommandType, Readonly<Record<string, FieldSpec>>> = {
   ListCampaigns: {},
   GetCampaignSnapshot: {},
+  GetCampaignPanels: {},
   SubmitPlayerAction: {
     actionId: ID,
     expectedRevision: { kind: 'revision' },

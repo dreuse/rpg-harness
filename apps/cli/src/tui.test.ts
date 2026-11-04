@@ -111,7 +111,7 @@ const each = async function* <T>(items: readonly T[]) {
 
 const servedSession = (session: ClientSession): ClientSession => ({
   ...session,
-  requestView: ({ viewId }) => ({ ok: true, value: { viewId, components: data.sheet } }),
+  requestView: ({ campaignId, viewId }) => ({ ok: true, value: { campaignId, viewId, components: data.sheet } }),
   subscribeEvents: (command, listener) => {
     const unsubscribe = session.subscribeEvents(command, listener);
     if (mechanic !== undefined) listener(mechanic);

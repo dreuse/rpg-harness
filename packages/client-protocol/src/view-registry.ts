@@ -23,7 +23,7 @@ export const VIEW_REGISTRY: Readonly<Record<ViewId, readonly ViewComponentKind[]
   investigation: ['investigation', 'journal', 'relationship', 'clock', 'group'],
 };
 
-const DESCRIPTOR_KEYS = ['viewId', 'components'];
+const DESCRIPTOR_KEYS = ['campaignId', 'viewId', 'components'];
 const COMPONENT_KEYS = ['kind', 'id', 'label', 'value'];
 
 export const failure = (code: ProtocolErrorCode, message: string): Result<never> => ({
@@ -95,7 +95,9 @@ const parseComponent = (input: unknown, viewId: ViewId): Result<ViewComponent> =
 export const parseViewDescriptor = (input: unknown): Result<ViewDescriptor> => {
   const plain = readPlain(input, DESCRIPTOR_KEYS, 'view descriptor');
   if (!plain.ok) return plain;
-  const { viewId, components } = plain.value.values;
+  const { campaignId, viewId, components } = plain.value.values;
+  if (typeof campaignId !== 'string' || campaignId.length === 0)
+    return failure('MalformedCommand', 'view descriptor needs a campaignId');
   if (!isViewId(viewId)) return failure('Rejected', `unknown view ${String(viewId)}`);
   const items = readList(components);
   if (items === undefined) return failure('MalformedCommand', 'components must be a plain array');
@@ -108,5 +110,5 @@ export const parseViewDescriptor = (input: unknown): Result<ViewDescriptor> => {
     }
     parsed.push(component.value);
   }
-  return { ok: true, value: deepFreeze({ viewId, components: parsed }) };
+  return { ok: true, value: deepFreeze({ campaignId, viewId, components: parsed }) };
 };

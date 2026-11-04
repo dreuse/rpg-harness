@@ -10,7 +10,7 @@ export const watchPanels = (
   campaignId: CampaignId,
   listener: (panels: CampaignPanels) => void,
 ): Unsubscribe => {
-  const read = () => session.getPanels({ version: PROTOCOL_VERSION, type: 'GetCampaignSnapshot', campaignId });
+  const read = () => session.getPanels({ version: PROTOCOL_VERSION, type: 'GetCampaignPanels', campaignId });
   const first = read();
   if (!first.ok) return NO_SUBSCRIPTION;
   listener(first.value);

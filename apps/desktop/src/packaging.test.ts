@@ -4,7 +4,8 @@ import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { API_KEY_ENV, DAEMON_ENTRY, daemonEnv, type Ready } from '../../cli/src/desktop-daemon.ts';
+import type { Ready } from '../../../packages/client-protocol/src/wire.ts';
+import { API_KEY_ENV, DAEMON_ENTRY, daemonEnv } from '../../cli/src/desktop-daemon.ts';
 import { userDataDir } from '../../cli/src/setup-check.ts';
 import { type FileSystem, type Launcher, launchDescriptor, PLATFORMS, type Platform, smokeTest } from './packaging.ts';
 

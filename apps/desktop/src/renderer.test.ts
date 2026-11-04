@@ -52,7 +52,11 @@ const PANELS: CampaignPanels = {
   recap: { scene: 'Docks', latest: undefined },
 };
 
-const SHEET_VIEW = { viewId: 'sheet', components: [{ kind: 'field', id: 'name', label: 'Name' }] };
+const SHEET_VIEW = {
+  campaignId: CAMPAIGN,
+  viewId: 'sheet',
+  components: [{ kind: 'field', id: 'name', label: 'Name' }],
+};
 
 const fakeTransport = () => {
   const sent: ClientCommand[] = [];
@@ -158,7 +162,7 @@ test('UI08: provide responsive desktop conversation, sheets, panels and campaign
   wire.receive({
     type: 'View',
     campaignId: CAMPAIGN,
-    view: { viewId: 'sheet', components: [{ kind: 'script', id: 'x', label: 'x' }] },
+    view: { campaignId: CAMPAIGN, viewId: 'sheet', components: [{ kind: 'script', id: 'x', label: 'x' }] },
   });
   assert.deepEqual(viewModel(client.state(), WIDE_WIDTH).sheet, SHEET_VIEW);
 
@@ -254,7 +258,13 @@ test('UI08: offline / disconnected engine state is shown accurately with safe re
 test('UI10 view model carries font scale, motion flag and text-only sheet labels', () => {
   const state = {
     ...initialState,
-    views: { sheet: { viewId: 'sheet', components: [{ kind: 'progress', id: 'hp', label: 'HP', value: '7/10' }] } },
+    views: {
+      sheet: {
+        campaignId: CAMPAIGN,
+        viewId: 'sheet',
+        components: [{ kind: 'progress', id: 'hp', label: 'HP', value: '7/10' }],
+      },
+    },
   } as DesktopState;
   const model = viewModel(state, WIDE_WIDTH, { ...DEFAULT_PREFERENCES, fontScale: 1.5, reducedMotion: true });
   assert.equal(model.fontScale, 1.5);

@@ -3,7 +3,10 @@ import { test } from 'node:test';
 import { PROTOCOL_ERROR_CODES } from './protocol.ts';
 import { parseViewDescriptor, VIEW_IDS, VIEW_REGISTRY } from './view-registry.ts';
 
+const CAMPAIGN_ID = 'campaign-1';
+
 const descriptor = (viewId: string, kind: string, extra: object = {}) => ({
+  campaignId: CAMPAIGN_ID,
   viewId,
   components: [{ kind, id: 'c1', label: 'Label', ...extra }],
 });
@@ -22,6 +25,7 @@ test('represent sheet, inventory, quest, encounter, clock, map and investigation
     assert.equal(result.ok, true, viewId);
     if (result.ok) {
       assert.equal(result.value.viewId, viewId);
+      assert.equal(result.value.campaignId, CAMPAIGN_ID);
       assert.ok(Object.isFrozen(result.value));
       assert.ok(Object.isFrozen(result.value.components[0]));
     }
@@ -33,6 +37,9 @@ test('renderers reject unapproved arbitrary ui code in imported packs', () => {
   expectRejected(null);
   expectRejected([]);
   expectRejected({ ...valid, viewId: 'dashboard' });
+  const { campaignId: _, ...unscoped } = valid;
+  expectRejected(unscoped);
+  expectRejected({ ...valid, campaignId: '' });
   expectRejected(descriptor('sheet', 'iframe'));
   expectRejected(descriptor('clock', 'field'));
   expectRejected({ ...valid, onClick: () => 1 });
@@ -43,23 +50,27 @@ test('renderers reject unapproved arbitrary ui code in imported packs', () => {
   expectRejected(descriptor('sheet', 'field', { label: () => 'x' }));
   expectRejected(descriptor('sheet', 'field', { label: 1 }));
   expectRejected(descriptor('sheet', 'field', { id: '' }));
-  expectRejected({ viewId: 'sheet', components: [valid.components[0], valid.components[0]] });
-  expectRejected({ viewId: 'sheet', components: 'x' });
+  expectRejected({ ...valid, components: [valid.components[0], valid.components[0]] });
+  expectRejected({ ...valid, components: 'x' });
   expectRejected({ ...valid, components: { ...valid.components, length: 1 } });
   expectRejected(
-    Object.defineProperties({ viewId: 'sheet' }, { components: { get: () => valid.components, enumerable: true } }),
+    Object.defineProperties(
+      { campaignId: CAMPAIGN_ID, viewId: 'sheet' },
+      { components: { get: () => valid.components, enumerable: true } },
+    ),
   );
   expectRejected({
-    viewId: 'sheet',
+    ...valid,
     components: [Object.defineProperties({ kind: 'field', id: 'c1' }, { label: { get: () => 'x', enumerable: true } })],
   });
   expectRejected(
     new (class Sheet {
+      campaignId = CAMPAIGN_ID;
       viewId = 'sheet';
       components = [];
     })(),
   );
-  expectRejected(JSON.parse('{"viewId":"sheet","components":[],"__proto__":{"x":1}}'));
+  expectRejected(JSON.parse('{"campaignId":"campaign-1","viewId":"sheet","components":[],"__proto__":{"x":1}}'));
   expectRejected(descriptor('sheet', 'field', { constructor: 'x' }));
   expectRejected({ ...valid, [Symbol('s')]: 1 });
   expectRejected(
@@ -70,7 +81,7 @@ test('renderers reject unapproved arbitrary ui code in imported packs', () => {
     }),
   );
   expectRejected({
-    viewId: 'sheet',
+    ...valid,
     components: new Proxy([], {
       get() {
         throw new Error('trap');

@@ -307,7 +307,7 @@ test('UI04 display inventory, quest journal, rule citations and world recap with
 test('UI04 secret facts are filtered server-side, not hidden only with css', () => {
   const { campaignId, sessionFor, envelope, furnish } = setup();
   furnish();
-  const command = { ...envelope, type: 'GetCampaignSnapshot' } as const;
+  const command = { ...envelope, type: 'GetCampaignPanels' } as const;
   const player = sessionFor(PLAYER_VIEWER).getPanels(command);
   const gm = sessionFor(GM_VIEWER).getPanels(command);
   assert.ok(player.ok && gm.ok);
@@ -515,7 +515,7 @@ test('RequestView sheet serves the hero sheet fields with their stored values', 
   const request = { ...envelope, type: 'RequestView', viewId: 'sheet' } as const;
   assert.deepEqual(sessionFor(PLAYER_VIEWER).requestView(request), {
     ok: true,
-    value: { viewId: 'sheet', components: [] },
+    value: { campaignId, viewId: 'sheet', components: [] },
   });
   createCharacterStore(createEntityStore(database)).saveProfile(
     campaignId,
@@ -536,6 +536,7 @@ test('RequestView sheet serves the hero sheet fields with their stored values', 
   assert.deepEqual(sessionFor(PLAYER_VIEWER).requestView(request), {
     ok: true,
     value: {
+      campaignId,
       viewId: 'sheet',
       components: [
         { kind: 'field', id: 'resolve', label: 'resolve', value: 3 },
@@ -545,7 +546,7 @@ test('RequestView sheet serves the hero sheet fields with their stored values', 
   });
   assert.deepEqual(sessionFor(RIVAL_VIEWER).requestView(request), {
     ok: true,
-    value: { viewId: 'sheet', components: [] },
+    value: { campaignId, viewId: 'sheet', components: [] },
   });
   const owner = sessionFor({ scope: 'actor', actorId: turn.actorId }).requestView(request);
   assert.equal(owner.ok && owner.value.components.length, 2);

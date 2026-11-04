@@ -185,6 +185,7 @@ export const createClientSessions = (
 
   const sheetView = (viewer: Viewer): Result<ViewDescriptor> =>
     parseViewDescriptor({
+      campaignId,
       viewId: SHEET_VIEW,
       components: sheetFields(viewSource(), viewer).map(({ id, label, value }) => ({
         kind: SHEET_COMPONENT,
@@ -244,7 +245,7 @@ export const createClientSessions = (
         return accepted.ok ? attempt(snapshot) : accepted;
       },
       getPanels: (command) => {
-        const accepted = accept(command, 'GetCampaignSnapshot');
+        const accepted = accept(command, 'GetCampaignPanels');
         return accepted.ok ? attempt(() => panels(viewer)) : accepted;
       },
       submitPlayerAction: (command) => {

@@ -7,10 +7,15 @@ import { DatabaseSync } from 'node:sqlite';
 import { describe, it, type TestContext } from 'node:test';
 import { setImmediate } from 'node:timers/promises';
 import {
+  type Accepted,
+  type CampaignPanels,
   type CampaignSnapshot,
   type ClientEvent,
   PROTOCOL_VERSION,
+  type ViewDescriptor,
 } from '../../../packages/client-protocol/src/protocol.ts';
+import { SHEET_VIEW } from '../../../packages/client-protocol/src/view-registry.ts';
+import type { Ready, Reply } from '../../../packages/client-protocol/src/wire.ts';
 import {
   API_KEY_ENV,
   CAMPAIGN_ENV,
@@ -20,7 +25,6 @@ import {
   ELECTRON_RUN_AS_NODE_ENV,
   EXIT_CONSUMER_CREDENTIALS,
   NO_CAMPAIGN,
-  type Ready,
   startDaemon,
 } from './desktop-daemon.ts';
 import { createEngineGateway, readCampaignState } from './engine-gateway.ts';
@@ -41,6 +45,8 @@ const CAMPAIGN = 'Ember';
 const TEMP_PREFIX = 'rpg-daemon-';
 const ACTION = 'I greet the stranger';
 const SECOND_ACTION = 'I sit by the fire';
+const THIRD_ACTION = 'I check the door';
+const UNKNOWN_VIEW = 'atlas';
 const NO_CHARACTER = async () => undefined;
 const DATABASE_EXTENSION = '.sqlite';
 const SHOW_NEW_EVENTS_TO_PLAYER = `DROP TRIGGER event_log_no_update;
@@ -103,6 +109,18 @@ const actionCommand = (snapshot: CampaignSnapshot, input: string) => ({
   actorId: snapshot.characters[0]?.id,
   input,
 });
+
+const rejectionOf = (reply: Reply) => {
+  assert.equal(reply.type, 'Result');
+  assert.equal(reply.result?.ok, false);
+  return reply.result.error.code;
+};
+
+const acceptedValue = <T>(reply: Reply) => {
+  assert.equal(reply.type, 'Result');
+  assert.ok(reply.result?.ok);
+  return reply.result.value as T;
+};
 
 const snapshotOf = async (daemon: ReturnType<typeof startDaemon>, campaignId: string) => {
   const reply = await daemon.command(snapshotCommand(campaignId));
@@ -180,6 +198,50 @@ describe('serve client-protocol commands over the desktop engine daemon', () => 
     assert.ok(revision > before.revision);
     assert.equal((await snapshotOf(daemon, campaignId)).revision, revision);
     assert.ok(events.some((event) => event.type === 'EventCommitted' && event.revision === revision));
+  });
+
+  it('returns the stored turn when the same player action is submitted twice', async (t) => {
+    const { env, campaignId } = await campaignEnv(t);
+    const daemon = supervise(t, { env });
+    const before = await snapshotOf(daemon, campaignId);
+    const first = acceptedValue<Accepted>(await daemon.command(actionCommand(before, ACTION)));
+    const repeated = acceptedValue<Accepted>(await daemon.command(actionCommand(before, ACTION)));
+    assert.deepEqual(repeated, first);
+    const after = await snapshotOf(daemon, campaignId);
+    assert.equal(after.revision, first.revision);
+    assert.equal(after.turns.length, before.turns.length + 1);
+  });
+
+  it('forwards rejected results for a stale revision, capabilities, unknown views and sheet edits', async (t) => {
+    const { env, campaignId } = await campaignEnv(t);
+    const daemon = supervise(t, { env });
+    const before = await snapshotOf(daemon, campaignId);
+    acceptedValue<Accepted>(await daemon.command(actionCommand(before, ACTION)));
+    assert.equal(rejectionOf(await daemon.command(actionCommand(before, THIRD_ACTION))), 'StaleRevision');
+    const scoped = snapshotCommand(campaignId);
+    const capability = { ...scoped, type: 'SelectCapability', capabilityId: 'combat', enabled: true };
+    assert.equal(rejectionOf(await daemon.command(capability)), 'Rejected');
+    assert.equal(
+      rejectionOf(await daemon.command({ ...scoped, type: 'RequestView', viewId: UNKNOWN_VIEW })),
+      'Rejected',
+    );
+    const edit = { ...scoped, type: 'EditSheetField', actionId: 'edit', expectedRevision: 0, actorId: 'h' };
+    assert.equal(rejectionOf(await daemon.command({ ...edit, fieldId: 'stress', value: 1 })), 'Rejected');
+  });
+
+  it('serves campaign panels and the sheet view', async (t) => {
+    const { env, campaignId } = await campaignEnv(t);
+    const daemon = supervise(t, { env });
+    const { revision } = await snapshotOf(daemon, campaignId);
+    const panels = acceptedValue<CampaignPanels>(
+      await daemon.command({ ...snapshotCommand(campaignId), type: 'GetCampaignPanels' }),
+    );
+    assert.equal(panels.campaignId, campaignId);
+    assert.equal(panels.revision, revision);
+    const view = { ...snapshotCommand(campaignId), type: 'RequestView', viewId: SHEET_VIEW };
+    const sheet = acceptedValue<ViewDescriptor>(await daemon.command(view));
+    assert.equal(sheet.viewId, SHEET_VIEW);
+    assert.equal(sheet.campaignId, campaignId);
   });
 
   it('rejects invalid commands with an error and keeps serving', async (t) => {

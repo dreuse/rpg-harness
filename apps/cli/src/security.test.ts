@@ -186,14 +186,15 @@ test('Q06 untrusted packs and view declarations cannot smuggle instructions, cod
   assert.equal(Object.getPrototypeOf(polluted.manifest.capabilities), Object.prototype);
 
   const getter = {
+    campaignId: 'campaign-1',
     viewId: 'sheet',
     get components() {
       throw new Error('getter ran');
     },
   };
   for (const descriptor of [
-    { viewId: 'sheet', components: [{ kind: 'script', id: 'x', label: 'alert(1)' }] },
-    { viewId: 'sheet', components: [], onLoad: 'fetch("http://attacker.invalid")' },
+    { campaignId: 'campaign-1', viewId: 'sheet', components: [{ kind: 'script', id: 'x', label: 'alert(1)' }] },
+    { campaignId: 'campaign-1', viewId: 'sheet', components: [], onLoad: 'fetch("http://attacker.invalid")' },
     getter,
   ]) {
     assert.equal(parseViewDescriptor(descriptor).ok, false);

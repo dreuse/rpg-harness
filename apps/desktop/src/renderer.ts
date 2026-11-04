@@ -11,8 +11,8 @@ import {
   type ViewDescriptor,
 } from '../../../packages/client-protocol/src/protocol.ts';
 import { parseViewDescriptor } from '../../../packages/client-protocol/src/view-registry.ts';
+import type { Ready } from '../../../packages/client-protocol/src/wire.ts';
 import type { Campaign, CampaignId } from '../../../packages/domain/src/campaign.ts';
-import type { Ready } from '../../cli/src/desktop-daemon.ts';
 import { componentLabel, DEFAULT_PREFERENCES, translate, type UiPreferences } from './accessibility.ts';
 
 export const COMPACT_MAX_WIDTH = 720;
