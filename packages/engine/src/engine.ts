@@ -8,6 +8,7 @@ import {
   type CampaignStore,
   MAIN_BRANCH,
 } from '../../domain/src/campaign.ts';
+import { type CommittedTurn, type PlayerAction, performAction } from './turn.ts';
 
 const CAMPAIGN_CREATED = 'CampaignCreated';
 const CAMPAIGN_RENAMED = 'CampaignRenamed';
@@ -17,6 +18,7 @@ export type Engine = {
   getCampaign(id: CampaignId): Campaign;
   getState(id: CampaignId): CampaignState;
   renameCampaign(id: CampaignId, name: string): Campaign;
+  submitAction(action: PlayerAction): CommittedTurn;
 };
 
 const change = ({ id, name }: Campaign, type: string): CampaignChange => ({
@@ -48,4 +50,5 @@ export const createEngine = (store: CampaignStore): Engine => ({
     store.renameCampaign({ expectedRevision: revision, campaign, event: change(campaign, CAMPAIGN_RENAMED) });
     return campaign;
   },
+  submitAction: (action) => performAction(store, action),
 });

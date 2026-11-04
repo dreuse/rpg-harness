@@ -1,5 +1,7 @@
+import { randomUUID } from 'node:crypto';
 import { type Campaign, CampaignNotFoundError, StaleRevisionError } from '../../domain/src/campaign.ts';
 import type { Engine } from '../../engine/src/engine.ts';
+import { InvalidActionError } from '../../engine/src/turn.ts';
 
 export const MAX_REQUEST_BYTES = 4096;
 export const MAX_NAME_LENGTH = 120;
@@ -27,7 +29,7 @@ type ObjectSchema<Property extends JsonSchema = StringSchema> = {
 export type ToolDefinition = {
   readonly name: string;
   readonly description: string;
-  readonly inputSchema: ObjectSchema;
+  readonly inputSchema: ObjectSchema<StringSchema | IntegerSchema>;
   readonly outputSchema: ObjectSchema<JsonSchema>;
   readonly annotations: { readonly readOnlyHint: boolean };
 };
@@ -38,7 +40,8 @@ export type ToolErrorCode =
   | 'RequestTooLarge'
   | 'CampaignNotFound'
   | 'StaleRevision'
-  | 'SceneNotFound';
+  | 'SceneNotFound'
+  | 'InvalidAction';
 
 export type SceneState = {
   readonly campaignId: string;
@@ -65,10 +68,12 @@ const objectSchema = <Property extends JsonSchema>(properties: Record<string, Pr
   additionalProperties: false,
 });
 
+const REVISION: IntegerSchema = { type: 'integer', minimum: MIN_REVISION };
+
 const CAMPAIGN_SCHEMA = objectSchema({ id: ID, name: NAME });
 const SCENE_STATE_SCHEMA = objectSchema<JsonSchema>({
   campaignId: ID,
-  revision: { type: 'integer', minimum: MIN_REVISION },
+  revision: REVISION,
   scene: objectSchema({ id: ID, title: NAME }),
   characters: { type: 'array', items: CAMPAIGN_SCHEMA },
 });
@@ -102,6 +107,20 @@ export const CAMPAIGN_TOOLS: readonly ToolDefinition[] = [
     outputSchema: SCENE_STATE_SCHEMA,
     annotations: { readOnlyHint: true },
   },
+  {
+    name: 'submit_action',
+    description: 'Validate and commit one player action, then return the next scene state.',
+    inputSchema: objectSchema<StringSchema | IntegerSchema>({
+      campaignId: ID,
+      expectedRevision: REVISION,
+      sceneId: ID,
+      actorId: ID,
+      input: NAME,
+      intent: NAME,
+    }),
+    outputSchema: SCENE_STATE_SCHEMA,
+    annotations: { readOnlyHint: false },
+  },
 ];
 
 class ToolError extends Error {
@@ -132,7 +151,22 @@ const requestBytes = (args: unknown) => {
   }
 };
 
-const validate = (schema: ObjectSchema, args: unknown): Record<string, string> => {
+type Arguments = Record<string, string | number>;
+
+const fieldError = (key: string, field: StringSchema | IntegerSchema) =>
+  new ToolError(
+    'InvalidArguments',
+    field.type === 'integer'
+      ? `${key} must be an integer of at least ${field.minimum}`
+      : `${key} must be a string of ${field.minLength} to ${field.maxLength} characters`,
+  );
+
+const validField = (field: StringSchema | IntegerSchema, value: unknown) =>
+  field.type === 'integer'
+    ? Number.isInteger(value) && (value as number) >= field.minimum
+    : typeof value === 'string' && value.length >= field.minLength && value.length <= field.maxLength;
+
+const validate = (schema: ToolDefinition['inputSchema'], args: unknown): Arguments => {
   if (typeof args !== 'object' || args === null || Array.isArray(args)) {
     throw new ToolError('InvalidArguments', 'arguments must be an object');
   }
@@ -140,15 +174,9 @@ const validate = (schema: ObjectSchema, args: unknown): Record<string, string> =
   if (extra.length > 0) throw new ToolError('InvalidArguments', `unknown arguments: ${extra.join(', ')}`);
   const values = args as Record<string, unknown>;
   for (const [key, field] of Object.entries(schema.properties)) {
-    const value = values[key];
-    if (typeof value !== 'string' || value.length < field.minLength || value.length > field.maxLength) {
-      throw new ToolError(
-        'InvalidArguments',
-        `${key} must be a string of ${field.minLength} to ${field.maxLength} characters`,
-      );
-    }
+    if (!validField(field, values[key])) throw fieldError(key, field);
   }
-  return values as Record<string, string>;
+  return values as Arguments;
 };
 
 const readScene = (engine: Engine, campaignId: string): SceneState => {
@@ -162,17 +190,32 @@ const readScene = (engine: Engine, campaignId: string): SceneState => {
   };
 };
 
-const HANDLERS: Record<string, (engine: Engine, args: Record<string, string>) => ToolOutput> = {
-  create_campaign: (engine, { name = '' }) => engine.createCampaign(name),
-  get_campaign: (engine, { id = '' }) => engine.getCampaign(id),
-  get_scene: (engine, { campaignId = '' }) => readScene(engine, campaignId),
-  rename_campaign: (engine, { id = '', name = '' }) => engine.renameCampaign(id, name),
+const submitAction = (engine: Engine, { campaignId, expectedRevision, sceneId, actorId, input, intent }: Arguments) => {
+  engine.submitAction({
+    campaignId: String(campaignId),
+    actionId: randomUUID(),
+    expectedRevision: Number(expectedRevision),
+    sceneId: String(sceneId),
+    actorId: String(actorId),
+    input: String(input),
+    intent: String(intent),
+  });
+  return readScene(engine, String(campaignId));
+};
+
+const HANDLERS: Record<string, (engine: Engine, args: Arguments) => ToolOutput> = {
+  create_campaign: (engine, { name }) => engine.createCampaign(String(name)),
+  get_campaign: (engine, { id }) => engine.getCampaign(String(id)),
+  get_scene: (engine, { campaignId }) => readScene(engine, String(campaignId)),
+  rename_campaign: (engine, { id, name }) => engine.renameCampaign(String(id), String(name)),
+  submit_action: submitAction,
 };
 
 const toToolError = (error: unknown) => {
   if (error instanceof ToolError) return error;
   if (error instanceof CampaignNotFoundError) return new ToolError('CampaignNotFound', error.message);
   if (error instanceof StaleRevisionError) return new ToolError('StaleRevision', error.message);
+  if (error instanceof InvalidActionError) return new ToolError('InvalidAction', error.message);
   throw error;
 };
 

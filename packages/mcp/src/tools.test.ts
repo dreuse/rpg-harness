@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { StaleRevisionError } from '../../domain/src/campaign.ts';
 import { createEngine, type Engine } from '../../engine/src/engine.ts';
+import { openScene } from '../../engine/src/turn.ts';
 import { createCampaignStore } from '../../persistence/src/campaign-store.ts';
 import { openDatabase } from '../../persistence/src/database.ts';
 import { CAMPAIGN_TOOLS, callTool, MAX_NAME_LENGTH, MAX_REQUEST_BYTES, type ToolResult } from './tools.ts';
@@ -45,6 +46,7 @@ test('mcp tools can create, read and update a tiny test campaign with typed sche
       ['get_campaign', true],
       ['rename_campaign', false],
       ['get_scene', true],
+      ['submit_action', false],
     ],
   );
 
@@ -116,6 +118,7 @@ test('a stale revision from the engine maps to a StaleRevision tool error', () =
     getCampaign: rejectStale,
     getState: rejectStale,
     renameCampaign: rejectStale,
+    submitAction: rejectStale,
   };
   assert.equal(errorCode(callTool(stale, 'rename_campaign', { id: MISSING_ID, name: SECOND_NAME })), 'StaleRevision');
 });
@@ -154,5 +157,42 @@ test('get_scene reads the current scene and characters without changing state', 
   });
   assert.equal(countRows(database, 'event_log'), eventsBefore);
   assert.equal(countRows(database, 'turn'), 1);
+  connection.close();
+});
+
+test('submit_action commits one validated action and returns the next scene state', () => {
+  const { connection, database, engine } = openEngine();
+  const campaignId = String(ok(callTool(engine, 'create_campaign', { name: FIRST_NAME })).id);
+  openScene(createCampaignStore(database), {
+    campaignId,
+    actorName: 'Ash',
+    sceneTitle: 'A quiet harbour',
+    narration: 'Gulls circle.',
+  });
+  const before = ok(callTool(engine, 'get_scene', { campaignId })) as {
+    revision: number;
+    scene: { id: string };
+    characters: { id: string }[];
+  };
+  const action = {
+    campaignId,
+    expectedRevision: before.revision,
+    sceneId: before.scene.id,
+    actorId: before.characters[0]?.id,
+    input: 'I ask the stranger for news.',
+    intent: 'Ash asks the stranger for news.',
+  };
+
+  const after = ok(callTool(engine, 'submit_action', action));
+  assert.equal(after.revision, before.revision + 1);
+  assert.equal(engine.getState(campaignId).turns.at(-1)?.input, action.input);
+
+  assert.equal(errorCode(callTool(engine, 'submit_action', action)), 'StaleRevision');
+  const next = { ...action, expectedRevision: after.revision };
+  assert.equal(errorCode(callTool(engine, 'submit_action', { ...next, actorId: MISSING_ID })), 'InvalidAction');
+  assert.equal(errorCode(callTool(engine, 'submit_action', { ...next, expectedRevision: '2' })), 'InvalidArguments');
+  assert.equal(errorCode(callTool(engine, 'submit_action', { ...next, expectedRevision: -1 })), 'InvalidArguments');
+  assert.equal(errorCode(callTool(engine, 'submit_action', { ...next, expectedRevision: 1.5 })), 'InvalidArguments');
+  assert.equal(engine.getState(campaignId).revision, after.revision);
   connection.close();
 });

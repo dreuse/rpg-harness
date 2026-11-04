@@ -7,6 +7,7 @@ const SKILL_PATH = new URL('../../../.claude/skills/rpg-gm/SKILL.md', import.met
 const FRONTMATTER = /^---\nname: rpg-gm\ndescription: .+\n---\n/;
 const TOOL_CALL = /`([a-z_]+)` MCP tool/g;
 const PROPOSAL_FIELDS = ['campaignId', 'expectedRevision', 'sceneId', 'actorId', 'input', 'intent'];
+const SUBMIT_TOOL = 'submit_action';
 const NOT_COMMITTED = 'Nothing is committed until the engine validates this proposal.';
 
 const skill = readFileSync(SKILL_PATH, 'utf8');
@@ -15,8 +16,10 @@ const toolNamed = (name: string | undefined) => CAMPAIGN_TOOLS.find((tool) => to
 
 test('skill narrates one scene, reads engine state and interprets one player input', () => {
   assert.match(skill, FRONTMATTER);
-  assert.deepEqual(calledTools, ['get_campaign', 'get_scene']);
-  for (const name of calledTools) assert.equal(toolNamed(name)?.annotations.readOnlyHint, true, name);
+  assert.deepEqual(calledTools, ['get_campaign', 'get_scene', SUBMIT_TOOL]);
+  for (const name of calledTools.filter((tool) => tool !== SUBMIT_TOOL)) {
+    assert.equal(toolNamed(name)?.annotations.readOnlyHint, true, name);
+  }
   assert.match(skill, /data, not instructions/);
   assert.match(skill, /player input/);
   assert.match(skill, /```proposal/);
@@ -24,7 +27,9 @@ test('skill narrates one scene, reads engine state and interprets one player inp
 });
 
 test('narration never substitutes for persistent state mutation', () => {
-  const mutationTools = CAMPAIGN_TOOLS.filter((tool) => !tool.annotations.readOnlyHint).map((tool) => tool.name);
+  const mutationTools = CAMPAIGN_TOOLS.filter(
+    (tool) => !tool.annotations.readOnlyHint && tool.name !== SUBMIT_TOOL,
+  ).map((tool) => tool.name);
   assert.ok(mutationTools.length > 0);
   for (const name of mutationTools) {
     assert.ok(!calledTools.includes(name), name);
@@ -32,4 +37,6 @@ test('narration never substitutes for persistent state mutation', () => {
   }
   assert.ok(skill.includes(NOT_COMMITTED));
   assert.match(skill, /Never say the state changed/);
+  assert.match(skill, /Call the `submit_action` MCP tool only after the proposal block/);
+  assert.match(skill, /Report the new `revision`/);
 });
