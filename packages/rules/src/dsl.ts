@@ -70,7 +70,13 @@ export type CompiledRule = Readonly<{
 export type CapabilityDisabled = { code: 'CapabilityDisabled'; issues: ManifestIssue[] };
 export const GM_ADJUDICATED = 'gm-adjudicated';
 export type AdjudicationReason = 'AdjudicatedCapability' | CapabilityDisabled['code'] | InvalidRuleDsl['code'];
-export type MechanicSource = Readonly<{ kind: string; sourceRef: string; revision: string }>;
+export type MechanicSource = Readonly<{
+  kind: string;
+  sourceRef: string;
+  revision: string;
+  overlayHash?: string;
+  depth?: number;
+}>;
 export type EffectiveMechanic = Readonly<{
   ruleId: string;
   rulePack: CompiledRule['rulePack'];

@@ -12,6 +12,7 @@ import { type Narrator, playGameplayTurn } from '../../../packages/engine/src/ga
 import { type CitedRuleMove, RuleCitationError, resolveCitedRule } from '../../../packages/engine/src/mechanics.ts';
 import { createFakeGameMaster, runScript } from '../../../packages/engine/src/scripted-session.ts';
 import { loadState, type PlayerAction } from '../../../packages/engine/src/turn.ts';
+import { houseRuleMechanics } from '../../../packages/imports/src/effective-mechanics.ts';
 import {
   applyHouseRule,
   baseEffectiveRules,
@@ -138,15 +139,6 @@ const baseRules = ({ manifest, rule }: (typeof RULESETS)[number]): EffectiveRule
     baseEffectiveRules(manifest, [unwrap(compileRule({ rule, rulePack: manifest, sourceRefs: [BASE_SECTION] })).rule]),
   ).effective;
 
-const mechanicsOf = (effective: EffectiveRules): EffectiveMechanic[] =>
-  effective.rules.map((rule) => {
-    const sourceRef = rule.sourceRefs[0] as string;
-    const layered = effective.layers.some(({ sourceHash }) => sourceHash === sourceRef);
-    const kind = layered ? HOUSE_RULE_SOURCE : RULEPACK_SOURCE;
-    const source = { kind, sourceRef, revision: effective.rulePack.revision };
-    return { ruleId: rule.rule.id, rulePack: rule.rulePack, source, kind: 'deterministic', rule };
-  });
-
 const withDatabaseFile = (run: (path: string) => void) => {
   const directory = mkdtempSync(join(tmpdir(), TEMP_PREFIX));
   try {
@@ -220,12 +212,12 @@ const ruleMove = (
   campaign: Campaign,
   actionId: string,
   effective: EffectiveRules,
-  citation = citationOf(mechanicsOf(effective)[0] as EffectiveMechanic),
+  citation = citationOf(houseRuleMechanics(effective)[0] as EffectiveMechanic),
 ): CitedRuleMove => ({
   ...actionFor(store, campaign, actionId),
   citation,
   rulePack: citation.rulepack,
-  mechanics: mechanicsOf(effective),
+  mechanics: houseRuleMechanics(effective),
   sheet: sheetOf(campaign),
   rng: createScriptedRng(DRAWS),
 });
@@ -424,7 +416,13 @@ test('multiple concurrent world clocks and imported house rules retain causal in
         () =>
           resolveCitedRule(
             store,
-            ruleMove(store, campaign, 'stale-task', overlaid, citationOf(mechanicsOf(base)[0] as EffectiveMechanic)),
+            ruleMove(
+              store,
+              campaign,
+              'stale-task',
+              overlaid,
+              citationOf(houseRuleMechanics(base)[0] as EffectiveMechanic),
+            ),
           ),
         (error) => error instanceof RuleCitationError && error.code === SOURCE_MISMATCH,
       );
@@ -448,7 +446,13 @@ test('multiple concurrent world clocks and imported house rules retain causal in
         () =>
           resolveCitedRule(
             store,
-            ruleMove(store, campaign, 'late-task', undone, citationOf(mechanicsOf(overlaid)[0] as EffectiveMechanic)),
+            ruleMove(
+              store,
+              campaign,
+              'late-task',
+              undone,
+              citationOf(houseRuleMechanics(overlaid)[0] as EffectiveMechanic),
+            ),
           ),
         (error) => error instanceof RuleCitationError && error.code === SOURCE_MISMATCH,
       );
@@ -493,11 +497,15 @@ test('multiple concurrent world clocks and imported house rules retain causal in
       kind: RULEPACK_SOURCE,
       sourceRef: BASE_SECTION,
       revision: POOL_RULESET.manifest.revision,
+      overlayHash: base.version.overlayHash,
+      depth: base.version.depth,
     });
     assert.deepEqual(houseResolution?.payload.source, {
       kind: HOUSE_RULE_SOURCE,
       sourceRef: layer?.sourceHash,
       revision: POOL_RULESET.manifest.revision,
+      overlayHash: overlaid.version.overlayHash,
+      depth: overlaid.version.depth,
     });
     assert.equal(base.version.depth, 0);
     assert.equal(overlaid.version.depth, 1);
