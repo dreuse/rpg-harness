@@ -47,7 +47,7 @@ const rulePrimitives = ({ when, costs = [], effects }: RuleDsl): Primitive[] => 
   return SUPPORTED_PRIMITIVES.filter((primitive) => used.includes(primitive));
 };
 
-const deepFreeze = <T>(value: T): T => {
+export const deepFreeze = <T>(value: T): T => {
   if (value !== null && typeof value === 'object') {
     for (const child of Object.values(value)) deepFreeze(child);
     Object.freeze(value);
