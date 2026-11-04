@@ -224,7 +224,7 @@ test('UI01: session validates every command at the boundary', () => {
     code(session.getSnapshot({ ...envelope, campaignId: 'someone-else', type: 'GetCampaignSnapshot' })),
     'Rejected',
   );
-  assert.equal(code(session.submitPlayerAction({ ...action, input: 'go', expectedRevision: 0 })), 'Rejected');
+  assert.equal(code(session.submitPlayerAction({ ...action, input: 'go', expectedRevision: 0 })), 'StaleRevision');
   assert.equal(
     code(session.selectCapability({ ...envelope, type: 'SelectCapability', capabilityId: 'combat', enabled: true })),
     'Rejected',
@@ -382,7 +382,7 @@ test('EditSheetField commits a re-validated edit through the engine sheet port',
 
   const code = (result: { ok: boolean; error?: { code: string } }) => result.error?.code;
   const rejected: [Partial<typeof edit> | Record<string, unknown>, string][] = [
-    [{ expectedRevision: OPENING_REVISION + 1 }, 'Rejected'],
+    [{ expectedRevision: OPENING_REVISION + 1 }, 'StaleRevision'],
     [{ fieldId: 'wounded', value: true }, 'Rejected'],
     [{ fieldId: 'title', value: 'Rook' }, 'Rejected'],
     [{ fieldId: 'scar', value: 'burn' }, 'Rejected'],
@@ -626,4 +626,97 @@ test('rolls of the current encounter stored before subscribing replay once to th
   const off = setup(visualizedConfig(false));
   resolveRoll(off.seed, off.turn.actorId, 'player');
   assert.deepEqual(mechanics(collect(off.sessionFor(PLAYER_VIEWER), off.envelope)), []);
+});
+
+const secondClient = (database: ReturnType<typeof setup>['database'], campaignId: string) =>
+  createClientSessions(
+    createEngine(createCampaignStore(database)),
+    campaignId,
+    scopedEventsOf(database),
+    worldOf(database),
+  );
+
+const committed = (events: readonly ClientEvent[]) =>
+  events.flatMap((event) => (event.type === EVENT_COMMITTED ? [event] : []));
+
+test('clients subscribe to canonical event revisions and can resume same campaign', () => {
+  const { database, campaignId, sessionFor, envelope, turn } = setup();
+  const tui = secondClient(database, campaignId)(GM_VIEWER);
+  const desktop = sessionFor(GM_VIEWER);
+  const tuiPlayer = secondClient(database, campaignId)(PLAYER_VIEWER);
+  const action = { ...envelope, type: 'SubmitPlayerAction', sceneId: turn.sceneId, actorId: turn.actorId } as const;
+  const tuiEvents: ClientEvent[] = [];
+  const stop = tui.subscribeEvents({ ...envelope, type: 'SubscribeEvents' }, (event) => tuiEvents.push(event));
+  const desktopEvents = collect(desktop, envelope);
+  const playerEvents = collect(tuiPlayer, envelope);
+  const first = tui.submitPlayerAction({ ...action, actionId: 'a1', expectedRevision: OPENING_REVISION, input: 'go' });
+  assert.ok(first.ok);
+  assert.ok(desktop.getSnapshot({ ...envelope, type: 'GetCampaignSnapshot' }).ok);
+  assert.deepEqual(ids(desktopEvents), ids(tuiEvents));
+  stop();
+  const seen = ids(tuiEvents);
+  const lastRevision = Math.max(...committed(tuiEvents).map(({ revision }) => revision));
+  const second = desktop.submitPlayerAction({
+    ...action,
+    actionId: 'a2',
+    expectedRevision: first.value.revision,
+    input: 'wait',
+  });
+  assert.ok(second.ok);
+  const resumed = collect(tui, envelope);
+  const missed: ClientEvent[] = [];
+  tui.subscribeEvents({ ...envelope, type: 'SubscribeEvents', fromRevision: lastRevision }, (event) =>
+    missed.push(event),
+  );
+  const missedIds = ids(missed);
+  assert.ok(missedIds.length > 0);
+  assert.ok(committed(missed).every(({ revision }) => revision === second.value.revision));
+  assert.ok(missedIds.every((id) => !seen.includes(id)));
+  assert.deepEqual([...seen, ...missedIds], ids(resumed));
+  assert.equal(new Set(ids(resumed)).size, ids(resumed).length);
+  const revisions = committed(resumed).map(({ revision }) => revision);
+  assert.deepEqual(
+    revisions,
+    [...revisions].sort((a, b) => a - b),
+  );
+  assert.ok(tuiPlayer.getSnapshot({ ...envelope, type: 'GetCampaignSnapshot' }).ok);
+  assert.deepEqual(ids(playerEvents), ['clue']);
+  assert.doesNotMatch(JSON.stringify(playerEvents), /Duke Varn/);
+});
+
+test('stale ui action cannot overwrite newer state from another client', () => {
+  const { database, campaignId, sessionFor, envelope, turn } = setup();
+  const tui = secondClient(database, campaignId)(PLAYER_VIEWER);
+  const desktop = sessionFor(PLAYER_VIEWER);
+  const action = { ...envelope, type: 'SubmitPlayerAction', sceneId: turn.sceneId, actorId: turn.actorId } as const;
+  const snapshot = () => tui.getSnapshot({ ...envelope, type: 'GetCampaignSnapshot' });
+  const stale = snapshot();
+  assert.ok(stale.ok);
+  const newer = desktop.submitPlayerAction({
+    ...action,
+    actionId: 'b1',
+    expectedRevision: stale.value.revision,
+    input: 'I bar the door.',
+  });
+  assert.ok(newer.ok);
+  const before = snapshot();
+  const rejected = tui.submitPlayerAction({
+    ...action,
+    actionId: 'a1',
+    expectedRevision: stale.value.revision,
+    input: 'I open the door.',
+  });
+  assert.equal(rejected.ok, false);
+  assert.equal(rejected.ok || rejected.error.code, 'StaleRevision');
+  const after = snapshot();
+  assert.deepEqual(after, before);
+  assert.ok(after.ok);
+  assert.equal(after.value.revision, newer.value.revision);
+  const retried = tui.submitPlayerAction({
+    ...action,
+    actionId: 'a1',
+    expectedRevision: after.value.revision,
+    input: 'I open the door.',
+  });
+  assert.deepEqual(retried, { ok: true, value: { revision: newer.value.revision + 1 } });
 });

@@ -32,6 +32,7 @@ import {
   type DomainEvent,
   type EventId,
   MAIN_BRANCH,
+  StaleRevisionError,
 } from '../../../packages/domain/src/campaign.ts';
 import type { CampaignEntity, Relationship, Visibility } from '../../../packages/domain/src/entity.ts';
 import { currentEncounter } from '../../../packages/engine/src/encounter.ts';
@@ -117,6 +118,7 @@ const attempt = <T>(run: () => T): Result<T> => {
   try {
     return { ok: true, value: run() };
   } catch (error) {
+    if (error instanceof StaleRevisionError) return failure('StaleRevision', error.message);
     return failure('Rejected', error instanceof Error ? error.message : String(error));
   }
 };
@@ -203,7 +205,7 @@ export const createClientSessions = (
   const editSheet = (port: SheetPort, { version: _, type: __, ...edit }: EditSheetField): Result<Accepted> => {
     const { revision } = engine.getState(campaignId);
     if (edit.expectedRevision !== revision)
-      return failure('Rejected', `stale revision ${edit.expectedRevision}, current is ${revision}`);
+      return failure('StaleRevision', `stale revision ${edit.expectedRevision}, current is ${revision}`);
     const sheet = port.read(campaignId, edit.actorId);
     if (sheet === undefined) return failure('Rejected', `${edit.actorId} has no character sheet`);
     const checked = requestSheetEdit(sheet.schema, sheet.values, edit);

@@ -142,6 +142,7 @@ export const PROTOCOL_ERROR_CODES = [
   'MalformedCommand',
   'UnexpectedField',
   'Rejected',
+  'StaleRevision',
 ] as const;
 export type ProtocolErrorCode = (typeof PROTOCOL_ERROR_CODES)[number];
 
