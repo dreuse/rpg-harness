@@ -12,8 +12,19 @@ import { currentEncounter, type EncounterAction } from '../../../packages/engine
 import { questLog } from '../../../packages/engine/src/quest.ts';
 import { PLAYER_VIEWER, type Scoped, type Viewer, visibleTo } from '../../../packages/memory/src/knowledge.ts';
 import type { RollEvent } from '../../../packages/rules/src/dice.ts';
-import { SHEET_SCHEMA_VERSION, type SheetField, type WidgetType } from '../../../packages/rules/src/sheet-schema.ts';
-import { buildSheetView, exportSheet, type SheetViewInput } from '../../../packages/rules/src/sheet-view.ts';
+import {
+  type Visibility as FieldVisibility,
+  SHEET_SCHEMA_VERSION,
+  type SheetField,
+  VISIBILITIES,
+  type WidgetType,
+} from '../../../packages/rules/src/sheet-schema.ts';
+import {
+  buildSheetView,
+  exportSheet,
+  type SheetViewer,
+  type SheetViewInput,
+} from '../../../packages/rules/src/sheet-view.ts';
 
 export const VIEW_NAMES = ['sheet', 'sheet-export', 'inventory', 'journal', 'quests', 'encounter', 'recap'] as const;
 export type ViewName = (typeof VIEW_NAMES)[number];
@@ -27,7 +38,8 @@ export type ViewSource = {
 };
 
 const ITEM_KIND: EntityKind = 'item';
-const OWNER_FIELD = 'owner';
+const OWNER_FIELD: FieldVisibility = 'owner';
+const HIDDEN_FIELD: FieldVisibility = 'hidden';
 const PLAYER_OWNER = { role: 'player', owner: true } as const;
 const OWNER_PROFILE: ProfileVisibility = 'player';
 const WIDGET_BY_TYPE: Readonly<Record<string, WidgetType>> = { number: 'number', boolean: 'toggle', string: 'text' };
@@ -53,14 +65,26 @@ const storedProfile = ({ entities, state }: ViewSource, hero: Character) => {
   if (entity !== undefined)
     return visibleTo([entity], PLAYER_VIEWER).length === 0
       ? undefined
-      : { data: entity.data, visibility: entity.visibility };
+      : { data: entity.data, visibility: entity.visibility, traitVisibility: undefined };
   const created = state.events.findLast(
     ({ type, payload }) => type === CHARACTER_CREATED && payload.actorId === hero.id,
   );
-  return created === undefined ? undefined : { data: created.payload.profile, visibility: OWNER_PROFILE };
+  if (created === undefined) return undefined;
+  const { profile, traitVisibility } = created.payload;
+  return {
+    data: profile,
+    visibility: OWNER_PROFILE,
+    traitVisibility: isRecord(traitVisibility) ? traitVisibility : undefined,
+  };
 };
 
-const sheetInput = (source: ViewSource, hero: Character): SheetViewInput | undefined => {
+const fieldVisibility = (declared: Readonly<Record<string, unknown>> | undefined, id: string): FieldVisibility => {
+  if (declared === undefined) return OWNER_FIELD;
+  const visibility = declared[id];
+  return VISIBILITIES.find((known) => known === visibility) ?? HIDDEN_FIELD;
+};
+
+const sheetInput = (source: ViewSource, hero: Character, viewer: SheetViewer): SheetViewInput | undefined => {
   const stored = storedProfile(source, hero);
   const parsed = stored === undefined ? undefined : parseCharacterProfile(stored.data);
   if (stored === undefined || !parsed?.ok || !isProfileVisibility(stored.visibility)) return undefined;
@@ -70,19 +94,19 @@ const sheetInput = (source: ViewSource, hero: Character): SheetViewInput | undef
     id,
     widget: WIDGET_BY_TYPE[typeof value] ?? 'text',
     custom: false,
-    visibility: OWNER_FIELD,
+    visibility: fieldVisibility(stored.traitVisibility, id),
   }));
   return {
     schema: { schemaVersion: SHEET_SCHEMA_VERSION, rulepack, fields },
     profile,
     stats: { ok: true, rulepack, order: [], values: {}, appliedBonuses: [], constraints: [] },
     visibility: stored.visibility,
-    viewer: PLAYER_OWNER,
+    viewer,
   };
 };
 
-const sheet = (hero: Character, source: ViewSource) => {
-  const input = sheetInput(source, hero);
+const sheet = (hero: Character, source: ViewSource, viewer: SheetViewer) => {
+  const input = sheetInput(source, hero, viewer);
   if (input === undefined) return `${hero.name}\n${NO_SHEET}`;
   const { rulepack } = input.schema;
   const rows = buildSheetView(input).groups.flatMap((group) =>
@@ -91,8 +115,8 @@ const sheet = (hero: Character, source: ViewSource) => {
   return section(`${hero.name} (${rulepack.id} ${rulepack.edition})`, rows, NO_SHEET);
 };
 
-const sheetExport = (hero: Character, source: ViewSource) => {
-  const input = sheetInput(source, hero);
+const sheetExport = (hero: Character, source: ViewSource, viewer: SheetViewer) => {
+  const input = sheetInput(source, hero, viewer);
   return input === undefined ? `${hero.name}\n${NO_SHEET}` : JSON.stringify(exportSheet(input), null, JSON_INDENT);
 };
 
@@ -200,13 +224,13 @@ export const panelsOf = (source: ViewSource, viewer: Viewer): Panels => {
   };
 };
 
-export const renderView = (view: ReadView, source: ViewSource): string => {
+export const renderView = (view: ReadView, source: ViewSource, viewer: SheetViewer = PLAYER_OWNER): string => {
   if (view === 'journal') return journal(source.state);
   if (view === 'quests') return quests(source);
   if (view === 'encounter') return encounter(source);
   const [hero] = source.state.characters;
   if (hero === undefined) return NO_CHARACTER;
-  if (view === 'sheet') return sheet(hero, source);
-  if (view === 'sheet-export') return sheetExport(hero, source);
+  if (view === 'sheet') return sheet(hero, source, viewer);
+  if (view === 'sheet-export') return sheetExport(hero, source, viewer);
   return inventory(hero, { ...source, entities: visibleTo(source.entities, PLAYER_VIEWER) });
 };

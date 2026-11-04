@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import type { Visibility } from '../../../packages/domain/src/entity.ts';
-import { commitCharacter } from '../../../packages/engine/src/character.ts';
+import { CHARACTER_CREATED, commitCharacter } from '../../../packages/engine/src/character.ts';
 import { createEngine } from '../../../packages/engine/src/engine.ts';
 import { openScene } from '../../../packages/engine/src/turn.ts';
 import { createCampaignStore } from '../../../packages/persistence/src/campaign-store.ts';
@@ -17,6 +17,7 @@ import { SHEET_SCHEMA_VERSION } from '../../../packages/rules/src/sheet-schema.t
 import { importSheet, SHEET_EXPORT_FORMAT } from '../../../packages/rules/src/sheet-view.ts';
 import { createEngineGateway, readCampaignState } from './engine-gateway.ts';
 import { main } from './main.ts';
+import { renderView } from './views.ts';
 
 const CAMPAIGN = 'Ember';
 const ACTION = 'I light the lantern';
@@ -229,7 +230,21 @@ const CREATION_RULES: CreationRules = {
   overridableFields: [],
 };
 
-const createHero = (dataDir: string, name: string) => {
+const GUARDED_RULES: CreationRules = {
+  ...CREATION_RULES,
+  schema: {
+    ...CREATION_RULES.schema,
+    fields: [
+      ...CREATION_RULES.schema.fields,
+      { id: 'doom', widget: 'text', custom: false, visibility: 'gm' },
+      { id: 'omen', widget: 'text', custom: false, visibility: 'hidden' },
+    ],
+  },
+};
+const GUARDED_VALUES = { grit: 3, doom: 'SECRET_DOOM', omen: 'SECRET_OMEN' };
+const GM_SHEET_VIEWER = { role: 'gm' } as const;
+
+const createHero = (dataDir: string, name: string, rules = CREATION_RULES, values: object = { grit: 3 }) => {
   const state = readCampaignState(dataDir, CAMPAIGN);
   const [hero] = state.characters;
   assert.ok(hero !== undefined && state.currentScene !== undefined);
@@ -244,9 +259,9 @@ const createHero = (dataDir: string, name: string) => {
       input: 'A drifter.',
       intent: 'create character',
       build: {
-        rules: CREATION_RULES,
+        rules,
         backstory: 'A drifter.',
-        proposal: { name, values: { grit: 3 }, equipment: [] },
+        proposal: { name, values: { ...values }, equipment: [] },
       },
     });
   } finally {
@@ -279,6 +294,63 @@ test('views and turns show the character created by rpg new instead of the defau
     assert.match(await run(dataDir, ['play', CAMPAIGN], [ACTION]), new RegExp(`Wren: ${ACTION}`));
     assert.match(await run(dataDir, ['sheet', CAMPAIGN]), /^Wren \(d20-lite original\)/);
     assert.doesNotMatch(await run(dataDir, ['journal', CAMPAIGN]), /The Wanderer/);
+  }));
+
+const sourceOf = (dataDir: string) => ({
+  state: readCampaignState(dataDir, CAMPAIGN),
+  entities: [],
+  relationships: [],
+  eventScopes: [],
+});
+
+test('the created sheet hides gm and hidden traits from the player and shows gm traits to the gm', () =>
+  withDataDir(async (dataDir) => {
+    await run(dataDir, ['new', CAMPAIGN]);
+    createHero(dataDir, 'Wren', GUARDED_RULES, GUARDED_VALUES);
+    const player = [
+      await run(dataDir, ['sheet', CAMPAIGN]),
+      await run(dataDir, ['sheet-export', CAMPAIGN]),
+      await run(dataDir, ['play', CAMPAIGN], ['/sheet', '/sheet-export']),
+    ].join('');
+    assert.match(player, /grit: 3/);
+    assert.doesNotMatch(player, /SECRET_DOOM|SECRET_OMEN|\bdoom\b|\bomen\b/);
+    const gm = renderView('sheet', sourceOf(dataDir), GM_SHEET_VIEWER);
+    assert.match(gm, /grit: 3\n {2}doom: SECRET_DOOM$/);
+    assert.doesNotMatch(gm, /SECRET_OMEN/);
+  }));
+
+test('the sheet still reads a creation event committed with owner-visible traits only', () =>
+  withDataDir(async (dataDir) => {
+    await run(dataDir, ['new', CAMPAIGN]);
+    const state = readCampaignState(dataDir, CAMPAIGN);
+    const [hero] = state.characters;
+    const [opening] = state.turns;
+    assert.ok(hero !== undefined && opening !== undefined);
+    const profile = {
+      identity: { name: hero.name },
+      motivations: [],
+      background: 'A drifter.',
+      traits: [{ id: 'grit', value: 3 }],
+      conditions: [],
+      rulepack: RULEPACK,
+    };
+    const connection = openDatabase(join(dataDir, `${CAMPAIGN}.sqlite`));
+    try {
+      connection.database
+        .prepare(INSERT_EVENT)
+        .run(
+          randomUUID(),
+          state.campaign.id,
+          opening.id,
+          CHARACTER_CREATED,
+          JSON.stringify({ actorId: hero.id, profile, equipment: [], overrides: [] }),
+          GM,
+          null,
+        );
+    } finally {
+      connection.close();
+    }
+    assert.match(await run(dataDir, ['sheet', CAMPAIGN]), /\(any-pack 1\)\n {2}grit: 3/);
   }));
 
 test('a gm-only stored profile stays hidden even after character creation', () =>

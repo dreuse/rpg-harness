@@ -22,13 +22,16 @@ export const commitCharacter = (store: CampaignStore, input: CharacterCreation):
   const result = buildCharacter(input.build);
   if (result.status !== 'created')
     throw new InvalidActionError(actionId, `character for ${actorId} is ${result.status}`);
-  const payload = {
-    actorId,
-    ...result.character,
-    profile: ownerVisible(input.build.rules, result.character.profile),
-  };
+  const { fields } = input.build.rules.schema;
+  const traitVisibility = Object.fromEntries(fields.map(({ id, visibility }) => [id, visibility]));
+  const payload = { actorId, ...result.character, traitVisibility };
+  const legacy = { actorId, ...result.character, profile: ownerVisible(input.build.rules, result.character.profile) };
   const state = loadState(store, campaignId);
-  const stored = replayOf(state, input, recorded(CHARACTER_CREATED, payload));
+  const stored = replayOf(
+    state,
+    input,
+    (turn) => recorded(CHARACTER_CREATED, payload)(turn) || recorded(CHARACTER_CREATED, legacy)(turn),
+  );
   if (stored !== undefined) return stored;
   validate(state, input);
   const character = { id: actorId, campaignId, name: result.character.profile.identity.name };

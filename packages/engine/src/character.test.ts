@@ -3,11 +3,11 @@ import { test } from 'node:test';
 import type { CharacterProfile } from '../../domain/src/character.ts';
 import { createCampaignStore } from '../../persistence/src/campaign-store.ts';
 import { openDatabase } from '../../persistence/src/database.ts';
-import type { BuildInput, CreationRules } from '../../rules/src/character-builder.ts';
+import { type BuildInput, buildCharacter, type CreationRules } from '../../rules/src/character-builder.ts';
 import { SHEET_SCHEMA_VERSION } from '../../rules/src/sheet-schema.ts';
 import { CHARACTER_CREATED, commitCharacter } from './character.ts';
 import { createEngine } from './engine.ts';
-import { InvalidActionError, openScene } from './turn.ts';
+import { commit, InvalidActionError, openScene } from './turn.ts';
 
 const IN_MEMORY = ':memory:';
 const ACTION_ID = 'create-ash';
@@ -97,20 +97,38 @@ test('the engine refuses a forged, invalid or incomplete character and writes no
     assert.equal(engine.getState(campaignId).revision, action.expectedRevision);
   }));
 
-test('the committed profile omits traits the owner may not see', () =>
+const guardedFields = [
+  ...rules.schema.fields,
+  { id: 'doom', widget: 'number' as const, custom: false, visibility: 'gm' as const },
+  { id: 'secret', widget: 'number' as const, custom: false, visibility: 'hidden' as const },
+];
+const guarded: BuildInput = {
+  ...build,
+  rules: { ...rules, schema: { ...rules.schema, fields: guardedFields } },
+  proposal: { ...build.proposal, values: { grit: 3, doom: 1, secret: 2 } },
+};
+
+test('the committed profile keeps gm and hidden traits with their visibility', () =>
   withCampaign(({ store, engine, campaignId, action }) => {
-    const fields = [
-      ...rules.schema.fields,
-      { id: 'doom', widget: 'number' as const, custom: false, visibility: 'gm' as const },
-      { id: 'secret', widget: 'number' as const, custom: false, visibility: 'hidden' as const },
-    ];
-    const guarded = {
-      ...build,
-      rules: { ...rules, schema: { ...rules.schema, fields } },
-      proposal: { ...build.proposal, values: { grit: 3, doom: 1, secret: 2 } },
-    };
     commitCharacter(store, { ...action, build: guarded });
     const event = engine.getState(campaignId).events.find(({ type }) => type === CHARACTER_CREATED);
     assert.ok(event);
-    assert.deepEqual((event.payload.profile as CharacterProfile).traits, [{ id: 'grit', value: 3 }]);
+    assert.deepEqual((event.payload.profile as CharacterProfile).traits, [
+      { id: 'grit', value: 3 },
+      { id: 'doom', value: 1 },
+      { id: 'secret', value: 2 },
+    ]);
+    assert.deepEqual(event.payload.traitVisibility, { grit: 'public', doom: 'gm', secret: 'hidden' });
+  }));
+
+test('a retried creation replays an event committed with owner-visible traits only', () =>
+  withCampaign(({ store, engine, campaignId, action }) => {
+    const built = buildCharacter(guarded);
+    assert.equal(built.status, 'created');
+    const { profile } = built.character;
+    const stripped = { ...profile, traits: profile.traits.filter(({ id }) => id === 'grit') };
+    const legacy = { actorId: action.actorId, ...built.character, profile: stripped };
+    const committed = commit(store, action, [[CHARACTER_CREATED, legacy]], []);
+    assert.deepEqual(commitCharacter(store, { ...action, build: guarded }), committed);
+    assert.equal(engine.getState(campaignId).revision, action.expectedRevision + 1);
   }));
