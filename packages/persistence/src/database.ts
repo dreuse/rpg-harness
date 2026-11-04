@@ -1,13 +1,13 @@
 import { DatabaseSync } from 'node:sqlite';
 import { MAIN_BRANCH } from '../../domain/src/campaign.ts';
+import { VISIBILITY_LEVELS, type Visibility } from '../../domain/src/entity.ts';
 
 export type Migration = { readonly version: number; readonly sql: string };
 
 export type OpenOptions = { readonly migrations?: readonly Migration[]; readonly recover?: boolean };
 
-const GM_VISIBILITY = 'gm';
-const ACTOR_SCOPED_VISIBILITY = 'actor-scoped';
-const VISIBILITY_LEVELS = ['public', 'player', GM_VISIBILITY, ACTOR_SCOPED_VISIBILITY] as const;
+const GM_VISIBILITY: Visibility = 'gm';
+const ACTOR_SCOPED_VISIBILITY: Visibility = 'actor-scoped';
 const FACT_LAYERS = ['canon', 'belief', 'rumor', 'invalidated'] as const;
 const sqlList = (values: readonly string[]) => values.map((value) => `'${value}'`).join(', ');
 const VISIBILITY_CHECK = `CHECK (visibility IN (${sqlList(VISIBILITY_LEVELS)}))`;
@@ -95,6 +95,20 @@ export const MIGRATIONS: readonly Migration[] = [
       ALTER TABLE event_log ADD COLUMN session_id TEXT REFERENCES session (id);
       ALTER TABLE event_log ADD COLUMN visibility TEXT NOT NULL DEFAULT '${GM_VISIBILITY}' ${VISIBILITY_CHECK};
       ALTER TABLE event_log ADD COLUMN actor_id TEXT REFERENCES entity (id) ${ACTOR_SCOPE_CHECK};
+    `,
+  },
+  {
+    version: 6,
+    sql: `
+      CREATE TABLE relationship (
+        id TEXT PRIMARY KEY,
+        campaign_id TEXT NOT NULL REFERENCES campaign (id),
+        branch_id TEXT NOT NULL DEFAULT '${MAIN_BRANCH}',
+        kind TEXT NOT NULL,
+        source_id TEXT NOT NULL REFERENCES entity (id),
+        target_id TEXT NOT NULL REFERENCES entity (id),
+        data TEXT NOT NULL DEFAULT '{}'
+      );
     `,
   },
 ];
