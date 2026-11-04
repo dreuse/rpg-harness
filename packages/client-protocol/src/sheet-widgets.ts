@@ -1,4 +1,4 @@
-import { deepFreeze, PROTOCOL_VERSION, type ProtocolVersion, type Result } from './protocol.ts';
+import { deepFreeze, type EditSheetField, PROTOCOL_VERSION, type Result } from './protocol.ts';
 import { failure, readList, readPlain } from './view-registry.ts';
 
 export const SHEET_VALUE_TYPES = ['text', 'number', 'flag'] as const;
@@ -41,10 +41,7 @@ export type SheetEditContext = {
 
 export type SheetEdit = SheetEditContext & { readonly fieldId: string; readonly value: unknown };
 
-export type SheetEditRequest = SheetEdit & {
-  readonly version: ProtocolVersion;
-  readonly type: typeof EDIT_SHEET_FIELD;
-};
+export type SheetEditRequest = EditSheetField;
 
 type SheetValues = Readonly<Record<string, unknown>>;
 

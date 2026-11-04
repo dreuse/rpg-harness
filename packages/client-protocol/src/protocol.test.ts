@@ -46,6 +46,16 @@ const ACTION = {
   input: 'I open the door.',
 };
 
+const SHEET_EDIT = {
+  ...envelope,
+  type: 'EditSheetField',
+  actionId: 'action-2',
+  expectedRevision: 2,
+  actorId: 'character-1',
+  fieldId: 'stress',
+  value: 4,
+};
+
 const VALID_COMMANDS = [
   { ...envelope, type: 'GetCampaignSnapshot' },
   ACTION,
@@ -53,6 +63,9 @@ const VALID_COMMANDS = [
   { ...envelope, type: 'RequestView', viewId: 'character-sheet' },
   { ...envelope, type: 'SubscribeEvents', fromRevision: 0 },
   { ...envelope, type: 'SubscribeEvents' },
+  SHEET_EDIT,
+  { ...SHEET_EDIT, value: 'Rook' },
+  { ...SHEET_EDIT, value: false },
 ];
 
 const inMemorySession = (): ClientSession & { commit(event: DomainEvent): void } => {
@@ -89,6 +102,7 @@ const inMemorySession = (): ClientSession & { commit(event: DomainEvent): void }
     selectCapability: () => ({ ok: true, value: { revision } }),
     requestView: (command) => ({ ok: true, value: { viewId: command.viewId, components: [] } }),
     subscribeEvents: (command, listener) => log.subscribe(command.fromRevision ?? 0, listener),
+    editSheetField: () => ({ ok: true, value: { revision } }),
   };
 };
 
@@ -148,6 +162,7 @@ test('UI01: clients cannot bypass the engine or trust unsolicited model state wr
     'SelectCapability',
     'RequestView',
     'SubscribeEvents',
+    'EditSheetField',
   ]);
   for (const type of ['WriteState', 'SetState', 'CommitEvent', '__proto__', 'toString']) {
     assert.equal(code(parseCommand({ ...envelope, type })), 'UnknownCommand');
@@ -275,6 +290,17 @@ test('UI01: maps throwing envelope getters and hostile proxies to a typed error 
 test('UI01: rejects player input longer than the protocol limit', () => {
   assert.ok(parseCommand({ ...ACTION, input: 'a'.repeat(MAX_INPUT_LENGTH) }).ok);
   assert.equal(code(parseCommand({ ...ACTION, input: 'a'.repeat(MAX_INPUT_LENGTH + 1) })), 'MalformedCommand');
+});
+
+test('UI01: sheet edits carry only a bounded primitive value', () => {
+  for (const value of [{ hp: 999 }, ['x'], null, undefined, Number.NaN, Number.POSITIVE_INFINITY]) {
+    assert.equal(code(parseCommand({ ...SHEET_EDIT, value })), 'MalformedCommand', String(value));
+  }
+  assert.equal(code(parseCommand({ ...SHEET_EDIT, value: 'a'.repeat(MAX_INPUT_LENGTH + 1) })), 'MalformedCommand');
+  const { value: _, ...withoutValue } = SHEET_EDIT;
+  assert.equal(code(parseCommand(withoutValue)), 'MalformedCommand');
+  assert.equal(code(parseCommand({ ...SHEET_EDIT, fieldId: '' })), 'MalformedCommand');
+  assert.equal(code(parseCommand({ ...SHEET_EDIT, values: { hp: 999 } })), 'UnexpectedField');
 });
 
 test('UI01: toClientEvent freezes cyclic payloads without overflowing', () => {

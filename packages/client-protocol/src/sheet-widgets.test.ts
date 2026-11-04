@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { PROTOCOL_VERSION } from './protocol.ts';
+import { PROTOCOL_VERSION, parseCommand } from './protocol.ts';
 import {
   parseSheetSchema,
   renderSheet,
@@ -56,6 +56,7 @@ test('render schema-driven fichas with computed labels, conditions and editable 
     ok: true,
     value: { version: PROTOCOL_VERSION, type: 'EditSheetField', ...edit, fieldId: 'stress', value: 4 },
   });
+  assert.deepEqual(request.ok && parseCommand(request.value), request);
   assert.equal(values.stress, 2);
   for (const rejected of [
     { fieldId: 'stress', value: 'four' },

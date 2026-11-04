@@ -1,12 +1,14 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { createEventLog } from '../../../packages/client-protocol/src/event-log.ts';
 import {
+  type Accepted,
   type CampaignPanels,
   type CampaignSnapshot,
   type ClientCommand,
   type ClientEvent,
   type ClientSession,
   deepFreeze,
+  type EditSheetField,
   EVENT_COMMITTED,
   failure,
   PROTOCOL_VERSION,
@@ -14,6 +16,11 @@ import {
   type Result,
   toClientEvent,
 } from '../../../packages/client-protocol/src/protocol.ts';
+import {
+  requestSheetEdit,
+  type SheetEdit,
+  type SheetSchema,
+} from '../../../packages/client-protocol/src/sheet-widgets.ts';
 import { VISUALIZATION_EVENT, type ViewerScope } from '../../../packages/client-protocol/src/visualization.ts';
 import {
   type CampaignId,
@@ -33,11 +40,17 @@ export type ScopedEvent = DomainEvent & Scoped;
 export type EventSource = (campaignId: CampaignId) => readonly ScopedEvent[];
 export type World = { readonly entities: readonly CampaignEntity[]; readonly relationships: readonly Relationship[] };
 export type WorldSource = (campaignId: CampaignId, heroId: CharacterId | undefined) => World;
+export type Sheet = { readonly schema: SheetSchema; readonly values: Readonly<Record<string, unknown>> };
+export type SheetPort = {
+  read(campaignId: CampaignId, actorId: CharacterId): Sheet | undefined;
+  commit(edit: SheetEdit): void;
+};
 
 const SELECT_EVENT_VISIBILITY = 'SELECT id, visibility FROM event_log WHERE campaign_id = ?';
 const HIDDEN: Visibility = 'gm';
 const UNSUPPORTED_CAPABILITIES = 'this engine does not support capability selection yet';
 const UNSUPPORTED_VIEWS = 'this engine does not serve view descriptors yet';
+const UNSUPPORTED_SHEETS = 'this engine does not serve character sheets yet';
 const NO_SUBSCRIPTION = () => {};
 const GM_SCOPE: ViewerScope = 'gm';
 const PLAYER_SCOPE: ViewerScope = 'player';
@@ -71,11 +84,17 @@ const attempt = <T>(run: () => T): Result<T> => {
   }
 };
 
+const guarded = <T>(run: () => Result<T>): Result<T> => {
+  const result = attempt(run);
+  return result.ok ? result.value : result;
+};
+
 export const createClientSessions = (
   engine: Engine,
   campaignId: CampaignId,
   readEvents: EventSource,
   readWorld: WorldSource = NO_WORLD,
+  sheets?: SheetPort,
 ) => {
   const log = createEventLog({ campaignId, branchId: MAIN_BRANCH });
   const scopes = new Map<EventId, Scoped>();
@@ -113,6 +132,19 @@ export const createClientSessions = (
     if (parsed.value.campaignId !== campaignId)
       return failure('Rejected', `campaign ${parsed.value.campaignId} is not served by this session`);
     return parsed as Result<T>;
+  };
+
+  const editSheet = (port: SheetPort, { version: _, type: __, ...edit }: EditSheetField): Result<Accepted> => {
+    const { revision } = engine.getState(campaignId);
+    if (edit.expectedRevision !== revision)
+      return failure('Rejected', `stale revision ${edit.expectedRevision}, current is ${revision}`);
+    const sheet = port.read(campaignId, edit.actorId);
+    if (sheet === undefined) return failure('Rejected', `${edit.actorId} has no character sheet`);
+    const checked = requestSheetEdit(sheet.schema, sheet.values, edit);
+    if (!checked.ok) return checked;
+    port.commit(edit);
+    sync();
+    return { ok: true, value: { revision: engine.getState(campaignId).revision } };
   };
 
   sync();
@@ -161,6 +193,12 @@ export const createClientSessions = (
           },
           viewer.scope === GM_SCOPE ? GM_SCOPE : PLAYER_SCOPE,
         );
+      },
+      editSheetField: (command) => {
+        const accepted = accept<typeof command>(command, 'EditSheetField');
+        if (!accepted.ok) return accepted;
+        if (sheets === undefined) return failure('Rejected', UNSUPPORTED_SHEETS);
+        return guarded(() => editSheet(sheets, accepted.value));
       },
     };
   };

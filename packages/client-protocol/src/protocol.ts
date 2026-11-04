@@ -24,6 +24,7 @@ export const COMMAND_TYPES = [
   'SelectCapability',
   'RequestView',
   'SubscribeEvents',
+  'EditSheetField',
 ] as const;
 export type CommandType = (typeof COMMAND_TYPES)[number];
 
@@ -65,8 +66,21 @@ export type SelectCapability = Envelope<'SelectCapability'> & {
 };
 export type RequestView = Envelope<'RequestView'> & { readonly viewId: string };
 export type SubscribeEvents = Envelope<'SubscribeEvents'> & { readonly fromRevision?: number };
+export type EditSheetField = Envelope<'EditSheetField'> & {
+  readonly actionId: string;
+  readonly expectedRevision: number;
+  readonly actorId: CharacterId;
+  readonly fieldId: string;
+  readonly value: unknown;
+};
 
-export type ClientCommand = GetCampaignSnapshot | SubmitPlayerAction | SelectCapability | RequestView | SubscribeEvents;
+export type ClientCommand =
+  | GetCampaignSnapshot
+  | SubmitPlayerAction
+  | SelectCapability
+  | RequestView
+  | SubscribeEvents
+  | EditSheetField;
 
 export type ClientDomainEvent = Readonly<DomainEvent>;
 
@@ -143,9 +157,10 @@ export interface ClientSession {
   selectCapability(command: SelectCapability): Result<Accepted>;
   requestView(command: RequestView): Result<ViewDescriptor>;
   subscribeEvents(command: SubscribeEvents, listener: (event: ClientEvent) => void): Unsubscribe;
+  editSheetField(command: EditSheetField): Result<Accepted>;
 }
 
-type FieldKind = 'id' | 'text' | 'revision' | 'flag';
+type FieldKind = 'id' | 'text' | 'revision' | 'flag' | 'primitive';
 type FieldSpec = { readonly kind: FieldKind; readonly optional?: true };
 
 const ENVELOPE_FIELDS = ['version', 'type', 'campaignId'];
@@ -163,6 +178,13 @@ const COMMAND_FIELDS: Record<CommandType, Readonly<Record<string, FieldSpec>>> =
   SelectCapability: { capabilityId: ID, enabled: { kind: 'flag' } },
   RequestView: { viewId: ID },
   SubscribeEvents: { fromRevision: { kind: 'revision', optional: true } },
+  EditSheetField: {
+    actionId: ID,
+    expectedRevision: { kind: 'revision' },
+    actorId: ID,
+    fieldId: ID,
+    value: { kind: 'primitive' },
+  },
 };
 
 const FIELD_CHECKS: Record<FieldKind, (value: unknown) => boolean> = {
@@ -170,6 +192,8 @@ const FIELD_CHECKS: Record<FieldKind, (value: unknown) => boolean> = {
   text: (value) => typeof value === 'string' && value.length <= MAX_INPUT_LENGTH,
   revision: (value) => Number.isSafeInteger(value) && (value as number) >= 0,
   flag: (value) => typeof value === 'boolean',
+  primitive: (value) =>
+    FIELD_CHECKS.text(value) || FIELD_CHECKS.flag(value) || (typeof value === 'number' && Number.isFinite(value)),
 };
 
 export const failure = (code: ProtocolErrorCode, message: string): Result<never> => ({

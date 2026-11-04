@@ -8,6 +8,7 @@ import {
   MAX_INPUT_LENGTH,
   PROTOCOL_VERSION,
 } from '../../../packages/client-protocol/src/protocol.ts';
+import { parseSheetSchema, type SheetEdit } from '../../../packages/client-protocol/src/sheet-widgets.ts';
 import { VISUALIZATION_EVENT } from '../../../packages/client-protocol/src/visualization.ts';
 import { MAIN_BRANCH } from '../../../packages/domain/src/campaign.ts';
 import type { Visibility } from '../../../packages/domain/src/entity.ts';
@@ -17,7 +18,7 @@ import { GM_VIEWER, PLAYER_VIEWER, type Viewer } from '../../../packages/memory/
 import { createCampaignStore } from '../../../packages/persistence/src/campaign-store.ts';
 import { openDatabase } from '../../../packages/persistence/src/database.ts';
 import { createEntityStore } from '../../../packages/persistence/src/entity-store.ts';
-import { createClientSessions, scopedEventsOf, worldOf } from './client-session.ts';
+import { createClientSessions, type SheetPort, scopedEventsOf, worldOf } from './client-session.ts';
 
 const IN_MEMORY = ':memory:';
 const RULEPACK = { id: 'house', edition: '1', revision: 'r1' };
@@ -27,6 +28,29 @@ const RIVAL_VIEWER: Viewer = { scope: 'actor', actorId: RIVAL };
 const OPENING_REVISION = 1;
 const INSERT_EVENT =
   'INSERT INTO event_log (id, campaign_id, branch_id, revision, turn_id, type, payload, visibility, actor_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)';
+
+const SHEET_SCHEMA = parseSheetSchema({
+  fields: [
+    { id: 'name', label: 'Name', type: 'text', editable: true },
+    { id: 'stress', label: 'Stress', type: 'number', editable: true },
+    { id: 'wounded', label: 'Wounded', type: 'flag', editable: false },
+    { id: 'title', label: 'Title', type: 'computed', template: '{name}' },
+    { id: 'scar', label: 'Scar', type: 'text', editable: true, when: { field: 'wounded', equals: true } },
+  ],
+});
+
+const fakeSheets = (owner: string) => {
+  const commits: SheetEdit[] = [];
+  const values: Record<string, unknown> = { name: 'Ash', stress: 2, wounded: false };
+  assert.ok(SHEET_SCHEMA.ok);
+  const sheets: SheetPort = {
+    read: (_, actorId) => (actorId === owner ? { schema: SHEET_SCHEMA.value, values } : undefined),
+    commit: (edit) => {
+      commits.push(edit);
+    },
+  };
+  return { sheets, commits };
+};
 
 const setup = () => {
   const { database } = openDatabase(IN_MEMORY);
@@ -262,4 +286,73 @@ test('visualizations reach each session only when its viewer may see the result'
   assert.deepEqual(shown(received.gm), ['gm', 'player', 'public', 'actor-scoped']);
   assert.deepEqual(shown(received.player), ['player', 'public']);
   assert.deepEqual(shown(received.actor), []);
+});
+
+test('EditSheetField commits a re-validated edit through the engine sheet port', () => {
+  const { engine, campaignId, turn, envelope } = setup();
+  const { sheets, commits } = fakeSheets(turn.actorId);
+  const session = createClientSessions(engine, campaignId, () => [], undefined, sheets)(PLAYER_VIEWER);
+  const edit = {
+    ...envelope,
+    type: 'EditSheetField',
+    actionId: 'edit-1',
+    expectedRevision: OPENING_REVISION,
+    actorId: turn.actorId,
+    fieldId: 'stress',
+    value: 4,
+  } as const;
+  assert.deepEqual(session.editSheetField(edit), { ok: true, value: { revision: OPENING_REVISION } });
+  assert.deepEqual(commits, [
+    {
+      campaignId,
+      actionId: 'edit-1',
+      actorId: turn.actorId,
+      expectedRevision: OPENING_REVISION,
+      fieldId: 'stress',
+      value: 4,
+    },
+  ]);
+
+  const code = (result: { ok: boolean; error?: { code: string } }) => result.error?.code;
+  const rejected: [Partial<typeof edit> | Record<string, unknown>, string][] = [
+    [{ expectedRevision: OPENING_REVISION + 1 }, 'Rejected'],
+    [{ fieldId: 'wounded', value: true }, 'Rejected'],
+    [{ fieldId: 'title', value: 'Rook' }, 'Rejected'],
+    [{ fieldId: 'scar', value: 'burn' }, 'Rejected'],
+    [{ fieldId: 'missing', value: 'x' }, 'Rejected'],
+    [{ actorId: 'someone-else' }, 'Rejected'],
+    [{ campaignId: 'someone-else' }, 'Rejected'],
+    [{ value: 'four' }, 'MalformedCommand'],
+    [{ value: { hp: 999 } }, 'MalformedCommand'],
+    [{ state: { hp: 999 } }, 'UnexpectedField'],
+  ];
+  for (const [change, expected] of rejected)
+    assert.equal(code(session.editSheetField({ ...edit, ...change } as typeof edit)), expected, JSON.stringify(change));
+  assert.equal(commits.length, 1);
+});
+
+test('EditSheetField maps a failing sheet port or a missing one to a typed rejection', () => {
+  const { engine, campaignId, turn, envelope } = setup();
+  const edit = {
+    ...envelope,
+    type: 'EditSheetField',
+    actionId: 'edit-1',
+    expectedRevision: OPENING_REVISION,
+    actorId: turn.actorId,
+    fieldId: 'name',
+    value: 'Rook',
+  } as const;
+  const code = (result: { ok: boolean; error?: { code: string } }) => result.error?.code;
+  const noSheets = createClientSessions(engine, campaignId, () => [])(PLAYER_VIEWER);
+  assert.equal(code(noSheets.editSheetField(edit)), 'Rejected');
+  const boom = () => {
+    throw new Error('boom');
+  };
+  for (const sheets of [
+    { ...fakeSheets(turn.actorId).sheets, read: boom },
+    { ...fakeSheets(turn.actorId).sheets, commit: boom },
+  ]) {
+    const session = createClientSessions(engine, campaignId, () => [], undefined, sheets)(PLAYER_VIEWER);
+    assert.equal(code(session.editSheetField(edit)), 'Rejected');
+  }
 });
