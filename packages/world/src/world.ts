@@ -1,0 +1,139 @@
+export const SIMULATION_MODES = ['off', 'ambient', 'balanced', 'dynamic', 'custom'] as const;
+export const DEFAULT_MODE: SimulationMode = 'off';
+export const DEFAULT_MAX_ACTORS = 8;
+export const DEFAULT_MAX_ACTIONS = 8;
+export const MAX_BUDGET = 1000;
+export const MIN_BUDGET = 1;
+export const MIN_KNOB = 0;
+export const MAX_KNOB = 1;
+export const KNOB_FIELDS = ['worldAutonomy', 'storyIntensity', 'consequenceSeverity'] as const;
+
+export type SimulationMode = (typeof SIMULATION_MODES)[number];
+export type Trigger =
+  | { readonly kind: 'tick'; readonly at: number }
+  | { readonly kind: 'interval'; readonly every: number; readonly from: number }
+  | { readonly kind: 'event'; readonly eventType: string };
+export type AttentionBudget = { readonly maxActors: number; readonly maxActions: number };
+export type WorldConfig = {
+  readonly mode: SimulationMode;
+  readonly budget: AttentionBudget;
+  readonly triggers: readonly Trigger[];
+  readonly worldAutonomy?: number;
+  readonly storyIntensity?: number;
+  readonly consequenceSeverity?: number;
+};
+export type ActorAction = {
+  readonly actionId: string;
+  readonly actorId: string;
+  readonly kind: string;
+  readonly knowledgeRefs: readonly string[];
+  readonly tick: number;
+};
+export type LogicalClock = { readonly tick: number; readonly events: readonly string[] };
+export type Rejection = { readonly action: ActorAction; readonly reason: string };
+export type ConfigResult =
+  | { ok: true; config: WorldConfig }
+  | { ok: false; issues: { path: string; message: string }[] };
+
+export const DEFAULT_WORLD_CONFIG: WorldConfig = {
+  mode: DEFAULT_MODE,
+  budget: { maxActors: DEFAULT_MAX_ACTORS, maxActions: DEFAULT_MAX_ACTIONS },
+  triggers: [],
+};
+
+const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+const isTick = (v: unknown): v is number => Number.isSafeInteger(v) && (v as number) >= 0;
+const isBudgetValue = (v: unknown): v is number =>
+  Number.isInteger(v) && (v as number) >= MIN_BUDGET && (v as number) <= MAX_BUDGET;
+const isKnob = (v: unknown): v is number => typeof v === 'number' && v >= MIN_KNOB && v <= MAX_KNOB;
+const isPositiveSafeInteger = (v: unknown): v is number => Number.isSafeInteger(v) && (v as number) > 0;
+const isNonEmpty = (v: unknown): v is string => typeof v === 'string' && v.length > 0;
+
+const parseTrigger = (raw: unknown, path: string, issues: { path: string; message: string }[]) => {
+  if (isRecord(raw)) {
+    if (raw.kind === 'tick' && isTick(raw.at)) return { kind: 'tick', at: raw.at } as const;
+    if (raw.kind === 'interval' && isPositiveSafeInteger(raw.every) && (raw.from === undefined || isTick(raw.from)))
+      return { kind: 'interval', every: raw.every, from: raw.from ?? 0 } as const;
+    if (raw.kind === 'event' && isNonEmpty(raw.eventType)) return { kind: 'event', eventType: raw.eventType } as const;
+  }
+  issues.push({ path, message: 'must be a logical-time trigger' });
+  return undefined;
+};
+
+export const resolveWorldConfig = (input: unknown): ConfigResult => {
+  if (input === undefined) return { ok: true, config: DEFAULT_WORLD_CONFIG };
+  const issues: { path: string; message: string }[] = [];
+  if (!isRecord(input)) return { ok: false, issues: [{ path: '$', message: 'must be an object' }] };
+  const mode = input.mode ?? DEFAULT_MODE;
+  if (!SIMULATION_MODES.includes(mode as SimulationMode)) issues.push({ path: 'mode', message: 'unknown mode' });
+  const rawBudget = input.budget ?? {};
+  const budget = { ...DEFAULT_WORLD_CONFIG.budget, ...(isRecord(rawBudget) ? rawBudget : { maxActors: undefined }) };
+  if (!isBudgetValue(budget.maxActors))
+    issues.push({ path: 'budget.maxActors', message: 'must be a bounded positive integer' });
+  if (!isBudgetValue(budget.maxActions))
+    issues.push({ path: 'budget.maxActions', message: 'must be a bounded positive integer' });
+  const knobs: Partial<Record<(typeof KNOB_FIELDS)[number], number>> = {};
+  for (const field of KNOB_FIELDS) {
+    if (input[field] === undefined) continue;
+    if (isKnob(input[field])) knobs[field] = input[field];
+    else issues.push({ path: field, message: 'must be a number between 0 and 1' });
+  }
+  const rawTriggers = input.triggers ?? [];
+  const triggers: Trigger[] = [];
+  if (!Array.isArray(rawTriggers)) issues.push({ path: 'triggers', message: 'must be an array' });
+  else
+    rawTriggers.forEach((raw, i) => {
+      const trigger = parseTrigger(raw, `triggers[${i}]`, issues);
+      if (trigger) triggers.push(trigger);
+    });
+  if (issues.length > 0) return { ok: false, issues };
+  return {
+    ok: true,
+    config: {
+      mode: mode as SimulationMode,
+      budget: { maxActors: budget.maxActors as number, maxActions: budget.maxActions as number },
+      triggers,
+      ...knobs,
+    },
+  };
+};
+
+const fires = (trigger: Trigger, clock: LogicalClock) => {
+  if (trigger.kind === 'tick') return clock.tick === trigger.at;
+  if (trigger.kind === 'interval')
+    return clock.tick >= trigger.from && (clock.tick - trigger.from) % trigger.every === 0;
+  return clock.events.includes(trigger.eventType);
+};
+
+export const firingTriggers = (config: WorldConfig, clock: LogicalClock): Trigger[] =>
+  config.mode === 'off' ? [] : config.triggers.filter((t) => fires(t, clock));
+
+export const admitProposals = (config: WorldConfig, proposals: readonly ActorAction[]) => {
+  const accepted: ActorAction[] = [];
+  const rejected: Rejection[] = [];
+  const actors = new Set<string>();
+  const ids = new Set<string>();
+  for (const action of proposals) {
+    const reject = (reason: string) => rejected.push({ action, reason });
+    if (config.mode === 'off') reject('world simulation is off');
+    else if (
+      !isNonEmpty(action.actionId) ||
+      !isNonEmpty(action.actorId) ||
+      !isNonEmpty(action.kind) ||
+      !isTick(action.tick) ||
+      !Array.isArray(action.knowledgeRefs) ||
+      !action.knowledgeRefs.every(isNonEmpty)
+    )
+      reject('malformed action');
+    else if (action.knowledgeRefs.length === 0) reject('missing knowledge refs');
+    else if (ids.has(action.actionId)) reject('duplicate action id');
+    else if (accepted.length >= config.budget.maxActions) reject('action budget exceeded');
+    else if (!actors.has(action.actorId) && actors.size >= config.budget.maxActors) reject('actor budget exceeded');
+    else {
+      ids.add(action.actionId);
+      actors.add(action.actorId);
+      accepted.push(action);
+    }
+  }
+  return { accepted, rejected };
+};

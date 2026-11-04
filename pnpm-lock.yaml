@@ -98,6 +98,12 @@ importers:
 
   packages/testkit: {}
 
+  packages/world:
+    dependencies:
+      '@rpg/domain':
+        specifier: workspace:*
+        version: link:../domain
+
 packages:
 
   '@biomejs/biome@2.6.5':
