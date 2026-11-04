@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Key } from 'node:readline';
 import { test } from 'node:test';
+import { stripVTControlCharacters } from 'node:util';
 import {
   type CampaignSnapshot,
   type ClientSession,
@@ -37,8 +38,13 @@ const ESCAPE = String.fromCharCode(27);
 const ASCII_ONLY = /^[\x20-\x7e]*$/;
 const WIDE = 80;
 const NARROW = 20;
-const COLOR: Capabilities = { width: WIDE, color: true, interactive: true };
-const PLAIN: Capabilities = { width: NARROW, color: false, interactive: false };
+const HEIGHT = 24;
+const LARGE_WIDTH = 200;
+const LARGE_HEIGHT = 60;
+const COLOR: Capabilities = { width: WIDE, height: HEIGHT, colors: 'truecolor', unicode: true, interactive: true };
+const PLAIN: Capabilities = { width: NARROW, height: HEIGHT, colors: 'none', unicode: false, interactive: false };
+const TRUECOLOR_ENV = { TERM: 'xterm-256color', COLORTERM: 'truecolor', LANG: 'en_US.UTF-8' };
+const terminalOf = (columns: number, rows: number) => ({ isTTY: true, columns, rows });
 const PLAIN_WIDE: Capabilities = { ...PLAIN, width: WIDE };
 const CAMPAIGN = 'Ember';
 const ACTION = 'I wave.';
@@ -168,19 +174,28 @@ test('UI06: provide accessible terminal conversation, sheet, log and mechanical 
   });
   assert.equal(engine.getState(campaignId).turns.at(-1)?.input, ACTION);
   assert.match(output.at(-1) ?? '', /Wanderer: I wave\./);
+  for (const frame of output) assert.ok((frame.match(/\n/g) ?? []).length <= HEIGHT - 1, 'a frame scrolls the screen');
 });
 
 test('UI06: text-only and limited terminal environments still work without graphics', async () => {
-  const tty = { isTTY: true, columns: WIDE };
-  assert.deepEqual(capabilitiesOf({ TERM: 'dumb' }, tty, tty), { width: WIDE, color: false, interactive: false });
+  const tty = terminalOf(WIDE, HEIGHT);
+  assert.deepEqual(capabilitiesOf({ TERM: 'dumb' }, tty, tty), {
+    width: WIDE,
+    height: HEIGHT,
+    colors: 'none',
+    unicode: false,
+    interactive: false,
+  });
   assert.deepEqual(capabilitiesOf({ TERM: 'xterm', NO_COLOR: '1' }, tty, tty), {
     width: WIDE,
-    color: false,
+    height: HEIGHT,
+    colors: 'none',
+    unicode: false,
     interactive: true,
   });
   assert.equal(capabilitiesOf({ TERM: 'xterm' }, {}, tty).interactive, false);
-  assert.equal(capabilitiesOf({ TERM: 'xterm' }, tty, {}).color, false);
-  assert.equal(capabilitiesOf({ TERM: 'xterm' }, tty, tty).color, true);
+  assert.equal(capabilitiesOf({ TERM: 'xterm' }, tty, {}).colors, 'none');
+  assert.equal(capabilitiesOf({ TERM: 'xterm' }, tty, tty).colors, '16');
   assert.ok(screen(INITIAL_STATE).includes(ESCAPE));
 
   const states = [INITIAL_STATE, press([TAB]), press([key('3')]), press([key('4')]), press([key('?')])];
@@ -216,6 +231,66 @@ test('UI06: text-only and limited terminal environments still work without graph
   } finally {
     rmSync(dataDir, { recursive: true, force: true });
   }
+});
+
+const visibleRows = (rows: readonly string[]) => rows.map(stripVTControlCharacters);
+
+test('rpg-42a.11 TUI draws bordered panes at 80x24 and reflows to two panes at 200x60', (t) => {
+  for (const [columns, rows] of [
+    [WIDE, HEIGHT],
+    [LARGE_WIDTH, LARGE_HEIGHT],
+  ] as const) {
+    const size = terminalOf(columns, rows);
+    const capabilities = capabilitiesOf(TRUECOLOR_ENV, size, size);
+    assert.equal(capabilities.colors, 'truecolor');
+    assert.equal(capabilities.unicode, true);
+    for (const state of [INITIAL_STATE, press([key('2')]), press([key('?')])]) {
+      const screen = renderScreen(state, data, capabilities);
+      const visible = visibleRows(screen);
+      assert.equal(screen.length, rows);
+      assert.ok(screen.some((row) => row.includes(ESCAPE)));
+      assert.ok(visible.every((row) => row.length <= columns));
+      assert.ok(visible.slice(1, -1).every((row) => row.length === columns));
+      t.assert.snapshot(visible);
+    }
+  }
+  const wide = terminalOf(LARGE_WIDTH, LARGE_HEIGHT);
+  const split = visibleRows(renderScreen(INITIAL_STATE, data, capabilitiesOf(TRUECOLOR_ENV, wide, wide)));
+  assert.match(split[1] ?? '', /┏━ Conversation ━+┓╭─ Sheet ─+╮/);
+  assert.ok(split.some((row) => /Wanderer: I greet.*Grit: 3/.test(row)));
+  const narrow = visibleRows(
+    renderScreen(
+      press([key('2')]),
+      data,
+      capabilitiesOf(TRUECOLOR_ENV, terminalOf(WIDE, HEIGHT), terminalOf(WIDE, HEIGHT)),
+    ),
+  );
+  assert.match(narrow[1] ?? '', /^┏━ Sheet ━+┓$/);
+  assert.doesNotMatch(narrow.join('\n'), /Wanderer: I greet/);
+});
+
+test('rpg-42a.11 TUI honors NO_COLOR, ASCII terminals and piped output', (t) => {
+  const size = terminalOf(WIDE, HEIGHT);
+  const noColor = capabilitiesOf({ ...TRUECOLOR_ENV, NO_COLOR: '1' }, size, size);
+  assert.equal(noColor.colors, 'none');
+  const plainScreen = renderScreen(INITIAL_STATE, data, noColor);
+  assert.ok(plainScreen.every((row) => !row.includes(ESCAPE) && row.length <= WIDE));
+  assert.equal(plainScreen.length, HEIGHT);
+  t.assert.snapshot(plainScreen);
+
+  const ascii = capabilitiesOf({ ...TRUECOLOR_ENV, LANG: 'C' }, size, size);
+  assert.equal(ascii.unicode, false);
+  const asciiScreen = visibleRows(renderScreen(INITIAL_STATE, data, ascii));
+  assert.ok(asciiScreen.every((row) => ASCII_ONLY.test(row)));
+  assert.match(asciiScreen[1] ?? '', /^\+= Conversation =+\+$/);
+
+  const piped = capabilitiesOf(TRUECOLOR_ENV, {}, {});
+  assert.deepEqual(piped, { width: WIDE, height: HEIGHT, colors: 'none', unicode: true, interactive: false });
+  const linear = renderLinear(data, piped);
+  assert.ok(linear.every((row) => !row.includes(ESCAPE) && row.length <= WIDE));
+  t.assert.snapshot(linear);
+  assert.equal(capabilitiesOf({ ...TRUECOLOR_ENV, FORCE_COLOR: '2' }, {}, {}).colors, '256');
+  assert.ok(renderLinear(data, { ...piped, colors: '256' }).some((row) => row.includes(ESCAPE)));
 });
 
 test('UI06: control sequences in campaign text never reach the terminal', async () => {

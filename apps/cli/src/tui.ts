@@ -1,6 +1,5 @@
 import { randomUUID } from 'node:crypto';
 import type { Key } from 'node:readline';
-import { styleText } from 'node:util';
 import {
   type CampaignSnapshot,
   type ClientEvent,
@@ -16,9 +15,16 @@ import {
   type VisualizationEvent,
 } from '../../../packages/client-protocol/src/visualization.ts';
 import type { CampaignId } from '../../../packages/domain/src/campaign.ts';
+import { type ColorDepth, colorDepthOf, FRAME_COLUMNS, frame, paint, supportsUnicode } from './theme.ts';
 import { printable } from './views.ts';
 
-export type Capabilities = { readonly width: number; readonly color: boolean; readonly interactive: boolean };
+export type Capabilities = {
+  readonly width: number;
+  readonly height: number;
+  readonly colors: ColorDepth;
+  readonly unicode: boolean;
+  readonly interactive: boolean;
+};
 
 export type TuiData = {
   readonly snapshot: CampaignSnapshot;
@@ -52,10 +58,11 @@ export type Terminal = {
   readonly write: (text: string) => void;
 };
 
-type Stream = { readonly isTTY?: boolean; readonly columns?: number };
+type Stream = { readonly isTTY?: boolean; readonly columns?: number; readonly rows?: number };
 type PaneId = 'conversation' | 'sheet' | 'log' | 'mechanics';
 
 type Pane = { readonly id: PaneId; readonly key: string; readonly label: string };
+type Shown = { readonly title: string; readonly rows: readonly string[]; readonly follow: boolean };
 
 const CONVERSATION: Pane = { id: 'conversation', key: '1', label: 'Conversation' };
 const PANES: readonly Pane[] = [
@@ -66,7 +73,15 @@ const PANES: readonly Pane[] = [
 ];
 
 export const DEFAULT_WIDTH = 80;
+export const DEFAULT_HEIGHT = 24;
+export const SPLIT_MIN_WIDTH = 120;
 const MIN_WIDTH = 20;
+const MIN_HEIGHT = 10;
+const MIN_PANE_HEIGHT = 3;
+const BORDER_ROWS = 2;
+const SPLIT_SHARE = 0.6;
+const SPLIT_PARTNER: PaneId = 'sheet';
+const FOLLOWS_LATEST: ReadonlySet<PaneId> = new Set(['conversation', 'log', 'mechanics']);
 const DUMB_TERM = 'dumb';
 const NEXT = 1;
 const TAB = 'tab';
@@ -79,12 +94,11 @@ const HELP_KEY = '?';
 const QUIT_KEY = 'q';
 const PRINTABLE = /^[^\p{C}]+$/u;
 const SPACE = ' ';
-const RULE = '-';
 const PROMPT = '> ';
 const NEWLINE = '\n';
 const CLEAR_SCREEN = '\x1b[2J\x1b[H';
-const EMPHASIS = 'bold';
-const HELP_TITLE = 'Help:';
+const HELP_LABEL = 'Help';
+const HELP_TITLE = `${HELP_LABEL}:`;
 const STATUS_HINT = 'Tab next pane, 1-4 pick pane, i type, ? help, q quit';
 const STATUS_SEPARATOR = ' | ';
 const AUDIO_HELP = "Type 'set mic to push-to-talk', 'set output to narrator' or 'set speed to 1.5' to change voice.";
@@ -106,7 +120,13 @@ const HELP_LINES = [
 const helpLines = ({ audio }: TuiData) => (audio === undefined ? HELP_LINES : [...HELP_LINES, AUDIO_HELP]);
 const hint = ({ audio }: TuiData) => (audio === undefined ? STATUS_HINT : `${STATUS_HINT}${STATUS_SEPARATOR}${audio}`);
 
-export const PLAIN_TERMINAL: Capabilities = { width: DEFAULT_WIDTH, color: false, interactive: false };
+export const PLAIN_TERMINAL: Capabilities = {
+  width: DEFAULT_WIDTH,
+  height: DEFAULT_HEIGHT,
+  colors: 'none',
+  unicode: false,
+  interactive: false,
+};
 
 export const INITIAL_STATE: TuiState = {
   pane: 0,
@@ -121,7 +141,9 @@ export const capabilitiesOf = (env: NodeJS.ProcessEnv, input: Stream, output: St
   const terminal = output.isTTY === true && env.TERM !== DUMB_TERM;
   return {
     width: Math.max(MIN_WIDTH, output.columns ?? DEFAULT_WIDTH),
-    color: terminal && (env.NO_COLOR ?? '') === '',
+    height: Math.max(MIN_HEIGHT, output.rows ?? DEFAULT_HEIGHT),
+    colors: colorDepthOf(env, output),
+    unicode: supportsUnicode(env),
     interactive: terminal && input.isTTY === true,
   };
 };
@@ -206,30 +228,65 @@ const paneRows = (id: PaneId, data: TuiData) => {
 
 const paneAt = (index: number) => PANES[index] ?? CONVERSATION;
 
-export const renderScreen = (state: TuiState, data: TuiData, { width, color }: Capabilities): string[] => {
+const shown = ({ id, label }: Pane, data: TuiData): Shown => ({
+  title: label,
+  rows: paneRows(id, data),
+  follow: FOLLOWS_LATEST.has(id),
+});
+
+const fit = (rows: readonly string[], height: number, follow: boolean) => {
+  const kept = rows.length <= height ? rows : follow ? rows.slice(-height) : rows.slice(0, height);
+  return [...kept, ...Array.from({ length: height - kept.length }, () => '')];
+};
+
+const columnsFor = (state: TuiState, data: TuiData, width: number) => {
   const focused = paneAt(state.pane);
-  const emphasize = (rows: string[]) =>
-    color ? rows.map((row) => styleText(EMPHASIS, row, { validateStream: false })) : rows;
-  const tabs = PANES.map(({ key, label }) => (key === focused.key ? `[${key} ${label}]` : `${key} ${label}`));
-  const title = state.help ? HELP_TITLE : `${focused.label}:`;
-  const body = state.help ? helpLines(data) : paneRows(focused.id, data);
-  const status = state.draft === undefined ? (state.notice ?? hint(data)) : `${PROMPT}${state.draft}`;
-  const rule = RULE.repeat(width);
+  const help: Shown = { title: HELP_LABEL, rows: helpLines(data), follow: false };
+  if (width < SPLIT_MIN_WIDTH) return [{ pane: state.help ? help : shown(focused, data), width, focused: true }];
+  const left = Math.round(width * SPLIT_SHARE);
+  const partner = focused.id === CONVERSATION.id ? (PANES.find(({ id }) => id === SPLIT_PARTNER) ?? focused) : focused;
+  const rightFocused = state.help || focused.id !== CONVERSATION.id;
   return [
-    ...wrap([tabs.join(SPACE)], width),
-    rule,
-    ...emphasize(wrap([title], width)),
-    ...wrap(body, width),
-    rule,
-    ...wrap([status], width),
+    { pane: shown(CONVERSATION, data), width: left, focused: !rightFocused },
+    { pane: state.help ? help : shown(partner, data), width: width - left, focused: rightFocused },
   ];
 };
 
-const section = (title: string, rows: readonly string[], width: number) => wrap([title, ...rows], width);
+export const renderScreen = (state: TuiState, data: TuiData, capabilities: Capabilities): string[] => {
+  const { width, height, colors } = capabilities;
+  const focused = paneAt(state.pane);
+  const focusedTab = `[${focused.key} ${focused.label}]`;
+  const tabs = PANES.map(({ key, label }) => (key === focused.key ? focusedTab : `${key} ${label}`));
+  const tabRows = wrap([tabs.join(SPACE)], width).map((row) =>
+    row.replace(focusedTab, paint(colors, 'accent', focusedTab)),
+  );
+  const typed = state.draft !== undefined;
+  const status = typed ? `${PROMPT}${state.draft}` : (state.notice ?? hint(data));
+  const statusRows = wrap([status], width).map((row) =>
+    typed || state.notice !== undefined ? row : paint(colors, 'muted', row),
+  );
+  const paneHeight = Math.max(MIN_PANE_HEIGHT, height - tabRows.length - statusRows.length);
+  const boxes = columnsFor(state, data, width).map(({ pane, width: columns, focused: active }) =>
+    frame(
+      capabilities,
+      pane.title,
+      fit(wrap(pane.rows, columns - FRAME_COLUMNS), paneHeight - BORDER_ROWS, pane.follow),
+      columns,
+      active,
+    ),
+  );
+  const body = Array.from({ length: paneHeight }, (_, index) => boxes.map((box) => box[index] ?? '').join(''));
+  return [...tabRows, ...body, ...statusRows];
+};
 
-export const renderLinear = (data: TuiData, { width }: Capabilities): string[] => [
-  ...PANES.flatMap(({ id, label }) => section(`${label}:`, paneRows(id, data), width)),
-  ...(data.audio === undefined ? [] : wrap([data.audio], width)),
+const section = (title: string, rows: readonly string[], { width, colors }: Capabilities) => {
+  const [heading = '', ...rest] = wrap([title, ...rows], width);
+  return [paint(colors, 'title', heading), ...rest];
+};
+
+export const renderLinear = (data: TuiData, capabilities: Capabilities): string[] => [
+  ...PANES.flatMap(({ id, label }) => section(`${label}:`, paneRows(id, data), capabilities)),
+  ...(data.audio === undefined ? [] : wrap([data.audio], capabilities.width)),
 ];
 
 const isMechanic = (event: ClientEvent): event is VisualizationEvent => event.type === VISUALIZATION_EVENT;
@@ -272,7 +329,7 @@ const submit = (session: ClientSession, { snapshot }: TuiData, input: string): s
 const interactive = async (data: () => TuiData, act: Act, terminal: Terminal, keys: AsyncIterable<Key>) => {
   let state = INITIAL_STATE;
   const paint = () =>
-    terminal.write(`${CLEAR_SCREEN}${renderScreen(state, data(), terminal.capabilities).join(NEWLINE)}${NEWLINE}`);
+    terminal.write(`${CLEAR_SCREEN}${renderScreen(state, data(), terminal.capabilities).join(NEWLINE)}`);
   paint();
   for await (const key of keys) {
     state = nextState(state, key);
@@ -283,16 +340,17 @@ const interactive = async (data: () => TuiData, act: Act, terminal: Terminal, ke
 };
 
 const linear = async (data: () => TuiData, act: Act, terminal: Terminal) => {
-  const { width } = terminal.capabilities;
+  const { capabilities } = terminal;
+  const { width } = capabilities;
   const print = (rows: readonly string[]) => terminal.write(`${rows.join(NEWLINE)}${NEWLINE}`);
-  const show = ({ id, label }: Pane) => print(section(`${label}:`, paneRows(id, data()), width));
+  const show = ({ id, label }: Pane) => print(section(`${label}:`, paneRows(id, data()), capabilities));
   print(renderLinear(data(), terminal.capabilities));
   for await (const line of terminal.lines) {
     const text = line.trim();
     const pane = PANES.find(({ key }) => key === text);
     if (text === QUIT_KEY) return;
     if (text === '') continue;
-    if (text === HELP_KEY) print(section(HELP_TITLE, helpLines(data()), width));
+    if (text === HELP_KEY) print(section(HELP_TITLE, helpLines(data()), capabilities));
     else if (pane !== undefined) show(pane);
     else {
       const notice = act(text);

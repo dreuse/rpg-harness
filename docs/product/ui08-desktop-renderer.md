@@ -30,7 +30,7 @@
 - The window uses `contextIsolation: true`, `nodeIntegration: false` and `sandbox: true`.
 - `will-navigate` is blocked and `setWindowOpenHandler` denies every new window.
 - Main never pushes to a destroyed window. Closing the window stops the engine.
-- The page loads from `rpg://app/apps/desktop/src/index.html`. `serveAsset` serves only `.html` and `.ts` files under `apps/desktop/src/` and `packages/`, never tests.
+- The page loads from `rpg://app/apps/desktop/src/index.html`. `serveAsset` serves only `.html`, `.css` and `.ts` files under `apps/desktop/src/` and `packages/`, never tests.
 - `.ts` files are served as JavaScript through `stripTypeScriptTypes` from `node:module`. No bundler.
 - Every response carries `CONTENT_SECURITY_POLICY`: `default-src 'none'`, `script-src 'self'`, no inline scripts.
 - `bundlePreload` turns `preload.ts` into one sandboxed script that calls `exposeBridge(require('electron'))`. Main writes it to a temp folder at start.

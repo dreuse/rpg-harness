@@ -31,6 +31,15 @@ test('rpg-42a.7 serves TypeScript modules as plain JavaScript', async () => {
   assert.equal(shared.status, OK);
 });
 
+test('rpg-42a.11 serves stylesheets as CSS under the same policy', async () => {
+  for (const file of ['tokens.css', 'view.css']) {
+    const response = await serveAsset(APP_ROOT, asset(`apps/desktop/src/${file}`));
+    assert.equal(response.status, OK, file);
+    assert.match(response.headers.get('content-type') ?? '', /^text\/css/);
+    assert.equal(response.headers.get('content-security-policy'), CONTENT_SECURITY_POLICY);
+  }
+});
+
 test('rpg-42a.7 refuses files outside the renderer sources', async () => {
   for (const url of [
     asset('apps/desktop/src/%2e%2e%2f%2e%2e%2f%2e%2e%2fpackage.json'),

@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { app, BrowserWindow, ipcMain, protocol } from 'electron';
 import { dataDirFromEnv } from '../../cli/src/setup-check.ts';
+import { CAPTURE_ENV, CAPTURE_STATUS, captureScreens } from './capture.ts';
 import { SMOKE_ENV, SMOKE_STATUS, startMain } from './main.ts';
 import { APP_ROOT, APP_SCHEME, bundlePreload, PAGE_URL, PRELOAD_SOURCE, serveAsset } from './serve.ts';
 
@@ -32,6 +33,13 @@ const reportStatusAndQuit = () =>
     contents.once('did-finish-load', async () => {
       const status = await contents.executeJavaScript(STATUS_PROBE);
       process.stdout.write(`${SMOKE_STATUS}${status}${NEWLINE}`);
+      const window = BrowserWindow.fromWebContents(contents);
+      const dir = process.env[CAPTURE_ENV];
+      if (dir && window) {
+        mkdirSync(dir, { recursive: true });
+        for (const file of await captureScreens(window, dir, writeFileSync))
+          process.stdout.write(`${CAPTURE_STATUS}${file}${NEWLINE}`);
+      }
       app.quit();
     }),
   );

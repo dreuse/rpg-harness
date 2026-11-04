@@ -26,8 +26,10 @@ const OK = 200;
 const NOT_FOUND = 404;
 const HTML = '.html';
 const TYPESCRIPT = '.ts';
+const CSS = '.css';
 const CONTENT_TYPES: Readonly<Record<string, string>> = {
   [HTML]: 'text/html; charset=utf-8',
+  [CSS]: 'text/css; charset=utf-8',
   [TYPESCRIPT]: 'text/javascript; charset=utf-8',
 };
 const EXPORT_KEYWORD = /^export /gm;

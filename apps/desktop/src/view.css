@@ -1,0 +1,162 @@
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+:root:has([data-animate="false"]) {
+  --duration-fast: 0ms;
+  --duration-base: 0ms;
+}
+
+body {
+  margin: 0;
+  background: var(--surface);
+  color: var(--text);
+  font-family: var(--font-body);
+  font-size: var(--text-md);
+  line-height: var(--leading);
+}
+
+p,
+ul,
+ol {
+  margin: 0;
+}
+
+ul,
+ol {
+  display: grid;
+  gap: var(--space-2);
+  padding: 0;
+  list-style: none;
+}
+
+#app {
+  display: grid;
+  gap: var(--space-4);
+  max-width: var(--content-max);
+  margin-inline: auto;
+  padding: var(--space-4);
+  font-size: calc(var(--text-md) * var(--font-scale, 1));
+}
+
+main {
+  display: grid;
+  gap: var(--space-4);
+}
+
+main[data-layout="medium"] {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+main[data-layout="wide"] {
+  grid-template-columns: var(--sidebar) minmax(0, 2fr) minmax(0, 1.25fr);
+}
+
+main > div {
+  display: grid;
+  gap: var(--space-4);
+  align-content: start;
+  min-width: 0;
+}
+
+section {
+  padding: var(--space-4);
+  background: var(--surface-raised);
+  border: var(--border-width) solid var(--border);
+  border-radius: var(--radius-2);
+}
+
+section[data-region="rejected"] {
+  grid-column: 1 / -1;
+  border-color: var(--danger);
+}
+
+[data-region="conversation"] li {
+  display: grid;
+  gap: var(--space-1);
+  padding-block-end: var(--space-2);
+  border-block-end: var(--border-width) solid var(--border);
+}
+
+[data-region="conversation"] li > p:first-child {
+  color: var(--text-muted);
+  font-size: calc(var(--text-sm) * var(--font-scale, 1));
+}
+
+[data-region="conversation"] li > p:last-child {
+  font-size: calc(var(--text-lg) * var(--font-scale, 1));
+}
+
+[data-region="conversation"] li[aria-busy="true"] > p:last-child {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+[role="status"] {
+  color: var(--text-muted);
+  font-size: calc(var(--text-sm) * var(--font-scale, 1));
+}
+
+[role="alert"] {
+  color: var(--danger);
+}
+
+button {
+  min-height: var(--target-min);
+  padding: var(--space-2) var(--space-3);
+  font: inherit;
+  color: var(--text);
+  background: var(--surface);
+  border: var(--border-width) solid var(--border-strong);
+  border-radius: var(--radius-1);
+  cursor: pointer;
+  transition:
+    border-color var(--duration-fast) var(--ease),
+    box-shadow var(--duration-base) var(--ease);
+}
+
+button:hover {
+  border-color: var(--accent);
+}
+
+button[aria-current="true"] {
+  font-weight: var(--weight-strong);
+  border-color: var(--accent);
+  box-shadow: inset var(--marker-width) 0 0 var(--accent);
+}
+
+[data-region="campaigns"] button {
+  width: 100%;
+  text-align: start;
+}
+
+#action-form {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  max-width: var(--content-max);
+  margin-inline: auto;
+  padding: var(--space-4);
+}
+
+#action-form label {
+  color: var(--text-muted);
+}
+
+#action-input {
+  flex: 1;
+  min-height: var(--target-min);
+  padding: var(--space-2) var(--space-3);
+  font: inherit;
+  color: var(--text);
+  background: var(--surface-raised);
+  border: var(--border-width) solid var(--border-strong);
+  border-radius: var(--radius-1);
+}
+
+:focus-visible {
+  outline: var(--focus-width) solid var(--focus);
+  outline-offset: var(--focus-offset);
+}
