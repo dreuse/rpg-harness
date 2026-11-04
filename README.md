@@ -89,3 +89,30 @@ The driver is an **implementation aid**, not a guarantee that unreviewed model o
 - Claude Code commercial integration/authentication terms: https://code.claude.com/docs/en/legal-and-compliance
 
 No proprietary rulebook content, user files, binaries, or external credentials are bundled.
+
+## Run
+
+```bash
+pnpm install
+pnpm check:prereqs
+pnpm rpg
+pnpm rpg new Ember
+pnpm rpg play Ember
+pnpm rpg help
+```
+
+## Test
+
+```bash
+pnpm test
+```
+
+## Environment
+
+Optional:
+
+```bash
+RPG_DATA_DIR=  # default: OS data folder + /rpg, created on first run
+XDG_DATA_HOME=
+APPDATA=
+```

@@ -1,6 +1,5 @@
 import { randomUUID } from 'node:crypto';
 import { closeSync, existsSync, linkSync, mkdirSync, openSync, readdirSync, rmSync } from 'node:fs';
-import { homedir } from 'node:os';
 import { join } from 'node:path';
 import type { CampaignState, Turn } from '../../../packages/domain/src/campaign.ts';
 import type { Visibility } from '../../../packages/domain/src/entity.ts';
@@ -15,7 +14,6 @@ import type { CampaignGateway } from './main.ts';
 import { describeConfig, type Opening, openingFor, planCampaign } from './quickstart.ts';
 import { renderView, type ViewName } from './views.ts';
 
-const APP_DIR = 'rpg';
 const DATABASE_EXTENSION = '.sqlite';
 const SELECT_CAMPAIGN_ID = 'SELECT id FROM campaign LIMIT 1';
 const SELECT_EVENT_SCOPES = 'SELECT id, visibility, actor_id FROM event_log WHERE campaign_id = ?';
@@ -34,15 +32,6 @@ const TIME_SEPARATOR = /:/g;
 const SAFE_TIME_SEPARATOR = '-';
 const NONE = 'none';
 const LAUNCH_TEXT = 'Run rpg new <name> "<one sentence>" to start a campaign, or rpg resume <name> to continue one.';
-
-const userDataDir = (): string => {
-  const home = homedir();
-  if (process.platform === 'darwin') return join(home, 'Library', 'Application Support', APP_DIR);
-  if (process.platform === 'win32') return join(process.env.APPDATA || join(home, 'AppData', 'Roaming'), APP_DIR);
-  return join(process.env.XDG_DATA_HOME || join(home, '.local', 'share'), APP_DIR);
-};
-
-export const dataDirFromEnv = (): string => process.env.RPG_DATA_DIR || userDataDir();
 
 const databasePath = (dataDir: string, name: string) =>
   join(dataDir, `${encodeURIComponent(name)}${DATABASE_EXTENSION}`);
