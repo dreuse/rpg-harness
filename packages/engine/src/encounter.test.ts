@@ -7,10 +7,17 @@ import type { CampaignEvent, CampaignStore } from '../../domain/src/campaign.ts'
 import { createCampaignStore } from '../../persistence/src/campaign-store.ts';
 import { openDatabase } from '../../persistence/src/database.ts';
 import { replayRoll } from '../../rules/src/dice.ts';
-import { RULE_DSL_VERSION } from '../../rules/src/dsl.ts';
+import { type EffectiveMechanic, GM_ADJUDICATED, RULE_DSL_VERSION, type RuleDsl } from '../../rules/src/dsl.ts';
 import type { TraitSheet } from '../../rules/src/traits.ts';
 import { createScriptedRng } from '../../testkit/src/fixtures.ts';
-import { actInEncounter, currentEncounter, type EncounterMove, resolveEncounter, startEncounter } from './encounter.ts';
+import {
+  actInEncounter,
+  currentEncounter,
+  type EncounterMove,
+  type EncounterStart,
+  resolveEncounter,
+  startEncounter,
+} from './encounter.ts';
 import { InvalidActionError, type PlayerAction } from './turn.ts';
 
 const IN_MEMORY = ':memory:';
@@ -28,6 +35,10 @@ const HIGH_FACE = 6;
 const OUTCOME = 'The ferryman yields the oar.';
 const SITUATION_BONUS = 1;
 const UNREACHABLE = DIE_SIDES + 1;
+const STAMINA_MAX = 3;
+const STRAIN = 1;
+const RULE_PACK = { id: 'harbor-rules', edition: 'first', revision: '1' };
+const OTHER_PACK = { ...RULE_PACK, revision: '2' };
 const CAMPAIGN = { id: 'campaign-1', name: 'Harbor Lights' };
 const MARA = { id: 'mara', campaignId: CAMPAIGN.id, name: 'Mara' };
 const FERRYMAN = { id: 'ferryman', campaignId: CAMPAIGN.id, name: 'Ferryman' };
@@ -49,9 +60,10 @@ const SETUP_TURN = {
   input: 'Begin.',
   narration: 'A lantern sways at the end of the pier.',
 };
-const RULE = {
+const RULE: RuleDsl = {
   dslVersion: RULE_DSL_VERSION,
   id: 'contest',
+  costs: [{ kind: 'cost', resource: 'stamina', amount: { kind: 'const', value: STRAIN } }],
   effects: [
     {
       kind: 'setTrait',
@@ -67,11 +79,42 @@ const RULE = {
   ],
 };
 
+const UNREACHABLE_RULE: RuleDsl = {
+  ...RULE,
+  id: 'long-shot',
+  when: {
+    kind: 'compare',
+    op: 'gte',
+    left: { kind: 'dice', count: 1, sides: DIE_SIDES, modifier: 0 },
+    right: { kind: 'const', value: UNREACHABLE },
+  },
+};
+
+const mechanicOf = (rule: RuleDsl, rulePack = RULE_PACK): EffectiveMechanic => ({
+  ruleId: rule.id,
+  rulePack,
+  source: { kind: 'rulepack', sourceRef: rule.id, revision: rulePack.revision },
+  kind: 'deterministic',
+  rule: { rule, rulePack, sourceRefs: [rule.id], primitives: [], adjudicated: [], deterministic: true },
+});
+
+const ADJUDICATED: EffectiveMechanic = {
+  ruleId: 'parley',
+  rulePack: RULE_PACK,
+  source: { kind: 'rulepack', sourceRef: 'parley', revision: RULE_PACK.revision },
+  kind: GM_ADJUDICATED,
+  reason: 'AdjudicatedCapability',
+  issues: [],
+};
+
+const RULES = { rulePack: RULE_PACK, mechanics: [mechanicOf(RULE), mechanicOf(UNREACHABLE_RULE), ADJUDICATED] };
+
 const sheetOf = (characterId: string): TraitSheet => ({
   characterId,
   traits: [
     { id: 'skill', kind: 'trait', value: SKILL },
     { id: 'outcome', kind: 'trait', value: 0 },
+    { id: 'stamina', kind: 'resource', current: STAMINA_MAX, max: STAMINA_MAX },
   ],
 });
 
@@ -87,13 +130,21 @@ const base = (actionId: string, actorId: string, expectedRevision: number): Play
 
 const move = (actionId: string, actorId: string, expectedRevision: number, draw: number): EncounterMove => ({
   ...base(actionId, actorId, expectedRevision),
-  rule: RULE,
-  sheet: sheetOf(actorId),
+  ruleId: RULE.id,
   rng: createScriptedRng([draw]),
 });
 
-const start = (store: CampaignStore, expectedRevision = SETUP_REVISION) =>
-  startEncounter(store, { ...base('start', MARA.id, expectedRevision), participants: [MARA.id, FERRYMAN.id] });
+const PARTICIPANTS = [MARA.id, FERRYMAN.id];
+
+const opening = (overrides: Partial<EncounterStart> = {}): EncounterStart => ({
+  ...base('start', MARA.id, SETUP_REVISION),
+  participants: PARTICIPANTS,
+  rules: RULES,
+  sheets: PARTICIPANTS.map(sheetOf),
+  ...overrides,
+});
+
+const start = (store: CampaignStore) => startEncounter(store, opening());
 
 const setup = (store: CampaignStore) => {
   store.createCampaign(CAMPAIGN, CREATED_EVENT);
@@ -146,6 +197,8 @@ test('persist encounter initiation, transitions, mechanical turns and resolution
         actorId: MARA.id,
         outcome: undefined,
         actions: [],
+        rules: RULES,
+        sheets: { [MARA.id]: sheetOf(MARA.id), [FERRYMAN.id]: sheetOf(FERRYMAN.id) },
       },
     );
 
@@ -193,7 +246,10 @@ test('persist encounter initiation, transitions, mechanical turns and resolution
           modifiers: {},
           ok: true,
           faces: [[[MID_FACE]]],
-          changes: [{ id: 'outcome', from: 0, to: MID_FACE + SKILL }],
+          changes: [
+            { id: 'stamina', from: STAMINA_MAX, to: STAMINA_MAX - STRAIN },
+            { id: 'outcome', from: 0, to: MID_FACE + SKILL },
+          ],
         },
         {
           actorId: FERRYMAN.id,
@@ -203,7 +259,10 @@ test('persist encounter initiation, transitions, mechanical turns and resolution
           modifiers: { situation: SITUATION_BONUS },
           ok: true,
           faces: [[[HIGH_FACE]]],
-          changes: [{ id: 'outcome', from: 0, to: HIGH_FACE + SKILL }],
+          changes: [
+            { id: 'stamina', from: STAMINA_MAX, to: STAMINA_MAX - STRAIN },
+            { id: 'outcome', from: 0, to: HIGH_FACE + SKILL },
+          ],
         },
       ],
     );
@@ -217,13 +276,7 @@ test('a failed precondition is committed with its partial rolls and uses up the 
   try {
     setup(store);
     start(store);
-    const when = {
-      kind: 'compare',
-      op: 'gte',
-      left: { kind: 'dice', count: 1, sides: DIE_SIDES, modifier: 0 },
-      right: { kind: 'const', value: UNREACHABLE },
-    };
-    actInEncounter(store, { ...move('mara-1', MARA.id, SETUP_REVISION + 1, MID_DRAW), rule: { ...RULE, when } });
+    actInEncounter(store, { ...move('mara-1', MARA.id, SETUP_REVISION + 1, MID_DRAW), ruleId: UNREACHABLE_RULE.id });
     const state = loaded(store);
     assert.equal(state.revision, SETUP_REVISION + 2);
     const encounter = currentEncounter(state.events);
@@ -236,6 +289,7 @@ test('a failed precondition is committed with its partial rolls and uses up the 
     );
     assert.equal(encounter?.actorId, FERRYMAN.id);
     assert.equal(encounter?.round, FIRST_ROUND);
+    assert.deepEqual(encounter?.sheets[MARA.id], sheetOf(MARA.id));
   } finally {
     close();
   }
@@ -248,7 +302,7 @@ test('resume mid-encounter without rerolling previously committed mechanics', ()
   try {
     const writer = openStore(path);
     setup(writer.store);
-    start(writer.store);
+    const opened = start(writer.store);
     const committed = actInEncounter(writer.store, firstMove);
     writer.close();
 
@@ -266,12 +320,26 @@ test('resume mid-encounter without rerolling previously committed mechanics', ()
       const exhausted = () => assert.fail('committed mechanics must not draw again');
       const retried = actInEncounter(reader.store, { ...firstMove, rng: exhausted });
       assert.deepEqual(retried.events, committed.events);
+      assert.deepEqual(start(reader.store).events, opened.events);
 
       actInEncounter(reader.store, move('ferryman-1', FERRYMAN.id, SETUP_REVISION + 2, HIGH_DRAW));
       const after = currentEncounter(loaded(reader.store).events);
       assert.equal(after?.round, SECOND_ROUND);
       assert.equal(after?.actorId, MARA.id);
       assert.deepEqual(after?.actions[0], recorded);
+
+      actInEncounter(reader.store, move('mara-2', MARA.id, SETUP_REVISION + 3, HIGH_DRAW));
+      const carried = currentEncounter(loaded(reader.store).events);
+      const [, , second] = carried?.actions ?? [];
+      assert.deepEqual(second?.resolution.ok && second.resolution.changes, [
+        { id: 'stamina', from: STAMINA_MAX - STRAIN, to: STAMINA_MAX - STRAIN - STRAIN },
+        { id: 'outcome', from: MID_FACE + SKILL, to: HIGH_FACE + SKILL },
+      ]);
+      assert.deepEqual(carried?.sheets[MARA.id]?.traits, [
+        { id: 'skill', kind: 'trait', value: SKILL },
+        { id: 'outcome', kind: 'trait', value: HIGH_FACE + SKILL },
+        { id: 'stamina', kind: 'resource', current: STAMINA_MAX - STRAIN - STRAIN, max: STAMINA_MAX },
+      ]);
     } finally {
       reader.close();
     }
@@ -287,24 +355,53 @@ test('rejects encounter actions outside a valid transition', () => {
     const rejected = (run: () => unknown) => assert.throws(run, InvalidActionError);
     rejected(() => actInEncounter(store, move('early', MARA.id, SETUP_REVISION, MID_DRAW)));
     rejected(() => resolveEncounter(store, { ...base('early-end', MARA.id, SETUP_REVISION), outcome: OUTCOME }));
-    rejected(() =>
-      startEncounter(store, { ...base('stranger', MARA.id, SETUP_REVISION), participants: [MARA.id, 'stranger'] }),
-    );
-    rejected(() => startEncounter(store, { ...base('alone', MARA.id, SETUP_REVISION), participants: [] }));
-    rejected(() =>
-      startEncounter(store, { ...base('twice', MARA.id, SETUP_REVISION), participants: [MARA.id, MARA.id] }),
+    const opened = (actionId: string, overrides: Partial<EncounterStart>) => () =>
+      startEncounter(store, { ...opening(overrides), actionId });
+    rejected(opened('stranger', { participants: [MARA.id, 'stranger'] }));
+    rejected(opened('alone', { participants: [], sheets: [] }));
+    rejected(opened('twice', { participants: [MARA.id, MARA.id] }));
+    rejected(opened('outsider-sheet', { sheets: [sheetOf('stranger')] }));
+    rejected(opened('repeated-sheet', { sheets: [sheetOf(MARA.id), sheetOf(MARA.id)] }));
+    rejected(opened('bad-sheet', { sheets: [{ characterId: MARA.id, traits: [{ id: '', kind: 'tag' }] }] }));
+    rejected(opened('foreign-rule', { rules: { ...RULES, mechanics: [mechanicOf(RULE, OTHER_PACK)] } }));
+    rejected(opened('repeated-rule', { rules: { ...RULES, mechanics: [mechanicOf(RULE), mechanicOf(RULE)] } }));
+    rejected(
+      opened('bad-rule', {
+        rules: { ...RULES, mechanics: [mechanicOf({ ...RULE, effects: [{ kind: 'emitEvent', event: '' }] })] },
+      }),
     );
     start(store);
     const revision = SETUP_REVISION + 1;
     rejected(() => startEncounter(store, { ...base('again', MARA.id, revision), participants: [MARA.id] }));
     rejected(() => actInEncounter(store, move('out-of-turn', FERRYMAN.id, revision, MID_DRAW)));
-    rejected(() => actInEncounter(store, { ...move('wrong-sheet', MARA.id, revision, MID_DRAW), sheet: sheetOf('x') }));
-    rejected(() => actInEncounter(store, { ...move('bad-rule', MARA.id, revision, MID_DRAW), rule: {} }));
+    rejected(() => actInEncounter(store, { ...move('unknown-rule', MARA.id, revision, MID_DRAW), ruleId: 'x' }));
+    rejected(() =>
+      actInEncounter(store, { ...move('adjudicated', MARA.id, revision, MID_DRAW), ruleId: ADJUDICATED.ruleId }),
+    );
     rejected(() => resolveEncounter(store, { ...base('blank-end', MARA.id, revision), outcome: ' ' }));
     resolveEncounter(store, { ...base('end', MARA.id, revision), outcome: OUTCOME });
     rejected(() => actInEncounter(store, move('late', MARA.id, revision + 1, MID_DRAW)));
     rejected(() => resolveEncounter(store, { ...base('end-again', MARA.id, revision + 1), outcome: OUTCOME }));
     assert.equal(loaded(store).revision, revision + 1);
+  } finally {
+    close();
+  }
+});
+
+test('an encounter without pinned rules or sheets runs narratively and rejects mechanical moves', () => {
+  const { store, close } = openStore();
+  try {
+    setup(store);
+    startEncounter(store, { ...base('start', MARA.id, SETUP_REVISION), participants: PARTICIPANTS });
+    const encounter = currentEncounter(loaded(store).events);
+    assert.equal(encounter?.rules, undefined);
+    assert.deepEqual(encounter?.sheets[MARA.id], { characterId: MARA.id, traits: [] });
+    assert.throws(
+      () => actInEncounter(store, move('mara-1', MARA.id, SETUP_REVISION + 1, MID_DRAW)),
+      InvalidActionError,
+    );
+    resolveEncounter(store, { ...base('end', MARA.id, SETUP_REVISION + 1), outcome: OUTCOME });
+    assert.equal(currentEncounter(loaded(store).events)?.status, 'resolved');
   } finally {
     close();
   }

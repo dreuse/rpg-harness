@@ -9,7 +9,8 @@ import { type Fact, PLAYER_VIEWER } from '../../memory/src/knowledge.ts';
 import { createCampaignStore } from '../../persistence/src/campaign-store.ts';
 import { openDatabase } from '../../persistence/src/database.ts';
 import { createEntityStore } from '../../persistence/src/entity-store.ts';
-import { RULE_DSL_VERSION } from '../../rules/src/dsl.ts';
+import { type EffectiveMechanic, RULE_DSL_VERSION, type RuleDsl } from '../../rules/src/dsl.ts';
+import type { TraitSheet } from '../../rules/src/traits.ts';
 import { createScriptedRng } from '../../testkit/src/fixtures.ts';
 import { actInEncounter, type EncounterMove, startEncounter } from './encounter.ts';
 import {
@@ -90,7 +91,7 @@ const GATE: Fact = {
 const TOLD_BY_MARA = { channel: 'told', sourceId: MARA.id, eventId: null } as const;
 const QUEST_ID = 'find-ferry';
 const OBJECTIVE_ID = 'ask';
-const RULE = {
+const RULE: RuleDsl = {
   dslVersion: RULE_DSL_VERSION,
   id: 'contest',
   effects: [
@@ -101,6 +102,22 @@ const RULE = {
     },
   ],
 };
+const RULE_PACK = { id: 'harbor-rules', edition: 'first', revision: '1' };
+const CONTEST: EffectiveMechanic = {
+  ruleId: RULE.id,
+  rulePack: RULE_PACK,
+  source: { kind: 'rulepack', sourceRef: RULE.id, revision: RULE_PACK.revision },
+  kind: 'deterministic',
+  rule: {
+    rule: RULE,
+    rulePack: RULE_PACK,
+    sourceRefs: [RULE.id],
+    primitives: [],
+    adjudicated: [],
+    deterministic: true,
+  },
+};
+const MARA_SHEET: TraitSheet = { characterId: MARA.id, traits: [{ id: 'outcome', kind: 'trait', value: 0 }] };
 const MECHANICS = {
   combat: 'EncounterActionResolved',
   investigation: 'QuestObjectiveCompleted',
@@ -143,7 +160,12 @@ const open = (path = IN_MEMORY) => {
     relationships: {},
     learned: [],
   });
-  startEncounter(store, { ...actionFor(store, 'start'), participants: [MARA.id, FERRYMAN.id] });
+  startEncounter(store, {
+    ...actionFor(store, 'start'),
+    participants: [MARA.id, FERRYMAN.id],
+    rules: { rulePack: RULE_PACK, mechanics: [CONTEST] },
+    sheets: [MARA_SHEET],
+  });
   defineQuest(store, {
     ...actionFor(store, 'define'),
     questId: QUEST_ID,
@@ -163,8 +185,7 @@ const playScene = (store: CampaignStore, entities: EntityStore, kind: SceneKind,
   if (kind === 'combat') {
     const move: EncounterMove = {
       ...action,
-      rule: RULE,
-      sheet: { characterId: MARA.id, traits: [{ id: 'outcome', kind: 'trait', value: 0 }] },
+      ruleId: RULE.id,
       rng: createScriptedRng([DRAW]),
     };
     return playGameplayTurn(store, narrator, actInEncounter, move, CONTEXT);
@@ -281,8 +302,7 @@ test('reusing an action id with a different payload is rejected in every gamepla
     assert.throws(() => recordNpcLearning(store, entities, learning), ActionIdConflictError);
     const move: EncounterMove = {
       ...actionFor(store, 'combat'),
-      rule: RULE,
-      sheet: { characterId: MARA.id, traits: [{ id: 'outcome', kind: 'trait', value: 0 }] },
+      ruleId: RULE.id,
       rng: createScriptedRng([DRAW]),
       modifiers: { outcome: DIE_SIDES },
     };

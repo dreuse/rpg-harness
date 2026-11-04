@@ -12,7 +12,7 @@ import {
 import { GM_VIEWER, PLAYER_VIEWER, type Viewer, visibleTo } from '../../memory/src/knowledge.ts';
 import { createCampaignStore } from '../../persistence/src/campaign-store.ts';
 import { openDatabase } from '../../persistence/src/database.ts';
-import { RULE_DSL_VERSION } from '../../rules/src/dsl.ts';
+import { type EffectiveMechanic, RULE_DSL_VERSION, type RuleDsl } from '../../rules/src/dsl.ts';
 import { activeModifiers, applyEffect, endEffect, equip, unequip } from '../../rules/src/inventory.ts';
 import { resolveAction } from '../../rules/src/resolve.ts';
 import { type TraitSheet, validateTraitSheet } from '../../rules/src/traits.ts';
@@ -67,11 +67,27 @@ const ACCUSATION_CLUES = ['mud', 'will'];
 const ACCUSATION = 'accusation';
 const UNKNOWN_CLUE = 'forged-clue';
 
-const RULE = {
+const RULE: RuleDsl = {
   dslVersion: RULE_DSL_VERSION,
   id: 'contest',
   effects: [{ kind: 'emitEvent', event: 'contest.made' }],
 };
+const RULE_PACK = { id: 'harbor-rules', edition: 'first', revision: '1' };
+const CONTEST: EffectiveMechanic = {
+  ruleId: RULE.id,
+  rulePack: RULE_PACK,
+  source: { kind: 'rulepack', sourceRef: RULE.id, revision: RULE_PACK.revision },
+  kind: 'deterministic',
+  rule: {
+    rule: RULE,
+    rulePack: RULE_PACK,
+    sourceRefs: [RULE.id],
+    primitives: [],
+    adjudicated: [],
+    deterministic: true,
+  },
+};
+const RULES = { rulePack: RULE_PACK, mechanics: [CONTEST] };
 
 const setup = (): { store: CampaignStore; close: () => void } => {
   const connection = openDatabase(IN_MEMORY);
@@ -102,21 +118,22 @@ const sheetOf = (characterId: string, traits: TraitSheet['traits'] = []): TraitS
 const supplySheet = (): TraitSheet =>
   sheetOf(MARA.id, [{ id: 'supply', kind: 'resource', current: SUPPLY_START, max: SUPPLY_MAX }]);
 
-const move = (
-  actionId: string,
-  expectedRevision: number,
-  actorId: string,
-  sheet = sheetOf(actorId),
-): EncounterMove => ({
+const move = (actionId: string, expectedRevision: number, actorId: string, ruleId = RULE.id): EncounterMove => ({
   ...action(actionId, expectedRevision, actorId),
-  rule: RULE,
-  sheet,
+  ruleId,
   rng: createScriptedRng([MID_DRAW]),
+});
+
+const opening = (sheets: readonly TraitSheet[] = []) => ({
+  ...action('start', SETUP_REVISION),
+  participants: [MARA.id, FERRYMAN.id],
+  rules: RULES,
+  sheets,
 });
 
 const startedEncounter = () => {
   const harness = setup();
-  startEncounter(harness.store, { ...action('start', SETUP_REVISION), participants: [MARA.id, FERRYMAN.id] });
+  startEncounter(harness.store, opening());
   return harness;
 };
 
@@ -162,15 +179,10 @@ test('inventory bounds: gains clamp at max and spending past zero or minting thr
   assert.equal(!minting.ok && minting.error.code, 'InvalidAmount');
 });
 
-test('inventory bounds: the engine rejects a proposed sheet holding more than its max', () => {
-  const { store, close } = startedEncounter();
+test('inventory bounds: the engine rejects a stored sheet holding more than its max', () => {
+  const { store, close } = setup();
   const overfull = sheetOf(MARA.id, [{ id: 'supply', kind: 'resource', current: SUPPLY_MAX + 1, max: SUPPLY_MAX }]);
-  const revision = SETUP_REVISION + 1;
-  assertRejectedWithoutWrite(
-    store,
-    () => actInEncounter(store, move('overfull', revision, MARA.id, overfull)),
-    InvalidActionError,
-  );
+  assertRejectedWithoutWrite(store, () => startEncounter(store, opening([overfull])), InvalidActionError);
   close();
 });
 
@@ -315,7 +327,7 @@ test('malicious: a commit smuggling a foreign character or event is rejected ato
   close();
 });
 
-test('malicious: encounter moves out of turn, with a borrowed sheet, or after resolution are rejected', () => {
+test('malicious: encounter moves out of turn, with an unpinned rule, or after resolution are rejected', () => {
   const { store, close } = startedEncounter();
   const revision = SETUP_REVISION + 1;
   assertRejectedWithoutWrite(
@@ -325,7 +337,7 @@ test('malicious: encounter moves out of turn, with a borrowed sheet, or after re
   );
   assertRejectedWithoutWrite(
     store,
-    () => actInEncounter(store, move('borrow', revision, MARA.id, sheetOf(FERRYMAN.id))),
+    () => actInEncounter(store, move('unpinned', revision, MARA.id, 'forged-rule')),
     InvalidActionError,
   );
   resolveEncounter(store, { ...action('end', revision), outcome: OUTCOME });

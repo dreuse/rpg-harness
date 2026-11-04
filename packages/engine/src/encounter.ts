@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 import type {
   CampaignEvent,
   CampaignState,
@@ -7,20 +8,12 @@ import type {
   CommittedTurn,
   EventId,
 } from '../../domain/src/campaign.ts';
+import type { RulePackLink } from '../../domain/src/character.ts';
 import type { Rng, RollEvent } from '../../rules/src/dice.ts';
-import { parseRuleDsl, type RuleDsl } from '../../rules/src/dsl.ts';
+import { type EffectiveMechanic, parseRuleDsl, type RuleDsl } from '../../rules/src/dsl.ts';
 import { type ResolutionError, type RuleEvent, resolveAction, type TraitChange } from '../../rules/src/resolve.ts';
-import type { TraitSheet } from '../../rules/src/traits.ts';
-import {
-  commit,
-  InvalidActionError,
-  loadState,
-  type PlayerAction,
-  recorded,
-  replayOf,
-  requireValid,
-  validate,
-} from './turn.ts';
+import { type Trait, type TraitSheet, type TraitValue, validateTraitSheet } from '../../rules/src/traits.ts';
+import { commit, loadState, type PlayerAction, recorded, replayOf, requireValid, validate } from './turn.ts';
 
 export type EncounterId = string;
 export type EncounterStatus = 'active' | 'resolved';
@@ -44,12 +37,18 @@ export type Encounter = {
   readonly actorId: CharacterId;
   readonly outcome: string | undefined;
   readonly actions: readonly EncounterAction[];
+  readonly rules: EncounterRules | undefined;
+  readonly sheets: Readonly<Record<CharacterId, TraitSheet>>;
 };
+export type EncounterRules = { readonly rulePack: RulePackLink; readonly mechanics: readonly EffectiveMechanic[] };
 
-export type EncounterStart = PlayerAction & { readonly participants: readonly CharacterId[] };
+export type EncounterStart = PlayerAction & {
+  readonly participants: readonly CharacterId[];
+  readonly rules?: EncounterRules;
+  readonly sheets?: readonly TraitSheet[];
+};
 export type EncounterMove = PlayerAction & {
-  readonly rule: unknown;
-  readonly sheet: TraitSheet;
+  readonly ruleId: string;
   readonly rng: Rng;
   readonly modifiers?: Readonly<Record<string, number>>;
 };
@@ -65,6 +64,31 @@ const FIRST_SEAT = 0;
 const NEXT = 1;
 const INVALID_ACTION = 'InvalidAction';
 const NO_MODIFIERS: Readonly<Record<string, number>> = {};
+const DETERMINISTIC = 'deterministic';
+
+const blankSheet = (characterId: CharacterId): TraitSheet => ({ characterId, traits: [] });
+
+const sheetsOf = (participants: readonly CharacterId[], sheets: readonly TraitSheet[]) =>
+  Object.fromEntries(
+    participants.map((id) => [id, sheets.find(({ characterId }) => characterId === id) ?? blankSheet(id)]),
+  );
+
+const changed = (trait: Trait, to: TraitValue): Trait => {
+  if (trait.kind === 'resource') return { ...trait, current: Number(to) };
+  if (trait.kind === 'trait') return { ...trait, value: to };
+  return trait;
+};
+
+const applyChanges = (sheet: TraitSheet, changes: readonly TraitChange[]): TraitSheet => {
+  const latest = new Map(changes.map(({ id, to }) => [id, to]));
+  return {
+    ...sheet,
+    traits: sheet.traits.map((trait) => {
+      const to = latest.get(trait.id);
+      return to === undefined ? trait : changed(trait, to);
+    }),
+  };
+};
 
 type Payload = Readonly<Record<string, unknown>>;
 
@@ -80,6 +104,8 @@ const fold = (encounter: Encounter | undefined, { id, type, payload }: CampaignE
       actorId: participants[FIRST_SEAT] as CharacterId,
       outcome: undefined,
       actions: [],
+      rules: data.rules as EncounterRules | undefined,
+      sheets: sheetsOf(participants, (data.sheets ?? []) as TraitSheet[]),
     };
   }
   if (encounter === undefined || data.encounterId !== encounter.id) return encounter;
@@ -93,7 +119,11 @@ const fold = (encounter: Encounter | undefined, { id, type, payload }: CampaignE
       modifiers: data.modifiers as Readonly<Record<string, number>>,
       resolution: data.resolution as EncounterResolution,
     };
-    return { ...encounter, actions: [...encounter.actions, action] };
+    const { resolution, actorId } = action;
+    const sheets = resolution.ok
+      ? { ...encounter.sheets, [actorId]: applyChanges(encounter.sheets[actorId] as TraitSheet, resolution.changes) }
+      : encounter.sheets;
+    return { ...encounter, actions: [...encounter.actions, action], sheets };
   }
   if (type === TURN_ADVANCED) return { ...encounter, round: Number(data.round), actorId: String(data.actorId) };
   if (type === RESOLVED) return { ...encounter, status: 'resolved', outcome: String(data.outcome) };
@@ -109,12 +139,42 @@ const activeEncounter = (state: CampaignState, actionId: string): Encounter => {
   return encounter as Encounter;
 };
 
+const requireSheets = (actionId: string, participants: readonly CharacterId[], sheets: readonly TraitSheet[]) => {
+  const owners = sheets.map(({ characterId }) => characterId);
+  requireValid(actionId, new Set(owners).size === owners.length, 'sheets repeat a participant');
+  requireValid(
+    actionId,
+    owners.every((id) => participants.includes(id)),
+    'a sheet does not belong to a participant',
+  );
+  requireValid(
+    actionId,
+    sheets.every((sheet) => validateTraitSheet(sheet).ok),
+    'a sheet is invalid',
+  );
+};
+
+const requireRules = (actionId: string, { rulePack, mechanics }: EncounterRules) => {
+  const ids = mechanics.map(({ ruleId }) => ruleId);
+  requireValid(actionId, new Set(ids).size === ids.length, 'rule ids repeat');
+  requireValid(
+    actionId,
+    mechanics.every((mechanic) => isDeepStrictEqual({ ...mechanic.rulePack }, { ...rulePack })),
+    `a rule is not pinned to ${rulePack.id}@${rulePack.revision}`,
+  );
+  requireValid(
+    actionId,
+    mechanics.every((mechanic) => mechanic.kind !== DETERMINISTIC || parseRuleDsl(mechanic.rule.rule).ok),
+    'a rule is invalid',
+  );
+};
+
 export const startEncounter = (store: CampaignStore, start: EncounterStart): CommittedTurn => {
   const state = loadState(store, start.campaignId);
-  const stored = replayOf(state, start, recorded(STARTED, { participants: start.participants }));
+  const { actionId, participants, rules, sheets = [] } = start;
+  const stored = replayOf(state, start, recorded(STARTED, { participants, rules, sheets }));
   if (stored !== undefined) return stored;
   validate(state, start);
-  const { actionId, participants } = start;
   requireValid(actionId, currentEncounter(state.events)?.status !== ACTIVE, 'an encounter is already active');
   requireValid(actionId, participants.length > 0, 'participants are empty');
   requireValid(actionId, new Set(participants).size === participants.length, 'participants repeat');
@@ -124,7 +184,11 @@ export const startEncounter = (store: CampaignStore, start: EncounterStart): Com
     participants.every((id) => known.has(id)),
     'a participant is not in the campaign',
   );
-  return commit(store, start, [[STARTED, { encounterId: randomUUID(), participants: [...participants] }]]);
+  requireSheets(actionId, participants, sheets);
+  if (rules !== undefined) requireRules(actionId, rules);
+  return commit(store, start, [
+    [STARTED, { encounterId: randomUUID(), participants: [...participants], rules, sheets: [...sheets] }],
+  ]);
 };
 
 const seatAfter = (encounter: Encounter) => {
@@ -136,26 +200,27 @@ const seatAfter = (encounter: Encounter) => {
   };
 };
 
+const pinnedRule = (encounter: Encounter, actionId: string, ruleId: string): RuleDsl => {
+  const mechanic = encounter.rules?.mechanics.find((candidate) => candidate.ruleId === ruleId);
+  requireValid(actionId, mechanic !== undefined, `rule ${ruleId} is not in the pinned RulePack`);
+  requireValid(actionId, mechanic?.kind === DETERMINISTIC, `rule ${ruleId} needs GM adjudication`);
+  return (mechanic as Extract<EffectiveMechanic, { kind: typeof DETERMINISTIC }>).rule.rule;
+};
+
 export const actInEncounter = (store: CampaignStore, move: EncounterMove): CommittedTurn => {
-  const { actionId, actorId, rule, sheet, rng, modifiers } = move;
+  const { actionId, actorId, ruleId, rng, modifiers } = move;
   const state = loadState(store, move.campaignId);
-  const parsed = parseRuleDsl(rule);
   const applied = { ...(modifiers ?? NO_MODIFIERS) };
-  const sameMove = (stored: CommittedTurn) =>
-    parsed.ok &&
-    recorded(ACTION_RESOLVED, { ruleId: parsed.rule.id, dslVersion: parsed.rule.dslVersion, modifiers: applied })(
-      stored,
-    );
-  const stored = replayOf(state, move, sameMove);
+  const stored = replayOf(state, move, recorded(ACTION_RESOLVED, { ruleId, modifiers: applied }));
   if (stored !== undefined) return stored;
   validate(state, move);
   const encounter = activeEncounter(state, actionId);
   requireValid(actionId, encounter.actorId === actorId, `it is not ${actorId}'s turn`);
-  requireValid(actionId, sheet.characterId === actorId, `sheet does not belong to ${actorId}`);
-  if (!parsed.ok) throw new InvalidActionError(actionId, 'rule is invalid');
-  const { id: ruleId, dslVersion } = parsed.rule;
+  const rule = pinnedRule(encounter, actionId, ruleId);
+  const { dslVersion } = rule;
+  const sheet = encounter.sheets[actorId] as TraitSheet;
   const result = resolveAction({ actionId, rule, sheet, rng, modifiers: applied });
-  requireValid(actionId, result.ok || result.error.code !== INVALID_ACTION, 'sheet or modifiers are invalid');
+  requireValid(actionId, result.ok || result.error.code !== INVALID_ACTION, 'modifiers are invalid');
   const resolution: EncounterResolution = result.ok
     ? { ok: true, changes: result.changes, events: result.events, rolls: result.rolls }
     : result;

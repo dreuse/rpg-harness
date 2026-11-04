@@ -8,7 +8,7 @@ import { createCampaignStore } from '../../persistence/src/campaign-store.ts';
 import { openDatabase } from '../../persistence/src/database.ts';
 import { createEventStore } from '../../persistence/src/event-store.ts';
 import type { RollEvent } from '../../rules/src/dice.ts';
-import { RULE_DSL_VERSION } from '../../rules/src/dsl.ts';
+import { type EffectiveMechanic, RULE_DSL_VERSION, type RuleDsl } from '../../rules/src/dsl.ts';
 import { createScriptedRng } from '../../testkit/src/fixtures.ts';
 import { CAMPAIGN_PROJECTION_VERSION, campaignProjection, RecordedRollError } from './campaign.ts';
 import { checkpoint, EventOrderError, type Projection, replay, SnapshotMismatchError } from './replay.ts';
@@ -29,7 +29,7 @@ const SIDE_BRANCH = 'branch-what-if';
 const OTHER_CAMPAIGN = 'campaign-other';
 const ROLL_PATH = 'resolution';
 const NO_EVENTS = 0;
-const RULE = {
+const RULE: RuleDsl = {
   dslVersion: RULE_DSL_VERSION,
   id: 'contest',
   effects: [
@@ -44,6 +44,22 @@ const RULE = {
       },
     },
   ],
+};
+
+const RULE_PACK = { id: 'harbor-rules', edition: 'first', revision: '1' };
+const CONTEST: EffectiveMechanic = {
+  ruleId: RULE.id,
+  rulePack: RULE_PACK,
+  source: { kind: 'rulepack', sourceRef: RULE.id, revision: RULE_PACK.revision },
+  kind: 'deterministic',
+  rule: {
+    rule: RULE,
+    rulePack: RULE_PACK,
+    sourceRefs: [RULE.id],
+    primitives: [],
+    adjudicated: [],
+    deterministic: true,
+  },
 };
 
 const playSession = () => {
@@ -69,7 +85,6 @@ const playSession = () => {
     intent: 'Mara makes a move.',
   });
   engine.submitAction(action('look'));
-  startEncounter(store, { ...action('start'), participants: [actorId] });
   const sheet = {
     characterId: actorId,
     traits: [
@@ -77,8 +92,10 @@ const playSession = () => {
       { id: 'outcome', kind: 'trait' as const, value: 0 },
     ],
   };
+  const rules = { rulePack: RULE_PACK, mechanics: [CONTEST] };
+  startEncounter(store, { ...action('start'), participants: [actorId], rules, sheets: [sheet] });
   const acts = DRAWS.map((draw, index) =>
-    actInEncounter(store, { ...action(`act-${index}`), rule: RULE, sheet, rng: createScriptedRng([draw]) }),
+    actInEncounter(store, { ...action(`act-${index}`), ruleId: RULE.id, rng: createScriptedRng([draw]) }),
   );
   resolveEncounter(store, { ...action('end'), outcome: OUTCOME });
   const committedRolls = acts.flatMap(({ events }) =>
