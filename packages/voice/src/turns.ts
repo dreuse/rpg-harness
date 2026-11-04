@@ -23,12 +23,14 @@ export interface TurnDetectorDeps {
   readonly nextId: () => string;
   readonly now: () => number;
   readonly onTurn: (turn: VoiceTurn) => void;
+  readonly onSpeechStart?: () => void;
   readonly options?: TurnOptions;
 }
 
 export interface TurnDetector {
   start(mode: TurnMode): TurnMode | undefined;
   stop(): void;
+  cancel(): void;
   press(): void;
   release(): void;
   push(chunk: Uint8Array): void;
@@ -78,6 +80,7 @@ export const createTurnDetector = (deps: TurnDetectorDeps): TurnDetector => {
 
   const begin = (mode: TurnMode, chunks: Uint8Array[]): void => {
     open = { mode, chunks, startedAt: deps.now() };
+    deps.onSpeechStart?.();
   };
 
   const finish = (): void => {
@@ -122,6 +125,7 @@ export const createTurnDetector = (deps: TurnDetectorDeps): TurnDetector => {
       reset();
       active = undefined;
     },
+    cancel: reset,
     press() {
       if (active === 'push-to-talk' && !open) begin('push-to-talk', []);
     },

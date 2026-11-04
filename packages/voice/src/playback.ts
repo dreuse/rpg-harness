@@ -36,6 +36,7 @@ export interface OutputQueue {
   setSpeed(speed: number): void;
   speed(): number;
   interrupt(options?: InterruptOptions): void;
+  playing(): boolean;
   idle(): Promise<void>;
 }
 
@@ -108,6 +109,7 @@ export const createOutputQueue = (deps: OutputQueueDeps): OutputQueue => {
       current?.controller.abort();
       deps.onEvent({ kind: 'interrupted', utteranceEventId: current?.utterance.eventId, dropped });
     },
+    playing: () => current !== undefined,
     idle: () => draining ?? Promise.resolve(),
   };
 };
