@@ -1,5 +1,12 @@
 import { EVENT_BUCKETS, type EventBucket, type EventId } from '../../domain/src/campaign.ts';
 import type { EntityId } from '../../domain/src/entity.ts';
+import {
+  DEFAULT_PACING,
+  type PacingParams,
+  type PacingState,
+  type Selection,
+  selectSurfaced,
+} from '../../domain/src/pacing.ts';
 
 export type PlayerContext = {
   readonly playerId: EntityId;
@@ -20,6 +27,7 @@ const CRITICAL: EventBucket = 'critical';
 const MAJOR: EventBucket = 'major';
 const EMERGING: EventBucket = 'emerging';
 const BACKGROUND: EventBucket = 'background';
+const MISSING_EVENT_ID: EventId = '';
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const isId = (v: unknown): v is string => typeof v === 'string' && v.length > 0;
@@ -61,3 +69,20 @@ export const classifyEvent = (event: EventRelevance, player: PlayerContext, targ
   if (bucket === CRITICAL || target === undefined || !EVENT_BUCKETS.includes(target)) return bucket;
   return rank(bucket) > rank(target) ? target : bucket;
 };
+
+export const surfaceWorldEvents = (
+  state: PacingState,
+  events: readonly EventRelevance[],
+  player: PlayerContext,
+  params: PacingParams = DEFAULT_PACING,
+): Selection =>
+  selectSurfaced(
+    state,
+    events.map((event) => ({
+      id: isRecord(event) && isId(event.eventId) ? event.eventId : MISSING_EVENT_ID,
+      bucket: classifyEvent(event, player),
+      storylineId: isRecord(event) && isId(event.storylineId) ? event.storylineId : null,
+      solicited: false,
+    })),
+    params,
+  );
