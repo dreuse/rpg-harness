@@ -9,6 +9,8 @@ import type {
   Turn,
 } from '../../domain/src/campaign.ts';
 
+export type { VoiceFallback, VoiceProfile } from '../../domain/src/voice.ts';
+
 export const PROTOCOL_VERSION = 1;
 export type ProtocolVersion = typeof PROTOCOL_VERSION;
 

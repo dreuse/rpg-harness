@@ -1,3 +1,5 @@
+import type { VoiceProfile } from '../../client-protocol/src/protocol.ts';
+
 export type Locality = 'local' | 'cloud';
 export type Retention = 'none' | 'session' | 'persistent';
 export type MicrophoneMode = 'off' | 'push-to-talk' | 'hands-free';
@@ -23,14 +25,7 @@ export interface AudioInputProvider extends PrivacyDisclosure {
   transcribe(audio: AsyncIterable<Uint8Array>): AsyncIterable<TranscriptSegment>;
 }
 
-export interface VoiceProfile {
-  readonly id: string;
-  readonly language: string;
-  readonly pace: number;
-  readonly style: string;
-  readonly pronunciations: Readonly<Record<string, string>>;
-  readonly fallbacks: readonly { readonly providerId: string; readonly voiceId: string }[];
-}
+export type { VoiceProfile };
 
 export interface CommittedUtterance {
   readonly text: string;
