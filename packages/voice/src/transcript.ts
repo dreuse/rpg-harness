@@ -56,7 +56,7 @@ const clean = (text: string): string => text.normalize(UNICODE_FORM).replace(WHI
 
 const foldChar = (char: string): string => char.normalize(DECOMPOSED_FORM).replace(COMBINING_MARKS, '').toLowerCase();
 
-const fold = (text: string): string => Array.from(text, foldChar).join('');
+export const fold = (text: string): string => Array.from(text, foldChar).join('');
 
 const foldWithOffsets = (text: string): { readonly folded: string; readonly offsets: readonly number[] } => {
   let folded = '';
