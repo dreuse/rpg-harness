@@ -95,9 +95,12 @@ const redactCharacterCreated = (viewer: Viewer, committed: EventCommitted): Even
   const visibilities = payload.traitVisibility as TraitVisibilities | undefined;
   const profile = payload.profile as { traits?: { id: string }[] } | undefined;
   const overrides = payload.overrides as { fieldId: string }[] | undefined;
-  if (event.type !== CHARACTER_CREATED || viewer.scope === GM_SCOPE || visibilities === undefined) return committed;
-  const shown = (id: string) => traitShownTo(viewer, payload.actorId, visibilities[id]);
-  const traitVisibility = Object.fromEntries(Object.entries(visibilities).filter(([id]) => shown(id)));
+  if (event.type !== CHARACTER_CREATED || viewer.scope === GM_SCOPE) return committed;
+  const isOwner = viewer.scope === ACTOR_SCOPE && viewer.actorId === payload.actorId;
+  if (visibilities === undefined && isOwner) return committed;
+  const known = visibilities ?? {};
+  const shown = (id: string) => traitShownTo(viewer, payload.actorId, known[id]);
+  const traitVisibility = Object.fromEntries(Object.entries(known).filter(([id]) => shown(id)));
   const redacted = {
     ...payload,
     traitVisibility,

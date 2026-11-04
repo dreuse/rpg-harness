@@ -460,3 +460,29 @@ test('rpg-qzx.8: CharacterCreated redacts gm and hidden traits for non-gm subscr
   assert.match(JSON.stringify(gm), /GM-DOOM/);
   assert.doesNotMatch(JSON.stringify(player), /GM-DOOM|HIDDEN-SECRET|OWNER-ONLY|doom|secret/);
 });
+
+test('rpg-qzx.9: legacy CharacterCreated without traitVisibility fails closed for non-owner viewers', () => {
+  const { sessionFor, envelope, seed } = setup();
+  const payload = {
+    actorId: 'hero',
+    profile: { traits: [{ id: 'grit', value: 3 }] },
+    overrides: [{ fieldId: 'doom', value: 'GM-DOOM' }],
+  };
+  seed('legacy', 'CharacterCreated', payload, 'public');
+  const overridesOf = (events: readonly ClientEvent[]) =>
+    events.flatMap((event) =>
+      event.type === EVENT_COMMITTED && event.event.id === 'legacy' ? [event.event.payload.overrides] : [],
+    );
+  const player = collect(sessionFor(PLAYER_VIEWER), envelope);
+  const stranger = collect(sessionFor({ scope: 'actor', actorId: RIVAL }), envelope);
+  const owner = collect(sessionFor({ scope: 'actor', actorId: 'hero' }), envelope);
+  const gm = collect(sessionFor(GM_VIEWER), envelope);
+  assert.deepEqual(traitsOf(player, 'legacy'), [[]]);
+  assert.deepEqual(traitsOf(stranger, 'legacy'), [[]]);
+  assert.deepEqual(overridesOf(player), [[]]);
+  assert.deepEqual(overridesOf(stranger), [[]]);
+  assert.doesNotMatch(JSON.stringify(stranger), /GM-DOOM/);
+  assert.deepEqual(traitsOf(owner, 'legacy'), [['grit']]);
+  assert.match(JSON.stringify(owner), /GM-DOOM/);
+  assert.deepEqual(traitsOf(gm, 'legacy'), [['grit']]);
+});
