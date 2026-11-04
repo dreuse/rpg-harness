@@ -1,4 +1,5 @@
 import { parseArgs } from 'node:util';
+import { VIEW_NAMES, type ViewName } from './views.ts';
 
 export const EXIT_OK = 0;
 export const EXIT_FAILURE = 1;
@@ -24,6 +25,7 @@ export type CampaignGateway = {
   exportCampaign: (campaign: string, file: string) => string;
   backup: (campaign: string) => string;
   restore: (file: string) => string;
+  view: (campaign: string, view: ViewName) => string;
 };
 
 export type Io = {
@@ -52,8 +54,16 @@ const COMMANDS = [
   },
   { name: 'backup', usage: 'backup <campaign>', description: 'Save a dated archive of a campaign in the data folder.' },
   { name: 'restore', usage: 'restore <file>', description: 'Check an archive file and restore its campaign.' },
+  { name: 'sheet', usage: 'sheet <campaign>', description: 'Show your character sheet.' },
+  { name: 'inventory', usage: 'inventory <campaign>', description: 'Show the items you carry.' },
+  { name: 'journal', usage: 'journal <campaign>', description: 'Show the important events so far.' },
+  { name: 'quests', usage: 'quests <campaign>', description: 'Show your quests and their objectives.' },
+  { name: 'recap', usage: 'recap <campaign>', description: 'Show the current scene and the latest event.' },
   { name: 'help', usage: 'help', description: 'Show this help.' },
 ] as const;
+
+const isView = (command: string): command is ViewName => VIEW_NAMES.some((view) => view === command);
+const viewUsage = (view: ViewName) => COMMANDS.find(({ name }) => name === view)?.description ?? '';
 
 const helpText = (): string =>
   ['Usage: rpg [command]', 'Commands:', ...COMMANDS.map((c) => `  ${c.usage} - ${c.description}`), ''].join('\n');
@@ -77,31 +87,40 @@ const fail = (io: Io, error: unknown): number => {
 };
 
 const CONTROL_PREFIX = '/';
-const SESSION_HELP = [
-  'Type what you do in plain text. Plain text is a normal action.',
-  'Controls:',
-  '  /help - Show this help.',
-  '  /history - Show your previous inputs.',
-  '  /quit - End the session.',
-].join('\n');
+const sessionHelp = (views: readonly ViewName[]) =>
+  [
+    'Type what you do in plain text. Plain text is a normal action.',
+    'Controls:',
+    '  /help - Show this help.',
+    '  /history - Show your previous inputs.',
+    ...views.map((view) => `  ${CONTROL_PREFIX}${view} - ${viewUsage(view)}`),
+    '  /quit - End the session.',
+  ].join('\n');
 const QUIT_CONTROL = '/quit';
 const HELP_CONTROL = '/help';
 const HISTORY_CONTROL = '/history';
 const NO_HISTORY = 'No inputs yet.';
 
-const withControls = async function* (io: Io): AsyncGenerator<string> {
+const withControls = async function* (io: Io, show?: (view: ViewName) => string): AsyncGenerator<string> {
   const history: string[] = [];
   for await (const line of io.lines) {
     const text = line.trim();
+    const control = text.slice(CONTROL_PREFIX.length);
     if (!text.startsWith(CONTROL_PREFIX)) {
       if (text !== '') history.push(text);
       yield line;
     } else if (text === QUIT_CONTROL) {
       return;
     } else if (text === HELP_CONTROL) {
-      say(io, SESSION_HELP);
+      say(io, sessionHelp(show === undefined ? [] : VIEW_NAMES));
     } else if (text === HISTORY_CONTROL) {
       say(io, history.length === 0 ? NO_HISTORY : history.map((entry, index) => `${index + 1}. ${entry}`).join('\n'));
+    } else if (show !== undefined && isView(control)) {
+      try {
+        say(io, show(control));
+      } catch (error) {
+        reportError(io, error);
+      }
     } else {
       io.stderr(`Unknown control ${text}. Type /help for help.\n`);
     }
@@ -152,8 +171,19 @@ export const main = async (argv: readonly string[], io: Io, gateway: CampaignGat
     return run(io, () =>
       command === 'new'
         ? [gateway.create(name, intent)]
-        : gateway.open(name, command, withControls(io), (error) => reportError(io, error)),
+        : gateway.open(
+            name,
+            command,
+            withControls(io, (view) => gateway.view(name, view)),
+            (error) => reportError(io, error),
+          ),
     );
+  }
+  if (isView(command)) {
+    const [name, ...extra] = rest;
+    if (name === undefined || name.trim() === '') return usageError(io, `Missing campaign name for ${command}.`);
+    if (extra.length > 0) return usageError(io, `Unexpected argument: ${extra[0]}.`);
+    return run(io, () => [gateway.view(name, command)]);
   }
   if (command === 'import') {
     if (rest.length === 0 || rest.some((file) => file.trim() === '')) return usageError(io, 'Missing file for import.');

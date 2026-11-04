@@ -54,6 +54,10 @@ const setup = (input: readonly string[] = PLAYER_LINES) => {
       calls.push(`restore:${file}`);
       return `Restored ${file}.`;
     },
+    view: (name, view) => {
+      calls.push(`${view}:${name}`);
+      return `Viewed ${view}.`;
+    },
   };
   const out: string[] = [];
   const err: string[] = [];
@@ -82,6 +86,11 @@ test('help lists every command with a one-line description in plain text', async
       'export',
       'backup',
       'restore',
+      'sheet',
+      'inventory',
+      'journal',
+      'quests',
+      'recap',
       'help',
     ]) {
       assert.match(text, new RegExp(`^  ${command}\\b.* - .+$`, 'm'));
@@ -105,6 +114,11 @@ test('launch, new, play and resume dispatch to the gateway and confirm', async (
     [['export', 'Ember', 'ember.json'], 'export:Ember:ember.json'],
     [['backup', 'Ember'], 'backup:Ember'],
     [['restore', 'ember.json'], 'restore:ember.json'],
+    [['sheet', 'Ember'], 'sheet:Ember'],
+    [['inventory', 'Ember'], 'inventory:Ember'],
+    [['journal', 'Ember'], 'journal:Ember'],
+    [['quests', 'Ember'], 'quests:Ember'],
+    [['recap', 'Ember'], 'recap:Ember'],
   ];
   for (const [argv, call] of cases) {
     const { calls, gateway, io, out, err } = setup();
@@ -137,6 +151,8 @@ test('usage errors exit 2, hint at rpg help and never call the gateway', async (
     [['list', 'x'], 'x'],
     [['archive'], 'archive'],
     [['archive', ' '], 'archive'],
+    [['sheet'], 'sheet'],
+    [['quests', 'a', 'b'], 'b'],
     [['archive', 'a', 'b'], 'b'],
     [['delete'], 'delete'],
     [['delete', 'a', 'b'], 'b'],
@@ -195,6 +211,7 @@ test('gateway failures exit 1 and report the error on stderr', async () => {
     exportCampaign: broken,
     backup: broken,
     restore: broken,
+    view: broken,
   };
   for (const argv of [
     [],
@@ -208,6 +225,7 @@ test('gateway failures exit 1 and report the error on stderr', async () => {
     ['export', 'Ember', 'ember.json'],
     ['backup', 'Ember'],
     ['restore', 'ember.json'],
+    ['sheet', 'Ember'],
   ]) {
     const { io, err } = setup();
     assert.equal(await main(argv, io, failing), EXIT_FAILURE, argv.join(' '));
@@ -256,4 +274,14 @@ test('import streams conversation replies to the import workflow and honours /qu
   assert.deepEqual(calls, ['import:rules.md']);
   assert.deepEqual(out, ['reply:use my-pack\n']);
   assert.deepEqual(err, []);
+});
+
+test('session help lists only the controls the session supports', async () => {
+  const play = setup(['/help']);
+  assert.equal(await main(['play', 'Ember'], play.io, play.gateway), 0);
+  assert.match(play.out.join(''), /\/sheet/);
+  const imports = setup(['/help']);
+  assert.equal(await main(['import', 'rules.md'], imports.io, imports.gateway), 0);
+  assert.match(imports.out.join(''), /\/history/);
+  assert.doesNotMatch(imports.out.join(''), /\/sheet/);
 });

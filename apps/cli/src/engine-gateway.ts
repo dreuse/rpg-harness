@@ -3,18 +3,23 @@ import { closeSync, existsSync, linkSync, mkdirSync, openSync, readdirSync, rmSy
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import type { CampaignState, Turn } from '../../../packages/domain/src/campaign.ts';
+import type { Visibility } from '../../../packages/domain/src/entity.ts';
 import { createEngine, type Engine } from '../../../packages/engine/src/engine.ts';
 import { openScene, performAction } from '../../../packages/engine/src/turn.ts';
 import { createCampaignStore } from '../../../packages/persistence/src/campaign-store.ts';
 import { openDatabase } from '../../../packages/persistence/src/database.ts';
+import { createEntityStore } from '../../../packages/persistence/src/entity-store.ts';
 import { exportArchive, restoreArchive } from './campaign-archive.ts';
 import { importRules } from './import-gateway.ts';
 import type { CampaignGateway } from './main.ts';
 import { describeConfig, type Opening, openingFor, planCampaign } from './quickstart.ts';
+import { renderView, type ViewName } from './views.ts';
 
 const APP_DIR = 'rpg';
 const DATABASE_EXTENSION = '.sqlite';
 const SELECT_CAMPAIGN_ID = 'SELECT id FROM campaign LIMIT 1';
+const SELECT_EVENT_SCOPES = 'SELECT id, visibility, actor_id FROM event_log WHERE campaign_id = ?';
+const RECAP_VIEW = 'recap';
 const CREATE_EXCLUSIVE = 'wx';
 const FILE_EXISTS = 'EEXIST';
 const HERO_NAME = 'The Wanderer';
@@ -49,17 +54,24 @@ const missingCampaign = (dataDir: string, name: string) =>
     ? new Error(`Campaign ${name} is archived.`)
     : new Error(`No campaign named ${name}. Run rpg new ${name} first.`);
 
-type Session = { engine: Engine; store: ReturnType<typeof createCampaignStore>; campaignId: string };
+type Session = {
+  engine: Engine;
+  store: ReturnType<typeof createCampaignStore>;
+  campaignId: string;
+  database: ReturnType<typeof openDatabase>['database'];
+};
 
-const withSession = <T>(dataDir: string, name: string, run: (session: Session) => T): T => {
+const withSession = <T>(dataDir: string, name: string, run: (session: Session) => T, readOnly = false): T => {
   const path = databasePath(dataDir, name);
   if (!existsSync(path)) throw missingCampaign(dataDir, name);
-  const connection = openDatabase(path);
+  if (readOnly) openDatabase(path).close();
+  const connection = openDatabase(path, { readOnly });
   try {
-    const store = createCampaignStore(connection.database);
-    const row = connection.database.prepare(SELECT_CAMPAIGN_ID).get();
+    const { database } = connection;
+    const store = createCampaignStore(database);
+    const row = database.prepare(SELECT_CAMPAIGN_ID).get();
     if (row === undefined) throw new Error(`Campaign ${name} has no saved state.`);
-    return run({ engine: createEngine(store), store, campaignId: String(row.id) });
+    return run({ engine: createEngine(store), store, campaignId: String(row.id), database });
   } finally {
     connection.close();
   }
@@ -130,6 +142,36 @@ const recap = (characters: CampaignState['characters'], last: Turn | undefined) 
   if (last === undefined || actor === undefined) return DEFAULT_OPENING.narration;
   return last.narration.trim() === '' ? narrate(actor.name, last) : last.narration;
 };
+
+const recapText = (name: string, { currentScene, characters, turns }: CampaignState) =>
+  sceneText(currentScene?.title ?? name, recap(characters, turns.at(-1)));
+
+const readView = (dataDir: string, name: string, view: ViewName) =>
+  withSession(
+    dataDir,
+    name,
+    ({ engine, campaignId, database }) => {
+      const state = engine.getState(campaignId);
+      if (view === RECAP_VIEW) return recapText(name, state);
+      const entities = createEntityStore(database);
+      const [hero] = state.characters;
+      const eventScopes = database
+        .prepare(SELECT_EVENT_SCOPES)
+        .all(campaignId)
+        .map((row) => ({
+          id: String(row.id),
+          visibility: String(row.visibility) as Visibility,
+          actorId: row.actor_id === null ? null : String(row.actor_id),
+        }));
+      return renderView(view, {
+        state,
+        entities: entities.listEntities(campaignId),
+        relationships: hero === undefined ? [] : entities.listRelationships(campaignId, hero.id),
+        eventScopes,
+      });
+    },
+    true,
+  );
 
 const savedCampaigns = (dataDir: string) =>
   existsSync(dataDir)
@@ -225,12 +267,10 @@ export const createEngineGateway = (dataDir: string): CampaignGateway => ({
     const config = planCampaign(intent);
     return `${describeConfig(config)}\n${createCampaign(dataDir, name, openingFor(config, DEFAULT_OPENING))}`;
   },
+  view: (name, view) => readView(dataDir, name, view),
   importRules: (files, lines) => importRules(process.cwd(), files, lines),
   open: async function* (name, _mode, lines, onTurnError) {
-    yield withSession(dataDir, name, ({ engine, campaignId }) => {
-      const { currentScene, characters, turns } = engine.getState(campaignId);
-      return sceneText(currentScene?.title ?? name, recap(characters, turns.at(-1)));
-    });
+    yield readView(dataDir, name, RECAP_VIEW);
     for await (const line of lines) {
       if (line.trim() === '') continue;
       let narration: string;
