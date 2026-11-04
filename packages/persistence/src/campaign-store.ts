@@ -31,6 +31,7 @@ const INSERT_TURN =
   'INSERT INTO turn (id, campaign_id, scene_id, action_id, actor_id, input, narration, revision) VALUES (?, ?, ?, ?, ?, ?, ?, ?)';
 const APPEND_EVENT =
   'INSERT INTO event_log (id, campaign_id, branch_id, revision, action_id, turn_id, causation_id, type, payload) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)';
+const RECORD_NARRATION = 'UPDATE turn SET narration = ? WHERE id = ? AND campaign_id = ?';
 const SELECT_CHARACTERS = 'SELECT id, campaign_id, name FROM character WHERE campaign_id = ? ORDER BY rowid';
 const SELECT_CURRENT_SCENE =
   'SELECT scene.id, scene.campaign_id, scene.title FROM scene JOIN campaign ON campaign.current_scene_id = scene.id WHERE campaign.id = ?';
@@ -197,6 +198,12 @@ export const createCampaignStore = (database: DatabaseSync): CampaignStore => ({
     }),
   commitTurn: (commit) =>
     inTransaction(database, () => storedTurn(database, commit.turn) ?? writeTurn(database, commit)),
+  recordNarration: (campaignId, turnId, narration) =>
+    requireInCampaign(
+      campaignId,
+      `turn ${turnId}`,
+      database.prepare(RECORD_NARRATION).run(narration, turnId, campaignId).changes !== NO_CHANGES,
+    ),
   load: (id) => {
     const row = database.prepare(SELECT_CAMPAIGN).get(id);
     if (row === undefined) return undefined;

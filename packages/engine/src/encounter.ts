@@ -16,8 +16,9 @@ import {
   InvalidActionError,
   loadState,
   type PlayerAction,
+  recorded,
+  replayOf,
   requireValid,
-  storedTurn,
   validate,
 } from './turn.ts';
 
@@ -110,7 +111,7 @@ const activeEncounter = (state: CampaignState, actionId: string): Encounter => {
 
 export const startEncounter = (store: CampaignStore, start: EncounterStart): CommittedTurn => {
   const state = loadState(store, start.campaignId);
-  const stored = storedTurn(state, start.actionId);
+  const stored = replayOf(state, start, recorded(STARTED, { participants: start.participants }));
   if (stored !== undefined) return stored;
   validate(state, start);
   const { actionId, participants } = start;
@@ -136,18 +137,23 @@ const seatAfter = (encounter: Encounter) => {
 };
 
 export const actInEncounter = (store: CampaignStore, move: EncounterMove): CommittedTurn => {
+  const { actionId, actorId, rule, sheet, rng, modifiers } = move;
   const state = loadState(store, move.campaignId);
-  const stored = storedTurn(state, move.actionId);
+  const parsed = parseRuleDsl(rule);
+  const applied = { ...(modifiers ?? NO_MODIFIERS) };
+  const sameMove = (stored: CommittedTurn) =>
+    parsed.ok &&
+    recorded(ACTION_RESOLVED, { ruleId: parsed.rule.id, dslVersion: parsed.rule.dslVersion, modifiers: applied })(
+      stored,
+    );
+  const stored = replayOf(state, move, sameMove);
   if (stored !== undefined) return stored;
   validate(state, move);
-  const { actionId, actorId, rule, sheet, rng, modifiers } = move;
   const encounter = activeEncounter(state, actionId);
   requireValid(actionId, encounter.actorId === actorId, `it is not ${actorId}'s turn`);
   requireValid(actionId, sheet.characterId === actorId, `sheet does not belong to ${actorId}`);
-  const parsed = parseRuleDsl(rule);
   if (!parsed.ok) throw new InvalidActionError(actionId, 'rule is invalid');
   const { id: ruleId, dslVersion } = parsed.rule;
-  const applied = { ...(modifiers ?? NO_MODIFIERS) };
   const result = resolveAction({ actionId, rule, sheet, rng, modifiers: applied });
   requireValid(actionId, result.ok || result.error.code !== INVALID_ACTION, 'sheet or modifiers are invalid');
   const resolution: EncounterResolution = result.ok
@@ -162,7 +168,7 @@ export const actInEncounter = (store: CampaignStore, move: EncounterMove): Commi
 
 export const resolveEncounter = (store: CampaignStore, end: EncounterEnd): CommittedTurn => {
   const state = loadState(store, end.campaignId);
-  const stored = storedTurn(state, end.actionId);
+  const stored = replayOf(state, end, recorded(RESOLVED, { outcome: end.outcome }));
   if (stored !== undefined) return stored;
   validate(state, end);
   const { actionId, outcome } = end;

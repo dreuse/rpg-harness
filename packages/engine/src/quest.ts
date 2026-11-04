@@ -1,5 +1,5 @@
 import type { CampaignEvent, CampaignStore, CommittedTurn, EventId } from '../../domain/src/campaign.ts';
-import { commit, loadState, type PlayerAction, requireValid, storedTurn, validate } from './turn.ts';
+import { commit, loadState, type PlayerAction, recorded, replayOf, requireValid, validate } from './turn.ts';
 
 export const QUEST_STATUSES = ['pending', 'active', 'completed', 'failed'] as const;
 export const TERMINAL_QUEST_STATUSES = ['completed', 'failed'] as const;
@@ -93,10 +93,11 @@ export const unmetPrerequisites = (
 const run = (
   store: CampaignStore,
   action: PlayerAction,
+  [type, fields]: readonly [string, Readonly<Record<string, unknown>>],
   steps: (events: readonly CampaignEvent[], quests: Quests) => readonly (readonly [string, Record<string, unknown>])[],
 ): CommittedTurn => {
   const state = loadState(store, action.campaignId);
-  const stored = storedTurn(state, action.actionId);
+  const stored = replayOf(state, action, recorded(type, fields));
   if (stored !== undefined) return stored;
   validate(state, action);
   return commit(store, action, steps(state.events, projectQuests(state.events)));
@@ -129,7 +130,7 @@ const toPrerequisite = (
 };
 
 export const defineQuest = (store: CampaignStore, definition: PlayerAction & QuestDefinition): CommittedTurn =>
-  run(store, definition, (_, quests) => {
+  run(store, definition, [DEFINED, { questId: definition.questId, title: definition.title }], (_, quests) => {
     const { actionId, questId, title } = definition;
     requireValid(actionId, isFilled(questId), 'quest id is blank');
     requireValid(actionId, !quests.has(questId), `quest ${questId} is already defined`);
@@ -144,7 +145,7 @@ export const defineQuest = (store: CampaignStore, definition: PlayerAction & Que
   });
 
 export const activateQuest = (store: CampaignStore, target: QuestTarget): CommittedTurn =>
-  run(store, target, (events, quests) => {
+  run(store, target, [ACTIVATED, { questId: target.questId }], (events, quests) => {
     const quest = questIn(quests, target, PENDING);
     const unmet = unmetOf(events, quests, quest);
     requireValid(
@@ -156,17 +157,22 @@ export const activateQuest = (store: CampaignStore, target: QuestTarget): Commit
   });
 
 export const completeObjective = (store: CampaignStore, completion: ObjectiveCompletion): CommittedTurn =>
-  run(store, completion, (_, quests) => {
-    const { actionId, objectiveId } = completion;
-    const quest = questIn(quests, completion, ACTIVE);
-    const objective = quest.objectives.find(({ id }) => id === objectiveId);
-    requireValid(actionId, objective !== undefined, `objective ${objectiveId} is not part of quest ${quest.id}`);
-    requireValid(actionId, objective?.done === false, `objective ${objectiveId} is already complete`);
-    return [[OBJECTIVE_COMPLETED, { questId: quest.id, objectiveId }]];
-  });
+  run(
+    store,
+    completion,
+    [OBJECTIVE_COMPLETED, { questId: completion.questId, objectiveId: completion.objectiveId }],
+    (_, quests) => {
+      const { actionId, objectiveId } = completion;
+      const quest = questIn(quests, completion, ACTIVE);
+      const objective = quest.objectives.find(({ id }) => id === objectiveId);
+      requireValid(actionId, objective !== undefined, `objective ${objectiveId} is not part of quest ${quest.id}`);
+      requireValid(actionId, objective?.done === false, `objective ${objectiveId} is already complete`);
+      return [[OBJECTIVE_COMPLETED, { questId: quest.id, objectiveId }]];
+    },
+  );
 
 export const completeQuest = (store: CampaignStore, completion: QuestCompletion): CommittedTurn =>
-  run(store, completion, (_, quests) => {
+  run(store, completion, [COMPLETED, { questId: completion.questId, outcome: completion.outcome }], (_, quests) => {
     const { actionId, outcome } = completion;
     const quest = questIn(quests, completion, ACTIVE);
     requireValid(
@@ -179,7 +185,7 @@ export const completeQuest = (store: CampaignStore, completion: QuestCompletion)
   });
 
 export const failQuest = (store: CampaignStore, failure: QuestFailure): CommittedTurn =>
-  run(store, failure, (_, quests) => {
+  run(store, failure, [FAILED, { questId: failure.questId, reason: failure.reason }], (_, quests) => {
     const { actionId, reason } = failure;
     const quest = questIn(quests, failure, ACTIVE);
     requireValid(actionId, isFilled(reason), 'reason is blank');

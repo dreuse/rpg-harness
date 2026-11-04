@@ -16,7 +16,7 @@ import {
   STANCES,
   type Stance,
 } from '../../narrative/src/npc.ts';
-import { commit, loadState, type PlayerAction, requireValid, storedTurn, validate } from './turn.ts';
+import { commit, loadState, type PlayerAction, recorded, replayOf, requireValid, validate } from './turn.ts';
 
 export const NPC_LEARNED_FACT = 'NpcLearnedFact';
 export const STANCE_RELATIONSHIP = 'stance';
@@ -116,7 +116,8 @@ const persistLearning = (
 export const recordNpcLearning = (store: CampaignStore, entities: EntityStore, input: NpcLearning): CommittedTurn => {
   const { actionId, campaignId, npcId, fact, learning } = input;
   const state = loadState(store, campaignId);
-  const stored = storedTurn(state, actionId);
+  const learned = { npcId, factId: fact.id, ...learning };
+  const stored = replayOf(state, input, recorded(NPC_LEARNED_FACT, learned));
   if (stored !== undefined) {
     persistLearning(entities, campaignId, npcId, fact, stored);
     return stored;
@@ -130,7 +131,7 @@ export const recordNpcLearning = (store: CampaignStore, entities: EntityStore, i
     learnFact(npc as NpcState, fact, learning) !== npc,
     `npc ${npcId} cannot learn fact ${fact.id}`,
   );
-  const committed = commit(store, input, [[NPC_LEARNED_FACT, { npcId, factId: fact.id, ...learning }]]);
+  const committed = commit(store, input, [[NPC_LEARNED_FACT, learned]]);
   persistLearning(entities, campaignId, npcId, fact, committed);
   return committed;
 };

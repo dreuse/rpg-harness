@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 import {
   type CampaignEvent,
   type CampaignId,
@@ -127,10 +128,29 @@ const sameAction = ({ turn, events }: CommittedTurn, action: PlayerAction) =>
   turn.input === action.input &&
   events.find(({ type }) => type === SUBMITTED)?.payload.intent === action.intent;
 
+export const recorded =
+  (type: string, fields: Readonly<Record<string, unknown>>) =>
+  ({ events }: CommittedTurn) =>
+    events.some(
+      (event) =>
+        event.type === type &&
+        Object.entries(fields).every(([key, value]) => isDeepStrictEqual(event.payload[key], value)),
+    );
+
+export const replayOf = (
+  state: CampaignState,
+  action: PlayerAction,
+  matches: (stored: CommittedTurn) => boolean = () => true,
+): CommittedTurn | undefined => {
+  const stored = storedTurn(state, action.actionId);
+  if (stored !== undefined && !(sameAction(stored, action) && matches(stored)))
+    throw new ActionIdConflictError(action.actionId);
+  return stored;
+};
+
 export const performAction = (store: CampaignStore, action: PlayerAction): CommittedTurn => {
   const state = loadState(store, action.campaignId);
-  const stored = storedTurn(state, action.actionId);
-  if (stored !== undefined && !sameAction(stored, action)) throw new ActionIdConflictError(action.actionId);
+  const stored = replayOf(state, action);
   if (stored !== undefined) return stored;
   validate(state, action);
   return store.commitTurn({

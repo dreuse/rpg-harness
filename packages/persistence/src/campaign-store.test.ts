@@ -426,3 +426,18 @@ test('D08: campaign reads and action replays only see main-branch events', () =>
   assert.deepEqual(store.load(CAMPAIGN.id)?.events, [...EXPECTED_STATE.events, LEGACY_TURN_EVENT]);
   connection.close();
 });
+
+test('record narration on a committed turn without changing revision or events', () => {
+  const { connection, store } = openStore(IN_MEMORY);
+  create(store, CAMPAIGN);
+  store.commitTurn(COMMIT);
+  const narration = 'The ferryman nods.';
+  store.recordNarration(CAMPAIGN.id, TURN.id, narration);
+  assert.deepEqual(store.load(CAMPAIGN.id), {
+    ...EXPECTED_STATE,
+    turns: [{ ...TURN, narration }],
+  });
+  assert.throws(() => store.recordNarration(MISSING_ID, TURN.id, narration), CampaignBoundaryError);
+  assert.throws(() => store.recordNarration(CAMPAIGN.id, MISSING_ID, narration), CampaignBoundaryError);
+  connection.close();
+});

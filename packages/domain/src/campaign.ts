@@ -82,6 +82,7 @@ export interface CampaignStore {
   createCampaign(campaign: Campaign, event: CampaignChange): void;
   renameCampaign(rename: CampaignRename): void;
   commitTurn(commit: TurnCommit): CommittedTurn;
+  recordNarration(campaignId: CampaignId, turnId: TurnId, narration: string): void;
   load(id: CampaignId): CampaignState | undefined;
 }
 

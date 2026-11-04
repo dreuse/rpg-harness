@@ -1,21 +1,37 @@
 import assert from 'node:assert/strict';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { test } from 'node:test';
 import type { CampaignStore, CommittedTurn } from '../../domain/src/campaign.ts';
 import type { CampaignEntity, EntityStore } from '../../domain/src/entity.ts';
-import type { Fact } from '../../memory/src/knowledge.ts';
+import { type Fact, PLAYER_VIEWER } from '../../memory/src/knowledge.ts';
 import { createCampaignStore } from '../../persistence/src/campaign-store.ts';
 import { openDatabase } from '../../persistence/src/database.ts';
 import { createEntityStore } from '../../persistence/src/entity-store.ts';
 import { RULE_DSL_VERSION } from '../../rules/src/dsl.ts';
 import { createScriptedRng } from '../../testkit/src/fixtures.ts';
 import { actInEncounter, type EncounterMove, startEncounter } from './encounter.ts';
-import { type GameplayOutcome, type Narrator, playGameplayTurn } from './gameplay.ts';
+import {
+  type GameplayOutcome,
+  type NarrationContext,
+  type Narrator,
+  playGameplayTurn,
+  UncommittedTurnError,
+} from './gameplay.ts';
 import { recordNpcLearning, saveNpc } from './npc.ts';
 import { activateQuest, completeObjective, defineQuest } from './quest.ts';
 import { GameMasterInterruptedError } from './scripted-session.ts';
-import { type PlayerAction, storedTurn } from './turn.ts';
+import { ActionIdConflictError, type PlayerAction, storedTurn } from './turn.ts';
 
 const IN_MEMORY = ':memory:';
+const TEMP_PREFIX = 'rpg-gameplay-';
+const DATABASE_FILE = 'campaign.sqlite';
+const PENDING_NARRATION = '';
+const OTHER_OBJECTIVE_ID = 'search';
+const UNCOMMITTED_ACTION = 'never-committed';
+const NARRATOR_FAILURE = 'narrator crashed';
+const SECRET_LEAK = 'secret-leak';
 const DIE_SIDES = 6;
 const DRAW = 0.5;
 const INTERRUPTED_STEP = 0;
@@ -50,6 +66,17 @@ const WARDEN_ENTITY: CampaignEntity = {
   visibility: 'public',
   actorId: null,
 };
+const TRAITOR: Fact = {
+  id: 'fact-traitor',
+  campaignId: CAMPAIGN.id,
+  subjectId: null,
+  statement: 'The captain is the traitor.',
+  layer: 'canon',
+  visibility: 'gm',
+  actorId: null,
+  sourceEventId: null,
+};
+const CONTEXT: NarrationContext = { facts: [TRAITOR], equipment: {}, viewer: PLAYER_VIEWER };
 const GATE: Fact = {
   id: 'fact-gate',
   campaignId: CAMPAIGN.id,
@@ -91,10 +118,15 @@ const actionFor = (store: CampaignStore, actionId: string): PlayerAction => ({
   intent: `Mara does ${actionId}.`,
 });
 
-const open = () => {
-  const connection = openDatabase(IN_MEMORY);
+const connect = (path: string) => {
+  const connection = openDatabase(path);
   const store = createCampaignStore(connection.database);
   const entities = createEntityStore(connection.database);
+  return { store, entities, close: () => connection.close() };
+};
+
+const open = (path = IN_MEMORY) => {
+  const { store, entities, close } = connect(path);
   store.createCampaign(CAMPAIGN, CREATED_EVENT);
   store.commitTurn({
     expectedRevision: 0,
@@ -116,11 +148,14 @@ const open = () => {
     ...actionFor(store, 'define'),
     questId: QUEST_ID,
     title: 'Find the ferryman',
-    objectives: [{ id: OBJECTIVE_ID, summary: 'Ask the dockhands' }],
+    objectives: [
+      { id: OBJECTIVE_ID, summary: 'Ask the dockhands' },
+      { id: OTHER_OBJECTIVE_ID, summary: 'Search the boathouse' },
+    ],
     prerequisites: [],
   });
   activateQuest(store, { ...actionFor(store, 'activate'), questId: QUEST_ID });
-  return { store, entities, close: () => connection.close() };
+  return { store, entities, close };
 };
 
 const playScene = (store: CampaignStore, entities: EntityStore, kind: SceneKind, narrator: Narrator) => {
@@ -132,23 +167,36 @@ const playScene = (store: CampaignStore, entities: EntityStore, kind: SceneKind,
       sheet: { characterId: MARA.id, traits: [{ id: 'outcome', kind: 'trait', value: 0 }] },
       rng: createScriptedRng([DRAW]),
     };
-    return playGameplayTurn(store, narrator, actInEncounter, move);
+    return playGameplayTurn(store, narrator, actInEncounter, move, CONTEXT);
   }
   if (kind === 'investigation')
-    return playGameplayTurn(store, narrator, completeObjective, {
-      ...action,
-      questId: QUEST_ID,
-      objectiveId: OBJECTIVE_ID,
-    });
-  return playGameplayTurn(store, narrator, (s, a) => recordNpcLearning(s, entities, a), {
-    ...action,
-    npcId: WARDEN_ENTITY.id,
-    fact: GATE,
-    learning: TOLD_BY_MARA,
-  });
+    return playGameplayTurn(
+      store,
+      narrator,
+      completeObjective,
+      {
+        ...action,
+        questId: QUEST_ID,
+        objectiveId: OBJECTIVE_ID,
+      },
+      CONTEXT,
+    );
+  return playGameplayTurn(
+    store,
+    narrator,
+    (s, a) => recordNpcLearning(s, entities, a),
+    { ...action, npcId: WARDEN_ENTITY.id, fact: GATE, learning: TOLD_BY_MARA },
+    CONTEXT,
+  );
 };
 
-const narrationOf = ({ events }: CommittedTurn) => events.map(({ type }) => type).join(NARRATION_SEPARATOR);
+const textOf = ({ events }: CommittedTurn) => events.map(({ type }) => type).join(NARRATION_SEPARATOR);
+
+const narrationOf = (committed: CommittedTurn) => ({ narration: textOf(committed), claims: [] });
+
+const failingNarrator: Narrator = {
+  narrate: () => assert.fail('narrator must not run'),
+};
 
 const eventIds = (store: CampaignStore) => store.load(CAMPAIGN.id)?.events.map(({ id }) => id) ?? [];
 
@@ -173,7 +221,7 @@ test('commit mechanics before narrated results across combat, investigation and 
       };
       const outcome = narrated(playScene(store, entities, kind, narrator));
       assert.equal(received.length, 1);
-      assert.equal(outcome.narration, narrationOf(outcome.committed));
+      assert.equal(outcome.narration, textOf(outcome.committed));
       assert.deepEqual(outcome.committed, received[0]);
     }
   } finally {
@@ -200,9 +248,105 @@ test('model interruption resumes from committed state without duplication', () =
       assert.deepEqual(resumed.committed, interrupted.committed);
       assert.equal(
         resumed.narration,
-        narrationOf(storedTurn(store.load(CAMPAIGN.id) ?? assert.fail(), kind) ?? assert.fail()),
+        textOf(storedTurn(store.load(CAMPAIGN.id) ?? assert.fail(), kind) ?? assert.fail()),
       );
     }
+  } finally {
+    close();
+  }
+});
+
+test('narration never runs without a committed revision', () => {
+  const { store, close } = open();
+  try {
+    const action = actionFor(store, UNCOMMITTED_ACTION);
+    const before = store.load(CAMPAIGN.id);
+    const fabricated = (): CommittedTurn => ({ turn: { ...SETUP_TURN, actionId: UNCOMMITTED_ACTION }, events: [] });
+    assert.throws(() => playGameplayTurn(store, failingNarrator, fabricated, action, CONTEXT), UncommittedTurnError);
+    assert.deepEqual(store.load(CAMPAIGN.id), before);
+  } finally {
+    close();
+  }
+});
+
+test('reusing an action id with a different payload is rejected in every gameplay resolver', () => {
+  const { store, entities, close } = open();
+  try {
+    for (const kind of Object.keys(MECHANICS) as SceneKind[])
+      playScene(store, entities, kind, { narrate: narrationOf });
+    const before = store.load(CAMPAIGN.id);
+    const objective = { ...actionFor(store, 'investigation'), questId: QUEST_ID, objectiveId: OTHER_OBJECTIVE_ID };
+    assert.throws(() => completeObjective(store, objective), ActionIdConflictError);
+    const learning = { ...actionFor(store, 'social'), npcId: WARDEN_ENTITY.id, fact: TRAITOR, learning: TOLD_BY_MARA };
+    assert.throws(() => recordNpcLearning(store, entities, learning), ActionIdConflictError);
+    const move: EncounterMove = {
+      ...actionFor(store, 'combat'),
+      rule: RULE,
+      sheet: { characterId: MARA.id, traits: [{ id: 'outcome', kind: 'trait', value: 0 }] },
+      rng: createScriptedRng([DRAW]),
+      modifiers: { outcome: DIE_SIDES },
+    };
+    assert.throws(() => actInEncounter(store, move), ActionIdConflictError);
+    const crossed = { ...actionFor(store, 'combat'), questId: QUEST_ID, objectiveId: OTHER_OBJECTIVE_ID };
+    assert.throws(() => completeObjective(store, crossed), ActionIdConflictError);
+    assert.deepEqual(store.load(CAMPAIGN.id), before);
+  } finally {
+    close();
+  }
+});
+
+test('narration is persisted after commit and visible on resume', async () => {
+  const dir = await mkdtemp(join(tmpdir(), TEMP_PREFIX));
+  try {
+    const path = join(dir, DATABASE_FILE);
+    const first = open(path);
+    const outcome = narrated(playScene(first.store, first.entities, 'investigation', { narrate: narrationOf }));
+    first.close();
+    const reopened = connect(path);
+    try {
+      const stored = storedTurn(reopened.store.load(CAMPAIGN.id) ?? assert.fail(), 'investigation');
+      assert.equal(stored?.turn.narration, outcome.narration);
+      const resumed = narrated(playScene(reopened.store, reopened.entities, 'investigation', failingNarrator));
+      assert.equal(resumed.narration, outcome.narration);
+      assert.deepEqual(resumed.committed, stored);
+    } finally {
+      reopened.close();
+    }
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('consistency check runs before narration is persisted or presented', () => {
+  const { store, entities, close } = open();
+  try {
+    const leaking: Narrator = { narrate: () => ({ narration: TRAITOR.statement, claims: [] }) };
+    const outcome = playScene(store, entities, 'investigation', leaking);
+    assert.ok('inconsistent' in outcome);
+    assert.deepEqual(
+      outcome.inconsistent.violations.map(({ kind }) => kind),
+      [SECRET_LEAK],
+    );
+    const stored = storedTurn(store.load(CAMPAIGN.id) ?? assert.fail(), 'investigation');
+    assert.equal(stored?.turn.narration, PENDING_NARRATION);
+    const resumed = narrated(playScene(store, entities, 'investigation', { narrate: narrationOf }));
+    assert.equal(resumed.narration, textOf(resumed.committed));
+  } finally {
+    close();
+  }
+});
+
+test('a narrator error that is not an interruption is rethrown after commit', () => {
+  const { store, entities, close } = open();
+  try {
+    const crashing: Narrator = {
+      narrate: () => {
+        throw new Error(NARRATOR_FAILURE);
+      },
+    };
+    assert.throws(() => playScene(store, entities, 'investigation', crashing), { message: NARRATOR_FAILURE });
+    const stored = storedTurn(store.load(CAMPAIGN.id) ?? assert.fail(), 'investigation');
+    assert.equal(stored?.turn.narration, PENDING_NARRATION);
   } finally {
     close();
   }
