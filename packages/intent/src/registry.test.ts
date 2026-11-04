@@ -75,3 +75,15 @@ test('N03 unspecified version matches only a sole installed version', () => {
   assert.ok(ruleset.ok);
   assert.equal(ruleset.rulepack.edition, INSTALLED_EDITION);
 });
+
+test('rpg-ljs3 genre names match ids, names and aliases case-insensitively across separators', () => {
+  const registry: Registry = {
+    rulepacks: [],
+    genres: [{ id: 'science-fiction', version: '1.0.0', name: 'Hard Sci-Fi', aliases: ['space_opera'] }],
+  };
+  for (const id of ['science fiction', 'Science_Fiction', 'SCIENCE-FICTION', 'hard sci fi', 'Space Opera']) {
+    const match = matchGenre(registry, { id, version: null });
+    assert.equal(match.ok, true, id);
+  }
+  assert.equal(matchGenre(registry, { id: 'fantasy', version: null }).ok, false);
+});

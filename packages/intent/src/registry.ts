@@ -8,7 +8,7 @@ export type InstalledRulePack = {
   sourceRefs: string[];
   aliases?: string[];
 };
-export type InstalledGenrePack = { id: string; version: string };
+export type InstalledGenrePack = { id: string; version: string; name?: string; aliases?: string[] };
 export type Registry = { rulepacks: readonly InstalledRulePack[]; genres: readonly InstalledGenrePack[] };
 export type GenreChoice = { id: string; version: string | null };
 
@@ -19,6 +19,11 @@ export type RulesetMatch =
   | { ok: true; rulepack: InstalledRulePack; capabilities: CapabilityReport }
   | MatchFailure<RulesetChoice>;
 export type GenreMatch = { ok: true; genre: InstalledGenrePack } | MatchFailure<GenreChoice>;
+
+const SEPARATORS = /[\s_-]+/g;
+const nameKey = (name: string) => name.trim().toLowerCase().replace(SEPARATORS, '-');
+const genreNames = (genre: InstalledGenrePack) =>
+  [genre.id, genre.name, ...(genre.aliases ?? [])].flatMap((name) => (name === undefined ? [] : [nameKey(name)]));
 
 const select = <T, R>(candidates: T[], versionOf: (item: T) => string, wanted: string | null, requested: R) => {
   const available = candidates.map(versionOf);
@@ -50,7 +55,7 @@ export const matchRuleset = (
 };
 
 export const matchGenre = (registry: Registry, requested: GenreChoice): GenreMatch => {
-  const candidates = registry.genres.filter((genre) => genre.id === requested.id);
+  const candidates = registry.genres.filter((genre) => genreNames(genre).includes(nameKey(requested.id)));
   const result = select(candidates, (genre) => genre.version, requested.version, requested);
   return result.ok ? { ok: true, genre: result.found } : result;
 };
