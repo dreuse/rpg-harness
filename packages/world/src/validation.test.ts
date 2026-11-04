@@ -81,7 +81,7 @@ describe('W05 apply ruleset checks, resource costs, concurrency guards and event
     assert.equal(commit.expectedRevision, REVISION);
     assert.deepEqual(commit.actor.resources, { coin: 3, agents: 1 });
     assert.deepEqual(commit.event, {
-      id: `${proposal.actionId}:${WORLD_ACTION_APPLIED}`,
+      id: `${canon.campaignId}:${canon.branchId}:${proposal.actionId}:${WORLD_ACTION_APPLIED}`,
       campaignId: 'c1',
       branchId: 'main',
       actionId: proposal.actionId,

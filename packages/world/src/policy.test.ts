@@ -119,7 +119,10 @@ describe('W10 integrate genre and imported rule simulation policies', () => {
       const [commit] = commits as [WorldCommit];
       assert.deepEqual(commit.actor, guild);
       assert.equal(commit.event.type, WORLD_ACTION_ADJUDICATED);
-      assert.equal(commit.event.id, `guild:smuggle@${TICK}:${WORLD_ACTION_ADJUDICATED}`);
+      assert.equal(
+        commit.event.id,
+        `${canon.campaignId}:${canon.branchId}:guild:smuggle@${TICK}:${WORLD_ACTION_ADJUDICATED}`,
+      );
       assert.deepEqual((commit.event.payload as { outcome: unknown }).outcome, {
         mode: GM_ADJUDICATED,
         reason: declared === mechanics ? GM_ADJUDICATED : UNSUPPORTED_MECHANIC,

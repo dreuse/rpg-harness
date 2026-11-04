@@ -90,7 +90,7 @@ const appliedEvent = (
   outcome: object,
   type = WORLD_ACTION_APPLIED,
 ) => ({
-  id: `${proposal.actionId}:${type}`,
+  id: `${canon.campaignId}:${canon.branchId}:${proposal.actionId}:${type}`,
   campaignId: canon.campaignId,
   branchId: canon.branchId,
   actionId: proposal.actionId,
