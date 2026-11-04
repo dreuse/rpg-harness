@@ -34,6 +34,7 @@ import type { Engine } from '../../../packages/engine/src/engine.ts';
 import { type Scoped, type Viewer, visibleTo } from '../../../packages/memory/src/knowledge.ts';
 import { createEntityStore } from '../../../packages/persistence/src/entity-store.ts';
 import { createEventStore } from '../../../packages/persistence/src/event-store.ts';
+import { resultsOf, visualizationPreferenceOf } from './roll-visualization.ts';
 import { panelsOf } from './views.ts';
 
 export type ScopedEvent = DomainEvent & Scoped;
@@ -100,11 +101,14 @@ export const createClientSessions = (
   const scopes = new Map<EventId, Scoped>();
 
   const sync = () => {
-    for (const { visibility, ...event } of readEvents(campaignId)) {
-      if (scopes.has(event.id)) continue;
+    const fresh = readEvents(campaignId).filter(({ id }) => !scopes.has(id));
+    if (fresh.length === 0) return;
+    const preference = visualizationPreferenceOf(engine.getState(campaignId).events);
+    for (const { visibility, ...event } of fresh) {
       scopes.set(event.id, { visibility, actorId: event.actorId });
       const published = log.publish(toClientEvent(event));
       if (!published.ok) throw new Error(published.error.message);
+      for (const result of resultsOf(event.payload, visibility)) log.visualize(result, preference);
     }
   };
 

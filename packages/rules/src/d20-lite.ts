@@ -232,6 +232,9 @@ export type CheckInput = {
 export const attemptCheck = ({ actionId, sheet, attribute, dc, rng, edge = 0 }: CheckInput) =>
   resolveTable({ actionId, table: checkTable(attribute), sheet, rng, modifiers: { [DC]: dc, [EDGE]: edge } });
 
+export const checkBonus = ({ sheet, attribute, edge = 0 }: Pick<CheckInput, 'sheet' | 'attribute' | 'edge'>) =>
+  numberOf(sheet, modId(attribute)) + edge;
+
 export type AttackInput = {
   actionId: string;
   attacker: TraitSheet;

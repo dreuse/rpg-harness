@@ -10,14 +10,17 @@ import {
 } from '../../../packages/client-protocol/src/protocol.ts';
 import { parseSheetSchema, type SheetEdit } from '../../../packages/client-protocol/src/sheet-widgets.ts';
 import { VISUALIZATION_EVENT } from '../../../packages/client-protocol/src/visualization.ts';
-import { MAIN_BRANCH } from '../../../packages/domain/src/campaign.ts';
+import { CAMPAIGN_CONFIGURED, MAIN_BRANCH } from '../../../packages/domain/src/campaign.ts';
 import type { Visibility } from '../../../packages/domain/src/entity.ts';
 import { createEngine } from '../../../packages/engine/src/engine.ts';
 import { openScene } from '../../../packages/engine/src/turn.ts';
+import { generateCampaignConfig } from '../../../packages/intent/src/config.ts';
+import { createCampaignIntent } from '../../../packages/intent/src/intent.ts';
 import { GM_VIEWER, PLAYER_VIEWER, type Viewer } from '../../../packages/memory/src/knowledge.ts';
 import { createCampaignStore } from '../../../packages/persistence/src/campaign-store.ts';
 import { openDatabase } from '../../../packages/persistence/src/database.ts';
 import { createEntityStore } from '../../../packages/persistence/src/entity-store.ts';
+import { createRoller, createSeededRng } from '../../../packages/rules/src/dice.ts';
 import { createClientSessions, type SheetPort, scopedEventsOf, worldOf } from './client-session.ts';
 
 const IN_MEMORY = ':memory:';
@@ -28,6 +31,34 @@ const RIVAL_VIEWER: Viewer = { scope: 'actor', actorId: RIVAL };
 const OPENING_REVISION = 1;
 const INSERT_EVENT =
   'INSERT INTO event_log (id, campaign_id, branch_id, revision, turn_id, type, payload, visibility, actor_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)';
+
+const ROLL_SEED = 11;
+const D20 = { dice: [{ count: 1, sides: 20 }], modifier: 2 };
+const explicit = <T>(value: T) => ({ value, provenance: 'explicit' as const });
+const DICE_REGISTRY = {
+  rulepacks: [{ ...RULEPACK, capabilities: { dice: true }, sourceRefs: [] }],
+  genres: [],
+};
+
+const visualizingConfig = () => {
+  const intent = createCampaignIntent({
+    ruleset: explicit({ id: RULEPACK.id, edition: RULEPACK.edition }),
+    diceVisualization: explicit(true),
+    client: explicit('tui'),
+  });
+  const generated = generateCampaignConfig(intent, DICE_REGISTRY);
+  assert.ok(generated.ok);
+  return generated.config;
+};
+
+const resolvedRoll = (rollId: string) => {
+  const rolled = createRoller(createSeededRng(ROLL_SEED))(rollId, D20);
+  assert.ok(rolled.ok);
+  return {
+    ruleId: 'swim',
+    resolution: { ok: true, changes: [], events: [{ event: 'swim.made' }], rolls: [rolled.roll] },
+  };
+};
 
 const SHEET_SCHEMA = parseSheetSchema({
   fields: [
@@ -286,6 +317,40 @@ test('visualizations reach each session only when its viewer may see the result'
   assert.deepEqual(shown(received.gm), ['gm', 'player', 'public', 'actor-scoped']);
   assert.deepEqual(shown(received.player), ['player', 'public']);
   assert.deepEqual(shown(received.actor), []);
+});
+
+test('committed rolls reach each session as visualizations through the event visibility', () => {
+  const { sessionFor, envelope, seed } = setup();
+  seed('config', CAMPAIGN_CONFIGURED, { config: visualizingConfig() }, 'gm');
+  const player = collect(sessionFor(PLAYER_VIEWER), envelope);
+  const rival = collect(sessionFor(RIVAL_VIEWER), envelope);
+  const gm = collect(sessionFor(GM_VIEWER), envelope);
+  seed('swim-roll', 'RuleResolved', resolvedRoll('swim-roll'), 'player');
+  seed('ambush-roll', 'RuleResolved', resolvedRoll('ambush-roll'), 'gm');
+  seed('rival-roll', 'RuleResolved', resolvedRoll('rival-roll'), 'actor-scoped', RIVAL);
+  sessionFor(PLAYER_VIEWER).getSnapshot({ ...envelope, type: 'GetCampaignSnapshot' });
+  const shown = (events: readonly ClientEvent[]) =>
+    events.flatMap((event) => (event.type === VISUALIZATION_EVENT ? [[event.resultId, event.final.outcome]] : []));
+  assert.deepEqual(shown(player), [['swim-roll', 'swim.made']]);
+  assert.deepEqual(shown(rival), []);
+  assert.deepEqual(shown(gm), [
+    ['swim-roll', 'swim.made'],
+    ['ambush-roll', 'swim.made'],
+    ['rival-roll', 'swim.made'],
+  ]);
+  assert.doesNotMatch(JSON.stringify(player), /ambush-roll|rival-roll/);
+});
+
+test('committed rolls are not visualized when the campaign has not turned visualization on', () => {
+  const { sessionFor, envelope, seed } = setup();
+  const gm = collect(sessionFor(GM_VIEWER), envelope);
+  seed('swim-roll', 'RuleResolved', resolvedRoll('swim-roll'), 'public');
+  sessionFor(GM_VIEWER).getSnapshot({ ...envelope, type: 'GetCampaignSnapshot' });
+  assert.deepEqual(
+    gm.filter((event) => event.type === VISUALIZATION_EVENT),
+    [],
+  );
+  assert.ok(ids(gm).includes('swim-roll'));
 });
 
 test('EditSheetField commits a re-validated edit through the engine sheet port', () => {
