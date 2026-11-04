@@ -29,11 +29,19 @@ const ACTION: PlayerAction = {
   intent: 'Mara searches the dock for the ferryman.',
 };
 const BLANK = '   ';
+const CREATED_EVENT = {
+  id: 'created-1',
+  campaignId: CAMPAIGN.id,
+  branchId: 'main',
+  actionId: 'create',
+  type: 'CampaignCreated',
+  payload: { name: CAMPAIGN.name },
+};
 
 const openEngineStore = (): { store: CampaignStore; close: () => void } => {
   const connection = openDatabase(IN_MEMORY);
   const store = createCampaignStore(connection.database);
-  store.createCampaign(CAMPAIGN);
+  store.createCampaign(CAMPAIGN, CREATED_EVENT);
   store.commitTurn({ expectedRevision: 0, turn: SETUP_TURN, characters: [CHARACTER], scenes: [SCENE], events: [] });
   return { store, close: () => connection.close() };
 };
