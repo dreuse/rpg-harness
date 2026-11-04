@@ -1,6 +1,6 @@
-import { readFileSync, realpathSync } from 'node:fs';
+import { readFileSync, realpathSync, statSync } from 'node:fs';
 import { basename, isAbsolute, relative, resolve, sep } from 'node:path';
-import type { IngestFormat } from '../../../packages/imports/src/formats.ts';
+import { type IngestFormat, MAX_IMPORT_BYTES } from '../../../packages/imports/src/formats.ts';
 import type { Interpreter } from '../../../packages/imports/src/interpretation.ts';
 import { runImportConversation } from '../../../packages/imports/src/workflow.ts';
 import { D20_LITE_MANIFEST } from '../../../packages/rules/src/d20-lite.ts';
@@ -53,6 +53,10 @@ const readInside = (root: string, file: string) => {
   ) {
     throw new Error(`${file} is outside the import folder.`);
   }
+  const stats = statSync(path);
+  if (!stats.isFile()) throw new Error(`${file} is not a regular file.`);
+  if (stats.size > MAX_IMPORT_BYTES)
+    throw new Error(`${file} is larger than the ${MAX_IMPORT_BYTES} byte import limit.`);
   return { fileName: basename(path), bytes: readFileSync(path) };
 };
 
