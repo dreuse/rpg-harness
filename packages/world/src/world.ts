@@ -7,6 +7,9 @@ export const MIN_BUDGET = 1;
 export const MIN_KNOB = 0;
 export const MAX_KNOB = 1;
 export const KNOB_FIELDS = ['worldAutonomy', 'storyIntensity', 'consequenceSeverity'] as const;
+export const MALFORMED_ACTION = 'malformed action';
+export const ACTION_BUDGET_EXCEEDED = 'action budget exceeded';
+export const ACTOR_BUDGET_EXCEEDED = 'actor budget exceeded';
 
 export type SimulationMode = (typeof SIMULATION_MODES)[number];
 export type Trigger =
@@ -108,6 +111,15 @@ const fires = (trigger: Trigger, clock: LogicalClock) => {
 export const firingTriggers = (config: WorldConfig, clock: LogicalClock): Trigger[] =>
   config.mode === 'off' ? [] : config.triggers.filter((t) => fires(t, clock));
 
+export const isActorAction = (v: unknown): v is ActorAction =>
+  isRecord(v) &&
+  isNonEmpty(v.actionId) &&
+  isNonEmpty(v.actorId) &&
+  isNonEmpty(v.kind) &&
+  isTick(v.tick) &&
+  Array.isArray(v.knowledgeRefs) &&
+  v.knowledgeRefs.every(isNonEmpty);
+
 export const admitProposals = (config: WorldConfig, proposals: readonly ActorAction[]) => {
   const accepted: ActorAction[] = [];
   const rejected: Rejection[] = [];
@@ -116,19 +128,11 @@ export const admitProposals = (config: WorldConfig, proposals: readonly ActorAct
   for (const action of proposals) {
     const reject = (reason: string) => rejected.push({ action, reason });
     if (config.mode === 'off') reject('world simulation is off');
-    else if (
-      !isNonEmpty(action.actionId) ||
-      !isNonEmpty(action.actorId) ||
-      !isNonEmpty(action.kind) ||
-      !isTick(action.tick) ||
-      !Array.isArray(action.knowledgeRefs) ||
-      !action.knowledgeRefs.every(isNonEmpty)
-    )
-      reject('malformed action');
+    else if (!isActorAction(action)) reject(MALFORMED_ACTION);
     else if (action.knowledgeRefs.length === 0) reject('missing knowledge refs');
     else if (ids.has(action.actionId)) reject('duplicate action id');
-    else if (accepted.length >= config.budget.maxActions) reject('action budget exceeded');
-    else if (!actors.has(action.actorId) && actors.size >= config.budget.maxActors) reject('actor budget exceeded');
+    else if (accepted.length >= config.budget.maxActions) reject(ACTION_BUDGET_EXCEEDED);
+    else if (!actors.has(action.actorId) && actors.size >= config.budget.maxActors) reject(ACTOR_BUDGET_EXCEEDED);
     else {
       ids.add(action.actionId);
       actors.add(action.actorId);
