@@ -10,7 +10,7 @@ export type CampaignMode = 'play' | 'resume';
 
 export type CampaignGateway = {
   launch: () => string;
-  create: (name: string) => string;
+  create: (name: string, intent?: string) => string;
   open: (
     campaign: string,
     mode: CampaignMode,
@@ -28,7 +28,11 @@ export type Io = {
 
 const COMMANDS = [
   { name: 'launch', usage: 'launch', description: 'Open the launcher. This is the default.' },
-  { name: 'new', usage: 'new <name>', description: 'Create a campaign.' },
+  {
+    name: 'new',
+    usage: 'new <name> [intent]',
+    description: 'Create a campaign from defaults or a one-sentence intent.',
+  },
   { name: 'play', usage: 'play <campaign>', description: 'Start playing a campaign.' },
   { name: 'resume', usage: 'resume <campaign>', description: 'Continue a campaign.' },
   { name: 'import', usage: 'import <file...>', description: 'Import rule files and choose what to activate.' },
@@ -120,10 +124,11 @@ export const main = async (argv: readonly string[], io: Io, gateway: CampaignGat
   if (command === 'new' || command === 'play' || command === 'resume') {
     const [name, ...extra] = rest;
     if (name === undefined || name.trim() === '') return usageError(io, `Missing campaign name for ${command}.`);
-    if (extra.length > 0) return usageError(io, `Unexpected argument: ${extra[0]}.`);
+    const [intent, ...unexpected] = command === 'new' ? extra : [undefined, ...extra];
+    if (unexpected.length > 0) return usageError(io, `Unexpected argument: ${unexpected[0]}.`);
     return run(io, () =>
       command === 'new'
-        ? [gateway.create(name)]
+        ? [gateway.create(name, intent)]
         : gateway.open(name, command, withControls(io), (error) => reportError(io, error)),
     );
   }

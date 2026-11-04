@@ -17,8 +17,8 @@ const setup = (input: readonly string[] = PLAYER_LINES) => {
       calls.push('launch');
       return 'Launched.';
     },
-    create: (name) => {
-      calls.push(`create:${name}`);
+    create: (name, intent) => {
+      calls.push(intent === undefined ? `create:${name}` : `create:${name}:${intent}`);
       return `Created campaign ${name}.`;
     },
     open: async function* (campaign, mode, input) {
@@ -58,6 +58,7 @@ test('launch, new, play and resume dispatch to the gateway and confirm', async (
     [[], 'launch'],
     [['launch'], 'launch'],
     [['new', 'Ember'], 'create:Ember'],
+    [['new', 'Ember', 'A spooky tale'], 'create:Ember:A spooky tale'],
     [['play', 'Ember'], 'play:Ember'],
     [['resume', 'Ember'], 'resume:Ember'],
     [['import', 'rules.md', 'core.pdf'], 'import:rules.md,core.pdf'],
@@ -82,7 +83,8 @@ test('usage errors exit 2, hint at rpg help and never call the gateway', async (
     [['play', '  '], 'play'],
     [['resume', ''], 'resume'],
     [['resume', ' \t'], 'resume'],
-    [['new', 'a', 'b'], 'b'],
+    [['new', 'a', 'b', 'c'], 'c'],
+    [['play', 'a', 'b'], 'b'],
     [['launch', 'x'], 'x'],
     [['help', 'x'], 'x'],
     [['play', 'Ember', '--fast'], '--fast'],

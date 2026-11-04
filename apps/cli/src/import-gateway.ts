@@ -8,7 +8,7 @@ import { DICE_POOL_LITE_MANIFEST } from '../../../packages/rules/src/dice-pool-l
 import { parseRuleDsl } from '../../../packages/rules/src/dsl.ts';
 import { NARRATIVE_MANIFEST } from '../../../packages/rules/src/narrative.ts';
 
-const BUILT_IN_PACKS = [D20_LITE_MANIFEST, DICE_POOL_LITE_MANIFEST, NARRATIVE_MANIFEST];
+export const BUILT_IN_PACKS = [D20_LITE_MANIFEST, DICE_POOL_LITE_MANIFEST, NARRATIVE_MANIFEST];
 const TEXT_FORMATS: readonly IngestFormat[] = ['text', 'markdown', 'yaml'];
 const PARAGRAPH_BREAK = /\n\s*\n/;
 const PARENT_SEGMENT = '..';

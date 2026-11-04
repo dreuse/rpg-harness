@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { closeSync, existsSync, mkdirSync, openSync, rmSync } from 'node:fs';
+import { closeSync, existsSync, mkdirSync, openSync, readdirSync, rmSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import type { CampaignState, Turn } from '../../../packages/domain/src/campaign.ts';
@@ -9,6 +9,7 @@ import { createCampaignStore } from '../../../packages/persistence/src/campaign-
 import { openDatabase } from '../../../packages/persistence/src/database.ts';
 import { importRules } from './import-gateway.ts';
 import type { CampaignGateway } from './main.ts';
+import { describeConfig, planCampaign } from './quickstart.ts';
 
 const APP_DIR = 'rpg';
 const DATABASE_EXTENSION = '.sqlite';
@@ -18,7 +19,7 @@ const FILE_EXISTS = 'EEXIST';
 const HERO_NAME = 'The Wanderer';
 const OPENING_TITLE = 'The Crossroads Inn';
 const OPENING_NARRATION = 'Rain drums on the roof of the Crossroads Inn. A stranger by the fire looks up as you enter.';
-const LAUNCH_TEXT = 'Run rpg new <name> to start a campaign, or rpg resume <name> to continue one.';
+const LAUNCH_TEXT = 'Run rpg new <name> "<one sentence>" to start a campaign, or rpg resume <name> to continue one.';
 
 const userDataDir = (): string => {
   const home = homedir();
@@ -114,9 +115,24 @@ const recap = (characters: CampaignState['characters'], last: Turn | undefined) 
   return last.narration.trim() === '' ? narrate(actor.name, last) : last.narration;
 };
 
+const savedCampaigns = (dataDir: string) =>
+  existsSync(dataDir)
+    ? readdirSync(dataDir)
+        .filter((file) => file.endsWith(DATABASE_EXTENSION))
+        .map((file) => decodeURIComponent(file.slice(0, -DATABASE_EXTENSION.length)))
+    : [];
+
+const launch = (dataDir: string) => {
+  const names = savedCampaigns(dataDir);
+  return names.length === 0 ? LAUNCH_TEXT : `Campaigns: ${names.join(', ')}\n${LAUNCH_TEXT}`;
+};
+
 export const createEngineGateway = (dataDir: string): CampaignGateway => ({
-  launch: () => LAUNCH_TEXT,
-  create: (name) => createCampaign(dataDir, name),
+  launch: () => launch(dataDir),
+  create: (name, intent) => {
+    const settings = describeConfig(planCampaign(intent));
+    return `${settings}\n${createCampaign(dataDir, name)}`;
+  },
   importRules: (files, lines) => importRules(process.cwd(), files, lines),
   open: async function* (name, _mode, lines, onTurnError) {
     yield withSession(dataDir, name, ({ engine, campaignId }) => {
