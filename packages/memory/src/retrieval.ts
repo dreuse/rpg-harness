@@ -54,6 +54,7 @@ const CANON = 'canon';
 const INVALIDATED = 'invalidated';
 const GM_SCOPE = 'gm';
 const NO_TOKENS = 0;
+const PROVENANCE_LIMIT = 8;
 
 export const estimateTokens = (text: string): number => Math.ceil(text.length / CHARS_PER_TOKEN);
 
@@ -68,7 +69,10 @@ export const retrieveContext = (snapshot: ContextSnapshot, viewer: Viewer, budge
   const provenance = (id: string, sourceEventId: EventId | null = null): readonly EventId[] => [
     ...(sourceEventId === null ? [] : [sourceEventId]),
     ...(isGm
-      ? snapshot.events.filter((event) => event.id !== sourceEventId && references(event, id)).map((event) => event.id)
+      ? snapshot.events
+          .filter((event) => event.id !== sourceEventId && references(event, id))
+          .map((event) => event.id)
+          .slice(-PROVENANCE_LIMIT)
       : []),
   ];
   const candidate = (

@@ -141,6 +141,26 @@ test('long campaign retrieval excludes irrelevant history without losing require
   }
 });
 
+test('gm provenance stays bounded and keeps the newest events as history grows', () => {
+  const history = Array.from({ length: LONG_CAMPAIGN_EVENTS }, (_, index) =>
+    event(`event-${index}`, { entityId: INNKEEPER.id, sceneId: SCENE.id }),
+  );
+  const provenanceAt = (count: number) => {
+    const context = retrieveContext(snapshot(history.slice(0, count)), GM_VIEWER, LARGE_BUDGET);
+    return [context.scene, ...context.entities.filter((item) => item.id === INNKEEPER.id)].map(
+      (item) => item.sourceEventIds,
+    );
+  };
+  const early = provenanceAt(RELEVANT_EVENT_INTERVAL);
+  const late = provenanceAt(LONG_CAMPAIGN_EVENTS);
+  assert.deepEqual(
+    late.map((ids) => ids.length),
+    early.map((ids) => ids.length),
+  );
+  assert.ok(late.every((ids) => ids.length < RELEVANT_EVENT_INTERVAL));
+  assert.ok(late.every((ids) => ids.at(-1) === history.at(-1)?.id));
+});
+
 test('player retrieval does not follow hidden entities or expose scanned provenance', () => {
   const cultistLore = fact('fact-cultist-lore', { subjectId: CULTIST.id });
   const spymaster = entity('npc-spymaster');
