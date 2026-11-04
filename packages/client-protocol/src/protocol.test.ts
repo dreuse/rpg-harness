@@ -9,6 +9,7 @@ import {
   type ClientEvent,
   type ClientSession,
   COMMAND_TYPES,
+  MAX_INPUT_LENGTH,
   PROTOCOL_VERSION,
   parseCommand,
   toClientEvent,
@@ -54,7 +55,7 @@ const VALID_COMMANDS = [
 ];
 
 const inMemorySession = (): ClientSession & { commit(event: DomainEvent): void } => {
-  const log = createEventLog();
+  const log = createEventLog({ campaignId: CAMPAIGN_ID, branchId: MAIN_BRANCH });
   let revision = 0;
   const snapshot = (): CampaignSnapshot => ({
     version: PROTOCOL_VERSION,
@@ -187,6 +188,78 @@ test('UI01: returns exactly the values it validated and maps throwing getters to
     },
   });
   assert.equal(code(parseCommand(throwing)), 'MalformedCommand');
+});
+
+const flipping = <T>(first: T, second: unknown) => {
+  let reads = 0;
+  return { enumerable: true, get: () => (reads++ === 0 ? first : second) };
+};
+
+const throwing = {
+  enumerable: true,
+  get: (): never => {
+    throw new Error('boom');
+  },
+};
+
+test('UI01: reads version and type once, so a flipping getter cannot change the validated command', () => {
+  const version = Object.defineProperty(
+    { type: 'RequestView', campaignId: CAMPAIGN_ID, viewId: 'sheet' },
+    'version',
+    flipping(PROTOCOL_VERSION, PROTOCOL_VERSION + 1),
+  );
+  const versionParsed = parseCommand(version);
+  assert.ok(versionParsed.ok);
+  assert.equal(versionParsed.value.version, PROTOCOL_VERSION);
+
+  const type = Object.defineProperty(
+    { ...envelope, viewId: 'sheet' },
+    'type',
+    flipping('RequestView', 'SubmitPlayerAction'),
+  );
+  const typeParsed = parseCommand(type);
+  assert.ok(typeParsed.ok);
+  assert.equal(typeParsed.value.type, 'RequestView');
+});
+
+test('UI01: reads every own property exactly once', () => {
+  const reads = new Map<PropertyKey, number>();
+  const counted = new Proxy(ACTION, {
+    get: (target, key, receiver) => {
+      reads.set(key, (reads.get(key) ?? 0) + 1);
+      return Reflect.get(target, key, receiver);
+    },
+  });
+  assert.ok(parseCommand(counted).ok);
+  assert.deepEqual(Object.fromEntries(reads), Object.fromEntries(Object.keys(ACTION).map((key) => [key, 1])));
+});
+
+test('UI01: maps throwing envelope getters and hostile proxies to a typed error instead of throwing', () => {
+  for (const key of ['version', 'type']) {
+    assert.equal(
+      code(parseCommand(Object.defineProperty({ ...envelope, type: 'GetCampaignSnapshot' }, key, throwing))),
+      'MalformedCommand',
+    );
+  }
+  const fail = () => {
+    throw new Error('boom');
+  };
+  for (const trap of ['get', 'ownKeys']) {
+    assert.equal(code(parseCommand(new Proxy({ ...ACTION }, { [trap]: fail }))), 'MalformedCommand');
+  }
+  for (const trap of ['has', 'getOwnPropertyDescriptor', 'getPrototypeOf']) {
+    assert.doesNotThrow(() => parseCommand(new Proxy({ ...ACTION }, { [trap]: fail })));
+  }
+  const revocable = Proxy.revocable({ ...ACTION }, {});
+  revocable.revoke();
+  assert.equal(code(parseCommand(revocable.proxy)), 'MalformedCommand');
+  assert.equal(code(parseCommand({ ...ACTION, version: Object.create(null) })), 'UnsupportedVersion');
+  assert.equal(code(parseCommand({ ...ACTION, type: Object.create(null) })), 'UnknownCommand');
+});
+
+test('UI01: rejects player input longer than the protocol limit', () => {
+  assert.ok(parseCommand({ ...ACTION, input: 'a'.repeat(MAX_INPUT_LENGTH) }).ok);
+  assert.equal(code(parseCommand({ ...ACTION, input: 'a'.repeat(MAX_INPUT_LENGTH + 1) })), 'MalformedCommand');
 });
 
 test('UI01: toClientEvent freezes cyclic payloads without overflowing', () => {

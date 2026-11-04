@@ -12,6 +12,7 @@ import type {
 export type { VoiceFallback, VoiceProfile } from '../../domain/src/voice.ts';
 
 export const PROTOCOL_VERSION = 1;
+export const MAX_INPUT_LENGTH = 4096;
 export type ProtocolVersion = typeof PROTOCOL_VERSION;
 
 export const COMMAND_TYPES = [
@@ -142,48 +143,55 @@ const COMMAND_FIELDS: Record<CommandType, Readonly<Record<string, FieldSpec>>> =
 
 const FIELD_CHECKS: Record<FieldKind, (value: unknown) => boolean> = {
   id: (value) => typeof value === 'string' && value.length > 0,
-  text: (value) => typeof value === 'string',
+  text: (value) => typeof value === 'string' && value.length <= MAX_INPUT_LENGTH,
   revision: (value) => Number.isSafeInteger(value) && (value as number) >= 0,
   flag: (value) => typeof value === 'boolean',
 };
 
-const failure = (code: ProtocolErrorCode, message: string): Result<never> => ({ ok: false, error: { code, message } });
+export const failure = (code: ProtocolErrorCode, message: string): Result<never> => ({
+  ok: false,
+  error: { code, message },
+});
 
 const isRecord = (input: unknown): input is Record<string, unknown> =>
   typeof input === 'object' && input !== null && !Array.isArray(input);
 
 const isCommandType = (type: unknown): type is CommandType => COMMAND_TYPES.some((known) => known === type);
 
-const readOwnValues = (
-  input: Record<string, unknown>,
-  keys: readonly string[],
-): Record<string, unknown> | undefined => {
+const describe = (value: unknown) => (typeof value === 'object' && value !== null ? typeof value : String(value));
+
+type OwnSnapshot = { readonly keys: readonly PropertyKey[]; readonly own: Record<string, unknown> };
+
+const snapshotOwn = (input: unknown): Result<OwnSnapshot> => {
   try {
-    return Object.fromEntries(keys.filter((key) => Object.hasOwn(input, key)).map((key) => [key, input[key]]));
+    if (!isRecord(input)) return failure('MalformedCommand', 'command must be an object');
+    const keys = Reflect.ownKeys(input);
+    const own = Object.fromEntries(keys.filter((key) => typeof key === 'string').map((key) => [key, input[key]]));
+    return { ok: true, value: { keys, own } };
   } catch {
-    return undefined;
+    return failure('MalformedCommand', 'command has unreadable fields');
   }
 };
 
 export const parseCommand = (input: unknown): Result<ClientCommand> => {
-  if (!isRecord(input)) return failure('MalformedCommand', 'command must be an object');
-  const version = Object.hasOwn(input, 'version') ? input.version : undefined;
-  if (version !== PROTOCOL_VERSION) return failure('UnsupportedVersion', `unsupported version ${String(version)}`);
-  const type = Object.hasOwn(input, 'type') ? input.type : undefined;
-  if (!isCommandType(type)) return failure('UnknownCommand', `unknown command ${String(type)}`);
+  const snapshot = snapshotOwn(input);
+  if (!snapshot.ok) return snapshot;
+  const { keys, own } = snapshot.value;
+  const { version, type } = own;
+  if (version !== PROTOCOL_VERSION) return failure('UnsupportedVersion', `unsupported version ${describe(version)}`);
+  if (!isCommandType(type)) return failure('UnknownCommand', `unknown command ${describe(type)}`);
   const fields = COMMAND_FIELDS[type];
-  const unexpected = Reflect.ownKeys(input).find(
+  const unexpected = keys.find(
     (key) => typeof key !== 'string' || (!ENVELOPE_FIELDS.includes(key) && !Object.hasOwn(fields, key)),
   );
   if (unexpected !== undefined) return failure('UnexpectedField', `${type} does not accept ${String(unexpected)}`);
-  const own = readOwnValues(input, [...ENVELOPE_FIELDS, ...Object.keys(fields)]);
-  if (own === undefined) return failure('MalformedCommand', `${type} has unreadable fields`);
   const specs: [string, FieldSpec][] = [['campaignId', ID], ...Object.entries(fields)];
   const invalid = specs.find(([key, spec]) =>
     Object.hasOwn(own, key) ? !FIELD_CHECKS[spec.kind](own[key]) : spec.optional !== true,
   );
   if (invalid !== undefined) return failure('MalformedCommand', `${type}.${invalid[0]} is missing or invalid`);
-  return { ok: true, value: Object.freeze(own) as ClientCommand };
+  const ordered = [...ENVELOPE_FIELDS, ...Object.keys(fields)].filter((key) => Object.hasOwn(own, key));
+  return { ok: true, value: Object.freeze(Object.fromEntries(ordered.map((key) => [key, own[key]]))) as ClientCommand };
 };
 
 export const deepFreeze = <T>(value: T, visited = new WeakSet<object>()): T => {
