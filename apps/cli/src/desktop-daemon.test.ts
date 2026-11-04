@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -8,6 +8,7 @@ import { describe, it, type TestContext } from 'node:test';
 import { setImmediate } from 'node:timers/promises';
 import {
   type Accepted,
+  type CampaignList,
   type CampaignPanels,
   type CampaignSnapshot,
   type ClientEvent,
@@ -42,6 +43,11 @@ const NO_RESTARTS = 0;
 const ELECTRON_VERSIONS = { electron: '43.7.7' };
 const ENABLED = '1';
 const CAMPAIGN = 'Ember';
+const SECOND_CAMPAIGN = 'Frost';
+const MISSING_DIR = 'missing';
+const EMPTY_FILE = 'Stray';
+const GARBAGE_FILE = 'Junk';
+const GARBAGE = 'not a sqlite database';
 const TEMP_PREFIX = 'rpg-daemon-';
 const ACTION = 'I greet the stranger';
 const SECOND_ACTION = 'I sit by the fire';
@@ -75,10 +81,32 @@ const baseEnv = (): NodeJS.ProcessEnv => {
   return env;
 };
 
-const campaignEnv = async (t: TestContext) => {
+const fileStamp = (path: string) => {
+  const { size, mtimeMs } = statSync(path);
+  return { size, mtimeMs };
+};
+
+const tempDataDir = (t: TestContext) => {
   const dataDir = mkdtempSync(join(tmpdir(), TEMP_PREFIX));
   t.after(() => rmSync(dataDir, { recursive: true, force: true }));
-  for await (const _ of createEngineGateway(dataDir).create(CAMPAIGN, undefined, NO_CHARACTER));
+  return dataDir;
+};
+
+const createCampaigns = async (dataDir: string, names: readonly string[]) => {
+  for (const name of names) for await (const _ of createEngineGateway(dataDir).create(name, undefined, NO_CHARACTER));
+};
+
+const campaignNames = async (daemon: ReturnType<typeof startDaemon>) => {
+  const { version, campaigns } = acceptedValue<CampaignList>(
+    await daemon.command({ version: PROTOCOL_VERSION, type: 'ListCampaigns' }),
+  );
+  assert.equal(version, PROTOCOL_VERSION);
+  return campaigns.map(({ name }) => name);
+};
+
+const campaignEnv = async (t: TestContext) => {
+  const dataDir = tempDataDir(t);
+  await createCampaigns(dataDir, [CAMPAIGN]);
   const campaignId = readCampaignState(dataDir, CAMPAIGN).campaign.id;
   const database = new DatabaseSync(join(dataDir, `${CAMPAIGN}${DATABASE_EXTENSION}`));
   database.exec(SHOW_NEW_EVENTS_TO_PLAYER);
@@ -270,6 +298,53 @@ describe('serve client-protocol commands over the desktop engine daemon', () => 
     assert.deepEqual(events, []);
     assert.equal(await daemon.stop(), 0);
     await assert.rejects(daemon.command(snapshotCommand(campaignId)));
+  });
+
+  it('lists every campaign in the data dir when no campaign is served (rpg-7x3.1)', async (t) => {
+    const dataDir = tempDataDir(t);
+    await createCampaigns(dataDir, [CAMPAIGN, SECOND_CAMPAIGN]);
+    const daemon = supervise(t, { env: { ...baseEnv(), [DATA_DIR_ENV]: dataDir } });
+    assert.deepEqual(await campaignNames(daemon), [CAMPAIGN, SECOND_CAMPAIGN]);
+  });
+
+  it('lists the served campaign and the other campaigns in the data dir (rpg-7x3.1)', async (t) => {
+    const { env } = await campaignEnv(t);
+    await createCampaigns(String(env[DATA_DIR_ENV]), [SECOND_CAMPAIGN]);
+    const daemon = supervise(t, { env });
+    assert.deepEqual(await campaignNames(daemon), [CAMPAIGN, SECOND_CAMPAIGN]);
+  });
+
+  it('skips files that are not campaigns and leaves every file unchanged (rpg-7x3.1)', async (t) => {
+    const dataDir = tempDataDir(t);
+    await createCampaigns(dataDir, [CAMPAIGN]);
+    writeFileSync(join(dataDir, `${EMPTY_FILE}${DATABASE_EXTENSION}`), '');
+    writeFileSync(join(dataDir, `${GARBAGE_FILE}${DATABASE_EXTENSION}`), GARBAGE);
+    const files = [CAMPAIGN, EMPTY_FILE, GARBAGE_FILE].map((name) => join(dataDir, `${name}${DATABASE_EXTENSION}`));
+    const before = files.map(fileStamp);
+    const daemon = supervise(t, { env: { ...baseEnv(), [DATA_DIR_ENV]: dataDir } });
+    assert.deepEqual(await campaignNames(daemon), [CAMPAIGN]);
+    assert.deepEqual(files.map(fileStamp), before);
+  });
+
+  it('replies an error with the request id when the data dir is a file (rpg-7x3.1)', {
+    timeout: STOP_TEST_TIMEOUT_MS,
+  }, async (t) => {
+    const dataDir = tempDataDir(t);
+    const file = join(dataDir, GARBAGE_FILE);
+    writeFileSync(file, GARBAGE);
+    const daemon = supervise(t, { env: { ...baseEnv(), [DATA_DIR_ENV]: file } });
+    const reply = await daemon.command({ version: PROTOCOL_VERSION, type: 'ListCampaigns' });
+    assert.equal(reply.type, 'Error');
+    assert.ok(reply.message);
+    assert.equal((await daemon.request('Ping')).type, 'Pong');
+  });
+
+  it('lists no campaigns for an empty or missing data dir (rpg-7x3.1)', async (t) => {
+    const dataDir = tempDataDir(t);
+    for (const dir of [dataDir, join(dataDir, MISSING_DIR)]) {
+      const daemon = supervise(t, { env: { ...baseEnv(), [DATA_DIR_ENV]: dir } });
+      assert.deepEqual(await campaignNames(daemon), []);
+    }
   });
 
   it('replies no campaign when the engine runs without one', async (t) => {

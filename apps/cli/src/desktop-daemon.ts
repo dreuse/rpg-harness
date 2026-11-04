@@ -19,7 +19,7 @@ import {
   type Request,
   type RequestType,
 } from '../../../packages/client-protocol/src/wire.ts';
-import { openClientSession } from './engine-gateway.ts';
+import { listCampaignRecords, openClientSession } from './engine-gateway.ts';
 import { dataDirFromEnv } from './setup-check.ts';
 
 export const API_KEY_ENV = 'ANTHROPIC_API_KEY';
@@ -90,16 +90,25 @@ const serve = (env: NodeJS.ProcessEnv): Served => {
   }
 };
 
+const replyCampaigns = (id: number) => {
+  try {
+    const campaigns = listCampaignRecords(dataDirFromEnv());
+    return send({ id, type: 'Result', result: { ok: true, value: { version: PROTOCOL_VERSION, campaigns } } });
+  } catch (error) {
+    return send({ id, type: 'Error', message: messageOf(error) });
+  }
+};
+
 const replier = ({ campaign, problem }: Served) => {
   const subscriptions = new Map<number, Unsubscribe>();
 
   const execute = (id: number, input: unknown) => {
     const parsed = parseCommand(input);
     if (!parsed.ok) return send({ id, type: 'Error', message: parsed.error.message });
-    if (campaign === undefined) return send({ id, type: 'Error', message: problem });
     const command = parsed.value;
+    if (command.type === 'ListCampaigns') return replyCampaigns(id);
+    if (campaign === undefined) return send({ id, type: 'Error', message: problem });
     const { session, campaignId } = campaign;
-    if (command.type === 'ListCampaigns') return send({ id, type: 'Result', result: session.listCampaigns(command) });
     if (command.campaignId !== campaignId)
       return send({ id, type: 'Error', message: `Campaign ${command.campaignId} is not served by this engine.` });
     if (command.type === 'GetCampaignSnapshot')

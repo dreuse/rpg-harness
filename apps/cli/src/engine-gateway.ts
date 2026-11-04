@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { closeSync, existsSync, linkSync, mkdirSync, openSync, readdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { MAX_INPUT_LENGTH } from '../../../packages/client-protocol/src/protocol.ts';
-import type { CampaignState, Turn } from '../../../packages/domain/src/campaign.ts';
+import type { Campaign, CampaignState, Turn } from '../../../packages/domain/src/campaign.ts';
 import type { Visibility } from '../../../packages/domain/src/entity.ts';
 import { commitCharacter, editSheetField } from '../../../packages/engine/src/character.ts';
 import { createEngine, type Engine } from '../../../packages/engine/src/engine.ts';
@@ -10,7 +11,7 @@ import { campaignConfigOf, openScene, performAction } from '../../../packages/en
 import { type CampaignConfig, parseCampaignConfig } from '../../../packages/intent/src/config.ts';
 import { PLAYER_VIEWER } from '../../../packages/memory/src/knowledge.ts';
 import { createCampaignStore } from '../../../packages/persistence/src/campaign-store.ts';
-import { openDatabase } from '../../../packages/persistence/src/database.ts';
+import { MIGRATIONS, openDatabase } from '../../../packages/persistence/src/database.ts';
 import { createEntityStore } from '../../../packages/persistence/src/entity-store.ts';
 import type { BuildInput, BuildResult } from '../../../packages/rules/src/character-builder.ts';
 import { D20_LITE_CREATION } from '../../../packages/rules/src/d20-lite.ts';
@@ -28,6 +29,12 @@ import { editableSheet, renderView, type ViewName } from './views.ts';
 
 const DATABASE_EXTENSION = '.sqlite';
 const SELECT_CAMPAIGN_ID = 'SELECT id FROM campaign LIMIT 1';
+const SELECT_CAMPAIGN_RECORD = 'SELECT id, name FROM campaign LIMIT 1';
+const SELECT_SCHEMA_VERSION = 'SELECT MAX(version) AS version FROM schema_migrations';
+const KNOWN_SCHEMA_VERSION = Math.max(...MIGRATIONS.map(({ version }) => version));
+const SQLITE_ERROR = 1;
+const SQLITE_NOTADB = 26;
+const NOT_CAMPAIGN_ERRORS = [SQLITE_ERROR, SQLITE_NOTADB];
 const SELECT_EVENT_SCOPES = 'SELECT id, visibility, actor_id FROM event_log WHERE campaign_id = ?';
 const RECAP_VIEW = 'recap';
 const CREATE_EXCLUSIVE = 'wx';
@@ -291,6 +298,32 @@ const savedCampaigns = (dataDir: string) =>
         .flatMap((file) => decodedName(file.slice(0, -DATABASE_EXTENSION.length)))
         .sort()
     : [];
+
+const readCampaignRecord = (path: string): Campaign[] => {
+  const database = new DatabaseSync(path, { readOnly: true });
+  try {
+    if (database.prepare(SELECT_SCHEMA_VERSION).get()?.version !== KNOWN_SCHEMA_VERSION) return [];
+    const row = database.prepare(SELECT_CAMPAIGN_RECORD).get();
+    return row === undefined ? [] : [{ id: String(row.id), name: String(row.name) }];
+  } finally {
+    database.close();
+  }
+};
+
+const isNotCampaign = (error: unknown) =>
+  error instanceof Error && 'errcode' in error && NOT_CAMPAIGN_ERRORS.includes(Number(error.errcode));
+
+const campaignRecordOf = (dataDir: string, name: string): Campaign[] => {
+  try {
+    return readCampaignRecord(databasePath(dataDir, name));
+  } catch (error) {
+    if (!isNotCampaign(error)) process.stderr.write(`Skipped campaign ${name}: ${String(error)}\n`);
+    return [];
+  }
+};
+
+export const listCampaignRecords = (dataDir: string): Campaign[] =>
+  savedCampaigns(dataDir).flatMap((name) => campaignRecordOf(dataDir, name));
 
 const launch = (dataDir: string) => {
   const names = savedCampaigns(dataDir);
