@@ -1,7 +1,10 @@
-import type { RendererAction } from './accessibility.ts';
+import { createMicrophoneController } from '../../../packages/voice/src/microphone.ts';
+import { createSubtitleTranscript } from '../../../packages/voice/src/subtitles.ts';
+import { type RendererAction, SUPPORTED_LOCALES } from './accessibility.ts';
 import { BRIDGE_KEY } from './preload.ts';
 import { createDesktopClient, type Region, type Transport, viewModel } from './renderer.ts';
-import { bindKeys, type KeyTarget, queryPreferences, renderView } from './view.ts';
+import { bindKeys, type KeyTarget, queryPreferences, renderView, renderVoice } from './view.ts';
+import { browserMicrophone, createDesktopVoice, type DesktopVoiceOptions } from './voice.ts';
 
 export const FONT_SCALE_PROPERTY = '--font-scale';
 export const ROOT_ID = 'app';
@@ -15,6 +18,8 @@ const CAMPAIGN_ATTRIBUTE = 'data-campaign';
 const RETRY_SELECTOR = '[data-action="retry"]';
 const TABINDEX = 'tabindex';
 const PROGRAMMATIC_FOCUS = '-1';
+const NO_CAMPAIGN = '';
+const FIRST_TURN = 0;
 const FOCUS_REGIONS: Partial<Record<RendererAction, Region>> = {
   focusConversation: 'conversation',
   focusSheet: 'sheet',
@@ -34,6 +39,7 @@ export type PageOptions = {
   readonly search: string;
   readonly width: () => number;
   readonly newActionId: () => string;
+  readonly openMicrophone: DesktopVoiceOptions['openMicrophone'];
 };
 
 const closestTarget = (event: Event) => event.target as unknown as ClickTarget | null;
@@ -44,12 +50,22 @@ export const mountPage = ({
   search,
   width,
   newActionId,
+  openMicrophone,
 }: PageOptions) => {
   const preferences = queryPreferences(search);
   const client = createDesktopClient({ transport: bridge, newActionId });
+  const { consent, ...voicePreferences } = preferences.voice;
+  const voice = createDesktopVoice({
+    session: { campaignId: NO_CAMPAIGN, turn: FIRST_TURN, pendingInput: [], preferences: voicePreferences },
+    consent,
+    supportedLocales: SUPPORTED_LOCALES,
+    subtitles: createSubtitleTranscript(),
+    openMicrophone,
+    submit: client.submit,
+  });
   const render = () => {
     const model = viewModel(client.state(), width(), preferences);
-    root.innerHTML = renderView(model, preferences.locale);
+    root.innerHTML = renderView(model, preferences.locale) + renderVoice(voice.view(), preferences.locale);
     root.style.setProperty(FONT_SCALE_PROPERTY, String(model.fontScale));
   };
   const nextCampaign = () => {
@@ -79,10 +95,14 @@ export const mountPage = ({
   form.addEventListener(SUBMIT, (event) => {
     event.preventDefault();
     if (input.value.trim() === '') return;
-    if (client.submit(input.value).ok) input.value = '';
+    voice.say(input.value).then((route) => {
+      if (route.kind !== 'action' || route.result.ok) input.value = '';
+      render();
+    });
   });
   bindKeys(keys, () => preferences, run);
   render();
+  voice.start().then(render);
   return { ...client, render };
 };
 
@@ -103,6 +123,8 @@ const boot = () => {
     search: location.search,
     width: () => window.innerWidth,
     newActionId: () => crypto.randomUUID(),
+    openMicrophone: (settings) =>
+      createMicrophoneController(browserMicrophone(navigator.mediaDevices, MediaRecorder), settings),
   });
   window.addEventListener(RESIZE, page.render);
 };

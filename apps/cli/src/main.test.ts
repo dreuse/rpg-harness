@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { type CampaignGateway, EXIT_FAILURE, main } from './main.ts';
+import { type CampaignGateway, EXIT_FAILURE, EXIT_USAGE, main } from './main.ts';
+import type { Terminal } from './tui.ts';
 
 const ESCAPE = String.fromCharCode(27);
 const FAILURE = 'Campaign Ember is broken.';
@@ -328,4 +329,27 @@ test('session help lists only the controls the session supports', async () => {
   assert.equal(await main(['import', 'rules.md'], imports.io, imports.gateway), 0);
   assert.match(imports.out.join(''), /\/history/);
   assert.doesNotMatch(imports.out.join(''), /\/sheet/);
+});
+
+test('A18 tui gets voice controls only with --voice', async () => {
+  const terminals: Terminal[] = [];
+  for (const argv of [
+    ['tui', 'Ember'],
+    ['tui', 'Ember', '--voice'],
+  ]) {
+    const { gateway, io } = setup();
+    assert.equal(
+      await main(argv, io, { ...gateway, tui: async (_name, terminal) => void terminals.push(terminal) }),
+      0,
+    );
+  }
+  const [plain, voiced] = terminals;
+  assert.equal(plain?.audio, undefined);
+  assert.match(voiced?.audio?.status() ?? '', /^Voice: mic off, output off, /);
+  const { gateway, io, err } = setup();
+  assert.equal(await main(['play', 'Ember', '--voice'], io, gateway), EXIT_USAGE);
+  assert.match(err.join(''), /--voice/);
+  const help = setup();
+  await main(['help'], help.io, help.gateway);
+  assert.match(help.out.join(''), /tui <campaign> \[--voice\]/);
 });

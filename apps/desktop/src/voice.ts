@@ -1,6 +1,10 @@
 import type { Result, SubmitPlayerAction } from '../../../packages/client-protocol/src/protocol.ts';
 import type { AudioFailure, TurnTranscription } from '../../../packages/voice/src/fallback.ts';
-import type { MicrophoneController, TypedFallbackReason } from '../../../packages/voice/src/microphone.ts';
+import type {
+  MicrophoneController,
+  MicrophoneSource,
+  TypedFallbackReason,
+} from '../../../packages/voice/src/microphone.ts';
 import type { SttFallbackReason } from '../../../packages/voice/src/stt.ts';
 import type { SubtitleTranscript } from '../../../packages/voice/src/subtitles.ts';
 import { resolveVoiceMode, type VoiceConsent, type VoiceSettings } from '../../../packages/voice/src/voice.ts';
@@ -30,6 +34,62 @@ const TYPED: RequestSource = 'typed';
 const SPOKEN: RequestSource = 'spoken';
 const MICROPHONE = 'microphone';
 const SEGMENT_GAP = ' ';
+const AUDIO_INPUT = 'audioinput';
+const DEFAULT_DEVICE = 'default';
+const DEVICE_CHANGE = 'devicechange';
+const DATA_AVAILABLE = 'dataavailable';
+const RECORDER_STOP = 'stop';
+const CHUNK_MS = 250;
+
+const stopTracks = (stream: MediaStream) => {
+  for (const track of stream.getTracks()) track.stop();
+};
+
+const record = (recorder: MediaRecorder) =>
+  new ReadableStream<Uint8Array>({
+    start: (controller) => {
+      let pending = Promise.resolve();
+      recorder.addEventListener(DATA_AVAILABLE, ({ data }) => {
+        pending = pending.then(async () => controller.enqueue(new Uint8Array(await data.arrayBuffer())));
+      });
+      recorder.addEventListener(RECORDER_STOP, () => {
+        pending = pending.then(() => controller.close());
+      });
+    },
+  });
+
+export const browserMicrophone = (media: MediaDevices, Recorder: typeof MediaRecorder): MicrophoneSource => ({
+  requestPermission: async () => {
+    try {
+      stopTracks(await media.getUserMedia({ audio: true }));
+      return 'granted';
+    } catch {
+      return 'denied';
+    }
+  },
+  listDevices: async () =>
+    (await media.enumerateDevices())
+      .filter(({ kind }) => kind === AUDIO_INPUT)
+      .map(({ deviceId, label }) => ({ id: deviceId, label, isDefault: deviceId === DEFAULT_DEVICE })),
+  open: async (deviceId) => {
+    const stream = await media.getUserMedia({ audio: { deviceId: { exact: deviceId } } });
+    const recorder = new Recorder(stream);
+    const chunks = record(recorder);
+    recorder.start(CHUNK_MS);
+    return {
+      chunks,
+      close: () => {
+        recorder.stop();
+        stopTracks(stream);
+      },
+    };
+  },
+  onDeviceChange: (listener) => {
+    const changed = () => void listener();
+    media.addEventListener(DEVICE_CHANGE, changed);
+    return () => media.removeEventListener(DEVICE_CHANGE, changed);
+  },
+});
 
 export const createDesktopVoice = (options: DesktopVoiceOptions) => {
   const { consent, supportedLocales, subtitles, openMicrophone, submit } = options;
@@ -37,6 +97,7 @@ export const createDesktopVoice = (options: DesktopVoiceOptions) => {
   let microphone: Microphone | undefined;
   let fallback: VoiceFallback | undefined;
   let issues: readonly VoiceSettingsIssueCode[] = [];
+  let generation = 0;
 
   const settings = (): VoiceSettings => ({
     microphone: session.preferences.microphone,
@@ -45,12 +106,15 @@ export const createDesktopVoice = (options: DesktopVoiceOptions) => {
   });
 
   const listen = async () => {
+    const token = ++generation;
     microphone?.stop();
     microphone = undefined;
+    fallback = undefined;
     const mode = resolveVoiceMode(settings());
     if (mode.kind === 'typed-input-only' || mode.microphone === 'off') return;
     microphone = openMicrophone(settings());
     const state = await microphone.start();
+    if (token !== generation) return;
     fallback = state.kind === 'typed-input-only' ? state.reason : undefined;
   };
 
@@ -85,7 +149,7 @@ export const createDesktopVoice = (options: DesktopVoiceOptions) => {
     issues,
   });
 
-  return { say, heard, view };
+  return { say, heard, view, start: listen };
 };
 
 export type DesktopVoiceView = ReturnType<ReturnType<typeof createDesktopVoice>['view']>;

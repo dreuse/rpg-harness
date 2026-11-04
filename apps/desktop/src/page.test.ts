@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { type ClientCommand, PROTOCOL_VERSION } from '../../../packages/client-protocol/src/protocol.ts';
-import { DEFAULT_PREFERENCES, MAX_FONT_SCALE } from './accessibility.ts';
-import { FONT_SCALE_PROPERTY, mountPage, type PageElements } from './page.ts';
+import type { MicrophoneState } from '../../../packages/voice/src/microphone.ts';
+import { DEFAULT_PREFERENCES, MAX_FONT_SCALE, type UiPreferences } from './accessibility.ts';
+import { FONT_SCALE_PROPERTY, mountPage, type PageElements, type PageOptions } from './page.ts';
 import { PREFERENCES_QUERY } from './preload.ts';
 import type { Transport } from './renderer.ts';
 
@@ -78,18 +79,31 @@ const fakePage = () => {
   };
 };
 
-const mount = (page: ReturnType<typeof fakePage>) => {
-  const preferences = { ...DEFAULT_PREFERENCES, fontScale: MAX_FONT_SCALE };
+const DENIED: MicrophoneState = { kind: 'typed-input-only', reason: 'permission-denied' };
+const CONSENT = { granted: true, grantedAt: '2026-11-04T00:00:00Z', providerIds: ['local'] } as const;
+const settle = () => new Promise(setImmediate);
+const deniedMicrophone: PageOptions['openMicrophone'] = () => ({ start: async () => DENIED, stop: () => {} });
+
+const mount = (
+  page: ReturnType<typeof fakePage>,
+  saved: Partial<UiPreferences> = {},
+  openMicrophone = deniedMicrophone,
+) => {
+  const preferences = { ...DEFAULT_PREFERENCES, fontScale: MAX_FONT_SCALE, ...saved };
   return mountPage({
     elements: page.elements,
     bridge: page.bridge,
     search: `?${new URLSearchParams({ [PREFERENCES_QUERY]: JSON.stringify(preferences) })}`,
     width: () => WIDE_WIDTH,
     newActionId: () => 'a0',
+    openMicrophone,
   });
 };
 
-test('rpg-42a.7 page renders the view and drives the client through the bridge', () => {
+const submitted = (page: ReturnType<typeof fakePage>) =>
+  page.sent.filter(({ type }) => type === 'SubmitPlayerAction').map((command) => 'input' in command && command.input);
+
+test('rpg-42a.7 page renders the view and drives the client through the bridge', async () => {
   const page = fakePage();
   mount(page);
   assert.match(page.root.innerHTML, /Connecting to engine/);
@@ -102,10 +116,8 @@ test('rpg-42a.7 page renders the view and drives the client through the bridge',
   page.receive({ type: 'Snapshot', snapshot: SNAPSHOT });
   page.input.value = 'look around';
   page.press('Enter');
-  assert.deepEqual(
-    page.sent.filter(({ type }) => type === 'SubmitPlayerAction').map((command) => 'input' in command && command.input),
-    ['look around'],
-  );
+  await settle();
+  assert.deepEqual(submitted(page), ['look around']);
   assert.equal(page.input.value, '');
   page.press('Alt+2');
   assert.deepEqual(page.focused, ['[data-region="sheet"]']);
@@ -119,4 +131,37 @@ test('rpg-42a.7 page retries only from the retry button', () => {
   assert.equal(client.state().connection.status, 'disconnected');
   page.click({ 'data-action': 'retry' });
   assert.equal(client.state().connection.status, 'reconnecting');
+});
+
+test('A18 page renders voice and opens the mic at startup when saved settings enable it', async () => {
+  const off = fakePage();
+  const unused: string[] = [];
+  mount(off, {}, (settings) => {
+    unused.push(settings.microphone);
+    return { start: async () => DENIED, stop: () => {} };
+  });
+  assert.deepEqual(unused, []);
+  assert.match(off.root.innerHTML, /data-region="voice"[^>]*>.*Voice off: type to play/);
+
+  const page = fakePage();
+  const opened: string[] = [];
+  mount(page, { voice: { ...DEFAULT_PREFERENCES.voice, microphone: 'push-to-talk', consent: CONSENT } }, (settings) => {
+    opened.push(settings.microphone);
+    return { start: async () => DENIED, stop: () => {} };
+  });
+  assert.deepEqual(opened, ['push-to-talk']);
+  await settle();
+  assert.match(page.root.innerHTML, /Audio unavailable \(permission-denied\); type instead/);
+
+  page.receive(READY);
+  page.receive({ type: 'Campaigns', campaigns: [SNAPSHOT.campaign] });
+  page.click({ 'data-campaign': CAMPAIGN });
+  page.receive({ type: 'Snapshot', snapshot: SNAPSHOT });
+  page.input.value = 'set mic to off. look around';
+  page.press('Enter');
+  await settle();
+  assert.deepEqual(submitted(page), ['look around']);
+  assert.equal(page.input.value, '');
+  assert.match(page.root.innerHTML, /Voice off: type to play/);
+  assert.doesNotMatch(page.root.innerHTML, /Audio unavailable/);
 });

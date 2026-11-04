@@ -313,6 +313,17 @@ test('A18: headless text-only play does not depend on audio stack', () => {
     assert.equal(run.status, EXIT_OK, run.stderr);
     assert.match(run.stdout, /Wanderer: I wave\./);
     assert.doesNotMatch(run.stdout, /Voice:/);
+    const blockedVoice = rpg(['tui', CAMPAIGN, '--voice'], 'q\n');
+    assert.match(blockedVoice.stderr, new RegExp(AUDIO_STACK_LOADED));
+    const voiced = spawnSync(process.execPath, [BIN, 'tui', CAMPAIGN, '--voice'], {
+      input: `set speed to 1.5. ${ACTION}\nq\n`,
+      encoding: 'utf8',
+      env,
+    });
+    assert.equal(voiced.status, EXIT_OK, voiced.stderr);
+    assert.match(voiced.stdout, /Voice: mic off, output off/);
+    assert.match(voiced.stdout, /Voice settings changed: speed 1\.5/);
+    assert.match(voiced.stdout, /Wanderer: I wave\./);
   } finally {
     rmSync(dataDir, { recursive: true, force: true });
   }

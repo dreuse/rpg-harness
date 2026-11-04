@@ -1,6 +1,6 @@
 import { parseArgs } from 'node:util';
 import type { Ask } from './character-creation.ts';
-import { PLAIN_TERMINAL, type Terminal } from './tui.ts';
+import { PLAIN_TERMINAL, type Terminal, type TuiAudio } from './tui.ts';
 import { printable, VIEW_NAMES, type ViewName } from './views.ts';
 
 export const EXIT_OK = 0;
@@ -8,6 +8,11 @@ export const EXIT_FAILURE = 1;
 export const EXIT_USAGE = 2;
 
 const HELP_HINT = 'Run rpg help for usage.';
+const VOICE_COMMAND = 'tui';
+const OPTIONS = {
+  help: { type: 'boolean', short: 'h' },
+  voice: { type: 'boolean' },
+} as const;
 
 export type CampaignMode = 'play' | 'resume';
 
@@ -72,7 +77,11 @@ const COMMANDS = [
     usage: 'encounter <campaign>',
     description: 'Show the current encounter, its rolls and outcome.',
   },
-  { name: 'tui', usage: 'tui <campaign>', description: 'Play with keyboard panes for talk, sheet, log and mechanics.' },
+  {
+    name: 'tui',
+    usage: 'tui <campaign> [--voice]',
+    description: 'Play with keyboard panes for talk, sheet, log and mechanics. --voice adds voice settings.',
+  },
   { name: 'recap', usage: 'recap <campaign>', description: 'Show the current scene and the latest event.' },
   { name: 'help', usage: 'help', description: 'Show this help.' },
 ] as const;
@@ -155,6 +164,9 @@ const withControls = async function* (io: Io, show?: (view: ViewName) => string)
   }
 };
 
+const loadTuiAudio = async (campaign: string): Promise<TuiAudio> =>
+  (await import('./tui-audio.ts')).defaultTuiAudio(campaign);
+
 const run = async (io: Io, outputs: () => Iterable<string> | AsyncIterable<string>): Promise<number> => {
   try {
     for await (const text of outputs()) say(io, text);
@@ -165,15 +177,15 @@ const run = async (io: Io, outputs: () => Iterable<string> | AsyncIterable<strin
 };
 
 export const main = async (argv: readonly string[], io: Io, gateway: CampaignGateway): Promise<number> => {
-  let parsed: ReturnType<
-    typeof parseArgs<{ options: { help: { type: 'boolean'; short: 'h' } }; allowPositionals: true }>
-  >;
+  let parsed: ReturnType<typeof parseArgs<{ options: typeof OPTIONS; allowPositionals: true }>>;
   try {
-    parsed = parseArgs({ args: [...argv], options: { help: { type: 'boolean', short: 'h' } }, allowPositionals: true });
+    parsed = parseArgs({ args: [...argv], options: OPTIONS, allowPositionals: true });
   } catch (error) {
     return usageError(io, error instanceof Error ? error.message : 'Invalid arguments.');
   }
   const [command = 'launch', ...rest] = parsed.positionals;
+  const voice = parsed.values.voice === true;
+  if (voice && command !== VOICE_COMMAND) return usageError(io, `Option --voice works only with ${VOICE_COMMAND}.`);
   const wantsHelp = parsed.values.help === true || command === 'help';
   if (wantsHelp) {
     const extra = parsed.values.help === true ? parsed.positionals : rest;
@@ -211,8 +223,9 @@ export const main = async (argv: readonly string[], io: Io, gateway: CampaignGat
     const [name, ...extra] = rest;
     if (name === undefined || name.trim() === '') return usageError(io, 'Missing campaign name for tui.');
     if (extra.length > 0) return usageError(io, `Unexpected argument: ${extra[0]}.`);
-    const terminal = io.terminal ?? { capabilities: PLAIN_TERMINAL, lines: io.lines, write: io.stdout };
+    const base = io.terminal ?? { capabilities: PLAIN_TERMINAL, lines: io.lines, write: io.stdout };
     try {
+      const terminal = voice ? { ...base, audio: await loadTuiAudio(name) } : base;
       await gateway.tui(name, terminal);
       return EXIT_OK;
     } catch (error) {

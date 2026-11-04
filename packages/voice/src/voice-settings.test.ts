@@ -167,4 +167,24 @@ describe('A18 voice input routing', () => {
     assert.equal(changed.kind === 'settings' && changed.session.preferences.speed, 1.5);
     assert.deepEqual(rejected, { kind: 'settings-rejected', issues: [{ code: 'speed_out_of_range', path: 'speed' }] });
   });
+
+  it('sends text after the first sentence of a settings line to the GM', () => {
+    const submitted: string[] = [];
+    const act = (text: string) => submitted.push(text);
+    const text = 'Set mic to push to talk. I attack the orc! Then I run.';
+    const changed = routeVoiceInput(session(), { source: 'typed', text }, SUPPORTED_LOCALES, act);
+    const rejected = routeVoiceInput(
+      session(),
+      { source: 'typed', text: 'set speed 9. I wait.' },
+      SUPPORTED_LOCALES,
+      act,
+    );
+    const single = routeVoiceInput(session(), { source: 'typed', text: 'Set speed 1.5.' }, SUPPORTED_LOCALES, act);
+
+    assert.equal(changed.kind === 'settings' && changed.session.preferences.microphone, 'push-to-talk');
+    assert.equal(changed.kind === 'settings' && changed.action, 1);
+    assert.equal(rejected.kind === 'settings-rejected' && rejected.action, 2);
+    assert.equal(single.kind === 'settings' && single.action, undefined);
+    assert.deepEqual(submitted, ['I attack the orc! Then I run.', 'I wait.']);
+  });
 });

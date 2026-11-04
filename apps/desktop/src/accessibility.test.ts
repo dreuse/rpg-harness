@@ -25,6 +25,35 @@ test('UI10 preferences default, clamp font scale and reject invalid input', () =
   assert.equal(parsePreferences('nope').ok, false);
 });
 
+test('A18 saved voice settings default off and reject invalid input', () => {
+  assert.deepEqual(DEFAULT_PREFERENCES.voice, {
+    microphone: 'off',
+    spokenOutput: 'off',
+    consent: { granted: false },
+    locale: 'en',
+    speed: 1,
+  });
+  const consent = { granted: true, grantedAt: '2026-11-04T00:00:00Z', providerIds: ['local'] };
+  const enabled = parsePreferences({ voice: { microphone: 'hands-free', consent } });
+  assert.deepEqual(enabled.ok && enabled.value.voice, {
+    ...DEFAULT_PREFERENCES.voice,
+    microphone: 'hands-free',
+    consent,
+  });
+  for (const voice of [
+    'on',
+    { microphone: 'loud' },
+    { spokenOutput: 'shout' },
+    { locale: '' },
+    { speed: 9 },
+    { consent: { granted: 'yes' } },
+    { consent: { granted: true, grantedAt: 1, providerIds: [] } },
+    { consent: { granted: true, grantedAt: 'now', providerIds: [1] } },
+  ]) {
+    assert.equal(parsePreferences({ voice }).ok, false, JSON.stringify(voice));
+  }
+});
+
 test('UI10 saved preferences load and fall back to defaults without throwing', () => {
   assert.deepEqual(
     loadPreferences(() => '{"locale":"es"}'),

@@ -205,11 +205,21 @@ export const changeVoiceSettings = (
 };
 
 export type VoiceInputRoute<T> =
-  | { readonly kind: 'settings'; readonly session: VoiceSession; readonly event: VoiceSettingsChangedEvent }
-  | { readonly kind: 'settings-rejected'; readonly issues: readonly VoiceSettingsIssue[] }
+  | {
+      readonly kind: 'settings';
+      readonly session: VoiceSession;
+      readonly event: VoiceSettingsChangedEvent;
+      readonly action?: T;
+    }
+  | { readonly kind: 'settings-rejected'; readonly issues: readonly VoiceSettingsIssue[]; readonly action?: T }
   | { readonly kind: 'action'; readonly result: T };
 
 const UNRECOGNIZED: VoiceSettingsIssueCode = 'unrecognized';
+
+const remainderOf = (text: string): string => {
+  const end = SENTENCE_END.exec(text);
+  return end === null ? '' : text.slice(end.index + end[0].length).trim();
+};
 
 export const routeVoiceInput = <T>(
   session: VoiceSession,
@@ -218,9 +228,11 @@ export const routeVoiceInput = <T>(
   submitAction: (text: string) => T,
 ): VoiceInputRoute<T> => {
   const result = changeVoiceSettings(session, request, supportedLocales);
-  if (result.ok) return { kind: 'settings', session: result.session, event: result.event };
-  if (result.issues.some(({ code }) => code === UNRECOGNIZED)) {
+  if (!result.ok && result.issues.some(({ code }) => code === UNRECOGNIZED)) {
     return { kind: 'action', result: submitAction(request.text) };
   }
-  return { kind: 'settings-rejected', issues: result.issues };
+  const rest = remainderOf(request.text);
+  const action = rest === '' ? {} : { action: submitAction(rest) };
+  if (result.ok) return { kind: 'settings', session: result.session, event: result.event, ...action };
+  return { kind: 'settings-rejected', issues: result.issues, ...action };
 };

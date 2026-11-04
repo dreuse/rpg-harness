@@ -1,15 +1,30 @@
 import type { Result, ViewComponent } from '../../../packages/client-protocol/src/protocol.ts';
 import { failure } from '../../../packages/client-protocol/src/view-registry.ts';
+import {
+  DEFAULT_PLAYBACK_SPEED,
+  MAX_PLAYBACK_SPEED,
+  MIN_PLAYBACK_SPEED,
+} from '../../../packages/voice/src/playback.ts';
+import {
+  DEFAULT_VOICE_SETTINGS,
+  type MicrophoneMode,
+  type SpokenOutputMode,
+  type VoiceConsent,
+} from '../../../packages/voice/src/voice.ts';
+import type { VoicePreferences } from '../../../packages/voice/src/voice-settings.ts';
 
 export const MIN_FONT_SCALE = 0.75;
 export const MAX_FONT_SCALE = 2;
 export const DEFAULT_LOCALE = 'en';
+
+export type SavedVoice = VoicePreferences & { readonly consent: VoiceConsent };
 
 export type UiPreferences = {
   readonly fontScale: number;
   readonly locale: string;
   readonly reducedMotion: boolean;
   readonly keyboard: boolean;
+  readonly voice: SavedVoice;
 };
 
 export const DEFAULT_PREFERENCES: UiPreferences = {
@@ -17,23 +32,65 @@ export const DEFAULT_PREFERENCES: UiPreferences = {
   locale: DEFAULT_LOCALE,
   reducedMotion: false,
   keyboard: true,
+  voice: {
+    microphone: DEFAULT_VOICE_SETTINGS.microphone,
+    spokenOutput: DEFAULT_VOICE_SETTINGS.spokenOutput,
+    locale: DEFAULT_LOCALE,
+    speed: DEFAULT_PLAYBACK_SPEED,
+    consent: DEFAULT_VOICE_SETTINGS.consent,
+  },
 };
+
+const MICROPHONE_MODES: readonly unknown[] = ['off', 'push-to-talk', 'hands-free'] satisfies MicrophoneMode[];
+const SPOKEN_OUTPUT_MODES: readonly unknown[] = ['off', 'narrator', 'dialogue', 'full'] satisfies SpokenOutputMode[];
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
+
+const isText = (value: unknown): value is string => typeof value === 'string' && value.length > 0;
+
+const isConsent = (value: unknown): value is VoiceConsent =>
+  isRecord(value) &&
+  (value.granted === false ||
+    (value.granted === true &&
+      isText(value.grantedAt) &&
+      Array.isArray(value.providerIds) &&
+      value.providerIds.every(isText)));
+
+const isSavedVoice = (value: unknown): value is SavedVoice =>
+  isRecord(value) &&
+  MICROPHONE_MODES.includes(value.microphone) &&
+  SPOKEN_OUTPUT_MODES.includes(value.spokenOutput) &&
+  isText(value.locale) &&
+  typeof value.speed === 'number' &&
+  value.speed >= MIN_PLAYBACK_SPEED &&
+  value.speed <= MAX_PLAYBACK_SPEED &&
+  isConsent(value.consent);
 
 const clamp = (value: number) => Math.min(MAX_FONT_SCALE, Math.max(MIN_FONT_SCALE, value));
 
 export const parsePreferences = (input: unknown): Result<UiPreferences> => {
   if (input === undefined) return { ok: true, value: DEFAULT_PREFERENCES };
   if (!isRecord(input)) return failure('MalformedCommand', 'preferences must be an object');
-  const { fontScale, locale, reducedMotion, keyboard } = { ...DEFAULT_PREFERENCES, ...input };
+  const { fontScale, locale, reducedMotion, keyboard, voice: savedVoice } = { ...DEFAULT_PREFERENCES, ...input };
+  const voice = isRecord(savedVoice) ? { ...DEFAULT_PREFERENCES.voice, ...savedVoice } : savedVoice;
   if (typeof fontScale !== 'number' || !Number.isFinite(fontScale))
     return failure('MalformedCommand', 'fontScale must be a finite number');
   if (typeof locale !== 'string' || locale.length === 0) return failure('MalformedCommand', 'locale must be text');
   if (typeof reducedMotion !== 'boolean') return failure('MalformedCommand', 'reducedMotion must be a flag');
   if (typeof keyboard !== 'boolean') return failure('MalformedCommand', 'keyboard must be a flag');
-  return { ok: true, value: { fontScale: clamp(fontScale), locale, reducedMotion, keyboard } };
+  if (!isSavedVoice(voice)) return failure('MalformedCommand', 'voice settings are invalid');
+  const { microphone, spokenOutput, locale: voiceLocale, speed, consent } = voice;
+  return {
+    ok: true,
+    value: {
+      fontScale: clamp(fontScale),
+      locale,
+      reducedMotion,
+      keyboard,
+      voice: { microphone, spokenOutput, locale: voiceLocale, speed, consent },
+    },
+  };
 };
 
 export const loadPreferences = (read: () => string): UiPreferences => {
@@ -107,6 +164,8 @@ const CATALOG: Readonly<Record<string, Readonly<Record<string, string>>>> = {
     'voice.rejected': 'Ajustes de voz sin cambios: {codes}',
   },
 };
+
+export const SUPPORTED_LOCALES: readonly string[] = Object.keys(CATALOG);
 
 const PLACEHOLDER = /\{(\w+)\}/g;
 
