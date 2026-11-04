@@ -14,6 +14,6 @@
 
 - `apps/cli/src/desktop-daemon.ts` holds the spike supervisor and engine entry. It is a starting point for `apps/desktop`, not a finished shell.
 - The supervisor drops all `CLAUDE_*` variables plus `ANTHROPIC_AUTH_TOKEN`, `CLAUDECODE` and `ENABLE_CLAUDEAI_MCP_SERVERS`, in any letter case. The engine refuses to start if one reaches it. Provider auth is `ANTHROPIC_API_KEY` or the fake GM.
-- Inside Electron the supervisor sets `ELECTRON_RUN_AS_NODE=1`, so it needs the `RunAsNode` fuse on. If the fuse is turned off for hardening, the engine starts through `utilityProcess`. The message format stays the same; only the pipe changes. This ADR is then amended.
+- Inside Electron the supervisor sets `ELECTRON_RUN_AS_NODE=1`, so it needs the `RunAsNode` fuse on. If the fuse is turned off for hardening, the engine starts through `utilityProcess`. The message format stays the same; only the pipe changes. ADR 0012 amends this: signed builds turn the fuse off.
 - Not verified: the supervisor inside an Electron main process, and type stripping of the engine `.ts` files and their relative `../../../packages` imports from a packaged `asar` archive.
 - Windows and Linux installers, signing, notarization and updates are not verified. They need CI runners and owner accounts (M3 package smoke test).
