@@ -104,8 +104,9 @@ test('UI08: provide responsive desktop conversation, sheets, panels and campaign
   const { wire, client } = connectedClient();
   assert.deepEqual(
     wire.sent.map(({ type }) => type),
-    ['GetCampaignSnapshot', 'RequestView'],
+    ['ListCampaigns', 'GetCampaignSnapshot', 'RequestView'],
   );
+  assert.deepEqual(wire.sent[0], { version: PROTOCOL_VERSION, type: 'ListCampaigns' });
 
   const wide = viewModel(client.state(), WIDE_WIDTH);
   assert.equal(wide.layout.name, 'wide');
@@ -168,7 +169,7 @@ test('UI08: provide responsive desktop conversation, sheets, panels and campaign
   assert.equal(switched.sheet, undefined);
   wire.receive({ type: 'View', campaignId: CAMPAIGN, view: SHEET_VIEW });
   assert.equal(viewModel(client.state(), WIDE_WIDTH).sheet, undefined);
-  assert.equal(wire.sent.at(-2)?.campaignId, OTHER);
+  assert.deepEqual(wire.sent.at(-2), { version: PROTOCOL_VERSION, type: 'GetCampaignSnapshot', campaignId: OTHER });
 });
 
 test('UI08: offline / disconnected engine state is shown accurately with safe retry', () => {
@@ -220,17 +221,27 @@ test('UI08: offline / disconnected engine state is shown accurately with safe re
   assert.equal(wire.sent.length, sentBefore);
 
   wire.receive(READY);
-  const resent = wire.sent.slice(sentBefore).filter(({ type }) => type === 'SubmitPlayerAction');
   assert.deepEqual(
-    resent.map((command) => command.type === 'SubmitPlayerAction' && command.actionId),
-    ['a0', 'a1'],
+    wire.sent.slice(sentBefore).map(({ type }) => type),
+    ['ListCampaigns', 'GetCampaignSnapshot', 'RequestView'],
   );
   assert.equal(client.state().connection.attempts, 0);
+  wire.receive({ type: 'Snapshot', snapshot: snapshotAt(3) });
+  const resent = wire.sent.slice(sentBefore).filter(({ type }) => type === 'SubmitPlayerAction');
+  assert.deepEqual(
+    resent.map((command) => command.type === 'SubmitPlayerAction' && [command.actionId, command.expectedRevision]),
+    [
+      ['a0', 3],
+      ['a1', 3],
+    ],
+  );
+  wire.receive({ type: 'Snapshot', snapshot: snapshotAt(3) });
+  assert.equal(wire.sent.filter(({ type }) => type === 'SubmitPlayerAction').length, resent.length + 1);
 
   wire.receive({ type: 'Accepted', actionId: 'a0', revision: 2 });
   wire.receive({ type: 'Accepted', actionId: 'a0', revision: 2 });
   wire.receive({ type: 'Rejected', actionId: 'a1', error: { code: 'Rejected', message: 'stale revision' } });
-  wire.receive({ type: 'Snapshot', snapshot: snapshotAt(2, ['a0']) });
+  wire.receive({ type: 'Snapshot', snapshot: snapshotAt(4, ['a0']) });
   const shown = viewModel(client.state(), WIDE_WIDTH);
   assert.deepEqual(
     shown.conversation.map(({ actionId }) => actionId),
@@ -263,4 +274,38 @@ test('UI10 status label follows the locale preference', () => {
   );
   assert.equal(label({ status: 'disconnected', attempts: 0, lastError: 'boom' }), 'Motor sin conexión: boom');
   assert.equal(label({ status: 'reconnecting', attempts: 2 }), 'Reconectando con el motor (intento 2)');
+});
+
+test('rpg-p5p5: queued actions rebase onto a newer snapshot revision and keep their action id', () => {
+  const { wire, client } = connectedClient();
+  wire.close('Engine 42 exited (1).');
+  assert.equal(client.submit('hide').ok, true);
+  assert.deepEqual(
+    client.state().outbox.map(({ actionId, expectedRevision }) => [actionId, expectedRevision]),
+    [['a0', 1]],
+  );
+  wire.receive(READY);
+  wire.receive({ type: 'Snapshot', snapshot: { ...snapshotAt(5), campaignId: OTHER } });
+  assert.equal(client.state().outbox[0]?.expectedRevision, 1);
+  wire.receive({ type: 'Snapshot', snapshot: snapshotAt(5) });
+  const [rebased] = client.state().outbox;
+  assert.equal(rebased?.actionId, 'a0');
+  assert.equal(rebased?.expectedRevision, 5);
+  assert.ok(Object.isFrozen(rebased));
+  assert.deepEqual(wire.sent.at(-1), rebased);
+  wire.receive({ type: 'Snapshot', snapshot: snapshotAt(0) });
+  assert.equal(client.state().outbox[0]?.expectedRevision, 5);
+});
+
+test('rpg-p5p5: an action submitted between Ready and the first snapshot is sent once, rebased', () => {
+  const { wire, client } = connectedClient();
+  wire.close('Engine 42 exited (1).');
+  wire.receive(READY);
+  assert.equal(client.submit('duck').ok, true);
+  wire.receive({ type: 'Snapshot', snapshot: snapshotAt(4) });
+  const submitted = wire.sent.filter(({ type }) => type === 'SubmitPlayerAction');
+  assert.deepEqual(
+    submitted.map((command) => command.type === 'SubmitPlayerAction' && [command.actionId, command.expectedRevision]),
+    [['a0', 4]],
+  );
 });

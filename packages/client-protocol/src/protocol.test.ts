@@ -56,7 +56,10 @@ const SHEET_EDIT = {
   value: 4,
 };
 
+const LIST_CAMPAIGNS = { version: PROTOCOL_VERSION, type: 'ListCampaigns' } as const;
+
 const VALID_COMMANDS = [
+  LIST_CAMPAIGNS,
   { ...envelope, type: 'GetCampaignSnapshot' },
   ACTION,
   { ...envelope, type: 'SelectCapability', capabilityId: 'combat', enabled: true },
@@ -85,6 +88,7 @@ const inMemorySession = (): ClientSession & { commit(event: DomainEvent): void }
       revision = event.revision;
       log.publish(toClientEvent(event));
     },
+    listCampaigns: () => ({ ok: true, value: { version: PROTOCOL_VERSION, campaigns: [snapshot().campaign] } }),
     getSnapshot: () => ({ ok: true, value: snapshot() }),
     getPanels: () => ({
       ok: true,
@@ -157,6 +161,7 @@ test('UI01: rejects unknown version, unknown command and malformed payloads with
 
 test('UI01: clients cannot bypass the engine or trust unsolicited model state writes', () => {
   assert.deepEqual(COMMAND_TYPES, [
+    'ListCampaigns',
     'GetCampaignSnapshot',
     'SubmitPlayerAction',
     'SelectCapability',
@@ -175,6 +180,19 @@ test('UI01: clients cannot bypass the engine or trust unsolicited model state wr
   assert.ok(Object.isFrozen(event.event));
   assert.ok(Object.isFrozen(event.event.payload));
   assert.throws(() => Object.assign(event, { revision: 42 }), TypeError);
+});
+
+test('rpg-p5p5: ListCampaigns carries no campaign while every other command still needs one', () => {
+  const session = inMemorySession();
+  assert.deepEqual(session.listCampaigns(LIST_CAMPAIGNS), {
+    ok: true,
+    value: { version: PROTOCOL_VERSION, campaigns: [{ id: CAMPAIGN_ID, name: 'Ashfall' }] },
+  });
+  assert.equal(code(parseCommand({ ...LIST_CAMPAIGNS, campaignId: CAMPAIGN_ID })), 'UnexpectedField');
+  assert.equal(code(parseCommand({ ...LIST_CAMPAIGNS, campaignId: '' })), 'UnexpectedField');
+  for (const type of COMMAND_TYPES.filter((type) => type !== LIST_CAMPAIGNS.type)) {
+    assert.equal(code(parseCommand({ version: PROTOCOL_VERSION, type })), 'MalformedCommand');
+  }
 });
 
 test('UI01: rejects inherited envelope fields and symbol-keyed extra fields', () => {

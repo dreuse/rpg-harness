@@ -19,6 +19,7 @@ export const MAX_INPUT_LENGTH = 4096;
 export type ProtocolVersion = typeof PROTOCOL_VERSION;
 
 export const COMMAND_TYPES = [
+  'ListCampaigns',
   'GetCampaignSnapshot',
   'SubmitPlayerAction',
   'SelectCapability',
@@ -46,11 +47,10 @@ export type ViewComponentKind = (typeof VIEW_COMPONENT_KINDS)[number];
 
 export const EVENT_COMMITTED = 'EventCommitted';
 
-type Envelope<T extends CommandType> = {
-  readonly version: ProtocolVersion;
-  readonly type: T;
-  readonly campaignId: CampaignId;
-};
+type Header<T extends CommandType> = { readonly version: ProtocolVersion; readonly type: T };
+type Envelope<T extends CommandType> = Header<T> & { readonly campaignId: CampaignId };
+
+export type ListCampaigns = Header<'ListCampaigns'>;
 
 export type GetCampaignSnapshot = Envelope<'GetCampaignSnapshot'>;
 export type SubmitPlayerAction = Envelope<'SubmitPlayerAction'> & {
@@ -75,6 +75,7 @@ export type EditSheetField = Envelope<'EditSheetField'> & {
 };
 
 export type ClientCommand =
+  | ListCampaigns
   | GetCampaignSnapshot
   | SubmitPlayerAction
   | SelectCapability
@@ -92,6 +93,8 @@ export type EventCommitted = {
 };
 
 export type ClientEvent = EventCommitted | VisualizationEvent;
+
+export type CampaignList = { readonly version: ProtocolVersion; readonly campaigns: readonly Campaign[] };
 
 export type CampaignSnapshot = {
   readonly version: ProtocolVersion;
@@ -155,6 +158,7 @@ export type Result<T> =
 export type Unsubscribe = () => void;
 
 export interface ClientSession {
+  listCampaigns(command: ListCampaigns): Result<CampaignList>;
   getSnapshot(command: GetCampaignSnapshot): Result<CampaignSnapshot>;
   getPanels(command: GetCampaignSnapshot): Result<CampaignPanels>;
   submitPlayerAction(command: SubmitPlayerAction): Result<Accepted>;
@@ -167,10 +171,13 @@ export interface ClientSession {
 type FieldKind = 'id' | 'text' | 'revision' | 'flag' | 'primitive';
 type FieldSpec = { readonly kind: FieldKind; readonly optional?: true };
 
-const ENVELOPE_FIELDS = ['version', 'type', 'campaignId'];
+const HEADER_FIELDS = ['version', 'type'];
+const ENVELOPE_FIELDS = [...HEADER_FIELDS, 'campaignId'];
+const UNSCOPED: readonly CommandType[] = ['ListCampaigns'];
 const ID: FieldSpec = { kind: 'id' };
 
 const COMMAND_FIELDS: Record<CommandType, Readonly<Record<string, FieldSpec>>> = {
+  ListCampaigns: {},
   GetCampaignSnapshot: {},
   SubmitPlayerAction: {
     actionId: ID,
@@ -233,16 +240,18 @@ export const parseCommand = (input: unknown): Result<ClientCommand> => {
   if (version !== PROTOCOL_VERSION) return failure('UnsupportedVersion', `unsupported version ${describe(version)}`);
   if (!isCommandType(type)) return failure('UnknownCommand', `unknown command ${describe(type)}`);
   const fields = COMMAND_FIELDS[type];
+  const scoped = !UNSCOPED.includes(type);
+  const envelope = scoped ? ENVELOPE_FIELDS : HEADER_FIELDS;
   const unexpected = keys.find(
-    (key) => typeof key !== 'string' || (!ENVELOPE_FIELDS.includes(key) && !Object.hasOwn(fields, key)),
+    (key) => typeof key !== 'string' || (!envelope.includes(key) && !Object.hasOwn(fields, key)),
   );
   if (unexpected !== undefined) return failure('UnexpectedField', `${type} does not accept ${String(unexpected)}`);
-  const specs: [string, FieldSpec][] = [['campaignId', ID], ...Object.entries(fields)];
+  const specs = Object.entries(scoped ? { campaignId: ID, ...fields } : fields);
   const invalid = specs.find(([key, spec]) =>
     Object.hasOwn(own, key) ? !FIELD_CHECKS[spec.kind](own[key]) : spec.optional !== true,
   );
   if (invalid !== undefined) return failure('MalformedCommand', `${type}.${invalid[0]} is missing or invalid`);
-  const ordered = [...ENVELOPE_FIELDS, ...Object.keys(fields)].filter((key) => Object.hasOwn(own, key));
+  const ordered = [...envelope, ...Object.keys(fields)].filter((key) => Object.hasOwn(own, key));
   return { ok: true, value: Object.freeze(Object.fromEntries(ordered.map((key) => [key, own[key]]))) as ClientCommand };
 };
 

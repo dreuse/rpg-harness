@@ -5,6 +5,7 @@ import {
   type ClientEvent,
   type ClientSession,
   EVENT_COMMITTED,
+  type ListCampaigns,
   MAX_INPUT_LENGTH,
   PROTOCOL_VERSION,
 } from '../../../packages/client-protocol/src/protocol.ts';
@@ -235,6 +236,26 @@ test('UI01: session validates every command at the boundary', () => {
     ignored.push(event),
   );
   assert.deepEqual(ignored, []);
+});
+
+test('rpg-p5p5: ListCampaigns lists the campaign the session serves and validates the command', () => {
+  const { sessionFor, campaignId } = setup();
+  const session = sessionFor(PLAYER_VIEWER);
+  const listed = session.listCampaigns({ version: PROTOCOL_VERSION, type: 'ListCampaigns' });
+  assert.ok(listed.ok);
+  assert.equal(listed.value.version, PROTOCOL_VERSION);
+  assert.deepEqual(
+    listed.value.campaigns.map(({ id }) => id),
+    [campaignId],
+  );
+  assert.ok(Object.isFrozen(listed.value.campaigns));
+  const unscoped = { version: PROTOCOL_VERSION, type: 'ListCampaigns', campaignId } as unknown as ListCampaigns;
+  assert.equal(session.listCampaigns(unscoped).ok, false);
+  const wrongType = { version: PROTOCOL_VERSION, type: 'GetCampaignSnapshot', campaignId } as unknown as ListCampaigns;
+  assert.deepEqual(session.listCampaigns(wrongType), {
+    ok: false,
+    error: { code: 'UnknownCommand', message: 'expected ListCampaigns' },
+  });
 });
 
 test('UI04 display inventory, quest journal, rule citations and world recap with live updates', () => {

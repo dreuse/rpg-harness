@@ -29,6 +29,7 @@ const VIEW = 'View';
 const ACCEPTED = 'Accepted';
 const REJECTED = 'Rejected';
 const NO_REVISION = -1;
+const LIST_CAMPAIGNS: ClientCommand = { version: PROTOCOL_VERSION, type: 'ListCampaigns' };
 
 export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected' | 'reconnecting';
 export type Connection = {
@@ -138,6 +139,7 @@ export const createDesktopClient = ({
   readonly newActionId: () => string;
 }) => {
   let state = initialState;
+  let resendOnSnapshot = false;
   const listeners = new Set<(state: DesktopState) => void>();
 
   const update = (next: Partial<DesktopState>) => {
@@ -186,8 +188,21 @@ export const createDesktopClient = ({
       return disconnect(`unsupported engine protocol ${String(message.version)}`);
     const { pid, gm } = message as Ready;
     update({ connection: { status: 'connected', attempts: 0, engine: { pid, gm } } });
-    for (const action of state.outbox) send(action);
+    resendOnSnapshot = true;
+    send(LIST_CAMPAIGNS);
     refresh();
+  };
+
+  const onSnapshot = (snapshot: CampaignSnapshot) => {
+    const outbox = state.outbox.map((action) =>
+      action.campaignId === snapshot.campaignId && action.expectedRevision < snapshot.revision
+        ? Object.freeze({ ...action, expectedRevision: snapshot.revision })
+        : action,
+    );
+    update({ snapshot, outbox });
+    if (!resendOnSnapshot) return;
+    resendOnSnapshot = false;
+    for (const action of outbox) send(action);
   };
 
   const receive = (line: string) => {
@@ -198,7 +213,7 @@ export const createDesktopClient = ({
     if (message.type === CAMPAIGNS && Array.isArray(message.campaigns))
       return update({ campaigns: message.campaigns.filter(isCampaign) });
     if (message.type === SNAPSHOT && forSelected(message.snapshot))
-      return update({ snapshot: message.snapshot as CampaignSnapshot });
+      return onSnapshot(message.snapshot as CampaignSnapshot);
     if (message.type === PANELS && forSelected(message.panels))
       return update({ panels: message.panels as CampaignPanels });
     if (message.type === VIEW) {
@@ -257,7 +272,7 @@ export const createDesktopClient = ({
       if (!parsed.ok) return parsed;
       const action = parsed.value as SubmitPlayerAction;
       update({ outbox: [...state.outbox, action] });
-      send(action);
+      if (!resendOnSnapshot) send(action);
       return { ok: true, value: action };
     },
     retry: () => {

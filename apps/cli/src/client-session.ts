@@ -12,6 +12,7 @@ import {
   EVENT_COMMITTED,
   type EventCommitted,
   failure,
+  type ListCampaigns,
   PROTOCOL_VERSION,
   parseCommand,
   type Result,
@@ -193,10 +194,16 @@ export const createClientSessions = (
       })),
     });
 
-  const accept = <T extends ClientCommand>(command: unknown, type: T['type']): Result<T> => {
+  const parsedAs = <T extends ClientCommand>(command: unknown, type: T['type']): Result<T> => {
     const parsed = parseCommand(command);
     if (!parsed.ok) return parsed;
     if (parsed.value.type !== type) return failure('UnknownCommand', `expected ${type}`);
+    return parsed as Result<T>;
+  };
+
+  const accept = <T extends Exclude<ClientCommand, ListCampaigns>>(command: unknown, type: T['type']): Result<T> => {
+    const parsed = parsedAs<T>(command, type);
+    if (!parsed.ok) return parsed;
     if (parsed.value.campaignId !== campaignId)
       return failure('Rejected', `campaign ${parsed.value.campaignId} is not served by this session`);
     return parsed as Result<T>;
@@ -225,6 +232,13 @@ export const createClientSessions = (
       return scope !== undefined && visibleTo([scope], viewer).length > 0;
     };
     return {
+      listCampaigns: (command) => {
+        const parsed = parsedAs(command, 'ListCampaigns');
+        if (!parsed.ok) return parsed;
+        return attempt(() =>
+          deepFreeze(structuredClone({ version: PROTOCOL_VERSION, campaigns: [engine.getCampaign(campaignId)] })),
+        );
+      },
       getSnapshot: (command) => {
         const accepted = accept(command, 'GetCampaignSnapshot');
         return accepted.ok ? attempt(snapshot) : accepted;
