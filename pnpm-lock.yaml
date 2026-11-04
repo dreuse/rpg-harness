@@ -30,6 +30,15 @@ importers:
         specifier: workspace:*
         version: link:../../packages/persistence
 
+  apps/desktop:
+    dependencies:
+      '@rpg/client-protocol':
+        specifier: workspace:*
+        version: link:../../packages/client-protocol
+      '@rpg/domain':
+        specifier: workspace:*
+        version: link:../../packages/domain
+
   apps/mcp-server: {}
 
   packages/client-protocol:
