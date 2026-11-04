@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { createCampaignStore } from '../../persistence/src/campaign-store.ts';
 import { openDatabase } from '../../persistence/src/database.ts';
 import { CAMPAIGN_TOOLS, callTool, MAX_NAME_LENGTH, MAX_REQUEST_BYTES, type ToolResult } from './tools.ts';
 
@@ -36,6 +37,7 @@ test('mcp tools can create, read and update a tiny test campaign with typed sche
       ['create_campaign', false],
       ['get_campaign', true],
       ['rename_campaign', false],
+      ['get_scene', true],
     ],
   );
 
@@ -96,5 +98,43 @@ test('invalid or oversized tool requests are rejected cleanly', () => {
   assert.equal(countRows(database, 'campaign'), 1);
   assert.equal(countRows(database, 'event_log'), 1);
   assert.deepEqual(ok(callTool(database, 'get_campaign', { id: created.id })), created);
+  connection.close();
+});
+
+test('get_scene reads the current scene and characters without changing state', () => {
+  const connection = openDatabase(IN_MEMORY);
+  const { database } = connection;
+  const created = ok(callTool(database, 'create_campaign', { name: FIRST_NAME }));
+  const campaignId = String(created.id);
+  assert.equal(errorCode(callTool(database, 'get_scene', { campaignId })), 'SceneNotFound');
+  assert.equal(errorCode(callTool(database, 'get_scene', { campaignId: MISSING_ID })), 'CampaignNotFound');
+
+  const scene = { id: 'scene-1', campaignId, title: 'A quiet harbour' };
+  const character = { id: 'character-1', campaignId, name: 'Ash' };
+  createCampaignStore(database).commitTurn({
+    expectedRevision: 0,
+    turn: {
+      id: 'turn-1',
+      campaignId,
+      sceneId: scene.id,
+      actionId: 'action-1',
+      actorId: character.id,
+      input: 'look around',
+      narration: 'Gulls circle.',
+    },
+    characters: [character],
+    scenes: [scene],
+    events: [],
+  });
+  const eventsBefore = countRows(database, 'event_log');
+
+  assert.deepEqual(ok(callTool(database, 'get_scene', { campaignId })), {
+    campaignId,
+    revision: 1,
+    scene: { id: scene.id, title: scene.title },
+    characters: [{ id: character.id, name: character.name }],
+  });
+  assert.equal(countRows(database, 'event_log'), eventsBefore);
+  assert.equal(countRows(database, 'turn'), 1);
   connection.close();
 });

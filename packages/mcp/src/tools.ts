@@ -1,16 +1,26 @@
 import { randomUUID } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
+import { createCampaignStore } from '../../persistence/src/campaign-store.ts';
 
 export const MAX_REQUEST_BYTES = 4096;
 export const MAX_NAME_LENGTH = 120;
 export const MAX_ID_LENGTH = 64;
 const MIN_LENGTH = 1;
+const MIN_REVISION = 0;
 
 type StringSchema = { readonly type: 'string'; readonly minLength: number; readonly maxLength: number };
 
-type ObjectSchema = {
+type IntegerSchema = { readonly type: 'integer'; readonly minimum: number };
+
+type ArraySchema = { readonly type: 'array'; readonly items: JsonSchema };
+
+interface NestedSchema extends ObjectSchema<JsonSchema> {}
+
+type JsonSchema = StringSchema | IntegerSchema | ArraySchema | NestedSchema;
+
+type ObjectSchema<Property extends JsonSchema = StringSchema> = {
   readonly type: 'object';
-  readonly properties: Readonly<Record<string, StringSchema>>;
+  readonly properties: Readonly<Record<string, Property>>;
   readonly required: readonly string[];
   readonly additionalProperties: false;
 };
@@ -19,24 +29,38 @@ export type ToolDefinition = {
   readonly name: string;
   readonly description: string;
   readonly inputSchema: ObjectSchema;
-  readonly outputSchema: ObjectSchema;
+  readonly outputSchema: ObjectSchema<JsonSchema>;
   readonly annotations: { readonly readOnlyHint: boolean };
 };
 
-export type ToolErrorCode = 'UnknownTool' | 'InvalidArguments' | 'RequestTooLarge' | 'CampaignNotFound';
+export type ToolErrorCode =
+  | 'UnknownTool'
+  | 'InvalidArguments'
+  | 'RequestTooLarge'
+  | 'CampaignNotFound'
+  | 'SceneNotFound';
 
 export type Campaign = { readonly id: string; readonly name: string };
+
+export type SceneState = {
+  readonly campaignId: string;
+  readonly revision: number;
+  readonly scene: { readonly id: string; readonly title: string };
+  readonly characters: readonly { readonly id: string; readonly name: string }[];
+};
+
+type ToolOutput = Campaign | SceneState;
 
 export type ToolResult = {
   readonly isError: boolean;
   readonly content: readonly { readonly type: 'text'; readonly text: string }[];
-  readonly structuredContent: Campaign | { readonly code: ToolErrorCode; readonly message: string };
+  readonly structuredContent: ToolOutput | { readonly code: ToolErrorCode; readonly message: string };
 };
 
 const ID: StringSchema = { type: 'string', minLength: MIN_LENGTH, maxLength: MAX_ID_LENGTH };
 const NAME: StringSchema = { type: 'string', minLength: MIN_LENGTH, maxLength: MAX_NAME_LENGTH };
 
-const objectSchema = (properties: Record<string, StringSchema>): ObjectSchema => ({
+const objectSchema = <Property extends JsonSchema>(properties: Record<string, Property>): ObjectSchema<Property> => ({
   type: 'object',
   properties,
   required: Object.keys(properties),
@@ -44,6 +68,12 @@ const objectSchema = (properties: Record<string, StringSchema>): ObjectSchema =>
 });
 
 const CAMPAIGN_SCHEMA = objectSchema({ id: ID, name: NAME });
+const SCENE_STATE_SCHEMA = objectSchema<JsonSchema>({
+  campaignId: ID,
+  revision: { type: 'integer', minimum: MIN_REVISION },
+  scene: objectSchema({ id: ID, title: NAME }),
+  characters: { type: 'array', items: CAMPAIGN_SCHEMA },
+});
 
 export const CAMPAIGN_TOOLS: readonly ToolDefinition[] = [
   {
@@ -67,6 +97,13 @@ export const CAMPAIGN_TOOLS: readonly ToolDefinition[] = [
     outputSchema: CAMPAIGN_SCHEMA,
     annotations: { readOnlyHint: false },
   },
+  {
+    name: 'get_scene',
+    description: 'Read the current scene, characters and revision of one campaign.',
+    inputSchema: objectSchema({ campaignId: ID }),
+    outputSchema: SCENE_STATE_SCHEMA,
+    annotations: { readOnlyHint: true },
+  },
 ];
 
 const SELECT_CAMPAIGN = 'SELECT id, name FROM campaign WHERE id = ?';
@@ -82,10 +119,10 @@ class ToolError extends Error {
   }
 }
 
-const success = (campaign: Campaign): ToolResult => ({
+const success = (output: ToolOutput): ToolResult => ({
   isError: false,
-  content: [{ type: 'text', text: JSON.stringify(campaign) }],
-  structuredContent: campaign,
+  content: [{ type: 'text', text: JSON.stringify(output) }],
+  structuredContent: output,
 });
 
 const failure = ({ code, message }: ToolError): ToolResult => ({
@@ -142,7 +179,20 @@ const inTransaction = <T>(database: DatabaseSync, run: () => T): T => {
 const appendEvent = (database: DatabaseSync, campaignId: string, payload: Record<string, string>) =>
   database.prepare(APPEND_EVENT).run(campaignId, JSON.stringify(payload));
 
-const HANDLERS: Record<string, (database: DatabaseSync, args: Record<string, string>) => Campaign> = {
+const readScene = (database: DatabaseSync, campaignId: string): SceneState => {
+  const state = createCampaignStore(database).load(campaignId);
+  if (state === undefined) throw new ToolError('CampaignNotFound', `no campaign with id ${campaignId}`);
+  const { currentScene, revision, characters } = state;
+  if (currentScene === undefined) throw new ToolError('SceneNotFound', `campaign ${campaignId} has no current scene`);
+  return {
+    campaignId,
+    revision,
+    scene: { id: currentScene.id, title: currentScene.title },
+    characters: characters.map(({ id, name }) => ({ id, name })),
+  };
+};
+
+const HANDLERS: Record<string, (database: DatabaseSync, args: Record<string, string>) => ToolOutput> = {
   create_campaign: (database, { name = '' }) =>
     inTransaction(database, () => {
       const id = randomUUID();
@@ -151,6 +201,7 @@ const HANDLERS: Record<string, (database: DatabaseSync, args: Record<string, str
       return { id, name };
     }),
   get_campaign: (database, { id = '' }) => readCampaign(database, id),
+  get_scene: (database, { campaignId = '' }) => readScene(database, campaignId),
   rename_campaign: (database, { id = '', name = '' }) =>
     inTransaction(database, () => {
       readCampaign(database, id);
