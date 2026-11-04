@@ -45,7 +45,7 @@ const PIPELINE_FAILURES: readonly FailureKind[] = [
 
 const EXTRACT_FAILURES: Record<IngestFormat, readonly FailureKind[]> = {
   pdf: ['extraction_failed', 'encrypted', 'scanned_needs_vision'],
-  docx: ['extraction_failed', 'encrypted', 'unsafe_archive_entry', 'archive_size_exceeded'],
+  docx: ['extraction_failed', 'encrypted', 'scanned_needs_vision', 'unsafe_archive_entry', 'archive_size_exceeded'],
   text: ['extraction_failed'],
   markdown: ['extraction_failed'],
   yaml: ['malformed_structure'],
