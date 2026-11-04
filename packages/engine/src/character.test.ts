@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import type { CharacterProfile } from '../../domain/src/character.ts';
 import { createCampaignStore } from '../../persistence/src/campaign-store.ts';
 import { openDatabase } from '../../persistence/src/database.ts';
 import type { BuildInput, CreationRules } from '../../rules/src/character-builder.ts';
@@ -94,4 +95,22 @@ test('the engine refuses a forged, invalid or incomplete character and writes no
     for (const input of forged)
       assert.throws(() => commitCharacter(store, { ...action, build: input }), InvalidActionError);
     assert.equal(engine.getState(campaignId).revision, action.expectedRevision);
+  }));
+
+test('the committed profile omits traits the owner may not see', () =>
+  withCampaign(({ store, engine, campaignId, action }) => {
+    const fields = [
+      ...rules.schema.fields,
+      { id: 'doom', widget: 'number' as const, custom: false, visibility: 'gm' as const },
+      { id: 'secret', widget: 'number' as const, custom: false, visibility: 'hidden' as const },
+    ];
+    const guarded = {
+      ...build,
+      rules: { ...rules, schema: { ...rules.schema, fields } },
+      proposal: { ...build.proposal, values: { grit: 3, doom: 1, secret: 2 } },
+    };
+    commitCharacter(store, { ...action, build: guarded });
+    const event = engine.getState(campaignId).events.find(({ type }) => type === CHARACTER_CREATED);
+    assert.ok(event);
+    assert.deepEqual((event.payload.profile as CharacterProfile).traits, [{ id: 'grit', value: 3 }]);
   }));

@@ -1,8 +1,19 @@
 import { type CampaignStore, CHARACTER_CREATED, type CommittedTurn } from '../../domain/src/campaign.ts';
-import { type BuildInput, buildCharacter } from '../../rules/src/character-builder.ts';
+import type { CharacterProfile } from '../../domain/src/character.ts';
+import { type BuildInput, buildCharacter, type CreationRules } from '../../rules/src/character-builder.ts';
+import type { Visibility } from '../../rules/src/sheet-schema.ts';
 import { commit, InvalidActionError, loadState, type PlayerAction, recorded, replayOf, validate } from './turn.ts';
 
 export { CHARACTER_CREATED };
+
+const OWNER_VISIBLE: readonly Visibility[] = ['public', 'owner'];
+
+const ownerVisible = (rules: CreationRules, profile: CharacterProfile): CharacterProfile => {
+  const visible = new Set(
+    rules.schema.fields.filter((field) => OWNER_VISIBLE.includes(field.visibility)).map((field) => field.id),
+  );
+  return { ...profile, traits: profile.traits.filter((trait) => visible.has(trait.id)) };
+};
 
 export type CharacterCreation = PlayerAction & { readonly build: BuildInput };
 
@@ -11,7 +22,11 @@ export const commitCharacter = (store: CampaignStore, input: CharacterCreation):
   const result = buildCharacter(input.build);
   if (result.status !== 'created')
     throw new InvalidActionError(actionId, `character for ${actorId} is ${result.status}`);
-  const payload = { actorId, ...result.character };
+  const payload = {
+    actorId,
+    ...result.character,
+    profile: ownerVisible(input.build.rules, result.character.profile),
+  };
   const state = loadState(store, campaignId);
   const stored = replayOf(state, input, recorded(CHARACTER_CREATED, payload));
   if (stored !== undefined) return stored;
