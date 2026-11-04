@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "rpg": {
+      "command": "node",
+      "args": ["packages/mcp/src/server.ts"],
+      "env": { "RPG_DATABASE_PATH": "campaign.sqlite" }
+    }
+  }
+}

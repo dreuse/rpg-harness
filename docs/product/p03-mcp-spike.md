@@ -6,10 +6,10 @@ A project skill called a typed, read-only MCP tool over stdio, and Claude narrat
 
 | Part | File |
 |---|---|
-| MCP server, tool `get_campaign_snapshot` (zod input/output schema, `readOnlyHint`) | `spikes/p03-mcp/server.js` |
-| Protocol tests (3) | `spikes/p03-mcp/server.test.js` |
+| MCP server, tool `get_campaign_snapshot` (zod input/output schema, `readOnlyHint`) | `spikes/p03-mcp/server.js` (deleted) |
+| Protocol tests (3) | `spikes/p03-mcp/server.test.js` (deleted) |
 | Project skill | `.claude/skills/rpg-scene/SKILL.md` |
-| MCP config | `spikes/p03-mcp/mcp.json` |
+| MCP config | `spikes/p03-mcp/mcp.json` (deleted), now `packages/mcp/mcp.json` |
 
 ## Evidence (2026-11-04)
 
@@ -31,4 +31,4 @@ Live run: exit 0, `is_error: false`, 3 turns, $0.0074. Output used only player-v
 
 ## Open questions
 
-1. V04 should move the server to TypeScript inside the V01 workspace and read SQLite. V04 ships in-process tool handlers in `packages/mcp` only. The stdio server and the spike deletion are tracked in a follow-up bead.
+1. Resolved: `packages/mcp/src/server.ts` replaced the spike. It serves the campaign tools over stdio from the SQLite file in `RPG_DATABASE_PATH`. The spike evidence above was recorded before the deletion.

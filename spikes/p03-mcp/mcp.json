@@ -1,5 +1,0 @@
-{
-  "mcpServers": {
-    "rpg": { "command": "node", "args": ["spikes/p03-mcp/server.js"] }
-  }
-}
