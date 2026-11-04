@@ -30,6 +30,10 @@ export const VIEW_COMPONENT_KINDS = [
   'inventory',
   'relationship',
   'journal',
+  'quest',
+  'encounter',
+  'map',
+  'investigation',
 ] as const;
 export type ViewComponentKind = (typeof VIEW_COMPONENT_KINDS)[number];
 
