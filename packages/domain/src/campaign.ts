@@ -11,6 +11,8 @@ export const MAIN_BRANCH: BranchId = 'main';
 export const CAMPAIGN_CREATED = 'CampaignCreated';
 export const CAMPAIGN_RENAMED = 'CampaignRenamed';
 export const SCENE_OPENED = 'SceneOpened';
+export const EVENT_BUCKETS = ['background', 'emerging', 'major', 'critical'] as const;
+export type EventBucket = (typeof EVENT_BUCKETS)[number];
 
 export type Campaign = { readonly id: CampaignId; readonly name: string };
 

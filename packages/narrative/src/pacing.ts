@@ -1,13 +1,12 @@
-import type { EventId } from '../../domain/src/campaign.ts';
+import { EVENT_BUCKETS, type EventBucket, type EventId } from '../../domain/src/campaign.ts';
+
+export { EVENT_BUCKETS, type EventBucket };
 
 export const PACING_INTENTS = ['relaxed', 'balanced', 'intense'] as const;
 export type PacingIntent = (typeof PACING_INTENTS)[number];
 
 export const TENSION_LEVELS = ['calm', 'rising', 'high', 'peak'] as const;
 export type TensionLevel = (typeof TENSION_LEVELS)[number];
-
-export const EVENT_BUCKETS = ['background', 'emerging', 'major', 'critical'] as const;
-export type EventBucket = (typeof EVENT_BUCKETS)[number];
 
 export type PendingEvent = {
   readonly id: EventId;
