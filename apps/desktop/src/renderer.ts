@@ -13,6 +13,7 @@ import {
 import { parseViewDescriptor } from '../../../packages/client-protocol/src/view-registry.ts';
 import type { Campaign, CampaignId } from '../../../packages/domain/src/campaign.ts';
 import type { Ready } from '../../cli/src/desktop-daemon.ts';
+import { componentLabel, DEFAULT_PREFERENCES, translate, type UiPreferences } from './accessibility.ts';
 
 export const COMPACT_MAX_WIDTH = 720;
 export const MEDIUM_MAX_WIDTH = 1200;
@@ -80,14 +81,10 @@ export const initialState: DesktopState = {
   rejected: [],
 };
 
-const statusLabel = ({ status, attempts, lastError, engine }: Connection) => {
-  if (status === 'connected') return `Connected to engine ${engine?.pid} (${engine?.gm} GM)`;
-  if (status === 'disconnected') return `Engine offline: ${lastError}`;
-  if (status === 'reconnecting') return `Reconnecting to engine (attempt ${attempts})`;
-  return 'Connecting to engine';
-};
+const statusLabel = ({ status, attempts, lastError, engine }: Connection, locale: string) =>
+  translate(locale, `status.${status}`, { pid: engine?.pid, gm: engine?.gm, error: lastError, attempts });
 
-export const viewModel = (state: DesktopState, width: number) => {
+export const viewModel = (state: DesktopState, width: number, preferences: UiPreferences = DEFAULT_PREFERENCES) => {
   const committed = state.snapshot?.turns ?? [];
   const pending = state.outbox.filter(
     ({ campaignId, actionId }) =>
@@ -97,7 +94,7 @@ export const viewModel = (state: DesktopState, width: number) => {
     layout: layoutFor(width),
     status: {
       connection: state.connection.status,
-      label: statusLabel(state.connection),
+      label: statusLabel(state.connection, preferences.locale),
       canRetry: state.connection.status === 'disconnected',
       queued: state.outbox.length,
     },
@@ -107,6 +104,12 @@ export const viewModel = (state: DesktopState, width: number) => {
       ...pending.map(({ actionId, input }) => ({ actionId, input, narration: '', pending: true })),
     ],
     sheet: state.views[SHEET_VIEW],
+    sheetLabels: (state.views[SHEET_VIEW]?.components ?? []).map((component) => ({
+      id: component.id,
+      label: componentLabel(component, preferences.locale),
+    })),
+    fontScale: preferences.fontScale,
+    animate: !preferences.reducedMotion,
     panels: state.panels,
     rejected: state.rejected,
   };

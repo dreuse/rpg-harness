@@ -7,7 +7,15 @@ import {
   EVENT_COMMITTED,
   PROTOCOL_VERSION,
 } from '../../../packages/client-protocol/src/protocol.ts';
-import { createDesktopClient, layoutFor, type Transport, viewModel } from './renderer.ts';
+import { DEFAULT_PREFERENCES } from './accessibility.ts';
+import {
+  createDesktopClient,
+  type DesktopState,
+  initialState,
+  layoutFor,
+  type Transport,
+  viewModel,
+} from './renderer.ts';
 
 const CAMPAIGN = 'c1';
 const OTHER = 'c2';
@@ -230,4 +238,29 @@ test('UI08: offline / disconnected engine state is shown accurately with safe re
   );
   assert.equal(shown.status.queued, 0);
   assert.deepEqual(shown.rejected, [{ actionId: 'a1', input: 'wait', message: 'stale revision' }]);
+});
+
+test('UI10 view model carries font scale, motion flag and text-only sheet labels', () => {
+  const state = {
+    ...initialState,
+    views: { sheet: { viewId: 'sheet', components: [{ kind: 'progress', id: 'hp', label: 'HP', value: '7/10' }] } },
+  } as DesktopState;
+  const model = viewModel(state, WIDE_WIDTH, { ...DEFAULT_PREFERENCES, fontScale: 1.5, reducedMotion: true });
+  assert.equal(model.fontScale, 1.5);
+  assert.equal(model.animate, false);
+  assert.deepEqual(model.sheetLabels, [{ id: 'hp', label: 'HP: 7 of 10' }]);
+  assert.deepEqual(viewModel(initialState, WIDE_WIDTH).sheetLabels, []);
+});
+
+test('UI10 status label follows the locale preference', () => {
+  const es = { ...DEFAULT_PREFERENCES, locale: 'es' };
+  const label = (connection: DesktopState['connection']) =>
+    viewModel({ ...initialState, connection }, WIDE_WIDTH, es).status.label;
+  assert.equal(label({ status: 'connecting', attempts: 0 }), 'Conectando con el motor');
+  assert.equal(
+    label({ status: 'connected', attempts: 0, engine: { pid: 42, gm: 'fake' } }),
+    'Conectado al motor 42 (GM fake)',
+  );
+  assert.equal(label({ status: 'disconnected', attempts: 0, lastError: 'boom' }), 'Motor sin conexión: boom');
+  assert.equal(label({ status: 'reconnecting', attempts: 2 }), 'Reconectando con el motor (intento 2)');
 });
