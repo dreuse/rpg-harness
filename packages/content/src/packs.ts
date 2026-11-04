@@ -109,6 +109,75 @@ export const MODERN_ADVENTURE_PACK = {
   },
 };
 
+export const FANTASY_PACK = {
+  genre: {
+    contractVersion: GENREPACK_CONTRACT_VERSION,
+    id: 'fantasy',
+    version: '1.0.0',
+    name: 'Fantasy',
+    archetypes: [
+      { id: 'hedge-witch', name: 'Hedge witch', summary: 'Trades remedies for secrets at the edge of the village' },
+      { id: 'exiled-knight', name: 'Exiled knight', summary: 'Keeps an oath to a lord who cast them out' },
+      { id: 'river-smuggler', name: 'River smuggler', summary: 'Moves goods and people past the toll keeps' },
+    ],
+    narrativeConstraints: ['Wonders have a cost and a history', 'Old oaths and bloodlines shape who holds power'],
+    examples: ['The standing stones hum when the moon clears the ridge, and tonight it is full.'],
+    visualConventions: ['Hand-drawn maps', 'Candlelit halls'],
+    suggestedCapabilities: ['travel', 'social', 'exploration'],
+  },
+  story: {
+    tone: ['Mythic', 'Hopeful against old darkness'],
+    openingScenes: [
+      'A bell tolls in a drowned chapel that has been silent for a hundred years',
+      'The heir to the barony arrives at your inn, alone and bleeding, asking for sanctuary',
+    ],
+    conflicts: [
+      'Two noble houses claim the same crown after the old queen dies without a named heir',
+      'The forest folk demand the return of a relic the village church keeps on its altar',
+    ],
+  },
+};
+
+export const SCIENCE_FICTION_PACK = {
+  genre: {
+    contractVersion: GENREPACK_CONTRACT_VERSION,
+    id: 'science-fiction',
+    version: '1.0.0',
+    name: 'Science fiction',
+    archetypes: [
+      {
+        id: 'station-engineer',
+        name: 'Station engineer',
+        summary: 'Keeps the life support running on a failing budget',
+      },
+      {
+        id: 'corporate-envoy',
+        name: 'Corporate envoy',
+        summary: 'Negotiates for a company that owns the colony charter',
+      },
+      { id: 'drift-salvager', name: 'Drift salvager', summary: 'Strips derelict ships and sells what still works' },
+    ],
+    narrativeConstraints: [
+      'Distance and light-lag shape every decision',
+      'Technology solves problems and creates new ones',
+    ],
+    examples: ['The relay pings back twelve minutes late, and the message is in your own voice.'],
+    visualConventions: ['Clean interfaces', 'Starfields and hard shadows'],
+    suggestedCapabilities: ['travel', 'social', 'investigation'],
+  },
+  story: {
+    tone: ['Cerebral', 'Isolated and wondering'],
+    openingScenes: [
+      'Your mining tug docks at an outpost where every crew member is asleep and no one will wake',
+      'A colony ship answers a hail after forty years of silence and asks for you by name',
+    ],
+    conflicts: [
+      'The colony votes on independence while the charter company holds the only water reclaimers',
+      'An artificial mind on the station asks for legal personhood before its scheduled reset',
+    ],
+  },
+};
+
 export const BLANK_WORLD_PACK = {
   genre: {
     contractVersion: GENREPACK_CONTRACT_VERSION,
