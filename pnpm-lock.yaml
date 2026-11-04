@@ -18,6 +18,8 @@ importers:
         specifier: 7.0.2
         version: 7.0.2
 
+  packages/persistence: {}
+
 packages:
 
   '@biomejs/biome@2.6.5':

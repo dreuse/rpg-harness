@@ -1,0 +1,108 @@
+import { DatabaseSync } from 'node:sqlite';
+
+export type Migration = { readonly version: number; readonly sql: string };
+
+export type OpenOptions = { readonly migrations?: readonly Migration[]; readonly recover?: boolean };
+
+export const MIGRATIONS: readonly Migration[] = [
+  { version: 1, sql: 'CREATE TABLE campaign (id TEXT PRIMARY KEY, name TEXT NOT NULL);' },
+  {
+    version: 2,
+    sql: 'CREATE TABLE event_log (seq INTEGER PRIMARY KEY, campaign_id TEXT NOT NULL REFERENCES campaign (id), payload TEXT NOT NULL);',
+  },
+];
+
+const STARTED = 'started';
+const FINISHED = 'finished';
+const NO_VERSION = 0;
+
+const CREATE_JOURNAL =
+  'CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, status TEXT NOT NULL);';
+const SELECT_JOURNAL = 'SELECT version, status FROM schema_migrations ORDER BY version';
+const MARK_STARTED = 'INSERT OR REPLACE INTO schema_migrations (version, status) VALUES (?, ?)';
+const MARK_FINISHED = 'UPDATE schema_migrations SET status = ? WHERE version = ?';
+
+export class ClosedConnectionError extends Error {
+  constructor() {
+    super('database connection is closed');
+  }
+}
+
+export class InterruptedMigrationError extends Error {
+  readonly version: number;
+  constructor(version: number) {
+    super(`migration ${version} was interrupted; reopen with recover to re-run it`);
+    this.version = version;
+  }
+}
+
+export class SchemaTooNewError extends Error {
+  readonly version: number;
+  constructor(version: number, known: number) {
+    super(`database schema version ${version} is newer than known version ${known}`);
+    this.version = version;
+  }
+}
+
+export class Connection {
+  readonly applied: readonly number[];
+  readonly version: number;
+  #database: DatabaseSync | undefined;
+
+  constructor(database: DatabaseSync, applied: readonly number[], version: number) {
+    this.#database = database;
+    this.applied = applied;
+    this.version = version;
+  }
+
+  get database(): DatabaseSync {
+    if (this.#database === undefined) throw new ClosedConnectionError();
+    return this.#database;
+  }
+
+  close(): void {
+    this.#database?.close();
+    this.#database = undefined;
+  }
+}
+
+const runMigration = (database: DatabaseSync, migration: Migration) => {
+  database.prepare(MARK_STARTED).run(migration.version, STARTED);
+  database.exec('BEGIN');
+  try {
+    database.exec(migration.sql);
+    database.prepare(MARK_FINISHED).run(FINISHED, migration.version);
+    database.exec('COMMIT');
+  } catch (error) {
+    database.exec('ROLLBACK');
+    throw error;
+  }
+};
+
+const migrate = (database: DatabaseSync, migrations: readonly Migration[], recover: boolean) => {
+  database.exec(CREATE_JOURNAL);
+  const journal = database.prepare(SELECT_JOURNAL).all();
+  const interrupted = journal.find((row) => row.status === STARTED);
+  if (interrupted !== undefined && !recover) throw new InterruptedMigrationError(Number(interrupted.version));
+  const finished = new Set(journal.filter((row) => row.status === FINISHED).map((row) => Number(row.version)));
+  const known = Math.max(NO_VERSION, ...migrations.map((migration) => migration.version));
+  const current = Math.max(NO_VERSION, ...finished);
+  if (current > known) throw new SchemaTooNewError(current, known);
+  const pending = [...migrations].sort((a, b) => a.version - b.version).filter((m) => !finished.has(m.version));
+  for (const migration of pending) runMigration(database, migration);
+  return new Connection(
+    database,
+    pending.map((migration) => migration.version),
+    known,
+  );
+};
+
+export const openDatabase = (path: string, { migrations = MIGRATIONS, recover = false }: OpenOptions = {}) => {
+  const database = new DatabaseSync(path);
+  try {
+    return migrate(database, migrations, recover);
+  } catch (error) {
+    database.close();
+    throw error;
+  }
+};
