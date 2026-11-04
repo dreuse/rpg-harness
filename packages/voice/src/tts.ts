@@ -22,7 +22,13 @@ export interface TtsProvider extends PrivacyDisclosure {
   synthesize(utterance: CommittedUtterance, voiceId: string, signal: AbortSignal): AsyncIterable<SpeechChunk>;
 }
 
-export type TextFallbackReason = 'voice-off' | 'provider-unavailable' | 'over-budget' | 'cancelled';
+export type TextFallbackReason =
+  | 'voice-off'
+  | 'provider-unavailable'
+  | 'over-budget'
+  | 'cancelled'
+  | 'timeout'
+  | 'provider-error';
 
 export type SpeechOutcome =
   | { readonly kind: 'speech'; readonly chunks: AsyncIterable<SpeechChunk> }
@@ -110,7 +116,7 @@ const tryStart = async (
   voiceId: string,
   options: SpeakOptions,
   timeoutMs: number,
-): Promise<AsyncIterable<SpeechChunk> | undefined> => {
+): Promise<AsyncIterable<SpeechChunk> | TextFallbackReason> => {
   const controller = new AbortController();
   const relay = () => controller.abort();
   options.signal?.addEventListener('abort', relay, { once: true });
@@ -125,7 +131,7 @@ const tryStart = async (
     const first = await raceFirst(iterator.next(), timeoutMs, controller.signal);
     if (first === TIMED_OUT || first === ABORTED || first.done) {
       close();
-      return undefined;
+      return first === TIMED_OUT ? 'timeout' : 'provider-error';
     }
     const generator = pump(first.value, iterator, controller.signal, close);
     return {
@@ -141,7 +147,7 @@ const tryStart = async (
     };
   } catch {
     close();
-    return undefined;
+    return 'provider-error';
   }
 };
 
@@ -168,8 +174,9 @@ export const speakOrText = async (options: SpeakOptions): Promise<SpeechOutcome>
       reason = 'over-budget';
       continue;
     }
-    const chunks = await tryStart(provider, voiceId, options, timeoutMs);
-    if (chunks) return { kind: 'speech', chunks };
+    const started = await tryStart(provider, voiceId, options, timeoutMs);
+    if (typeof started !== 'string') return { kind: 'speech', chunks: started };
+    reason = started;
   }
   if (options.signal?.aborted) return CANCELLED;
   return { kind: 'text', reason };

@@ -160,7 +160,7 @@ test('falls back to the second voice when the first throws, is unhealthy or time
 test('timeout on the only provider falls back to text and cancels the provider', async () => {
   const a = fake('a', { hang: true });
   const result = await run([a]);
-  assert.deepEqual(result, { kind: 'text', reason: 'provider-unavailable' });
+  assert.deepEqual(result, { kind: 'text', reason: 'timeout' });
   assert.equal(a.signals[0]?.aborted, true);
 });
 
