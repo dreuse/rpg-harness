@@ -34,15 +34,15 @@ export type ManifestIssue = { path: string; message: string };
 export type ManifestResult = { ok: true; manifest: RulePackManifest } | { ok: false; issues: ManifestIssue[] };
 
 const REQUIRED_STRINGS = ['id', 'edition', 'revision'] as const;
-const NON_EMPTY_STRING = 'must be a non-empty string';
+export const NON_EMPTY_STRING = 'must be a non-empty string';
 
-const isRecord = (value: unknown): value is Record<string, unknown> => {
+export const isRecord = (value: unknown): value is Record<string, unknown> => {
   if (typeof value !== 'object' || value === null) return false;
   const prototype = Object.getPrototypeOf(value);
   return prototype === Object.prototype || prototype === null;
 };
 
-const isNonEmptyString = (value: unknown): value is string => typeof value === 'string' && value.length > 0;
+export const isNonEmptyString = (value: unknown): value is string => typeof value === 'string' && value.length > 0;
 
 const isCapabilityValue = (value: unknown): value is CapabilityValue =>
   typeof value === 'boolean' || value === ADJUDICATED;
