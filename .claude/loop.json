@@ -4,6 +4,5 @@
   "model": "sonnet",
   "effort": "medium",
   "budget_usd": 20,
-  "skip_labels": ["milestone-m2", "milestone-m3", "milestone-m4"],
   "parallel_gate": true
 }
