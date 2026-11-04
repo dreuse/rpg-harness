@@ -86,7 +86,7 @@ const INTENT_CUES: Cue[] = [
   },
 ];
 
-const isNegatedClause = (text: string, start: number) =>
+export const isNegatedClause = (text: string, start: number) =>
   NEGATION_TOKEN.test(text.slice(0, start).split(CLAUSE_END).at(-1) ?? '');
 
 const matchesOf = (text: string): ProposedSetting[] =>
