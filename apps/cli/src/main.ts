@@ -17,6 +17,7 @@ export type CampaignGateway = {
     lines: AsyncIterable<string>,
     onTurnError: (error: unknown) => void,
   ) => AsyncIterable<string>;
+  importRules: (files: readonly string[], lines: AsyncIterable<string>) => AsyncIterable<string>;
 };
 
 export type Io = {
@@ -30,6 +31,7 @@ const COMMANDS = [
   { name: 'new', usage: 'new <name>', description: 'Create a campaign.' },
   { name: 'play', usage: 'play <campaign>', description: 'Start playing a campaign.' },
   { name: 'resume', usage: 'resume <campaign>', description: 'Continue a campaign.' },
+  { name: 'import', usage: 'import <file...>', description: 'Import rule files and choose what to activate.' },
   { name: 'help', usage: 'help', description: 'Show this help.' },
 ] as const;
 
@@ -124,6 +126,10 @@ export const main = async (argv: readonly string[], io: Io, gateway: CampaignGat
         ? [gateway.create(name)]
         : gateway.open(name, command, withControls(io), (error) => reportError(io, error)),
     );
+  }
+  if (command === 'import') {
+    if (rest.length === 0 || rest.some((file) => file.trim() === '')) return usageError(io, 'Missing file for import.');
+    return run(io, () => gateway.importRules(rest, withControls(io)));
   }
   return usageError(io, `Unsupported command: ${command}.`);
 };

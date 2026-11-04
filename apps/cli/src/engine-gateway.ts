@@ -7,6 +7,7 @@ import { createEngine, type Engine } from '../../../packages/engine/src/engine.t
 import { openScene, performAction } from '../../../packages/engine/src/turn.ts';
 import { createCampaignStore } from '../../../packages/persistence/src/campaign-store.ts';
 import { openDatabase } from '../../../packages/persistence/src/database.ts';
+import { importRules } from './import-gateway.ts';
 import type { CampaignGateway } from './main.ts';
 
 const APP_DIR = 'rpg';
@@ -116,6 +117,7 @@ const recap = (characters: CampaignState['characters'], last: Turn | undefined) 
 export const createEngineGateway = (dataDir: string): CampaignGateway => ({
   launch: () => LAUNCH_TEXT,
   create: (name) => createCampaign(dataDir, name),
+  importRules: (files, lines) => importRules(process.cwd(), files, lines),
   open: async function* (name, _mode, lines, onTurnError) {
     yield withSession(dataDir, name, ({ engine, campaignId }) => {
       const { currentScene, characters, turns } = engine.getState(campaignId);

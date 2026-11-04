@@ -26,6 +26,10 @@ const setup = (input: readonly string[] = PLAYER_LINES) => {
       yield `Opened campaign ${campaign} to ${mode}.`;
       for await (const line of input) yield line;
     },
+    importRules: async function* (files, input) {
+      calls.push(`import:${files.join(',')}`);
+      for await (const line of input) yield `reply:${line}`;
+    },
   };
   const out: string[] = [];
   const err: string[] = [];
@@ -42,7 +46,7 @@ test('help lists every command with a one-line description in plain text', async
     const { gateway, io, out, err } = setup();
     assert.equal(await main(argv, io, gateway), 0);
     const text = out.join('');
-    for (const command of ['launch', 'new', 'play', 'resume', 'help']) {
+    for (const command of ['launch', 'new', 'play', 'resume', 'import', 'help']) {
       assert.match(text, new RegExp(`^  ${command}\\b.* - .+$`, 'm'));
     }
     assert.deepEqual(err, []);
@@ -56,6 +60,7 @@ test('launch, new, play and resume dispatch to the gateway and confirm', async (
     [['new', 'Ember'], 'create:Ember'],
     [['play', 'Ember'], 'play:Ember'],
     [['resume', 'Ember'], 'resume:Ember'],
+    [['import', 'rules.md', 'core.pdf'], 'import:rules.md,core.pdf'],
   ];
   for (const [argv, call] of cases) {
     const { calls, gateway, io, out, err } = setup();
@@ -82,6 +87,8 @@ test('usage errors exit 2, hint at rpg help and never call the gateway', async (
     [['help', 'x'], 'x'],
     [['play', 'Ember', '--fast'], '--fast'],
     [['--bogus'], '--bogus'],
+    [['import'], 'import'],
+    [['import', ' '], 'import'],
   ];
   for (const [argv, named] of bad) {
     const { calls, gateway, io, out, err } = setup();
@@ -115,8 +122,12 @@ test('gateway failures exit 1 and report the error on stderr', async () => {
       yield 'Opened.';
       broken();
     },
+    importRules: async function* () {
+      yield 'Reading.';
+      broken();
+    },
   };
-  for (const argv of [[], ['new', 'Ember'], ['play', 'Ember'], ['resume', 'Ember']]) {
+  for (const argv of [[], ['new', 'Ember'], ['play', 'Ember'], ['resume', 'Ember'], ['import', 'rules.md']]) {
     const { io, err } = setup();
     assert.equal(await main(argv, io, failing), EXIT_FAILURE, argv.join(' '));
     assert.deepEqual(err, [`${FAILURE}\n`]);
@@ -155,5 +166,13 @@ test('gameplay does not require commands for normal actions', async () => {
     out.slice(1),
     [FREEFORM_HELP_LINE, FREEFORM_QUIT_LINE].map((line) => `${line}\n`),
   );
+  assert.deepEqual(err, []);
+});
+
+test('import streams conversation replies to the import workflow and honours /quit', async () => {
+  const { calls, gateway, io, out, err } = setup(['use my-pack', '/quit', 'activate']);
+  assert.equal(await main(['import', 'rules.md'], io, gateway), 0);
+  assert.deepEqual(calls, ['import:rules.md']);
+  assert.deepEqual(out, ['reply:use my-pack\n']);
   assert.deepEqual(err, []);
 });
