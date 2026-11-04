@@ -10,11 +10,18 @@ export const ENGINE_CRASHED = 'Engine crashed.';
 export const WINDOW_WIDTH = 1280;
 export const WINDOW_HEIGHT = 800;
 export const WINDOW_SECURITY = { contextIsolation: true, nodeIntegration: false, sandbox: true } as const;
+export const DENY_WINDOW = { action: 'deny' } as const;
+export const SMOKE_ENV = 'RPG_DESKTOP_SMOKE';
+export const SMOKE_STATUS = 'rpg-desktop-smoke-status: ';
 
 const TEXT = 'utf8';
 
-export type Daemon = Pick<ReturnType<typeof startEngine>, 'ready' | 'command' | 'stop'>;
-export type WebContentsLike = { send(channel: string, ...args: unknown[]): void };
+export type Daemon = Pick<ReturnType<typeof startEngine>, 'ready' | 'command' | 'subscribe' | 'stop'>;
+export type WebContentsLike = {
+  send(channel: string, ...args: unknown[]): void;
+  on(name: 'will-navigate', listener: (event: { preventDefault(): void }) => void): unknown;
+  setWindowOpenHandler(handler: () => typeof DENY_WINDOW): void;
+};
 export type WindowOptions = {
   readonly width: number;
   readonly height: number;
@@ -22,7 +29,9 @@ export type WindowOptions = {
 };
 export type BrowserWindowLike = {
   readonly webContents: WebContentsLike;
-  loadFile(page: string, options: { readonly query: Record<string, string> }): unknown;
+  loadURL(url: string): unknown;
+  on(name: 'closed', listener: () => void): unknown;
+  isDestroyed(): boolean;
 };
 export type IpcMainLike = {
   on(channel: string, listener: (event: { readonly sender: unknown }, ...args: unknown[]) => void): void;
@@ -53,12 +62,22 @@ const parseCommandLine = (line: string): ClientCommand | undefined => {
   }
 };
 
-export const daemonTransport = (daemon: Pick<Daemon, 'ready' | 'command'>): Transport => {
+export const daemonTransport = (daemon: Pick<Daemon, 'ready' | 'command' | 'subscribe'>): Transport => {
   let onLine = (_line: string) => {};
   let onClose = (_error: string) => {};
+  let unsubscribe = async () => {};
   const emit = (message: object) => onLine(JSON.stringify(message));
   const close = (error: unknown) => onClose(messageOf(error));
+  const follow = async (command: ClientCommand) => {
+    const previous = unsubscribe;
+    const subscription = await daemon.subscribe(command, emit);
+    unsubscribe = async () => {
+      await subscription.unsubscribe();
+    };
+    await previous().catch(() => {});
+  };
   const reply = async (command: ClientCommand) => {
+    if (command.type === 'SubscribeEvents') return follow(command);
     const { result, message } = await daemon.command(command);
     if (command.type === 'SubmitPlayerAction') {
       const { actionId } = command;
@@ -106,8 +125,15 @@ export const startMain = ({
     height: WINDOW_HEIGHT,
     webPreferences: { preload, ...WINDOW_SECURITY },
   });
-  const push = (channel: string, value: string) => window.webContents.send(channel, value);
+  const push = (channel: string, value: string) => {
+    if (!window.isDestroyed()) window.webContents.send(channel, value);
+  };
   const daemon = startDaemon({ env: daemonEnv(env), onCrash: () => push(CHANNELS.close, ENGINE_CRASHED) });
+  window.on('closed', () => {
+    daemon.stop();
+  });
+  window.webContents.on('will-navigate', (event) => event.preventDefault());
+  window.webContents.setWindowOpenHandler(() => DENY_WINDOW);
   const transport = daemonTransport(daemon);
   transport.onLine((line) => push(CHANNELS.line, line));
   transport.onClose((error) => push(CHANNELS.close, error));
@@ -140,6 +166,8 @@ export const startMain = ({
     }),
   );
   const preferences = loadPreferences(() => fs.readFileSync(preferencesPath, TEXT));
-  window.loadFile(page, { query: { [PREFERENCES_QUERY]: JSON.stringify(preferences) } });
+  const url = new URL(page);
+  url.searchParams.set(PREFERENCES_QUERY, JSON.stringify(preferences));
+  window.loadURL(url.href);
   return { window, stop: () => daemon.stop() };
 };

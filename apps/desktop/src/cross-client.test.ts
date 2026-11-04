@@ -63,6 +63,7 @@ const daemonWire = (daemon: Daemon): Wire => {
   const transport = daemonTransport({
     ready: () => track(daemon.ready()),
     command: (command) => track(lossy(command as ClientCommand)),
+    subscribe: (command, listener) => track(daemon.subscribe(command, listener)),
   });
   return {
     ...transport,

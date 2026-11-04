@@ -3,8 +3,15 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "main": "src/electron-main.ts",
+  "scripts": {
+    "start": "electron ."
+  },
   "dependencies": {
     "@rpg/client-protocol": "workspace:*",
     "@rpg/domain": "workspace:*"
+  },
+  "devDependencies": {
+    "electron": "45.2.1"
   }
 }

@@ -108,9 +108,10 @@ test('UI08: provide responsive desktop conversation, sheets, panels and campaign
   const { wire, client } = connectedClient();
   assert.deepEqual(
     wire.sent.map(({ type }) => type),
-    ['ListCampaigns', 'GetCampaignSnapshot', 'RequestView'],
+    ['ListCampaigns', 'SubscribeEvents', 'GetCampaignSnapshot', 'RequestView'],
   );
   assert.deepEqual(wire.sent[0], { version: PROTOCOL_VERSION, type: 'ListCampaigns' });
+  assert.deepEqual(wire.sent[1], { version: PROTOCOL_VERSION, type: 'SubscribeEvents', campaignId: CAMPAIGN });
 
   const wide = viewModel(client.state(), WIDE_WIDTH);
   assert.equal(wide.layout.name, 'wide');
@@ -227,7 +228,7 @@ test('UI08: offline / disconnected engine state is shown accurately with safe re
   wire.receive(READY);
   assert.deepEqual(
     wire.sent.slice(sentBefore).map(({ type }) => type),
-    ['ListCampaigns', 'GetCampaignSnapshot', 'RequestView'],
+    ['ListCampaigns', 'SubscribeEvents', 'GetCampaignSnapshot', 'RequestView'],
   );
   assert.equal(client.state().connection.attempts, 0);
   wire.receive({ type: 'Snapshot', snapshot: snapshotAt(3) });

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { PROTOCOL_VERSION } from '../../../packages/client-protocol/src/protocol.ts';
+import { type ClientEvent, EVENT_COMMITTED, PROTOCOL_VERSION } from '../../../packages/client-protocol/src/protocol.ts';
 import { API_KEY_ENV, type DaemonOptions } from '../../cli/src/desktop-daemon.ts';
 import { DEFAULT_PREFERENCES, MAX_FONT_SCALE } from './accessibility.ts';
 import { type Daemon, daemonTransport, ENGINE_CRASHED, PREFERENCES_FILE, startMain, WINDOW_SECURITY } from './main.ts';
@@ -9,7 +9,7 @@ import { CHANNELS, PREFERENCES_QUERY } from './preload.ts';
 
 const DATA_DIR = '/data';
 const PRELOAD = '/app/preload.js';
-const PAGE = '/app/index.html';
+const PAGE = 'rpg://app/apps/desktop/src/index.html';
 const CAMPAIGN = 'c1';
 const READY = { type: 'Ready', version: PROTOCOL_VERSION, pid: 7, node: 'v24', sqlite: true, gm: 'fake' };
 const STOPPED = 'The engine is not running.';
@@ -20,9 +20,27 @@ const VIEW = { campaignId: CAMPAIGN, viewId: 'sheet', components: [] };
 const command = (type: string, extra: object = {}) =>
   JSON.stringify({ version: PROTOCOL_VERSION, type, campaignId: CAMPAIGN, ...extra });
 
-const fakeDaemon = (results: Record<string, unknown> = {}): Daemon & { stopped: () => boolean } => {
+type Listener = (event: ClientEvent) => void;
+
+const fakeDaemon = (
+  results: Record<string, unknown> = {},
+): Daemon & { stopped: () => boolean; listeners: Listener[]; unsubscribed: () => number } => {
   let stopped = false;
+  let unsubscribed = 0;
+  const listeners: Listener[] = [];
   return {
+    listeners,
+    unsubscribed: () => unsubscribed,
+    subscribe: async (_input, listener) => {
+      listeners.push(listener);
+      return {
+        reply: { id: 0, type: 'Result', result: { ok: true, value: {} } },
+        unsubscribe: async () => {
+          unsubscribed += 1;
+          return { id: 0, type: 'Unsubscribed' };
+        },
+      };
+    },
     ready: async () => READY as Awaited<ReturnType<Daemon['ready']>>,
     command: async (input) => {
       const { type } = input as { type: string };
@@ -78,6 +96,21 @@ test('UI08 daemon transport maps engine replies to renderer lines', async () => 
   assert.deepEqual(closes, []);
 });
 
+test('rpg-42a.7 daemon transport relays SubscribeEvents and keeps one subscription', async () => {
+  const daemon = fakeDaemon();
+  const { transport, lines, closes } = collect(daemon);
+  const event = { version: PROTOCOL_VERSION, type: EVENT_COMMITTED, revision: 2, event: { campaignId: CAMPAIGN } };
+  transport.send(command('SubscribeEvents'));
+  await flush();
+  daemon.listeners[0]?.(event as unknown as ClientEvent);
+  assert.deepEqual(lines, [event]);
+  transport.send(command('SubscribeEvents'));
+  await flush();
+  assert.equal(daemon.listeners.length, 2);
+  assert.equal(daemon.unsubscribed(), 1);
+  assert.deepEqual(closes, []);
+});
+
 test('UI08 daemon transport reports a failed engine call as closed', async () => {
   const { transport, lines, closes } = collect(fakeDaemon());
   transport.send(command('GetCampaignSnapshot'));
@@ -91,10 +124,20 @@ const fakeElectron = (files: Record<string, string> = {}) => {
   const pushed: unknown[][] = [];
   const written: Record<string, string> = {};
   const made: string[] = [];
-  const windows: { options: unknown; page: string; load: unknown }[] = [];
+  const windows: { options: unknown; url: string }[] = [];
+  const windowEvents = new Map<string, () => void>();
+  const contentEvents = new Map<string, (event: { preventDefault(): void }) => void>();
+  let openHandler = (): unknown => undefined;
+  let destroyed = false;
   const webContents = {
     send: (channel: string, ...args: unknown[]) => {
       pushed.push([channel, ...args]);
+    },
+    on: (name: string, listener: (event: { preventDefault(): void }) => void) => {
+      contentEvents.set(name, listener);
+    },
+    setWindowOpenHandler: (handler: () => unknown) => {
+      openHandler = handler;
     },
   };
   class BrowserWindow {
@@ -103,10 +146,29 @@ const fakeElectron = (files: Record<string, string> = {}) => {
     constructor(options: unknown) {
       this.options = options;
     }
-    loadFile(page: string, load: unknown) {
-      windows.push({ options: this.options, page, load });
+    loadURL(url: string) {
+      windows.push({ options: this.options, url });
+    }
+    on(name: string, listener: () => void) {
+      windowEvents.set(name, listener);
+    }
+    isDestroyed() {
+      return destroyed;
     }
   }
+  const destroy = () => {
+    destroyed = true;
+    windowEvents.get('closed')?.();
+  };
+  const navigate = () => {
+    let prevented = false;
+    contentEvents.get('will-navigate')?.({
+      preventDefault: () => {
+        prevented = true;
+      },
+    });
+    return prevented;
+  };
   const fs = {
     readFileSync: (path: string) => {
       if (!Object.hasOwn(files, path)) throw new Error('missing');
@@ -126,7 +188,20 @@ const fakeElectron = (files: Record<string, string> = {}) => {
   };
   const ipc = (channel: string, ...args: unknown[]) => handlers.get(channel)?.({ sender: webContents }, ...args);
   const foreign = (channel: string, ...args: unknown[]) => handlers.get(channel)?.({ sender: {} }, ...args);
-  return { BrowserWindow, ipcMain, fs, ipc, foreign, pushed, written, made, windows };
+  return {
+    BrowserWindow,
+    ipcMain,
+    fs,
+    ipc,
+    foreign,
+    pushed,
+    written,
+    made,
+    windows,
+    destroy,
+    navigate,
+    open: () => openHandler(),
+  };
 };
 
 const start = (electron: ReturnType<typeof fakeElectron>, daemon = fakeDaemon()) => {
@@ -155,7 +230,7 @@ test('UI08 main opens a sandboxed window with a scrubbed engine env', () => {
     ...WINDOW_SECURITY,
   });
   assert.deepEqual(WINDOW_SECURITY, { contextIsolation: true, nodeIntegration: false, sandbox: true });
-  assert.equal(window.page, PAGE);
+  assert.equal(window.url.split('?')[0], PAGE);
   assert.deepEqual(options[0]?.env, { [API_KEY_ENV]: API_KEY });
 });
 
@@ -182,17 +257,36 @@ test('UI08 main relays ipc lines from its own window only', async () => {
   assert.equal(daemon.stopped(), true);
 });
 
+const preferencesOf = (electron: ReturnType<typeof fakeElectron>) =>
+  new URL(electron.windows[0]?.url ?? PAGE).searchParams.get(PREFERENCES_QUERY);
+
+test('rpg-42a.7 main blocks navigation and new windows', () => {
+  const electron = fakeElectron();
+  start(electron);
+  assert.equal(electron.navigate(), true);
+  assert.deepEqual(electron.open(), { action: 'deny' });
+});
+
+test('rpg-42a.7 main stops the engine on close and never pushes to a destroyed window', async () => {
+  const electron = fakeElectron();
+  const daemon = fakeDaemon();
+  const { options } = start(electron, daemon);
+  electron.destroy();
+  options[0]?.onCrash?.(READY.pid);
+  assert.deepEqual(electron.pushed, []);
+  await flush();
+  assert.equal(daemon.stopped(), true);
+});
+
 test('UI08 main loads saved preferences and falls back on bad files', () => {
   const path = join(DATA_DIR, PREFERENCES_FILE);
   const saved = fakeElectron({ [path]: JSON.stringify(SENT_PREFERENCES) });
   start(saved);
-  assert.deepEqual(saved.windows[0]?.load, { query: { [PREFERENCES_QUERY]: JSON.stringify(SENT_PREFERENCES) } });
+  assert.equal(preferencesOf(saved), JSON.stringify(SENT_PREFERENCES));
   for (const files of [{}, { [path]: '{broken' }, { [path]: '{"fontScale":"big"}' }]) {
     const electron = fakeElectron(files);
     start(electron);
-    assert.deepEqual(electron.windows[0]?.load, {
-      query: { [PREFERENCES_QUERY]: JSON.stringify(DEFAULT_PREFERENCES) },
-    });
+    assert.equal(preferencesOf(electron), JSON.stringify(DEFAULT_PREFERENCES));
   }
 });
 

@@ -168,6 +168,12 @@ export const createDesktopClient = ({
     for (const viewId of DESKTOP_VIEW_IDS) send({ version: PROTOCOL_VERSION, type: 'RequestView', campaignId, viewId });
   };
 
+  const follow = () => {
+    const campaignId = state.selected;
+    if (campaignId !== undefined) send({ version: PROTOCOL_VERSION, type: 'SubscribeEvents', campaignId });
+    refresh();
+  };
+
   const forSelected = (value: unknown): value is { campaignId: CampaignId; version: number } =>
     isRecord(value) && value.version === PROTOCOL_VERSION && value.campaignId === state.selected;
 
@@ -190,7 +196,7 @@ export const createDesktopClient = ({
     update({ connection: { status: 'connected', attempts: 0, engine: { pid, gm } } });
     resendOnSnapshot = true;
     send(LIST_CAMPAIGNS);
-    refresh();
+    follow();
   };
 
   const onSnapshot = (snapshot: CampaignSnapshot) => {
@@ -251,7 +257,7 @@ export const createDesktopClient = ({
       const { snapshot, panels, ...rest } = state;
       state = { ...rest, selected: campaignId, views: {} };
       update({});
-      refresh();
+      follow();
     },
     submit: (input: string): Result<SubmitPlayerAction> => {
       const { snapshot } = state;
