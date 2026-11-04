@@ -10,6 +10,7 @@ import {
   deepFreeze,
   type EditSheetField,
   EVENT_COMMITTED,
+  type EventCommitted,
   failure,
   PROTOCOL_VERSION,
   parseCommand,
@@ -24,6 +25,7 @@ import {
 import { VISUALIZATION_EVENT, type ViewerScope } from '../../../packages/client-protocol/src/visualization.ts';
 import {
   type CampaignId,
+  CHARACTER_CREATED,
   type CharacterId,
   type DomainEvent,
   type EventId,
@@ -53,6 +55,9 @@ const UNSUPPORTED_CAPABILITIES = 'this engine does not support capability select
 const UNSUPPORTED_VIEWS = 'this engine does not serve view descriptors yet';
 const UNSUPPORTED_SHEETS = 'this engine does not serve character sheets yet';
 const NO_SUBSCRIPTION = () => {};
+const ACTOR_SCOPE: Viewer['scope'] = 'actor';
+const PUBLIC_TRAIT = 'public';
+const OWNER_TRAIT = 'owner';
 const GM_SCOPE: ViewerScope = 'gm';
 const PLAYER_SCOPE: ViewerScope = 'player';
 const VISUALIZING: readonly Viewer['scope'][] = [GM_SCOPE, PLAYER_SCOPE];
@@ -76,6 +81,31 @@ export const worldOf =
     const relationships = heroId === undefined ? [] : store.listRelationships(campaignId, heroId);
     return { entities: store.listEntities(campaignId), relationships };
   };
+
+type TraitVisibilities = Readonly<Record<string, string>>;
+
+const traitShownTo = (viewer: Viewer, ownerId: unknown, visibility: string | undefined) =>
+  viewer.scope === GM_SCOPE ||
+  visibility === PUBLIC_TRAIT ||
+  (visibility === OWNER_TRAIT && viewer.scope === ACTOR_SCOPE && viewer.actorId === ownerId);
+
+const redactCharacterCreated = (viewer: Viewer, committed: EventCommitted): EventCommitted => {
+  const { event } = committed;
+  const { payload } = event;
+  const visibilities = payload.traitVisibility as TraitVisibilities | undefined;
+  const profile = payload.profile as { traits?: { id: string }[] } | undefined;
+  const overrides = payload.overrides as { fieldId: string }[] | undefined;
+  if (event.type !== CHARACTER_CREATED || viewer.scope === GM_SCOPE || visibilities === undefined) return committed;
+  const shown = (id: string) => traitShownTo(viewer, payload.actorId, visibilities[id]);
+  const traitVisibility = Object.fromEntries(Object.entries(visibilities).filter(([id]) => shown(id)));
+  const redacted = {
+    ...payload,
+    traitVisibility,
+    overrides: overrides?.filter(({ fieldId }) => shown(fieldId)) ?? [],
+    profile: { ...profile, traits: profile?.traits?.filter(({ id }) => shown(id)) ?? [] },
+  };
+  return deepFreeze({ ...committed, event: { ...event, payload: redacted } });
+};
 
 const attempt = <T>(run: () => T): Result<T> => {
   try {
@@ -193,7 +223,8 @@ export const createClientSessions = (
         return log.subscribe(
           accepted.value.fromRevision ?? 0,
           (event) => {
-            if (canSee(event)) listener(event);
+            if (!canSee(event)) return;
+            listener(event.type === EVENT_COMMITTED ? redactCharacterCreated(viewer, event) : event);
           },
           viewer.scope === GM_SCOPE ? GM_SCOPE : PLAYER_SCOPE,
         );

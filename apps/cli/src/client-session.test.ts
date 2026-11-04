@@ -421,3 +421,42 @@ test('EditSheetField maps a failing sheet port or a missing one to a typed rejec
     assert.equal(code(session.editSheetField(edit)), 'Rejected');
   }
 });
+
+const traitsOf = (events: readonly ClientEvent[], eventId: string) =>
+  events.flatMap((event) =>
+    event.type === EVENT_COMMITTED && event.event.id === eventId
+      ? [(event.event.payload.profile as { traits: { id: string }[] }).traits.map(({ id }) => id)]
+      : [],
+  );
+
+test('rpg-qzx.8: CharacterCreated redacts gm and hidden traits for non-gm subscribers', () => {
+  const { sessionFor, envelope, seed } = setup();
+  const payload = {
+    actorId: 'hero',
+    profile: {
+      traits: [
+        { id: 'grit', value: 3 },
+        { id: 'sheet-note', value: 'OWNER-ONLY' },
+        { id: 'doom', value: 'GM-DOOM' },
+        { id: 'secret', value: 'HIDDEN-SECRET' },
+      ],
+    },
+    overrides: [
+      { fieldId: 'grit', value: 3 },
+      { fieldId: 'doom', value: 'GM-DOOM' },
+    ],
+    traitVisibility: { grit: 'public', 'sheet-note': 'owner', doom: 'gm', secret: 'hidden' },
+  };
+  seed('created', 'CharacterCreated', payload, 'public');
+  const player = collect(sessionFor(PLAYER_VIEWER), envelope);
+  const owner = collect(sessionFor({ scope: 'actor', actorId: 'hero' }), envelope);
+  const stranger = collect(sessionFor({ scope: 'actor', actorId: RIVAL }), envelope);
+  const gm = collect(sessionFor(GM_VIEWER), envelope);
+  assert.deepEqual(traitsOf(player, 'created'), [['grit']]);
+  assert.deepEqual(traitsOf(stranger, 'created'), [['grit']]);
+  assert.deepEqual(traitsOf(owner, 'created'), [['grit', 'sheet-note']]);
+  assert.deepEqual(traitsOf(gm, 'created'), [['grit', 'sheet-note', 'doom', 'secret']]);
+  assert.doesNotMatch(JSON.stringify(stranger), /GM-DOOM|HIDDEN-SECRET|OWNER-ONLY/);
+  assert.match(JSON.stringify(gm), /GM-DOOM/);
+  assert.doesNotMatch(JSON.stringify(player), /GM-DOOM|HIDDEN-SECRET|OWNER-ONLY|doom|secret/);
+});
