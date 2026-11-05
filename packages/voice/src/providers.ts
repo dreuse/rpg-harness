@@ -75,13 +75,13 @@ const toCredential = (value: string | undefined): Credential | undefined => {
   return trimmed ? new Credential(trimmed) : undefined;
 };
 
-export const keychainSecretStore = (backend: KeychainBackend): SecretStore => ({
-  get: async (providerId) => toCredential(await backend.getPassword(KEYCHAIN_SERVICE, providerId)),
+export const keychainSecretStore = (backend: KeychainBackend, service = KEYCHAIN_SERVICE): SecretStore => ({
+  get: async (providerId) => toCredential(await backend.getPassword(service, providerId)),
   set: async (providerId, secret) => {
-    await backend.setPassword(KEYCHAIN_SERVICE, providerId, new Credential(secret.trim()).reveal());
+    await backend.setPassword(service, providerId, new Credential(secret.trim()).reveal());
   },
   delete: async (providerId) => {
-    await backend.deletePassword(KEYCHAIN_SERVICE, providerId);
+    await backend.deletePassword(service, providerId);
   },
 });
 

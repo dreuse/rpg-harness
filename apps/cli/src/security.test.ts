@@ -31,6 +31,7 @@ import { parseRuleDsl, RULE_DSL_VERSION } from '../../../packages/rules/src/dsl.
 import { validateManifest } from '../../../packages/rules/src/rulepack.ts';
 import { exportArchive, InvalidArchiveError, MAX_ARCHIVE_BYTES, restoreArchive } from './campaign-archive.ts';
 import { API_KEY_ENV, DAEMON_ENTRY, daemonEnv } from './desktop-daemon.ts';
+import { hermeticGmEnv } from './gm-test-env.ts';
 import { importRules } from './import-gateway.ts';
 
 const TEMP_PREFIX = 'rpg-q06-';
@@ -302,7 +303,7 @@ test('Q06 local data scope: campaign names never write outside the data folder',
     const dataDir = join(dir, 'data');
     const result = spawnSync(process.execPath, [BIN, 'new', ESCAPE_NAME], {
       encoding: UTF8,
-      env: { ...process.env, [DATA_ENV]: dataDir },
+      env: { ...hermeticGmEnv(), [DATA_ENV]: dataDir },
     });
     assert.equal(result.status, EXIT_OK, result.stderr);
     assert.deepEqual(readdirSync(dir), ['data']);
@@ -353,7 +354,7 @@ test('Q06 provider secret: a fake API key never enters events, logs, saves or ex
   withTemp((dir) => {
     const dataDir = join(dir, 'data');
     const exportFile = join(dir, ARCHIVE_FILE);
-    const env = { ...process.env, [DATA_ENV]: dataDir, [API_KEY_ENV]: FAKE_API_KEY };
+    const env = { ...hermeticGmEnv(), [DATA_ENV]: dataDir, [API_KEY_ENV]: FAKE_API_KEY };
     const output: string[] = [];
     const rpg = (args: readonly string[], input = '') => {
       const result = spawnSync(process.execPath, [BIN, ...args], { input, encoding: UTF8, env });
@@ -362,6 +363,7 @@ test('Q06 provider secret: a fake API key never enters events, logs, saves or ex
     };
     rpg(['new', CAMPAIGN]);
     rpg(['play', CAMPAIGN], `${ACTION}\n`);
+    assert.match(output.join(''), /could not be reached/);
     rpg(['journal', CAMPAIGN]);
     rpg(['sheet-export', CAMPAIGN]);
     rpg(['export', CAMPAIGN, exportFile]);
@@ -370,7 +372,7 @@ test('Q06 provider secret: a fake API key never enters events, logs, saves or ex
     const daemon = spawnSync(process.execPath, [DAEMON_ENTRY], {
       input: PING,
       encoding: UTF8,
-      env: daemonEnv({ ...process.env, [API_KEY_ENV]: FAKE_API_KEY }),
+      env: daemonEnv({ ...hermeticGmEnv(), [API_KEY_ENV]: FAKE_API_KEY }),
     });
     assert.equal(daemon.status, EXIT_OK, daemon.stderr);
     assert.match(daemon.stdout, /"gm":"api"/);

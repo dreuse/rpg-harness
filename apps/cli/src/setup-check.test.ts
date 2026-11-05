@@ -4,6 +4,7 @@ import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
+import { hermeticGmEnv } from './gm-test-env.ts';
 import { setupProblem } from './setup-check.ts';
 
 const BIN = join(import.meta.dirname, 'bin.ts');
@@ -35,7 +36,7 @@ const rpg = (dataDir: string, args: readonly string[], input = '') =>
   spawnSync(process.execPath, [BIN, ...args], {
     input,
     encoding: 'utf8',
-    env: { ...process.env, RPG_DATA_DIR: dataDir },
+    env: { ...hermeticGmEnv(), RPG_DATA_DIR: dataDir },
   });
 
 const assertCleanError = (result: ReturnType<typeof rpg>, expected: string) => {

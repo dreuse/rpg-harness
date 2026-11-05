@@ -7,6 +7,7 @@ import { test } from 'node:test';
 import { PROTOCOL_VERSION } from '../../../packages/client-protocol/src/protocol.ts';
 import { FANTASY_PACK, HORROR_PACK } from '../../../packages/content/src/packs.ts';
 import { readCampaignState } from './engine-gateway.ts';
+import { hermeticGmEnv } from './gm-test-env.ts';
 import { BUILT_IN_PACKS } from './import-gateway.ts';
 import { planCampaign, planResult, planStart, startOptions, UnknownEdition } from './quickstart.ts';
 
@@ -33,7 +34,7 @@ const withDataDir = (run: (dataDir: string) => void) => {
 const rpg = (dataDir: string, args: readonly string[]) =>
   spawnSync(process.execPath, [BIN, ...args], {
     encoding: 'utf8',
-    env: { ...process.env, RPG_DATA_DIR: dataDir },
+    env: { ...hermeticGmEnv(), RPG_DATA_DIR: dataDir },
   });
 
 const succeed = (dataDir: string, args: readonly string[]) => {

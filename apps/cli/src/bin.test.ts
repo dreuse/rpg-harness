@@ -7,6 +7,7 @@ import { test } from 'node:test';
 import { MAX_INPUT_LENGTH } from '../../../packages/client-protocol/src/protocol.ts';
 import { CHARACTER_CREATED } from '../../../packages/engine/src/character.ts';
 import { readCampaignState } from './engine-gateway.ts';
+import { hermeticGmEnv } from './gm-test-env.ts';
 
 const BIN = join(import.meta.dirname, 'bin.ts');
 const CAMPAIGN = 'Ember';
@@ -33,7 +34,7 @@ const rpg = (dataDir: string, args: readonly string[], input = NO_INPUT) =>
   spawnSync(process.execPath, [BIN, ...args], {
     input,
     encoding: 'utf8',
-    env: { ...process.env, RPG_DATA_DIR: dataDir },
+    env: { ...hermeticGmEnv(), RPG_DATA_DIR: dataDir },
   });
 
 const succeed = (dataDir: string, args: readonly string[], input = NO_INPUT) => {

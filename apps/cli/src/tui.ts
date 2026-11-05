@@ -358,7 +358,15 @@ const submit = (session: ClientSession, { snapshot }: TuiData, input: string): s
 
 const valuesOf = (sheet: readonly ViewComponent[]) => new Map(sheet.map(({ id, value }) => [id, value]));
 
-const interactive = async (data: () => TuiData, act: Act, terminal: Terminal, keys: AsyncIterable<Key>) => {
+type Narrate = () => Promise<void>;
+
+const interactive = async (
+  data: () => TuiData,
+  act: Act,
+  narrate: Narrate,
+  terminal: Terminal,
+  keys: AsyncIterable<Key>,
+) => {
   const { motion = false, schedule = setTimeout } = terminal;
   let state = INITIAL_STATE;
   let changed: string[] = [];
@@ -388,7 +396,10 @@ const interactive = async (data: () => TuiData, act: Act, terminal: Terminal, ke
     state = nextState(state, key);
     generation += 1;
     if (state.quit) return;
-    if (state.submitted !== undefined) state = { ...state, notice: act(state.submitted) };
+    if (state.submitted !== undefined) {
+      state = { ...state, notice: act(state.submitted) };
+      await narrate();
+    }
     const current = data();
     const latest = current.mechanics.slice(seen).at(-1);
     seen = current.mechanics.length;
@@ -405,7 +416,7 @@ const interactive = async (data: () => TuiData, act: Act, terminal: Terminal, ke
   }
 };
 
-const linear = async (data: () => TuiData, act: Act, terminal: Terminal) => {
+const linear = async (data: () => TuiData, act: Act, narrate: Narrate, terminal: Terminal) => {
   const { capabilities } = terminal;
   const { width } = capabilities;
   const print = (rows: readonly string[]) => terminal.write(`${rows.join(NEWLINE)}${NEWLINE}`);
@@ -420,13 +431,19 @@ const linear = async (data: () => TuiData, act: Act, terminal: Terminal) => {
     else if (pane !== undefined) show(pane);
     else {
       const notice = act(text);
+      await narrate();
       if (notice === undefined) show(CONVERSATION);
       else print(wrap([notice], width));
     }
   }
 };
 
-export const runTui = async (session: ClientSession, campaignId: CampaignId, terminal: Terminal): Promise<void> => {
+export const runTui = async (
+  session: ClientSession,
+  campaignId: CampaignId,
+  terminal: Terminal,
+  narrate: Narrate = async () => {},
+): Promise<void> => {
   const events: ClientEvent[] = [];
   const unsubscribe = session.subscribeEvents(
     { version: PROTOCOL_VERSION, type: 'SubscribeEvents', campaignId },
@@ -438,8 +455,8 @@ export const runTui = async (session: ClientSession, campaignId: CampaignId, ter
   const act: Act = audio === undefined ? send : (input) => audio.input(input, send);
   try {
     if (terminal.capabilities.interactive && terminal.keys !== undefined)
-      await interactive(data, act, terminal, terminal.keys);
-    else await linear(data, act, terminal);
+      await interactive(data, act, narrate, terminal, terminal.keys);
+    else await linear(data, act, narrate, terminal);
   } finally {
     unsubscribe();
   }

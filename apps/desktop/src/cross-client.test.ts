@@ -8,8 +8,9 @@ import {
   type ClientCommand,
   PROTOCOL_VERSION,
 } from '../../../packages/client-protocol/src/protocol.ts';
-import { API_KEY_ENV, CAMPAIGN_ENV, startDaemon } from '../../cli/src/desktop-daemon.ts';
+import { CAMPAIGN_ENV, startDaemon } from '../../cli/src/desktop-daemon.ts';
 import { createEngineGateway, FAKE_GM_REPLY, openClientSession } from '../../cli/src/engine-gateway.ts';
+import { hermeticGmEnv } from '../../cli/src/gm-test-env.ts';
 import { DATA_DIR_ENV } from '../../cli/src/setup-check.ts';
 import { PLAIN_TERMINAL, runTui } from '../../cli/src/tui.ts';
 import { daemonTransport, WINDOW_WIDTH } from './main.ts';
@@ -42,8 +43,7 @@ const campaignDir = async (t: TestContext) => {
   const dataDir = mkdtempSync(join(tmpdir(), TEMP_PREFIX));
   t.after(() => rmSync(dataDir, { recursive: true, force: true }));
   for await (const _ of createEngineGateway(dataDir).create(CAMPAIGN, undefined, NO_CHARACTER));
-  const env: NodeJS.ProcessEnv = { ...process.env, [DATA_DIR_ENV]: dataDir, [CAMPAIGN_ENV]: CAMPAIGN };
-  delete env[API_KEY_ENV];
+  const env: NodeJS.ProcessEnv = { ...hermeticGmEnv(), [DATA_DIR_ENV]: dataDir, [CAMPAIGN_ENV]: CAMPAIGN };
   return { dataDir, env };
 };
 
@@ -231,8 +231,7 @@ describe('UI12: cross-client end-to-end gameplay', () => {
   it('rpg-42a.13 continue from the home resumes each adventure at its exact last turn', async (t) => {
     const { dataDir } = await campaignDir(t);
     for await (const _ of createEngineGateway(dataDir).create(OTHER_CAMPAIGN, undefined, NO_CHARACTER));
-    const env: NodeJS.ProcessEnv = { ...process.env, [DATA_DIR_ENV]: dataDir };
-    delete env[API_KEY_ENV];
+    const env: NodeJS.ProcessEnv = { ...hermeticGmEnv(), [DATA_DIR_ENV]: dataDir };
     const daemon = startDaemon({ env, onCrash: IGNORE });
     t.after(() => daemon.stop());
     const wire = daemonWire(daemon);

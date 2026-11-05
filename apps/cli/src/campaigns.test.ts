@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { readCampaignState } from './engine-gateway.ts';
+import { hermeticGmEnv } from './gm-test-env.ts';
 
 const BIN = join(import.meta.dirname, 'bin.ts');
 const EXIT_OK = 0;
@@ -26,7 +27,7 @@ const rpg = (dataDir: string, args: readonly string[], input = '') =>
   spawnSync(process.execPath, [BIN, ...args], {
     encoding: 'utf8',
     input,
-    env: { ...process.env, RPG_DATA_DIR: dataDir },
+    env: { ...hermeticGmEnv(), RPG_DATA_DIR: dataDir },
   });
 
 const succeed = (dataDir: string, args: readonly string[], input = '') => {

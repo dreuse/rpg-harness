@@ -30,6 +30,7 @@ import type { Ready, Reply } from '../../../packages/client-protocol/src/wire.ts
 import { createCharacterStore } from '../../../packages/persistence/src/character-store.ts';
 import { MIGRATIONS, openDatabase } from '../../../packages/persistence/src/database.ts';
 import { createEntityStore } from '../../../packages/persistence/src/entity-store.ts';
+import { startProviderServer, textReply } from '../../../packages/testkit/src/provider-server.ts';
 import {
   API_KEY_ENV,
   CAMPAIGN_ENV,
@@ -38,10 +39,13 @@ import {
   daemonEnv,
   ELECTRON_RUN_AS_NODE_ENV,
   EXIT_CONSUMER_CREDENTIALS,
+  gmRouteOf,
   NO_CAMPAIGN,
   startDaemon,
 } from './desktop-daemon.ts';
-import { createEngineGateway, readCampaignState } from './engine-gateway.ts';
+import { createEngineGateway, FAKE_GM_REPLY, NO_KEY_NOTICE, readCampaignState } from './engine-gateway.ts';
+import { FAKE_ROUTE, GM_API_URL_ENV, GM_ROUTE_ENV } from './gm-api.ts';
+import { hermeticGmEnv } from './gm-test-env.ts';
 import { DATA_DIR_ENV } from './setup-check.ts';
 
 const SPIKE_DOC = new URL('../../../docs/product/ui07-desktop-packaging-spike.md', import.meta.url);
@@ -50,6 +54,8 @@ const OAUTH_ENV = 'CLAUDE_CODE_OAUTH_TOKEN';
 const CONFIG_DIR_ENV = 'CLAUDE_CONFIG_DIR';
 const FAKE_SECRET = 'fake-consumer-token';
 const FAKE_API_KEY = 'fake-api-key';
+const API_NARRATION = 'The innkeeper slides a mug across the bar.';
+const DROP_FACTS = 'DROP TABLE fact';
 const KILL = 'SIGKILL';
 const STOP_TEST_TIMEOUT_MS = 5000;
 const NO_RESTARTS = 0;
@@ -124,8 +130,7 @@ const supervise = (t: TestContext, options: Parameters<typeof startDaemon>[0]) =
 };
 
 const baseEnv = (): NodeJS.ProcessEnv => {
-  const env = { ...process.env };
-  delete env[API_KEY_ENV];
+  const env = hermeticGmEnv();
   delete env[CAMPAIGN_ENV];
   return env;
 };
@@ -761,6 +766,55 @@ describe('desktop does not require unsupported reuse of consumer claude subscrip
     const daemon = supervise(t, { env: { ...baseEnv(), [API_KEY_ENV]: FAKE_API_KEY } });
     assert.equal((await daemon.ready()).gm, 'api');
     assert.equal(await daemon.stop(), 0);
+  });
+
+  it('rpg-42a.28 reports the api route for an environment or stored key', () => {
+    assert.equal(gmRouteOf({}), 'fake');
+    assert.equal(gmRouteOf({}, FAKE_API_KEY), 'api');
+    assert.equal(gmRouteOf({ [API_KEY_ENV]: FAKE_API_KEY }), 'api');
+    assert.equal(gmRouteOf({ [API_KEY_ENV]: FAKE_API_KEY, [GM_ROUTE_ENV]: FAKE_ROUTE }), 'fake');
+  });
+
+  it('rpg-42a.28 narrates a submitted action through the provider before the next reply', async (t) => {
+    const provider = await startProviderServer([textReply(API_NARRATION)]);
+    t.after(provider.close);
+    const { env, campaignId } = await campaignEnv(t);
+    const daemon = supervise(t, { env: { ...env, [API_KEY_ENV]: FAKE_API_KEY, [GM_API_URL_ENV]: provider.url } });
+    assert.equal((await daemon.ready()).gm, 'api');
+    const before = await snapshotOf(daemon, campaignId);
+    assert.ok((await daemon.command(actionCommand(before, ACTION))).result?.ok);
+    assert.equal((await snapshotOf(daemon, campaignId)).turns.at(-1)?.narration, API_NARRATION);
+    assert.equal(provider.received.length, 1);
+    assert.equal(provider.received[0]?.headers['x-api-key'], FAKE_API_KEY);
+  });
+
+  it('rpg-42a.28 tells the desktop player once that no provider key is set', async (t) => {
+    const { env, campaignId } = await campaignEnv(t);
+    const daemon = supervise(t, { env });
+    assert.equal((await daemon.ready()).gm, 'fake');
+    const first = await snapshotOf(daemon, campaignId);
+    assert.ok((await daemon.command(actionCommand(first, ACTION))).result?.ok);
+    const second = await snapshotOf(daemon, campaignId);
+    assert.ok(second.turns.at(-1)?.narration.startsWith(NO_KEY_NOTICE));
+    assert.ok((await daemon.command(actionCommand(second, SECOND_ACTION))).result?.ok);
+    assert.equal((await snapshotOf(daemon, campaignId)).turns.at(-1)?.narration, FAKE_GM_REPLY);
+  });
+
+  it('rpg-42a.28 keeps a committed action and keeps serving when narration fails', async (t) => {
+    const provider = await startProviderServer([textReply(API_NARRATION)]);
+    t.after(provider.close);
+    const { env, campaignId } = await campaignEnv(t);
+    const database = new DatabaseSync(campaignFile(env[DATA_DIR_ENV] ?? '', CAMPAIGN));
+    database.exec(DROP_FACTS);
+    database.close();
+    const daemon = supervise(t, { env: { ...env, [API_KEY_ENV]: FAKE_API_KEY, [GM_API_URL_ENV]: provider.url } });
+    const before = await snapshotOf(daemon, campaignId);
+    const submitted = await daemon.command(actionCommand(before, ACTION));
+    assert.equal(submitted.type, 'Result');
+    assert.ok(submitted.result?.ok);
+    const after = await snapshotOf(daemon, campaignId);
+    assert.ok(after.revision > before.revision);
+    assert.equal(after.turns.at(-1)?.input, ACTION);
   });
 
   it('refuses to start when launched directly with consumer claude variables', () => {

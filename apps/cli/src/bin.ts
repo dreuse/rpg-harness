@@ -49,7 +49,7 @@ if (problem !== undefined) {
   process.exitCode = EXIT_SETUP_FAILURE;
 } else {
   const [
-    { campaignDatabases, createEngineGateway },
+    { campaignDatabases, createEngineGateway, gameMasterFor },
     { main },
     { defaultUpdateContext, holdSession, startupUpdate },
     { printable },
@@ -66,6 +66,7 @@ if (problem !== undefined) {
   );
   for (const message of startup.messages) process.stderr.write(`${printable(message)}\n`);
   const capabilities = capabilitiesOf(process.env, process.stdin, process.stdout);
+  const { gm } = await gameMasterFor(process.env);
   process.exitCode = startup.restart
     ? (spawnSync(process.execPath, [...process.execArgv, ...process.argv.slice(1)], { stdio: 'inherit' }).status ??
       EXIT_SETUP_FAILURE)
@@ -83,6 +84,6 @@ if (problem !== undefined) {
             write: stdout,
           },
         },
-        createEngineGateway(dataDir),
+        createEngineGateway(dataDir, gm),
       );
 }

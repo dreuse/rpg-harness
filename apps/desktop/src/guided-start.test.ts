@@ -10,7 +10,8 @@ import {
   type StartDraft,
 } from '../../../packages/client-protocol/src/guided-start.ts';
 import type { ClientCommand } from '../../../packages/client-protocol/src/protocol.ts';
-import { API_KEY_ENV, CAMPAIGN_ENV, startDaemon } from '../../cli/src/desktop-daemon.ts';
+import { CAMPAIGN_ENV, startDaemon } from '../../cli/src/desktop-daemon.ts';
+import { hermeticGmEnv } from '../../cli/src/gm-test-env.ts';
 import { DATA_DIR_ENV } from '../../cli/src/setup-check.ts';
 import { daemonTransport } from './main.ts';
 import { createDesktopClient } from './renderer.ts';
@@ -42,8 +43,7 @@ const tempDataDir = (t: TestContext) => {
 };
 
 const envFor = (dataDir: string, campaign?: string) => {
-  const env: NodeJS.ProcessEnv = { ...process.env, [DATA_DIR_ENV]: dataDir };
-  delete env[API_KEY_ENV];
+  const env: NodeJS.ProcessEnv = { ...hermeticGmEnv(), [DATA_DIR_ENV]: dataDir };
   delete env[CAMPAIGN_ENV];
   return campaign === undefined ? env : { ...env, [CAMPAIGN_ENV]: campaign };
 };

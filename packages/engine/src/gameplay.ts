@@ -9,6 +9,8 @@ export type NarrationContext = Omit<ConsistencyInput, 'narration' | 'claims' | '
 
 export type Narrator = { narrate(committed: CommittedTurn): NarratedTurn };
 
+export type AsyncNarrator = { narrate(committed: CommittedTurn): Promise<NarratedTurn> };
+
 export type SceneResolver<A extends PlayerAction> = (store: CampaignStore, action: A) => CommittedTurn;
 
 export type GameplayOutcome =
@@ -26,18 +28,22 @@ export class UncommittedTurnError extends Error {
 
 const PENDING_NARRATION = '';
 
-const narrateCommitted = (
+const recordChecked = (
   store: CampaignStore,
-  narrator: Narrator,
   committed: CommittedTurn,
   context: NarrationContext,
+  { narration, claims }: NarratedTurn,
 ): GameplayOutcome => {
-  const { narration, claims } = narrator.narrate(committed);
   const { events } = loadState(store, committed.turn.campaignId);
   const report = checkConsistency({ ...context, narration, claims, events });
   if (!report.ok) return { committed, inconsistent: report };
   store.recordNarration(committed.turn.campaignId, committed.turn.id, narration);
   return { committed, narration };
+};
+
+const interruptedOr = (committed: CommittedTurn, error: unknown): GameplayOutcome => {
+  if (error instanceof GameMasterInterruptedError) return { committed, interrupted: error };
+  throw error;
 };
 
 export const playGameplayTurn = <A extends PlayerAction>(
@@ -52,9 +58,22 @@ export const playGameplayTurn = <A extends PlayerAction>(
   if (committed === undefined) throw new UncommittedTurnError(action.actionId);
   if (committed.turn.narration !== PENDING_NARRATION) return { committed, narration: committed.turn.narration };
   try {
-    return narrateCommitted(store, narrator, committed, context);
+    return recordChecked(store, committed, context, narrator.narrate(committed));
   } catch (error) {
-    if (error instanceof GameMasterInterruptedError) return { committed, interrupted: error };
-    throw error;
+    return interruptedOr(committed, error);
+  }
+};
+
+export const narrateTurn = async (
+  store: CampaignStore,
+  narrator: AsyncNarrator,
+  committed: CommittedTurn,
+  context: NarrationContext,
+): Promise<GameplayOutcome> => {
+  if (committed.turn.narration !== PENDING_NARRATION) return { committed, narration: committed.turn.narration };
+  try {
+    return recordChecked(store, committed, context, await narrator.narrate(committed));
+  } catch (error) {
+    return interruptedOr(committed, error);
   }
 };

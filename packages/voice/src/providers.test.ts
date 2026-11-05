@@ -25,6 +25,7 @@ const REMOTE_STT_ID = 'cloud-stt';
 const REMOTE_TTS_ID = 'cloud.tts-v2';
 const UNKNOWN_ID = 'dnd-1.9-voice';
 const API_KEY = 'sk-live-very-secret-4242';
+const OTHER_SERVICE = 'rpg-harness.gm';
 const REMOTE_TTS_ENV = 'RPG_VOICE_CLOUD_TTS_V2_API_KEY';
 
 const catalog: readonly ProviderDescriptor[] = [
@@ -184,6 +185,15 @@ test('allow local/provider choice, api key safe storage and availability diagnos
     assert.equal(await store.get(REMOTE_STT_ID), undefined);
     await assert.rejects(store.set(REMOTE_TTS_ID, ' '), RangeError);
     assert.equal(backend.entries.has(`${KEYCHAIN_SERVICE}/${REMOTE_TTS_ID}`), false);
+  });
+
+  await t.test('keeps credentials of another keychain service apart', async () => {
+    const backend = fakeKeychain();
+    const other = keychainSecretStore(backend, OTHER_SERVICE);
+    await other.set(REMOTE_STT_ID, API_KEY);
+    assert.equal(backend.entries.get(`${OTHER_SERVICE}/${REMOTE_STT_ID}`), API_KEY);
+    assert.equal(await keychainSecretStore(backend).get(REMOTE_STT_ID), undefined);
+    assert.equal((await other.get(REMOTE_STT_ID))?.reveal(), API_KEY);
   });
 
   await t.test('stores the trimmed secret in the keychain backend', async () => {

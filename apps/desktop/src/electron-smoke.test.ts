@@ -18,6 +18,7 @@ import { test } from 'node:test';
 import { promisify } from 'node:util';
 import { CAMPAIGN_ENV } from '../../cli/src/desktop-daemon.ts';
 import { createEngineGateway } from '../../cli/src/engine-gateway.ts';
+import { FAKE_ROUTE, GM_ROUTE_ENV } from '../../cli/src/gm-api.ts';
 import { DATA_DIR_ENV } from '../../cli/src/setup-check.ts';
 import {
   CAPTURE_ENV,
@@ -84,7 +85,7 @@ const skip =
 const run = async (dataDir: string, extra: NodeJS.ProcessEnv, app = APP_DIR) => {
   const env = Object.fromEntries(KEPT_ENV.flatMap((key) => (process.env[key] ? [[key, process.env[key]]] : [])));
   const { stdout } = await promisify(execFile)(binary as string, [app], {
-    env: { ...env, ...extra, [SMOKE_ENV]: ENABLED, [DATA_DIR_ENV]: dataDir },
+    env: { ...env, ...extra, [SMOKE_ENV]: ENABLED, [DATA_DIR_ENV]: dataDir, [GM_ROUTE_ENV]: FAKE_ROUTE },
     timeout: LAUNCH_TIMEOUT_MS,
   });
   return stdout;

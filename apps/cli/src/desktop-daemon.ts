@@ -11,7 +11,6 @@ import {
 } from '../../../packages/client-protocol/src/protocol.ts';
 import {
   EVENT,
-  type GmRoute,
   type Pushed,
   READY,
   type Ready,
@@ -23,6 +22,8 @@ import {
   archiveCampaign,
   createCampaignFrom,
   deleteCampaign,
+  type GameMaster,
+  gameMasterFor,
   isSameCampaignFile,
   listArchivedSummaries,
   listCampaignSummaries,
@@ -30,10 +31,11 @@ import {
   summaryOf,
   unarchiveCampaign,
 } from './engine-gateway.ts';
+import { API_KEY_ENV, gmRouteOf } from './gm-api.ts';
 import { failureOf, planResult } from './quickstart.ts';
 import { dataDirFromEnv } from './setup-check.ts';
 
-export const API_KEY_ENV = 'ANTHROPIC_API_KEY';
+export { API_KEY_ENV, gmRouteOf };
 export const CAMPAIGN_ENV = 'RPG_CAMPAIGN';
 export const NO_CAMPAIGN = 'no campaign';
 export const ELECTRON_RUN_AS_NODE_ENV = 'ELECTRON_RUN_AS_NODE';
@@ -96,8 +98,6 @@ export const daemonEnv = (env: NodeJS.ProcessEnv, versions: Versions = process.v
   ...(versions.electron === undefined ? {} : { [ELECTRON_RUN_AS_NODE_ENV]: ENABLED }),
 });
 
-export const gmRouteOf = (env: NodeJS.ProcessEnv): GmRoute => (env[API_KEY_ENV] ? 'api' : 'fake');
-
 const sqliteWorks = () => {
   const database = new DatabaseSync(MEMORY_DATABASE);
   try {
@@ -118,11 +118,14 @@ const send = (message: object, done?: () => void) => {
 
 const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
-const serve = (env: NodeJS.ProcessEnv): Served => {
+const reportNarrationFailure = (error: unknown) =>
+  process.stderr.write(`The game master could not narrate this turn: ${messageOf(error)}${NEWLINE}`);
+
+const serve = (env: NodeJS.ProcessEnv, gm: GameMaster): Served => {
   const name = env[CAMPAIGN_ENV];
   if (!name) return { problem: NO_CAMPAIGN };
   try {
-    return { name, campaign: openClientSession(dataDirFromEnv(), name), problem: NO_CAMPAIGN };
+    return { name, campaign: openClientSession(dataDirFromEnv(), name, gm), problem: NO_CAMPAIGN };
   } catch (error) {
     return { name, problem: messageOf(error) };
   }
@@ -175,11 +178,12 @@ const replyChange = (
   }
 };
 
-const replier = ({ name, campaign, problem }: Served) => {
+const replier = ({ name, campaign, problem }: Served, gm: GameMaster) => {
   const subscriptions = new Map<number, Unsubscribe>();
+  let queue = Promise.resolve();
 
   const serveCampaign = (next: string) => {
-    const opened = openClientSession(dataDirFromEnv(), next);
+    const opened = openClientSession(dataDirFromEnv(), next, gm);
     for (const unsubscribe of subscriptions.values()) unsubscribe();
     subscriptions.clear();
     campaign?.close();
@@ -187,7 +191,7 @@ const replier = ({ name, campaign, problem }: Served) => {
     campaign = opened;
   };
 
-  const execute = (id: number, input: unknown) => {
+  const execute = async (id: number, input: unknown) => {
     const parsed = parseCommand(input);
     if (!parsed.ok) return send({ id, type: 'Error', message: parsed.error.message });
     const command = parsed.value;
@@ -195,14 +199,17 @@ const replier = ({ name, campaign, problem }: Served) => {
     if (command.type === 'PlanCampaign') return send({ id, type: 'Result', result: planResult(command) });
     if (!('campaignId' in command)) return replyChange(id, command, name, serveCampaign);
     if (campaign === undefined) return send({ id, type: 'Error', message: problem });
-    const { session, campaignId } = campaign;
+    const { session, campaignId, narrate } = campaign;
     if (command.campaignId !== campaignId)
       return send({ id, type: 'Error', message: `Campaign ${command.campaignId} is not served by this engine.` });
     if (command.type === 'GetCampaignSnapshot')
       return send({ id, type: 'Result', result: session.getSnapshot(command) });
     if (command.type === 'GetCampaignPanels') return send({ id, type: 'Result', result: session.getPanels(command) });
-    if (command.type === 'SubmitPlayerAction')
-      return send({ id, type: 'Result', result: session.submitPlayerAction(command) });
+    if (command.type === 'SubmitPlayerAction') {
+      const result = session.submitPlayerAction(command);
+      if (result.ok) await narrate().catch(reportNarrationFailure);
+      return send({ id, type: 'Result', result });
+    }
     if (command.type === 'SelectCapability')
       return send({ id, type: 'Result', result: session.selectCapability(command) });
     if (command.type === 'RequestView') return send({ id, type: 'Result', result: session.requestView(command) });
@@ -217,11 +224,14 @@ const replier = ({ name, campaign, problem }: Served) => {
     return send({ id, type: 'Result', result: { ok: true, value: { subscription: id } } });
   };
 
-  return (input: unknown) => {
+  const reply = async (input: unknown) => {
+    let id: number | undefined;
     try {
-      const { id, type, command, subscription } = (typeof input === 'string' ? JSON.parse(input) : input) as Request;
+      const request = (typeof input === 'string' ? JSON.parse(input) : input) as Request;
+      id = request.id;
+      const { type, command, subscription } = request;
       if (type === 'Ping') return send({ id, type: 'Pong' });
-      if (type === 'Command') return execute(id, command);
+      if (type === 'Command') return await execute(id, command);
       if (type === 'Unsubscribe') {
         if (subscription !== undefined) subscriptions.get(subscription)?.();
         subscriptions.delete(subscription ?? id);
@@ -233,12 +243,16 @@ const replier = ({ name, campaign, problem }: Served) => {
       }
       return send({ id, type: 'Error', message: `Unknown request ${type}.` });
     } catch (error) {
-      return send({ type: 'Error', message: messageOf(error) });
+      return send({ id, type: 'Error', message: messageOf(error) });
     }
+  };
+
+  return (input: unknown) => {
+    queue = queue.then(() => reply(input)).then(IGNORE, IGNORE);
   };
 };
 
-const runDaemon = () => {
+const runDaemon = async () => {
   const found = consumerKeys(process.env);
   if (found.length > 0) {
     process.stderr.write(
@@ -246,15 +260,16 @@ const runDaemon = () => {
     );
     process.exit(EXIT_CONSUMER_CREDENTIALS);
   }
+  const { gm, route } = await gameMasterFor(process.env);
   const ready: Ready = {
     type: READY,
     version: PROTOCOL_VERSION,
     pid: process.pid,
     node: process.version,
     sqlite: sqliteWorks(),
-    gm: gmRouteOf(process.env),
+    gm: route,
   };
-  const reply = replier(serve(process.env));
+  const reply = replier(serve(process.env, gm), gm);
   send(ready);
   if (parentPort === undefined) createInterface({ input: process.stdin }).on('line', reply);
   else parentPort.on('message', ({ data }) => reply(data));
@@ -367,4 +382,4 @@ export const startDaemon = ({ env, onCrash, maxRestarts = MAX_RESTARTS, spawnEng
   return { ready: () => handshake, request, command, subscribe, stop, restarts: () => restarts };
 };
 
-if (import.meta.main) runDaemon();
+if (import.meta.main) await runDaemon();

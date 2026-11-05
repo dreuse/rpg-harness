@@ -17,6 +17,7 @@ import {
   type GameplayOutcome,
   type NarrationContext,
   type Narrator,
+  narrateTurn,
   playGameplayTurn,
   UncommittedTurnError,
 } from './gameplay.ts';
@@ -367,6 +368,47 @@ test('a narrator error that is not an interruption is rethrown after commit', ()
     assert.throws(() => playScene(store, entities, 'investigation', crashing), { message: NARRATOR_FAILURE });
     const stored = storedTurn(store.load(CAMPAIGN.id) ?? assert.fail(), 'investigation');
     assert.equal(stored?.turn.narration, PENDING_NARRATION);
+  } finally {
+    close();
+  }
+});
+
+test('rpg-42a.28 an async narrator narrates a committed turn through the same consistency gate', async () => {
+  const { store, close } = open();
+  try {
+    const committed = completeObjective(store, {
+      ...actionFor(store, 'investigation'),
+      questId: QUEST_ID,
+      objectiveId: OBJECTIVE_ID,
+    });
+    const leaked = await narrateTurn(
+      store,
+      { narrate: async () => ({ narration: TRAITOR.statement, claims: [] }) },
+      committed,
+      CONTEXT,
+    );
+    assert.ok('inconsistent' in leaked);
+    const interrupted = await narrateTurn(
+      store,
+      { narrate: async () => Promise.reject(new GameMasterInterruptedError(INTERRUPTED_STEP)) },
+      committed,
+      CONTEXT,
+    );
+    assert.ok('interrupted' in interrupted);
+    assert.equal(
+      storedTurn(store.load(CAMPAIGN.id) ?? assert.fail(), 'investigation')?.turn.narration,
+      PENDING_NARRATION,
+    );
+    const outcome = narrated(
+      await narrateTurn(store, { narrate: async (turn) => narrationOf(turn) }, committed, CONTEXT),
+    );
+    assert.equal(outcome.narration, textOf(committed));
+    const stored = storedTurn(store.load(CAMPAIGN.id) ?? assert.fail(), 'investigation') ?? assert.fail();
+    assert.equal(stored.turn.narration, textOf(committed));
+    const again = narrated(
+      await narrateTurn(store, { narrate: async () => assert.fail('narrated twice') }, stored, CONTEXT),
+    );
+    assert.equal(again.narration, textOf(committed));
   } finally {
     close();
   }

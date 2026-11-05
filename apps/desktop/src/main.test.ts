@@ -12,6 +12,7 @@ import {
   ELECTRON_RUN_AS_NODE_ENV,
   startDaemon,
 } from '../../cli/src/desktop-daemon.ts';
+import { hermeticGmEnv } from '../../cli/src/gm-test-env.ts';
 import { DEFAULT_PREFERENCES, MAX_FONT_SCALE } from './accessibility.ts';
 import {
   type Daemon,
@@ -359,7 +360,7 @@ const childUtilityProcess: Fork = (modulePath, args, options) => {
 test('rpg-42a.6 the utilityProcess engine channel forks the engine without consumer keys or run-as-node', async (t) => {
   const forked: Parameters<Fork>[] = [];
   const daemon = startDaemon({
-    env: { ...process.env, CLAUDE_CODE_OAUTH_TOKEN: CONSUMER_TOKEN },
+    env: { ...hermeticGmEnv(), CLAUDE_CODE_OAUTH_TOKEN: CONSUMER_TOKEN },
     spawnEngine: utilityEngine((...args) => {
       forked.push(args);
       return childUtilityProcess(...args);

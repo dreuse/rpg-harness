@@ -21,6 +21,7 @@ import { PLAYER_VIEWER } from '../../../packages/memory/src/knowledge.ts';
 import { createCampaignStore } from '../../../packages/persistence/src/campaign-store.ts';
 import { openDatabase } from '../../../packages/persistence/src/database.ts';
 import { createClientSessions, scopedEventsOf } from './client-session.ts';
+import { hermeticGmEnv } from './gm-test-env.ts';
 import { EXIT_OK } from './main.ts';
 import {
   type Capabilities,
@@ -223,7 +224,7 @@ test('UI06: text-only and limited terminal environments still work without graph
 
   const dataDir = mkdtempSync(join(tmpdir(), 'rpg-tui-'));
   try {
-    const env = { ...process.env, RPG_DATA_DIR: dataDir, TERM: 'dumb', NO_COLOR: '1' };
+    const env = { ...hermeticGmEnv(), RPG_DATA_DIR: dataDir, TERM: 'dumb', NO_COLOR: '1' };
     const rpg = (args: readonly string[], input = '') =>
       spawnSync(process.execPath, [BIN, ...args], { input, encoding: 'utf8', env });
     assert.equal(rpg(['new', CAMPAIGN]).status, EXIT_OK);
@@ -385,7 +386,7 @@ test('A18: headless text-only play does not depend on audio stack', () => {
 
   const dataDir = mkdtempSync(join(tmpdir(), 'rpg-tui-'));
   try {
-    const env = { ...process.env, RPG_DATA_DIR: dataDir, TERM: 'dumb', NO_COLOR: '1' };
+    const env = { ...hermeticGmEnv(), RPG_DATA_DIR: dataDir, TERM: 'dumb', NO_COLOR: '1' };
     const rpg = (args: readonly string[], input = '') =>
       spawnSync(process.execPath, ['--import', BLOCK_AUDIO_STACK, BIN, ...args], { input, encoding: 'utf8', env });
     assert.equal(rpg(['new', CAMPAIGN]).status, EXIT_OK);

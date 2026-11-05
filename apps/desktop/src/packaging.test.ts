@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import type { Ready } from '../../../packages/client-protocol/src/wire.ts';
 import { API_KEY_ENV, DAEMON_ENTRY, daemonEnv } from '../../cli/src/desktop-daemon.ts';
+import { hermeticGmEnv } from '../../cli/src/gm-test-env.ts';
 import { userDataDir } from '../../cli/src/setup-check.ts';
 import { type FileSystem, type Launcher, launchDescriptor, PLATFORMS, type Platform, smokeTest } from './packaging.ts';
 
@@ -112,8 +113,7 @@ test('UI11 smoke test reports a missing install and a missing provider without l
 test('UI11 missing model-provider configuration never results in data loss', () => {
   const dataDir = mkdtempSync(join(tmpdir(), TEMP_PREFIX));
   try {
-    const { [API_KEY_ENV]: _key, ...withoutKey } = process.env;
-    const env = { ...withoutKey, [DATA_DIR_ENV]: dataDir };
+    const env = { ...hermeticGmEnv(), [DATA_DIR_ENV]: dataDir };
     const rpg = (args: readonly string[]) => {
       const result = spawnSync(process.execPath, [BIN, ...args], { encoding: UTF8, env });
       assert.equal(result.status, EXIT_OK, result.stderr);
