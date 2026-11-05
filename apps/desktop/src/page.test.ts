@@ -1156,6 +1156,9 @@ const fakeSound = () => {
   const sound: DesktopSound = {
     update: (settings, scene) => calls.push(['update', settings, scene]),
     speaking: (active) => calls.push(['speaking', active]),
+    refresh: async () => {
+      calls.push(['refresh']);
+    },
     dispose: () => {},
   };
   const last = (name: string) => calls.filter(([call]) => call === name).at(-1);
@@ -1199,4 +1202,66 @@ test('rpg-cm63.33 page ducks the background while a voice preview plays and rele
   assert.ok(release);
   release[0]();
   assert.equal(speaking(), false);
+});
+
+test('rpg-cm63.39 page downloads the sound pack only after consent, then refreshes playback', async () => {
+  const page = fakePage();
+  const { sound, last } = fakeSound();
+  const downloads: unknown[] = [];
+  let installed = false;
+  const offer = { source: 'https://cdn.example.org/sounds', bytes: 40_894_464, sizeMiB: 39 };
+  const soundBridge: NonNullable<PageOptions['bridge']['sound']> = {
+    status: async () => ({ installed, bytes: 0, offer }),
+    download: async (consent) => {
+      downloads.push(consent);
+      installed = true;
+    },
+    file: async () => undefined,
+    onProgress: () => {},
+  };
+  mount(page, {}, deniedMicrophone, undefined, WIDE_WIDTH, { bridge: { ...page.bridge, sound: soundBridge }, sound });
+  page.receive(READY);
+  continueHarbor(page);
+  page.receive({ type: 'Snapshot', snapshot: SNAPSHOT });
+  await settle();
+  page.click({ 'data-sound-setup': 'accept' });
+  await settle();
+  assert.deepEqual(downloads, []);
+  page.focused.length = 0;
+  page.click({ 'data-sound-setup': 'download' });
+  assert.equal(page.focused.at(-1), '[data-sound-setup="accept"]');
+  assert.match(page.root.innerHTML, /39 MB/);
+  assert.deepEqual(downloads, []);
+  page.click({ 'data-sound-setup': 'accept' });
+  await settle();
+  assert.deepEqual(downloads, [{ accepted: true, ...offer }]);
+  assert.deepEqual(last('refresh'), ['refresh']);
+  assert.match(page.root.innerHTML, /Sound pack installed/);
+});
+
+test('rpg-cm63.39 page keeps the typed entry and its focus when the sound download settles in the background', async () => {
+  const page = fakePage();
+  const { sound } = fakeSound();
+  let finish: () => void = () => {};
+  const offer = { source: 'https://cdn.example.org/sounds', bytes: 40_894_464, sizeMiB: 39 };
+  const soundBridge: NonNullable<PageOptions['bridge']['sound']> = {
+    status: async () => ({ installed: false, bytes: 0, offer }),
+    download: () => new Promise<void>((resolve) => (finish = resolve)),
+    file: async () => undefined,
+    onProgress: () => {},
+  };
+  mount(page, {}, deniedMicrophone, undefined, WIDE_WIDTH, { bridge: { ...page.bridge, sound: soundBridge }, sound });
+  page.receive(READY);
+  continueHarbor(page);
+  page.receive({ type: 'Snapshot', snapshot: SNAPSHOT });
+  await settle();
+  page.click({ 'data-sound-setup': 'download' });
+  page.click({ 'data-sound-setup': 'accept' });
+  page.root.querySelector(ENTRY)?.focus();
+  page.fields[ENTRY] = 'I open the door';
+  page.focused.length = 0;
+  finish();
+  await settle();
+  assert.equal(page.fields[ENTRY], 'I open the door');
+  assert.equal(page.focused.at(-1), ENTRY);
 });

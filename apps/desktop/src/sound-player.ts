@@ -38,6 +38,7 @@ export type WebAudioSink = AmbientSink & { dispose(): void };
 export type DesktopSound = {
   update(settings: SoundSettings, scene: SceneSoundInput | undefined): void;
   speaking(active: boolean): void;
+  refresh(): Promise<void>;
   dispose(): void;
 };
 
@@ -145,6 +146,17 @@ export const createDesktopSound = ({
     controller.setSilence(silenced);
   };
 
+  const checkInstalled = (started: NonNullable<typeof running>): Promise<void> =>
+    bridge
+      .status()
+      .then(({ installed: present }) => present)
+      .catch(() => false)
+      .then((present) => {
+        if (running !== started) return;
+        installed = present;
+        sync();
+      });
+
   const start = (): void => {
     const sink = createWebAudioSink({
       context,
@@ -155,15 +167,7 @@ export const createDesktopSound = ({
     running = started;
     silenced = false;
     controller.speaking(talking);
-    bridge
-      .status()
-      .then(({ installed: present }) => present)
-      .catch(() => false)
-      .then((present) => {
-        if (running !== started) return;
-        installed = present;
-        sync();
-      });
+    void checkInstalled(started);
   };
 
   const stop = (): void => {
@@ -183,6 +187,9 @@ export const createDesktopSound = ({
     speaking: (active) => {
       talking = active;
       running?.controller.speaking(active);
+    },
+    refresh: async () => {
+      if (running !== undefined) await checkInstalled(running);
     },
     dispose: stop,
   };

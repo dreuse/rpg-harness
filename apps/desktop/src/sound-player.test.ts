@@ -350,3 +350,25 @@ test('rpg-cm63.33 disposing stops the sound', async () => {
   sound.dispose();
   assert.equal(audio.playing('music:calm'), undefined);
 });
+
+test('rpg-cm63.39 refreshing after a download starts the sound that was waiting for it', async () => {
+  const audio = fakeContext();
+  const time = fakeClock();
+  const requested: string[] = [];
+  let installed = false;
+  const bridge: Pick<SoundBridge, 'status' | 'file'> = {
+    status: async () => ({ installed, bytes: 0, offer: { source: '', bytes: 0, sizeMiB: 0 } }),
+    file: async (kind, key) => {
+      requested.push(`${kind}:${key}`);
+      return bytesOf(`${kind}:${key}`);
+    },
+  };
+  const sound = createDesktopSound({ bridge, context: audio.make, clock: time.clock });
+  sound.update(MUSIC_ON, QUIET_SCENE);
+  await flush();
+  assert.deepEqual(requested, []);
+  installed = true;
+  await sound.refresh();
+  await flush();
+  assert.deepEqual(requested, ['music:calm']);
+});

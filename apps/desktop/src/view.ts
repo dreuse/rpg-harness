@@ -36,11 +36,12 @@ import {
   UNGROUPED,
   type viewModel,
 } from './renderer.ts';
+import type { SoundSetupView } from './sound-setup.ts';
 import type { DesktopVoiceView } from './voice.ts';
 import { packName, providerName, voiceName } from './voice-names.ts';
 import { MAX_NPC_NAME_LENGTH, MAX_VOLUME, MIN_VOLUME, type VoiceSetupView } from './voice-setup.ts';
 
-export type ViewModel = ReturnType<typeof viewModel>;
+export type ViewModel = ReturnType<typeof viewModel> & { readonly soundSetup?: SoundSetupView };
 export type KeyEventLike = {
   readonly key: string;
   readonly altKey: boolean;
@@ -321,8 +322,23 @@ const soundRow = (settings: SoundSettings, channel: (typeof SOUND_CHANNELS)[numb
   return `<div data-voice-row><label for="${toggleId}"><input id="${toggleId}" type="checkbox" ${SOUND_FIELD_TOGGLE}="${channel}"${enabled ? ' checked' : ''}> ${escapeHtml(translate(locale, `sound.${channel}`))}</label></div><div data-voice-row><label for="${volumeId}">${escapeHtml(translate(locale, `sound.volume.${channel}`))}</label><input id="${volumeId}" type="range" min="${MIN_CHANNEL_VOLUME}" max="${MAX_CHANNEL_VOLUME}" step="${SOUND_VOLUME_STEP}" value="${volume}" ${SOUND_FIELD_VOLUME}="${channel}"></div>`;
 };
 
-export const soundPanel = (settings: SoundSettings, locale: string) =>
-  `<fieldset data-sound><legend>${escapeHtml(translate(locale, 'sound.legend'))}</legend>${SOUND_CHANNELS.map((channel) => soundRow(settings, channel, locale)).join('')}</fieldset>`;
+export const SOUND_SETUP = 'data-sound-setup';
+
+const soundSetupBody = ({ step, installed, offer, progress }: SoundSetupView, locale: string) => {
+  const text = (key: string, values?: Record<string, string | number>, status = false) =>
+    `<p${status ? ' role="status" tabindex="-1"' : ''}>${escapeHtml(translate(locale, key, values))}</p>`;
+  const download = button(SOUND_SETUP, 'download', translate(locale, 'sound.setup.download'));
+  if (step === 'consent' && offer !== undefined)
+    return `${text('sound.setup.consent', { size: offer.sizeMiB, source: URL.parse(offer.source)?.host ?? offer.source })}${button(SOUND_SETUP, 'accept', translate(locale, 'sound.setup.accept'), false, true)}${button(SOUND_SETUP, 'decline', translate(locale, 'sound.setup.decline'))}`;
+  if (step === 'downloading')
+    return `${text('sound.setup.downloading', undefined, true)}${progress === undefined ? '' : `<div data-voice-progress><progress value="${progress.bytes}" max="${progress.total}" aria-label="${escapeHtml(translate(locale, 'sound.setup.downloading'))}"></progress><span>${escapeHtml(translate(locale, 'voice.setup.progress', { done: mib(progress.bytes), total: mib(progress.total) }))}</span></div>`}`;
+  if (step === 'failed') return `${alert(translate(locale, 'sound.setup.failed'))}${download}`;
+  if (installed) return `<p role="status" tabindex="-1">${escapeHtml(translate(locale, 'sound.setup.installed'))}</p>`;
+  return offer === undefined ? '' : download;
+};
+
+export const soundPanel = (settings: SoundSettings, locale: string, setup?: SoundSetupView) =>
+  `<fieldset data-sound><legend>${escapeHtml(translate(locale, 'sound.legend'))}</legend>${SOUND_CHANNELS.map((channel) => soundRow(settings, channel, locale)).join('')}${setup === undefined ? '' : soundSetupBody(setup, locale)}</fieldset>`;
 
 export const GM_FORM = 'data-gm-form';
 export const GM_DEFAULTS_FORM = 'data-gm-defaults-form';
@@ -383,7 +399,7 @@ const settingsMenu = (
     settingsSection(
       'general',
       translate(locale, 'settings.section.general'),
-      `${languageControl(locale)}${storyLanguageControl(model.storyLanguage, locale)}${model.uses.dice ? motionControl(model.motion, locale) : ''}${soundPanel(model.sound, locale)}`,
+      `${languageControl(locale)}${storyLanguageControl(model.storyLanguage, locale)}${model.uses.dice ? motionControl(model.motion, locale) : ''}${soundPanel(model.sound, locale, model.soundSetup)}`,
     ),
     settingsSection('voice', translate(locale, 'region.voice'), voiceSettings(voice, setup, locale)),
     settingsSection(

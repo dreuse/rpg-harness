@@ -11,6 +11,7 @@ import { SETTLE_MS } from './dice.ts';
 import { BRIDGE_KEY, type Bridge } from './preload.ts';
 import { createDesktopClient, type DesktopState, REGIONS, type Region, type Transport, viewModel } from './renderer.ts';
 import { createDesktopSound, type DesktopSound, sceneSoundInput } from './sound-player.ts';
+import { createSoundSetup } from './sound-setup.ts';
 import {
   ALLOW,
   bindKeys,
@@ -39,6 +40,7 @@ import {
   SHEET_INPUT,
   SOUND_FIELD_TOGGLE,
   SOUND_FIELD_VOLUME,
+  SOUND_SETUP,
   START_CONTROL,
   START_CONTROLS,
   START_EDIT,
@@ -133,6 +135,10 @@ const SETTINGS_TOGGLE_SELECTOR = '#settings-toggle';
 const SETUP_DIALOG_SELECTOR = '[data-voice-step]';
 const SETUP_PRIMARY_SELECTOR = `${SETUP_DIALOG_SELECTOR} [data-primary]`;
 const SETUP_CLOSED = 'closed';
+const SOUND_ACCEPT_SELECTOR = '[data-sound-setup="accept"]';
+const SOUND_DOWNLOAD_SELECTOR = '[data-sound-setup="download"]';
+const SOUND_STATUS_SELECTOR = '[data-sound] [role="status"]';
+const SOUND_IDLE = 'idle';
 const MENU_TOGGLE_SELECTOR = 'summary';
 const SEARCH_SELECTOR = `#${HOME_SEARCH}`;
 const CANCEL_SELECTOR = '#home-cancel';
@@ -280,11 +286,16 @@ export const mountPage = ({
     setOutput: (spokenOutput) => voice.change({ spokenOutput }),
     changed: () => render(),
   });
+  const soundSetup =
+    bridge.sound === undefined
+      ? undefined
+      : createSoundSetup({ bridge: bridge.sound, changed: () => render(), installed: () => void sound?.refresh() });
   let loaded: CampaignSnapshot | undefined;
   let shownStep: string | undefined;
   let shownPane: Region | undefined;
   let shownPlaying = false;
   let shownVoiceStep = SETUP_CLOSED;
+  let shownSoundStep = SOUND_IDLE;
   const entryValue = () => root.querySelector<HTMLInputElement>(ENTRY_SELECTOR)?.value;
   const gmFormInputs = (form: string) =>
     GM_FIELDS.map((name) => root.querySelector<HTMLInputElement>(`${form} [name="${name}"]`));
@@ -313,7 +324,13 @@ export const mountPage = ({
     sound?.update(preferences.sound, model.playing ? sceneSoundInput(model.title.scene) : undefined);
     syncSpeaking();
     const setupView = setup.view();
-    root.innerHTML = renderView(model, preferences.locale, shownPane, voice.view(), setupView);
+    root.innerHTML = renderView(
+      soundSetup === undefined ? model : { ...model, soundSetup: soundSetup.view() },
+      preferences.locale,
+      shownPane,
+      voice.view(),
+      setupView,
+    );
     root.style.setProperty(FONT_SCALE_PROPERTY, String(model.fontScale));
     DISCLOSURE_SELECTORS.forEach((selector, index) => {
       const details = root.querySelector<HTMLDetailsElement>(selector);
@@ -340,6 +357,14 @@ export const mountPage = ({
         root.querySelector<HTMLElement>(SETUP_DIALOG_SELECTOR)
       )?.focus();
     }
+    const soundStep = soundSetup?.view().step ?? SOUND_IDLE;
+    let soundFocus: HTMLElement | null = null;
+    if (soundStep !== shownSoundStep) {
+      shownSoundStep = soundStep;
+      soundFocus =
+        root.querySelector<HTMLElement>(soundStep === 'consent' ? SOUND_ACCEPT_SELECTOR : SOUND_DOWNLOAD_SELECTOR) ??
+        root.querySelector<HTMLElement>(SOUND_STATUS_SELECTOR);
+    }
     const entry = root.querySelector<HTMLInputElement>(ENTRY_SELECTOR);
     if (entry !== null && typed !== undefined) entry.value = typed;
     sheetInputs().forEach((field, index) => {
@@ -352,7 +377,9 @@ export const mountPage = ({
       const kept = gmTyped[index];
       if (field !== null && kept !== undefined) field.value = kept;
     });
-    if (focused !== undefined) root.querySelector<HTMLElement>(focused)?.focus();
+    const typing = focused === ENTRY_SELECTOR || focused === SEARCH_SELECTOR;
+    if (soundFocus !== null && !typing) soundFocus.focus();
+    else if (focused !== undefined) root.querySelector<HTMLElement>(focused)?.focus();
     if (focused === ENTRY_SELECTOR && selection.start !== null && selection.end !== null)
       entry?.setSelectionRange?.(selection.start, selection.end);
     const search = focused === SEARCH_SELECTOR ? root.querySelector<HTMLInputElement>(SEARCH_SELECTOR) : null;
@@ -488,9 +515,15 @@ export const mountPage = ({
     decline: setup.decline,
     finish: setup.finish,
   };
+  const soundSetupActions: Record<string, (() => unknown) | undefined> = {
+    download: soundSetup?.ask,
+    accept: soundSetup?.accept,
+    decline: soundSetup?.decline,
+  };
   const fieldValue = (id: string) => root.querySelector<HTMLInputElement | HTMLSelectElement>(`#${id}`)?.value ?? '';
   const voiceClicks: readonly [string, (value: string) => unknown][] = [
     [VOICE_SETUP, (action) => setupActions[action]?.()],
+    [SOUND_SETUP, (action) => soundSetupActions[action]?.()],
     [
       VOICE_PREVIEW,
       (value) => (value === CHARACTER_PREVIEW ? setup.previewVoice(fieldValue(VOICE_NPC_VOICE)) : setup.preview()),
@@ -664,6 +697,7 @@ export const mountPage = ({
   render();
   voice.start().then(render);
   void setup.refresh();
+  void soundSetup?.refresh();
   return { ...client, render };
 };
 
