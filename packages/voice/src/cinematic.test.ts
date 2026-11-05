@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { importantNpcProfile } from './cinematic.ts';
+import { importantNpcProfile, voiceBlendFor } from './cinematic.ts';
 import { KOKORO_CAPABILITIES, KOKORO_DELIVERY_SPEED, KOKORO_PROVIDER_ID, kokoroSpeed } from './kokoro-provider.ts';
 import { MLX_KOKORO_CAPABILITIES, MLX_KOKORO_PROVIDER_ID } from './mlx-audio-engine.ts';
 import type { VoiceProfile } from './voice.ts';
@@ -121,4 +121,33 @@ test('a stored profile without a kokoro voice gets one added', () => {
   assert.equal(assigned.fallbacks[0]?.providerId, KOKORO_PROVIDER_ID);
   assert.deepEqual(assigned.fallbacks.slice(1), stored.fallbacks);
   assert.deepEqual(importantNpcProfile('npc-7', NARRATOR, stored), assigned);
+});
+
+const VOICE_PREFIX_CHARS = 2;
+const MIN_BLEND_WEIGHT = 0.2;
+const MAX_BLEND_WEIGHT = 0.4;
+
+test('maps a main NPC to a deterministic blend of two voices of the same accent and gender', () => {
+  const voices = KOKORO_CAPABILITIES.voices;
+  const blend = voiceBlendFor('npc-captain', 'af_heart', voices);
+  assert.ok(blend);
+  assert.deepEqual(voiceBlendFor('npc-captain', 'af_heart', voices), blend);
+  assert.equal(blend.first, 'af_heart');
+  assert.notEqual(blend.second, blend.first);
+  assert.ok(voices.includes(blend.second));
+  assert.equal(blend.second.slice(0, VOICE_PREFIX_CHARS), 'af');
+  assert.ok(blend.weight >= MIN_BLEND_WEIGHT && blend.weight <= MAX_BLEND_WEIGHT);
+  const seconds = new Set(
+    Array.from({ length: NPC_COUNT }, (_, index) => voiceBlendFor(`npc-${index}`, 'af_heart', voices)?.second),
+  );
+  assert.ok(seconds.size > 1);
+});
+
+test('blends only inside the capabilities of the provider and gives no blend without a partner', () => {
+  const mlx = MLX_KOKORO_CAPABILITIES.voices;
+  assert.equal(voiceBlendFor('npc-captain', 'pf_dora', mlx), undefined);
+  const male = voiceBlendFor('npc-captain', 'pm_alex', mlx);
+  assert.equal(male?.second, 'pm_santa');
+  assert.equal(voiceBlendFor('npc-captain', 'af_heart', mlx), undefined);
+  assert.equal(voiceBlendFor('npc-captain', 'af_heart', ['af_heart', 'af_bella'])?.second, 'af_bella');
 });

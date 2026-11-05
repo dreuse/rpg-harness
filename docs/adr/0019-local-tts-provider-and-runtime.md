@@ -104,3 +104,24 @@ The first sentence after start is the slowest. The second run was slower overall
 - pt-BR speech needs about 1.5 GB of disk and about 4 GB of peak footprint while the service is loaded. The idle unload stops the service.
 - The Python packages are pinned at the top level only. Their dependencies resolve at install time.
 - Only pt-BR is offered through mlx-audio. Other Kokoro languages are not measured and not claimed.
+
+## Amendment 2 — Cinematic delivery on Kokoro, no expressive model (rpg-cm63.12)
+
+**Status:** Accepted. **Decision:** Kokoro stays the default for both routes (`kokoro` and `kokoro-mlx`). Delivery gets more natural through deterministic shaping in the provider. No expressive model is adopted.
+
+### Expressive model spike
+
+- Chatterbox multilingual was already measured in the table above: median first audio 8247 ms, RTF 3.14, peak footprint 18204 MiB. It fails the 1.5 s first-audio bar by a wide margin.
+- No other model was tried in this bead. Text narration stays the fallback. Prerender plus cache for scene openings stays possible and is not built.
+
+### Delivery shaping
+
+- Shaping lives in `packages/voice/src/delivery-shaping.ts`. Both routes use it through `createKokoroProvider`. It is on by default and the `shaping: false` option turns it off.
+- Pauses: silence is appended to each sentence chunk, so the chunk count, sequence and `final` flag do not change. The pause depends on the end mark (`.` 350 ms, `!` 300 ms, `?` 400 ms, `…` 500 ms, otherwise 250 ms). It is 150 ms longer before a sentence that opens dialogue (a quote or a leading dash). The delivery emotion scales it, from 0.6 for `tense` to 1.5 for `sad`, weighted by intensity. The last sentence has no pause.
+- Scene breaks: a blank line adds at least 600 ms after the sentence before it. A line of `***`, `---` or `___` adds at least 1400 ms. The marker is never sent to the engine.
+- Speed: `KOKORO_DELIVERY_SPEED` gains `tense` (1.1). `whisper` (0.8) and `calm` (0.9) were already there.
+- Loudness: each chunk is scaled to an RMS of 0.1, limited to a peak of 0.98 and a gain of 8. Near-silent chunks are left as they are. Audio that is not a 16-bit PCM or 32-bit float WAV passes through unchanged. kokoro-js returns 24 kHz mono 32-bit float WAV, and the mlx-audio service returns 24 kHz mono 16-bit PCM. The shaped chunk keeps the format of its input.
+- Voice blend: `voiceBlendFor(npcId, voiceId, voices)` in `cinematic.ts` picks a second voice of the same accent and gender from the provider's own voice list, plus a weight from 0.2 to 0.4, using the existing hash. It returns nothing when no partner exists (for example `pf_dora`). The provider takes it through the `voiceBlend` option and passes it to the engine only when the engine sets `blends` and both voices are in the provider's capabilities. Otherwise the single voice is used.
+- mlx-audio blends: the service accepts a `blend` field (`first`, `second`, `weight`), checks it against the voice allowlist, and mixes the two style vectors as `(1 - weight) * first + weight * second` before synthesis. It uses the private `_get_pipeline` of mlx-audio 0.6.4, so a version bump needs a recheck. A blended and a plain request were run against the installed service and both returned 24 kHz mono 16-bit WAV.
+- kokoro-js does not blend. Mixing voice embeddings needs a way around its fixed voice table, which is not simple, so it keeps the single voice.
+- Nothing calls `voiceBlend` yet. Wiring main NPC ids into it is left to the code that builds the providers.

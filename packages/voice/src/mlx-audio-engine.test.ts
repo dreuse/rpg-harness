@@ -177,6 +177,20 @@ test('sends each sentence to the loopback service with the token and returns the
   });
 });
 
+test('declares blending and sends the blend with the request only when given', async () => {
+  await withDir(async (dir) => {
+    const { spawn } = fakeSpawn();
+    const { calls, fetch } = fakeFetch();
+    const engine = createMlxAudioEngine({ dir, spawn, fetch });
+    assert.equal(engine.blends, true);
+    await engine.load();
+    const blend = { first: VOICE, second: 'pm_alex', weight: 0.3 };
+    await engine.synthesize(SENTENCE, VOICE, signal(), SPEED, blend);
+    assert.deepEqual(JSON.parse(String(calls[0]?.init.body)), { text: SENTENCE, voice: VOICE, speed: SPEED, blend });
+    await engine.unload();
+  });
+});
+
 test('a failed synthesis response throws', async () => {
   await withDir(async (dir) => {
     const engine = createMlxAudioEngine({ dir, spawn: fakeSpawn().spawn, fetch: fakeFetch(500).fetch });

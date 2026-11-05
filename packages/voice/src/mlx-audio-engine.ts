@@ -168,18 +168,19 @@ export const createMlxAudioEngine = ({
   };
 
   return {
+    blends: true,
     ready: () => mlxAudioSupported(platform, arch) && mlxAudioInstalled(dir),
     load: async () => {
       await start();
       loaded = true;
     },
-    synthesize: async (sentence, voiceId, signal, speed) => {
+    synthesize: async (sentence, voiceId, signal, speed, blend) => {
       if (!loaded) throw new Error('mlx-audio service not loaded');
       const { origin, token } = service ?? (await start());
       const response = await fetchAudio(`${origin}${SYNTHESIZE_PATH}`, {
         method: 'POST',
         headers: { authorization: `Bearer ${token}`, 'content-type': JSON_TYPE },
-        body: JSON.stringify({ text: sentence, voice: voiceId, speed }),
+        body: JSON.stringify({ text: sentence, voice: voiceId, speed, ...(blend === undefined ? {} : { blend }) }),
         signal,
       });
       if (!response.ok) throw new Error(`mlx-audio synthesis failed (HTTP ${response.status})`);
@@ -195,11 +196,13 @@ export const createMlxAudioEngine = ({
 };
 
 export const createMlxAudioProvider = (
-  options: MlxAudioEngineOptions & Pick<KokoroProviderOptions, 'idleTimeoutMs'>,
+  options: MlxAudioEngineOptions & Pick<KokoroProviderOptions, 'idleTimeoutMs' | 'shaping' | 'voiceBlend'>,
 ): KokoroProvider =>
   createKokoroProvider({
     engine: createMlxAudioEngine(options),
     id: MLX_KOKORO_PROVIDER_ID,
     capabilities: MLX_KOKORO_CAPABILITIES,
     ...(options.idleTimeoutMs === undefined ? {} : { idleTimeoutMs: options.idleTimeoutMs }),
+    ...(options.shaping === undefined ? {} : { shaping: options.shaping }),
+    ...(options.voiceBlend === undefined ? {} : { voiceBlend: options.voiceBlend }),
   });

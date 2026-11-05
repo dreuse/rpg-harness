@@ -23,6 +23,7 @@ BEARER = "Bearer "
 SYNTHESIZE_PATH = "/synthesize"
 MAX_BODY_BYTES = 16 * 1024
 MAX_TEXT_CHARS = 2000
+BLEND_VOICE = "blend"
 MIN_SPEED = 0.5
 MAX_SPEED = 2.0
 NO_SPLIT = r"\n+"
@@ -65,14 +66,28 @@ def load():
     return model
 
 
-def synthesize(model, text, voice, speed):
+def blended_parts(model, text, voice, speed, blend):
+    first, second, weight = blend
+    pipeline = model._get_pipeline(voice[0])
+    pipeline.voices = {}
+    pipeline.voices[BLEND_VOICE] = (1 - weight) * pipeline.load_single_voice(first) + weight * pipeline.load_single_voice(second)
+    for _, _, audio in pipeline(text, voice=BLEND_VOICE, speed=speed, split_pattern=NO_SPLIT):
+        yield audio, model.config.sample_rate
+
+
+def single_parts(model, text, voice, speed):
+    for result in model.generate(text=text, voice=voice, speed=speed, lang_code=voice[0], split_pattern=NO_SPLIT):
+        yield result.audio, result.sample_rate
+
+
+def synthesize(model, text, voice, speed, blend=None):
     import numpy as np
 
     parts = []
     sample_rate = 0
-    for result in model.generate(text=text, voice=voice, speed=speed, lang_code=voice[0], split_pattern=NO_SPLIT):
-        parts.append(np.array(result.audio))
-        sample_rate = result.sample_rate
+    source = single_parts(model, text, voice, speed) if blend is None else blended_parts(model, text, voice, speed, blend)
+    for audio, sample_rate in source:
+        parts.append(np.array(audio))
     pcm = (np.clip(np.concatenate(parts), -1, 1) * PCM_MAX).astype(np.int16)
     out = io.BytesIO()
     with wave.open(out, "wb") as wav:
@@ -81,6 +96,19 @@ def synthesize(model, text, voice, speed):
         wav.setframerate(sample_rate)
         wav.writeframes(pcm.tobytes())
     return out.getvalue()
+
+
+def parse_blend(blend, voice):
+    if blend is None:
+        return None
+    if not isinstance(blend, dict):
+        raise ValueError("blend")
+    first, second, weight = blend.get("first"), blend.get("second"), blend.get("weight")
+    if first != voice or second not in VOICES or second == first:
+        raise ValueError("blend")
+    if isinstance(weight, bool) or not isinstance(weight, (int, float)) or not 0 < weight < 1:
+        raise ValueError("blend")
+    return first, second, float(weight)
 
 
 def parse(body):
@@ -92,7 +120,7 @@ def parse(body):
         return None
     if isinstance(speed, bool) or not isinstance(speed, (int, float)) or not MIN_SPEED <= speed <= MAX_SPEED:
         return None
-    return text, voice, float(speed)
+    return text, voice, float(speed), parse_blend(request.get("blend"), voice)
 
 
 def handler(model, token):

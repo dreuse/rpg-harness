@@ -1,3 +1,4 @@
+import type { VoiceBlend } from './kokoro-provider.ts';
 import { voicesFor } from './language-voices.ts';
 import { selectVoiceId } from './tts.ts';
 import type { VoiceProfile } from './voice.ts';
@@ -32,4 +33,18 @@ export const importantNpcProfile = (npcId: string, base: VoiceProfile, stored?: 
       ...source.fallbacks.filter((fallback) => fallback.providerId !== providerId),
     ],
   };
+};
+
+const VOICE_FAMILY_CHARS = 2;
+const BLEND_WEIGHTS = Object.freeze([0.2, 0.25, 0.3, 0.35, 0.4]);
+const WEIGHT_HASH_SHIFT = 8;
+
+export const voiceBlendFor = (npcId: string, voiceId: string, voices: readonly string[]): VoiceBlend | undefined => {
+  const family = voiceId.slice(0, VOICE_FAMILY_CHARS);
+  const partners = voices.filter((voice) => voice !== voiceId && voice.startsWith(family));
+  if (!voices.includes(voiceId) || partners.length === 0) return undefined;
+  const hash = hashOf(npcId);
+  const second = partners[hash % partners.length];
+  const weight = BLEND_WEIGHTS[(hash >>> WEIGHT_HASH_SHIFT) % BLEND_WEIGHTS.length];
+  return second === undefined || weight === undefined ? undefined : { first: voiceId, second, weight };
 };

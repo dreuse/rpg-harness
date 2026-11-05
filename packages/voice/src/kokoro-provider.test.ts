@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { mock, test } from 'node:test';
+import { decodeWav, encodeWav, PARAGRAPH_PAUSE_MS, SCENE_BREAK_PAUSE_MS, type Wav } from './delivery-shaping.ts';
 import {
   createKokoroProvider,
   KOKORO_CAPABILITIES,
@@ -8,6 +9,9 @@ import {
   KOKORO_MAX_CONCURRENT,
   KOKORO_PROVIDER_ID,
   type KokoroEngine,
+  MLX_KOKORO_CAPABILITIES,
+  MLX_KOKORO_PROVIDER_ID,
+  type VoiceBlend,
 } from './kokoro-provider.ts';
 import type { SpeechChunk } from './tts.ts';
 import type { CommittedUtterance, VoiceProfile } from './voice.ts';
@@ -331,3 +335,168 @@ test('preload loads the engine once before the first sentence and starts the idl
     mock.timers.reset();
   }
 });
+
+const RATE = 24_000;
+const TONE_SAMPLES = 2400;
+const TONE_AMPLITUDE = 0.02;
+const MS_PER_SECOND = 1000;
+const TENSE_SPEED = 1.1;
+
+const toneWav = (): Uint8Array => {
+  const wav: Wav = {
+    format: 1,
+    bits: 16,
+    channels: 1,
+    sampleRate: RATE,
+    samples: Float32Array.from({ length: TONE_SAMPLES }, (_, i) => TONE_AMPLITUDE * Math.sin(i / 4)),
+  };
+  return encodeWav(wav);
+};
+
+const wavEngine = (): FakeEngine => {
+  const engine = fakeEngine();
+  engine.synthesize = async (sentence) => {
+    engine.calls.push(sentence);
+    return toneWav();
+  };
+  return engine;
+};
+
+const silenceMsOf = (audio: Uint8Array): number => {
+  const wav = decodeWav(audio);
+  assert.ok(wav);
+  const tail = wav.samples.length - TONE_SAMPLES;
+  assert.ok(wav.samples.subarray(TONE_SAMPLES).every((sample) => sample === 0));
+  return (tail / RATE) * MS_PER_SECOND;
+};
+
+const PROVIDERS = [
+  { name: 'kokoro', id: KOKORO_PROVIDER_ID, capabilities: KOKORO_CAPABILITIES, language: 'en-US', voice: VOICE },
+  {
+    name: 'kokoro-mlx',
+    id: MLX_KOKORO_PROVIDER_ID,
+    capabilities: MLX_KOKORO_CAPABILITIES,
+    language: 'pt-BR',
+    voice: 'pf_dora',
+  },
+] as const;
+
+const speakAs = (
+  provider: ReturnType<typeof createKokoroProvider>,
+  { language, voice }: (typeof PROVIDERS)[number],
+  text: string,
+  overrides: Partial<CommittedUtterance> = {},
+) =>
+  speak(provider, { ...UTTERANCE, text, profile: { ...PROFILE, language }, ...overrides } as CommittedUtterance, voice);
+
+for (const target of PROVIDERS) {
+  const build = (engine: KokoroEngine, extra = {}) =>
+    createKokoroProvider({ engine, id: target.id, capabilities: target.capabilities, ...extra });
+
+  test(`${target.name}: passes the speed for whisper, calm and tense deliveries`, async () => {
+    const engine = fakeEngine();
+    const speeds: number[] = [];
+    engine.synthesize = async (_sentence, _voice, _signal, speed) => {
+      speeds.push(speed);
+      return new Uint8Array();
+    };
+    const provider = build(engine);
+    for (const emotion of ['whisper', 'calm', 'tense']) {
+      await speakAs(provider, target, 'Run.', { delivery: { emotion, intensity: 1 } });
+    }
+    assert.deepEqual(speeds, [KOKORO_DELIVERY_SPEED.whisper, KOKORO_DELIVERY_SPEED.calm, TENSE_SPEED]);
+    assert.equal(KOKORO_DELIVERY_SPEED.tense, TENSE_SPEED);
+    await provider.dispose();
+  });
+
+  test(`${target.name}: appends the pause after each sentence but the last and keeps sequence and final`, async () => {
+    const provider = build(wavEngine());
+    const text = target.language === 'en-US' ? 'He waited. “Who?” Nothing.' : 'Ele esperou. “Quem?” Nada.';
+    const chunks = await speakAs(provider, target, text);
+    assert.deepEqual(
+      chunks.map(({ sequence, final }) => [sequence, final]),
+      [
+        [0, false],
+        [1, false],
+        [2, true],
+      ],
+    );
+    const [first, second, last] = chunks.map(({ audio }) => silenceMsOf(audio));
+    assert.ok((first ?? 0) > 0 && (second ?? 0) > 0);
+    assert.ok((first ?? 0) > (second ?? 0));
+    assert.equal(last, 0);
+    const tense = await speakAs(provider, target, text, { delivery: { emotion: 'tense' } });
+    assert.ok(silenceMsOf(tense[0]?.audio ?? new Uint8Array()) < (first ?? 0));
+    await provider.dispose();
+  });
+
+  test(`${target.name}: adds paragraph and scene silence and never synthesizes the marker`, async () => {
+    const engine = wavEngine();
+    const provider = build(engine);
+    const chunks = await speakAs(provider, target, 'Gate.\n\nDawn.\n\n***\n\nLater.');
+    assert.deepEqual(engine.calls, ['Gate.', 'Dawn.', 'Later.']);
+    assert.deepEqual(
+      chunks.map(({ audio }) => Math.round(silenceMsOf(audio))),
+      [PARAGRAPH_PAUSE_MS, SCENE_BREAK_PAUSE_MS, 0],
+    );
+    await provider.dispose();
+  });
+
+  test(`${target.name}: matches loudness across chunks and leaves them untouched when shaping is off`, async () => {
+    const shaped = build(wavEngine());
+    const raw = build(wavEngine(), { shaping: false });
+    const [shapedChunk] = await speakAs(shaped, target, 'Run.');
+    const [rawChunk] = await speakAs(raw, target, 'Run.');
+    assert.deepEqual(rawChunk?.audio, toneWav());
+    const level = (audio: Uint8Array) => {
+      const samples = decodeWav(audio)?.samples ?? new Float32Array();
+      return Math.sqrt(samples.reduce((sum, sample) => sum + sample * sample, 0) / TONE_SAMPLES);
+    };
+    assert.ok(level(shapedChunk?.audio ?? new Uint8Array()) > level(toneWav()) * 2);
+    await shaped.dispose();
+    await raw.dispose();
+  });
+
+  test(`${target.name}: gives a blend to an engine that can blend and the single voice to one that cannot`, async () => {
+    const [first, second] = target.capabilities.voices;
+    assert.ok(first && second);
+    const blend: VoiceBlend = { first: target.voice, second: target.voice === first ? second : first, weight: 0.3 };
+    const seen: Array<VoiceBlend | undefined> = [];
+    const capture = (engine: FakeEngine) => {
+      engine.synthesize = async (_sentence, _voice, _signal, _speed, received) => {
+        seen.push(received);
+        return new Uint8Array();
+      };
+      return engine;
+    };
+    const blending = build(Object.assign(capture(fakeEngine()), { blends: true }), { voiceBlend: () => blend });
+    await speakAs(blending, target, 'Run.');
+    const single = build(capture(fakeEngine()), { voiceBlend: () => blend });
+    await speakAs(single, target, 'Run.');
+    assert.deepEqual(seen, [blend, undefined]);
+    await blending.dispose();
+    await single.dispose();
+  });
+
+  test(`${target.name}: ignores a blend outside its capabilities or for another primary voice`, async () => {
+    const seen: Array<VoiceBlend | undefined> = [];
+    const engine = Object.assign(fakeEngine(), { blends: true });
+    engine.synthesize = async (_sentence, _voice, _signal, _speed, received) => {
+      seen.push(received);
+      return new Uint8Array();
+    };
+    const other = target.capabilities.voices.find((voice) => voice !== target.voice) ?? '';
+    const blends: VoiceBlend[] = [
+      { first: target.voice, second: 'zz_unknown', weight: 0.3 },
+      { first: other, second: target.voice, weight: 0.3 },
+      { first: target.voice, second: other, weight: 0 },
+      { first: target.voice, second: other, weight: 1 },
+    ];
+    for (const blend of blends) {
+      const provider = build(engine, { voiceBlend: () => blend });
+      await speakAs(provider, target, 'Run.');
+      await provider.dispose();
+    }
+    assert.deepEqual(seen, [undefined, undefined, undefined, undefined]);
+  });
+}

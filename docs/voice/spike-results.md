@@ -104,3 +104,26 @@ Audio files for listening are in `.voice-spike/<candidate>/out` after a run.
 - kokoro-js with a GPU or CoreML execution provider. Only `device: 'cpu'` was run.
 - pt-BR in kokoro-js: not possible with 1.2.1 as shipped (see Features).
 - Cold-disk load times. The reported loads follow an earlier run, so the OS file cache was warm.
+
+## Expressive model spike (rpg-cm63.12)
+
+The bar for adopting an expressive model in cinematic mode is first audio under 1.5 s on Apple Silicon.
+
+| Candidate | Median first audio ms | Median RTF | Peak footprint MiB | Meets 1.5 s bar |
+|---|---|---|---|---|
+| chatterbox (multilingual, MPS) | 8247 | 3.142 | 18204 | no |
+
+- The Summary and Per passage tables above already measure Chatterbox multilingual on the same machine. Its first audio is 5.5 times over the bar, and it runs 3 times slower than real time.
+- No new model was tried. The numbers above are final for this bead.
+- Kokoro stays the default. Text narration stays the fallback.
+- Prerender plus cache stays an option for scene openings, as in ADR 0019. This bead does not build it.
+
+### Listening samples
+
+```bash
+RPG_VOICE_SAMPLES_DIR=/tmp/voice-samples RPG_KOKORO_MODEL_DIR=<dir> RPG_MLX_AUDIO_DIR=<dir> node scripts/voice-samples/run.ts
+```
+
+- Each English and pt-BR line is written twice: `<language>-<line>-before.wav` (no shaping) and `<language>-<line>-after.wav` (pauses, loudness, and a voice blend for NPC lines on mlx-audio).
+- The script writes only for engines whose model directory is set and ready. The unit test (`node --test scripts/voice-samples/run.test.ts`) uses a fake engine and never downloads or installs anything.
+- Not judged by listening yet.
