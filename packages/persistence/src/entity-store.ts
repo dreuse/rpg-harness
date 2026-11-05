@@ -6,6 +6,9 @@ import {
   type EntityId,
   type EntityKind,
   type EntityStore,
+  type Fact,
+  type FactLayer,
+  type FactStore,
   type Relationship,
   type Visibility,
 } from '../../domain/src/entity.ts';
@@ -20,6 +23,10 @@ const SELECT_ENTITY = `${ENTITY_COLUMNS} WHERE campaign_id = ? AND id = ?`;
 const SELECT_ENTITIES = `${ENTITY_COLUMNS} WHERE campaign_id = ?1 AND (?2 IS NULL OR kind = ?2) ORDER BY rowid`;
 const SELECT_RELATIONSHIPS =
   'SELECT id, campaign_id, kind, source_id, target_id, data FROM relationship WHERE campaign_id = ?1 AND (?2 IS NULL OR source_id = ?2 OR target_id = ?2) ORDER BY rowid';
+const UPSERT_FACT =
+  'INSERT INTO fact (id, campaign_id, subject_id, statement, layer, visibility, actor_id, source_event_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (id) DO UPDATE SET subject_id = excluded.subject_id, statement = excluded.statement, layer = excluded.layer, visibility = excluded.visibility, actor_id = excluded.actor_id, source_event_id = excluded.source_event_id WHERE fact.campaign_id = excluded.campaign_id';
+const SELECT_FACTS =
+  'SELECT id, campaign_id, subject_id, statement, layer, visibility, actor_id, source_event_id FROM fact WHERE campaign_id = ? ORDER BY rowid';
 
 const NO_CHANGES = 0;
 
@@ -42,6 +49,19 @@ const toRelationship = (row: Row): Relationship => ({
   sourceId: String(row.source_id),
   targetId: String(row.target_id),
   data: JSON.parse(String(row.data)),
+});
+
+const nullable = (value: unknown) => (value === null ? null : String(value));
+
+const toFact = (row: Row): Fact => ({
+  id: String(row.id),
+  campaignId: String(row.campaign_id),
+  subjectId: nullable(row.subject_id),
+  statement: String(row.statement),
+  layer: String(row.layer) as FactLayer,
+  visibility: String(row.visibility) as Visibility,
+  actorId: nullable(row.actor_id),
+  sourceEventId: nullable(row.source_event_id),
 });
 
 const requireEntity = (database: DatabaseSync, campaignId: CampaignId, id: EntityId) => {
@@ -85,4 +105,14 @@ export const createEntityStore = (database: DatabaseSync): EntityStore => ({
       .prepare(SELECT_RELATIONSHIPS)
       .all(campaignId, entityId ?? null)
       .map(toRelationship),
+});
+
+export const createFactStore = (database: DatabaseSync): FactStore => ({
+  saveFact: ({ id, campaignId, subjectId, statement, layer, visibility, actorId, sourceEventId }) => {
+    const { changes } = database
+      .prepare(UPSERT_FACT)
+      .run(id, campaignId, subjectId, statement, layer, visibility, actorId, sourceEventId);
+    requireUpserted(campaignId, `fact ${id}`, changes);
+  },
+  listFacts: (campaignId) => database.prepare(SELECT_FACTS).all(campaignId).map(toFact),
 });

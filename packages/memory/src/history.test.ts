@@ -1,7 +1,17 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { CampaignBoundaryError, type CampaignEvent } from '../../domain/src/campaign.ts';
-import { condense, type Summary, searchEvents, searchSummaries, summarize, UnknownEvidenceError } from './history.ts';
+import {
+  condense,
+  SUMMARY_WRITTEN,
+  type Summary,
+  searchEvents,
+  searchSummaries,
+  searchVisibleEvents,
+  summariesOf,
+  summarize,
+  UnknownEvidenceError,
+} from './history.ts';
 import { canonicalFacts, type Fact, GM_VIEWER, PLAYER_VIEWER, type Viewer } from './knowledge.ts';
 
 const CAMPAIGN_ID = 'campaign-1';
@@ -149,4 +159,24 @@ test('D07: summaries cannot alter canonical fact records or claim non-existent e
 
   const secret = summarize(events, draft('summary-cult', ['event-3'], { visibility: 'gm' }));
   assert.throws(() => condense(events, { id: 'summary-mixed', text: 'mixed' }, [summary, secret]), RangeError);
+});
+
+test('rpg-42a.36 written summaries are read back from events and visible events are searchable by scope', () => {
+  const scene = summarize(EVENTS, draft('summary-scene', ['event-1']));
+  const written = event('event-summary', SUMMARY_WRITTEN, { level: 'scene', scopeId: 'scene-1', summary: scene });
+  assert.deepEqual(summariesOf([...EVENTS, written]), [{ level: 'scene', scopeId: 'scene-1', summary: scene }]);
+
+  const scoped = EVENTS.map((entry, index) => ({
+    ...entry,
+    visibility: index === 2 ? ('gm' as const) : ('player' as const),
+    actorId: null,
+  }));
+  assert.deepEqual(
+    searchVisibleEvents(scoped, 'bridge', PLAYER_VIEWER).map(({ id }) => id),
+    ['event-1'],
+  );
+  assert.deepEqual(
+    searchVisibleEvents(scoped, 'bridge', GM_VIEWER).map(({ id }) => id),
+    ['event-1', 'event-3'],
+  );
 });

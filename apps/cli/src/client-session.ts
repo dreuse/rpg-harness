@@ -46,7 +46,7 @@ import { voiceSettingsOf } from '../../../packages/engine/src/voice-settings.ts'
 import { parseCampaignConfig } from '../../../packages/intent/src/config.ts';
 import { type Scoped, type Viewer, visibleTo } from '../../../packages/memory/src/knowledge.ts';
 import { createEntityStore } from '../../../packages/persistence/src/entity-store.ts';
-import { createEventStore } from '../../../packages/persistence/src/event-store.ts';
+import { listScopedEvents } from '../../../packages/persistence/src/event-store.ts';
 import { rangeIssue } from '../../../packages/rules/src/character-builder.ts';
 import { creationRulesFor } from './quickstart.ts';
 import { checkFor, emitVisualizations, resultsOf, visualizationPreferenceOf } from './roll-visualization.ts';
@@ -62,7 +62,6 @@ export type SheetPort = {
   commit(edit: SheetEdit): void;
 };
 
-const SELECT_EVENT_VISIBILITY = 'SELECT id, visibility FROM event_log WHERE campaign_id = ?';
 const HIDDEN: Visibility = 'gm';
 const UNSUPPORTED_CAPABILITIES = 'this engine does not support capability selection yet';
 const UNSUPPORTED_SHEETS = 'this engine does not serve character sheets yet';
@@ -80,13 +79,8 @@ const UNKNOWN_PLAY_TIME = null;
 
 export const scopedEventsOf =
   (database: DatabaseSync): EventSource =>
-  (campaignId) => {
-    const rows = database.prepare(SELECT_EVENT_VISIBILITY).all(campaignId);
-    const visibility = new Map(rows.map((row) => [String(row.id), String(row.visibility) as Visibility]));
-    return createEventStore(database)
-      .list(campaignId, MAIN_BRANCH)
-      .map((event) => ({ ...event, visibility: visibility.get(event.id) ?? HIDDEN }));
-  };
+  (campaignId) =>
+    listScopedEvents(database, campaignId);
 
 export const worldOf =
   (database: DatabaseSync): WorldSource =>

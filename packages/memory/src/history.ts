@@ -1,6 +1,6 @@
 import { CampaignBoundaryError, type CampaignEvent, type CampaignId, type EventId } from '../../domain/src/campaign.ts';
 import type { EntityId, Visibility } from '../../domain/src/entity.ts';
-import { type Viewer, visibleTo } from './knowledge.ts';
+import { type Scoped, type Viewer, visibleTo } from './knowledge.ts';
 
 export type SummaryId = string;
 
@@ -12,6 +12,12 @@ export type Summary = {
   readonly visibility: Visibility;
   readonly actorId: EntityId | null;
 };
+
+export const SUMMARY_WRITTEN = 'SummaryWritten';
+export const SUMMARY_LEVELS = ['scene', 'chapter', 'campaign'] as const;
+export type SummaryLevel = (typeof SUMMARY_LEVELS)[number];
+
+export type WrittenSummary = { readonly level: SummaryLevel; readonly scopeId: string; readonly summary: Summary };
 
 export type CondensedDraft = { readonly id: SummaryId; readonly text: string };
 
@@ -40,7 +46,8 @@ const matches = (text: string, query: readonly string[]): boolean => {
   return query.length > NONE && query.every((term) => haystack.includes(term));
 };
 
-const eventText = (event: CampaignEvent): string => `${event.type} ${JSON.stringify(event.payload)}`;
+const eventText = (event: Pick<CampaignEvent, 'type' | 'payload'>): string =>
+  `${event.type} ${JSON.stringify(event.payload)}`;
 
 export const searchEvents = (
   events: readonly CampaignEvent[],
@@ -51,6 +58,18 @@ export const searchEvents = (
   const wanted = terms(query);
   return events.filter((event) => matches(eventText(event), wanted));
 };
+
+export const searchVisibleEvents = <T extends Pick<CampaignEvent, 'type' | 'payload'> & Scoped>(
+  events: readonly T[],
+  query: string,
+  viewer: Viewer,
+): readonly T[] => {
+  const wanted = terms(query);
+  return visibleTo(events, viewer).filter((event) => matches(eventText(event), wanted));
+};
+
+export const summariesOf = (events: readonly Pick<CampaignEvent, 'type' | 'payload'>[]): readonly WrittenSummary[] =>
+  events.filter(({ type }) => type === SUMMARY_WRITTEN).map(({ payload }) => payload as WrittenSummary);
 
 export const searchSummaries = (summaries: readonly Summary[], query: string, viewer: Viewer): readonly Summary[] => {
   const wanted = terms(query);

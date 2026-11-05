@@ -1,18 +1,13 @@
-import type { CampaignId, EventId } from '../../domain/src/campaign.ts';
-import { type EntityId, type FactLayer, VISIBILITY_LEVELS, type Visibility } from '../../domain/src/entity.ts';
+import {
+  type EntityId,
+  type Fact,
+  type FactId,
+  type FactLayer,
+  VISIBILITY_LEVELS,
+  type Visibility,
+} from '../../domain/src/entity.ts';
 
-export type FactId = string;
-
-export type Fact = {
-  readonly id: FactId;
-  readonly campaignId: CampaignId;
-  readonly subjectId: EntityId | null;
-  readonly statement: string;
-  readonly layer: FactLayer;
-  readonly visibility: Visibility;
-  readonly actorId: EntityId | null;
-  readonly sourceEventId: EventId | null;
-};
+export type { Fact, FactId };
 
 export type Viewer =
   | { readonly scope: 'gm' }

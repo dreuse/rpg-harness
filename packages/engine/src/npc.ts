@@ -6,6 +6,7 @@ import {
   type EntityKind,
   type EntityStore,
 } from '../../domain/src/entity.ts';
+import { NPC_STATE_RELATIONSHIP } from '../../memory/src/graph.ts';
 import type { Fact } from '../../memory/src/knowledge.ts';
 import {
   INFORMATION_CHANNELS,
@@ -20,7 +21,7 @@ import { commit, loadState, type PlayerAction, recorded, replayOf, requireValid,
 
 export const NPC_LEARNED_FACT = 'NpcLearnedFact';
 export const STANCE_RELATIONSHIP = 'stance';
-export const NPC_STATE_RELATIONSHIP = 'npc-state';
+export { NPC_STATE_RELATIONSHIP };
 
 export type NpcLearning = PlayerAction & {
   readonly npcId: EntityId;

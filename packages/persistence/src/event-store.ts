@@ -1,5 +1,12 @@
 import type { DatabaseSync } from 'node:sqlite';
-import { type BranchId, type CampaignId, type DomainEvent, StaleRevisionError } from '../../domain/src/campaign.ts';
+import {
+  type BranchId,
+  type CampaignId,
+  type DomainEvent,
+  MAIN_BRANCH,
+  StaleRevisionError,
+} from '../../domain/src/campaign.ts';
+import type { Visibility } from '../../domain/src/entity.ts';
 
 export type { DomainEvent };
 
@@ -16,6 +23,9 @@ const APPEND_AT_HEAD = `INSERT INTO event_log (id, campaign_id, branch_id, turn_
 const NO_CHANGES = 0;
 const SELECT_EVENTS =
   'SELECT id, campaign_id, branch_id, turn_id, actor_id, revision, causation_id, type, payload FROM event_log WHERE campaign_id = ? AND branch_id = ? ORDER BY seq';
+
+const SELECT_EVENT_VISIBILITY = 'SELECT id, visibility FROM event_log WHERE campaign_id = ?';
+const HIDDEN: Visibility = 'gm';
 
 type Row = Record<string, unknown>;
 
@@ -53,3 +63,13 @@ export const createEventStore = (database: DatabaseSync): EventStore => ({
   },
   list: (campaignId, branchId) => database.prepare(SELECT_EVENTS).all(campaignId, branchId).map(toEvent),
 });
+
+export type ScopedEvent = DomainEvent & { readonly visibility: Visibility };
+
+export const listScopedEvents = (database: DatabaseSync, campaignId: CampaignId): readonly ScopedEvent[] => {
+  const rows = database.prepare(SELECT_EVENT_VISIBILITY).all(campaignId);
+  const visibility = new Map(rows.map((row) => [String(row.id), String(row.visibility) as Visibility]));
+  return createEventStore(database)
+    .list(campaignId, MAIN_BRANCH)
+    .map((event) => ({ ...event, visibility: visibility.get(event.id) ?? HIDDEN }));
+};

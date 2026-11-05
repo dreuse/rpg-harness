@@ -6,6 +6,7 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.32.2",
     "@rpg/domain": "workspace:*",
-    "@rpg/engine": "workspace:*"
+    "@rpg/engine": "workspace:*",
+    "@rpg/memory": "workspace:*"
   }
 }

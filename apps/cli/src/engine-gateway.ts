@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { closeSync, existsSync, linkSync, mkdirSync, openSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import { setTimeout as delay } from 'node:timers/promises';
 import {
   type CampaignHealth,
   type CampaignSummary,
@@ -16,7 +17,7 @@ import {
   OPENING_ACTION_ID,
   type Turn,
 } from '../../../packages/domain/src/campaign.ts';
-import type { FactLayer, Visibility } from '../../../packages/domain/src/entity.ts';
+import type { Visibility } from '../../../packages/domain/src/entity.ts';
 import { commitCharacter, editSheetField, playTurns } from '../../../packages/engine/src/character.ts';
 import { createEngine, type Engine } from '../../../packages/engine/src/engine.ts';
 import {
@@ -26,11 +27,19 @@ import {
   narrateTurn,
   playGameplayTurn,
 } from '../../../packages/engine/src/gameplay.ts';
-import { campaignConfigOf, openScene, performAction, storedTurn } from '../../../packages/engine/src/turn.ts';
+import {
+  campaignConfigOf,
+  loadState,
+  openScene,
+  performAction,
+  storedTurn,
+} from '../../../packages/engine/src/turn.ts';
 import { type CampaignConfig, parseCampaignConfig } from '../../../packages/intent/src/config.ts';
-import { canonicalFacts, type Fact, PLAYER_VIEWER, visibleTo } from '../../../packages/memory/src/knowledge.ts';
+import { PLAYER_VIEWER } from '../../../packages/memory/src/knowledge.ts';
+import type { ContextPacket } from '../../../packages/memory/src/packet.ts';
 import { createCampaignStore } from '../../../packages/persistence/src/campaign-store.ts';
 import { MIGRATIONS, openDatabase } from '../../../packages/persistence/src/database.ts';
+import { createFactStore } from '../../../packages/persistence/src/entity-store.ts';
 import type { BuildInput, BuildResult } from '../../../packages/rules/src/character-builder.ts';
 import type { Rng } from '../../../packages/rules/src/dice.ts';
 import { backupArchive, exportArchive, restoreArchive } from './campaign-archive.ts';
@@ -54,8 +63,11 @@ import {
   gmSecrets,
   ProviderError,
   requestNarration,
+  requestSummary,
   storedApiKey,
+  summaryRouteOf,
 } from './gm-api.ts';
+import { contextPacketOf, fakeSummarizer, type Summarizer, summarizeCampaign } from './gm-context.ts';
 import { importRules } from './import-gateway.ts';
 import type { CampaignGateway } from './main.ts';
 import {
@@ -73,7 +85,7 @@ import { runTui, type Terminal } from './tui.ts';
 import { runHome } from './tui-home.ts';
 import { guidedStart } from './tui-start.ts';
 import { type CampaignFile, defaultUpdateContext, updateCommand } from './update.ts';
-import { editableSheet, panelsOf, renderView, type ViewName } from './views.ts';
+import { editableSheet, renderView, type ViewName } from './views.ts';
 
 const DATABASE_EXTENSION = '.sqlite';
 const SELECT_CAMPAIGN_ID = 'SELECT id FROM campaign LIMIT 1';
@@ -105,12 +117,10 @@ const SAVED_SETTINGS = 'Saved settings:';
 const CHARACTER_PROMPT = `Describe your character, or press Enter to play as ${HERO_NAME}.`;
 const CREATE_CHARACTER_INTENT = 'create character';
 export const FAKE_GM_REPLY = 'The world shifts in answer.';
+const SUMMARY_SETTLE_MS = 10_000;
 export const NO_KEY_NOTICE = `No ${API_KEY_ENV} is set, so the built-in narrator tells the story.`;
 const NO_FACTS: NarrationContext = { facts: [], equipment: {}, viewer: PLAYER_VIEWER };
 const PENDING_NARRATION = '';
-const RECENT_TURNS = 6;
-const SELECT_FACTS =
-  'SELECT id, campaign_id, subject_id, statement, layer, visibility, actor_id, source_event_id FROM fact WHERE campaign_id = ?';
 
 const databasePath = (dataDir: string, name: string) =>
   join(dataDir, `${encodeURIComponent(name)}${DATABASE_EXTENSION}`);
@@ -121,8 +131,6 @@ const missingCampaign = (dataDir: string, name: string) =>
   existsSync(archivePath(dataDir, name))
     ? new Error(`Campaign ${name} is archived.`)
     : new Error(`No campaign named ${name}. Run rpg new ${name} first.`);
-
-const FAKE_GM: Narrator = { narrate: () => ({ narration: FAKE_GM_REPLY, claims: [] }) };
 
 const withNarration = ({ turn, ...rest }: CommittedTurn, narration: string): CommittedTurn => ({
   ...rest,
@@ -139,54 +147,71 @@ export const narratedTurn = (store: CampaignStore, outcome: GameplayOutcome): Co
   return committed;
 };
 
-const narratingEngine = (store: CampaignStore, narrator: Narrator, rng: Rng): Engine => ({
-  ...createEngine(store, rng),
-  submitAction: (action, check) =>
-    narratedTurn(
-      store,
-      playGameplayTurn(
+type PacketNarrator = (packet: ContextPacket) => string;
+
+const narratingEngine = (
+  store: CampaignStore,
+  database: Session['database'],
+  narrate: PacketNarrator,
+  rng: Rng,
+): Engine => {
+  const narrator: Narrator = {
+    narrate: (committed) => ({
+      narration: narrate(contextPacketOf(database, loadState(store, committed.turn.campaignId), committed)),
+      claims: [],
+    }),
+  };
+  return {
+    ...createEngine(store, rng),
+    submitAction: (action, check) =>
+      narratedTurn(
         store,
-        narrator,
-        (target, played) => performAction(target, played, check, rng),
-        action,
-        NO_FACTS,
+        playGameplayTurn(
+          store,
+          narrator,
+          (target, played) => performAction(target, played, check, rng),
+          action,
+          NO_FACTS,
+        ),
       ),
-    ),
-});
+  };
+};
 
-type Brief = Readonly<Record<string, unknown>>;
-export type GameMaster = { readonly narrator: Narrator } | { readonly request: (brief: Brief) => Promise<string> };
+export type GameMaster = (
+  | { readonly narrator: PacketNarrator }
+  | { readonly request: (packet: ContextPacket) => Promise<string> }
+) & { readonly summarizer: Summarizer };
 
-export const FAKE_GAME_MASTER: GameMaster = { narrator: FAKE_GM };
+export const FAKE_GAME_MASTER: GameMaster = { narrator: () => FAKE_GM_REPLY, summarizer: fakeSummarizer };
 
 const withNotice = (notice: string) => `${notice} ${FAKE_GM_REPLY}`;
 
 export const noKeyGameMaster = (): GameMaster => {
   let told = false;
   return {
-    narrator: {
-      narrate: () => {
-        const narration = told ? FAKE_GM_REPLY : withNotice(NO_KEY_NOTICE);
-        told = true;
-        return { narration, claims: [] };
-      },
+    narrator: () => {
+      const narration = told ? FAKE_GM_REPLY : withNotice(NO_KEY_NOTICE);
+      told = true;
+      return narration;
     },
+    summarizer: fakeSummarizer,
   };
 };
 
-export const apiGameMaster = (route: ApiRoute): GameMaster => {
+export const apiGameMaster = (route: ApiRoute, summaryRoute: ApiRoute = route): GameMaster => {
   let failed = false;
   return {
-    request: async (brief) => {
+    request: async (packet) => {
       if (failed) return FAKE_GM_REPLY;
       try {
-        return await requestNarration(route, brief);
+        return await requestNarration(route, packet);
       } catch (error) {
         if (!(error instanceof ProviderError)) throw error;
         failed = true;
         return withNotice(`The AI game master is unavailable: ${error.message} The built-in narrator takes over.`);
       }
     },
+    summarizer: (level, texts) => (failed ? fakeSummarizer(level, texts) : requestSummary(summaryRoute, level, texts)),
   };
 };
 
@@ -194,7 +219,8 @@ export const gameMasterFor = async (env: NodeJS.ProcessEnv) => {
   if (env[GM_ROUTE_ENV] === FAKE_ROUTE) return { gm: FAKE_GAME_MASTER, route: FAKE_ROUTE };
   const key = apiKeyOf(env, await storedApiKey(gmSecrets(env)));
   if (key === undefined) return { gm: noKeyGameMaster(), route: FAKE_ROUTE };
-  return { gm: apiGameMaster(apiRouteOf(key, env)), route: API_ROUTE };
+  const route = apiRouteOf(key, env);
+  return { gm: apiGameMaster(route, summaryRouteOf(route, env)), route: API_ROUTE };
 };
 
 type Session = {
@@ -204,65 +230,31 @@ type Session = {
   database: ReturnType<typeof openDatabase>['database'];
 };
 
-const nullable = (value: unknown) => (value === null ? null : String(value));
-
-const factsOf = (database: Session['database'], campaignId: CampaignId): Fact[] =>
-  database
-    .prepare(SELECT_FACTS)
-    .all(campaignId)
-    .map((row) => ({
-      id: String(row.id),
-      campaignId: String(row.campaign_id),
-      subjectId: nullable(row.subject_id),
-      statement: String(row.statement),
-      layer: String(row.layer) as FactLayer,
-      visibility: String(row.visibility) as Visibility,
-      actorId: nullable(row.actor_id),
-      sourceEventId: nullable(row.source_event_id),
-    }));
-
-const briefOf = (
-  database: Session['database'],
-  state: CampaignState,
-  committed: CommittedTurn,
-  facts: readonly Fact[],
-): Brief => {
-  const source = viewSourceOf(database, state.campaign.id, state);
-  const visible = new Set(visibleTo(source.eventScopes, PLAYER_VIEWER).map(({ id }) => id));
-  const { inventory, quests, citations, recap } = panelsOf(source, PLAYER_VIEWER);
-  return {
-    scene: state.currentScene?.title,
-    characters: state.characters.map(({ name }) => name),
-    facts: canonicalFacts(facts, PLAYER_VIEWER).map(({ statement }) => statement),
-    inventory: inventory.map(({ name }) => name),
-    quests,
-    citations,
-    recap,
-    recentTurns: playTurns(state)
-      .filter(({ id }) => id !== committed.turn.id)
-      .slice(-RECENT_TURNS)
-      .map(({ input, narration }) => ({ input, narration })),
-    action: committed.turn.input,
-    results: committed.events.filter(({ id }) => visible.has(id)).map(({ type, payload }) => ({ type, payload })),
-  };
-};
-
 const narrateLatest = async (
   { engine, store, campaignId, database }: Session,
-  request: (brief: Brief) => Promise<string>,
+  request: (packet: ContextPacket) => Promise<string>,
 ) => {
   const state = engine.getState(campaignId);
   const latest = playTurns(state).at(-1);
   const committed = latest === undefined ? undefined : storedTurn(state, latest.actionId);
   if (committed === undefined || committed.turn.narration !== PENDING_NARRATION) return;
-  const facts = factsOf(database, campaignId);
-  const brief = briefOf(database, state, committed, facts);
-  const narrator = { narrate: async () => ({ narration: await request(brief), claims: [] }) };
+  const packet = contextPacketOf(database, state, committed);
+  const narrator = { narrate: async () => ({ narration: await request(packet), claims: [] }) };
+  const facts = createFactStore(database).listFacts(campaignId);
   const outcome = await narrateTurn(store, narrator, committed, { facts, equipment: {}, viewer: PLAYER_VIEWER });
   if ('inconsistent' in outcome) store.recordNarration(campaignId, committed.turn.id, FAKE_GM_REPLY);
 };
 
-type OpenSession = Session & { narrate: () => Promise<void>; close: () => void };
+const settled = () => delay(SUMMARY_SETTLE_MS, undefined, { ref: false });
+let summarizing: Promise<void> = Promise.resolve();
+
+const summarizeInBackground = ({ store, campaignId, database }: Session, summarizer: Summarizer) => {
+  const job = () => summarizeCampaign(database, store, campaignId, summarizer);
+  summarizing = summarizing.then(() => Promise.race([job(), settled()])).catch(() => {});
+  return summarizing;
+};
+
+type OpenSession = Session & { narrate: () => Promise<void>; settle: () => Promise<unknown>; close: () => void };
 
 const openSession = (
   dataDir: string,
@@ -281,12 +273,15 @@ const openSession = (
     const row = database.prepare(SELECT_CAMPAIGN_ID).get();
     if (row === undefined) throw new Error(`Campaign ${name} has no saved state.`);
     const close = () => connection.close();
-    const engine = 'narrator' in gm ? narratingEngine(store, gm.narrator, rng) : createEngine(store, rng);
+    const engine = 'narrator' in gm ? narratingEngine(store, database, gm.narrator, rng) : createEngine(store, rng);
     const session = { engine, store, campaignId: String(row.id), database };
+    let summarized: Promise<void> = Promise.resolve();
     const narrate = async () => {
       if ('request' in gm) await narrateLatest(session, gm.request);
+      summarized = summarizeInBackground(session, gm.summarizer);
     };
-    return { ...session, narrate, close };
+    const settle = () => Promise.race([summarized, settled()]);
+    return { ...session, narrate, settle, close };
   } catch (error) {
     connection.close();
     throw error;
@@ -317,7 +312,7 @@ export const openClientSession = (
   rng: Rng = Math.random,
 ) => {
   const opened = openSession(dataDir, name, false, gm, rng);
-  const { engine, campaignId, database, narrate, close } = opened;
+  const { engine, campaignId, database, narrate, settle, close } = opened;
   try {
     const readWorld = worldOf(database);
     const sessions = createClientSessions(
@@ -327,7 +322,7 @@ export const openClientSession = (
       readWorld,
       sheetsOf(opened, readWorld),
     );
-    return { session: sessions(PLAYER_VIEWER), campaignId, narrate, close };
+    return { session: sessions(PLAYER_VIEWER), campaignId, narrate, settle, close };
   } catch (error) {
     close();
     throw error;
@@ -335,10 +330,11 @@ export const openClientSession = (
 };
 
 const playTui = async (dataDir: string, name: string, terminal: Terminal, gm: GameMaster, rng: Rng) => {
-  const { session, campaignId, narrate, close } = openClientSession(dataDir, name, gm, rng);
+  const { session, campaignId, narrate, settle, close } = openClientSession(dataDir, name, gm, rng);
   try {
     await runTui(session, campaignId, terminal, narrate);
   } finally {
+    await settle();
     close();
   }
 };
@@ -446,7 +442,7 @@ const act = async (dataDir: string, name: string, input: string, gm: GameMaster,
     const narrated = engine.getState(campaignId).turns.find(({ id }) => id === committed.turn.id);
     return narrate(actor.name, narrated ?? committed.turn);
   } finally {
-    session.close();
+    void session.settle().finally(session.close);
   }
 };
 

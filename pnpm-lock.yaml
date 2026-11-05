@@ -93,6 +93,9 @@ importers:
       '@rpg/engine':
         specifier: workspace:*
         version: link:../engine
+      '@rpg/memory':
+        specifier: workspace:*
+        version: link:../memory
 
   packages/memory:
     dependencies:

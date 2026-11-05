@@ -24,7 +24,7 @@ An arrow means "may import". No other imports are allowed.
 | `imports` | Document staging, extraction, provenance | `domain`, `rules` |
 | `client-protocol` | Commands, events, view descriptors | `domain` |
 | `voice` | STT/TTS adapters | `client-protocol` |
-| `mcp` | Typed campaign tools for the terminal harness | `domain`, `engine` |
+| `mcp` | Typed campaign tools and read-only memory tools for the terminal harness | `domain`, `engine`, `memory` |
 | `testkit` | Deterministic test fixtures: scripted Rng, fixed clock, sequential IDs | `domain` |
 | `timelines` | Event replay, versioned snapshots, checkpoints, branches | `domain`, `rules` |
 | `updater` | Release checks, signed downloads, staged install and rollback of app files (ADR 0016) | nothing |

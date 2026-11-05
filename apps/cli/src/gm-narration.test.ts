@@ -4,9 +4,11 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it, type TestContext } from 'node:test';
+import { setTimeout } from 'node:timers/promises';
 import { PROTOCOL_VERSION } from '../../../packages/client-protocol/src/protocol.ts';
 import type { CampaignStore, CommittedTurn } from '../../../packages/domain/src/campaign.ts';
 import { GameMasterInterruptedError } from '../../../packages/engine/src/scripted-session.ts';
+import type { ContextPacket } from '../../../packages/memory/src/packet.ts';
 import { openDatabase } from '../../../packages/persistence/src/database.ts';
 import { type ProviderReply, startProviderServer, textReply } from '../../../packages/testkit/src/provider-server.ts';
 import {
@@ -22,6 +24,7 @@ import {
   readCampaignState,
 } from './engine-gateway.ts';
 import { API_KEY_ENV, apiRouteOf, FAKE_ROUTE, GM_API_URL_ENV, GM_ROUTE_ENV } from './gm-api.ts';
+import { SCENE_TURN_LIMIT, type Summarizer } from './gm-context.ts';
 import { hermeticGmEnv } from './gm-test-env.ts';
 
 const CAMPAIGN = 'api-gm';
@@ -36,6 +39,8 @@ const CANON = 'canon';
 const UNAUTHORIZED = 401;
 const NO_DELAY_MS = 0;
 const NO_CHARACTER = async () => undefined;
+const SUMMARY_WAIT_MS = 1_000;
+const STUCK = 'stuck';
 
 const tempDataDir = (t: TestContext) => {
   const dataDir = mkdtempSync(join(tmpdir(), 'rpg-api-gm-'));
@@ -140,6 +145,50 @@ describe('rpg-42a.28 API game master wiring', () => {
     const after = session.getSnapshot({ ...envelope, type: 'GetCampaignSnapshot' });
     assert.ok(after.ok);
     assert.equal(after.value.turns.at(-1)?.narration, NARRATION);
+  });
+
+  it('rpg-42a.36 narrates from a built packet without waiting for a stuck or failing summarizer', async (t) => {
+    const dataDir = await seededCampaign(t);
+    const packets: ContextPacket[] = [];
+    const narrator = (packet: ContextPacket) => {
+      packets.push(packet);
+      return NARRATION;
+    };
+    let failures = 0;
+    const summarizers: readonly Summarizer[] = [
+      async () => {
+        failures += 1;
+        throw new Error('stale revision');
+      },
+      () => new Promise(() => {}),
+    ];
+    for (const summarizer of summarizers) {
+      const opened = openClientSession(dataDir, CAMPAIGN, { narrator, summarizer });
+      const { session, campaignId, close, narrate } = opened;
+      const envelope = { version: PROTOCOL_VERSION, campaignId } as const;
+      for (let turn = 0; turn < SCENE_TURN_LIMIT; turn += 1) {
+        const snapshot = session.getSnapshot({ ...envelope, type: 'GetCampaignSnapshot' });
+        assert.ok(snapshot.ok);
+        const { revision, currentScene, characters } = snapshot.value;
+        const submitted = session.submitPlayerAction({
+          ...envelope,
+          type: 'SubmitPlayerAction',
+          actionId: randomUUID(),
+          expectedRevision: revision,
+          sceneId: currentScene?.id ?? '',
+          actorId: characters[0]?.id ?? '',
+          input: ACTION,
+        });
+        assert.ok(submitted.ok);
+      }
+      const stuck = setTimeout(SUMMARY_WAIT_MS, STUCK);
+      assert.notEqual(await Promise.race([narrate().then(() => 'narrated'), stuck]), STUCK);
+      if (summarizer === summarizers[0]) await opened.settle();
+      close();
+    }
+    assert.equal(failures, 1);
+    const input = packets[0]?.sections.find(({ name }) => name === 'playerInput')?.items;
+    assert.deepEqual(input, [ACTION]);
   });
 
   it('picks the game master from the key, or the built-in narrator when the player asks for it', async (t) => {

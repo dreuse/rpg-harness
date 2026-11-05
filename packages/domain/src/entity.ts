@@ -1,4 +1,4 @@
-import type { CampaignId } from './campaign.ts';
+import type { CampaignId, EventId } from './campaign.ts';
 
 export type EntityId = string;
 export type RelationshipId = string;
@@ -30,6 +30,24 @@ export type Relationship = {
   readonly targetId: EntityId;
   readonly data: Readonly<Record<string, unknown>>;
 };
+
+export type FactId = string;
+
+export type Fact = {
+  readonly id: FactId;
+  readonly campaignId: CampaignId;
+  readonly subjectId: EntityId | null;
+  readonly statement: string;
+  readonly layer: FactLayer;
+  readonly visibility: Visibility;
+  readonly actorId: EntityId | null;
+  readonly sourceEventId: EventId | null;
+};
+
+export interface FactStore {
+  saveFact(fact: Fact): void;
+  listFacts(campaignId: CampaignId): readonly Fact[];
+}
 
 export interface EntityStore {
   saveEntity(entity: CampaignEntity): void;

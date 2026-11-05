@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { CampaignBoundaryError } from '../../domain/src/campaign.ts';
-import { type CampaignEntity, DanglingReferenceError, type Relationship } from '../../domain/src/entity.ts';
+import { type CampaignEntity, DanglingReferenceError, type Fact, type Relationship } from '../../domain/src/entity.ts';
 import { openDatabase } from './database.ts';
-import { createEntityStore } from './entity-store.ts';
+import { createEntityStore, createFactStore } from './entity-store.ts';
 
 const IN_MEMORY = ':memory:';
 const CAMPAIGN_A = 'campaign-a';
@@ -91,5 +91,27 @@ test('dangling references and cross-campaign entity access are rejected', () => 
   assert.deepEqual(store.listRelationships(CAMPAIGN_B), []);
   assert.deepEqual(store.getEntity(CAMPAIGN_A, NPC.id), NPC);
   assert.deepEqual(store.listRelationships(CAMPAIGN_A), [MEMBERSHIP]);
+  connection.close();
+});
+
+test('rpg-42a.36 facts persist per campaign with their subject and source', () => {
+  const { connection, store } = openStore();
+  for (const entity of ENTITIES) store.saveEntity(entity);
+  const facts = createFactStore(connection.database);
+  const fact: Fact = {
+    id: 'fact-1',
+    campaignId: CAMPAIGN_A,
+    subjectId: NPC.id,
+    statement: 'Old Tomas owes the guild a debt',
+    layer: 'canon',
+    visibility: 'gm',
+    actorId: null,
+    sourceEventId: null,
+  };
+  facts.saveFact(fact);
+  facts.saveFact({ ...fact, statement: 'Old Tomas paid the debt' });
+  assert.deepEqual(facts.listFacts(CAMPAIGN_A), [{ ...fact, statement: 'Old Tomas paid the debt' }]);
+  assert.deepEqual(facts.listFacts(CAMPAIGN_B), []);
+  assert.throws(() => facts.saveFact({ ...fact, campaignId: CAMPAIGN_B }), CampaignBoundaryError);
   connection.close();
 });

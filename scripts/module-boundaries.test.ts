@@ -21,7 +21,7 @@ const ALLOWED_IMPORTS: Record<string, readonly string[]> = {
   imports: ['domain', 'rules'],
   'client-protocol': ['domain'],
   voice: ['client-protocol'],
-  mcp: ['domain', 'engine'],
+  mcp: ['domain', 'engine', 'memory'],
   testkit: ['domain'],
   timelines: ['domain', 'rules'],
   updater: [],
