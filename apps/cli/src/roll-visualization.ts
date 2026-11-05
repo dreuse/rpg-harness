@@ -7,8 +7,8 @@ import {
   type VisualizationPreference,
 } from '../../../packages/client-protocol/src/visualization.ts';
 import type { CampaignEvent, CharacterId } from '../../../packages/domain/src/campaign.ts';
-import { parseCharacterProfile } from '../../../packages/domain/src/character.ts';
-import type { Visibility } from '../../../packages/domain/src/entity.ts';
+import { CHARACTER_KIND, parseCharacterProfile } from '../../../packages/domain/src/character.ts';
+import type { CampaignEntity, Visibility } from '../../../packages/domain/src/entity.ts';
 import { profileOf } from '../../../packages/engine/src/character.ts';
 import { type Check, campaignConfigOf } from '../../../packages/engine/src/turn.ts';
 import { parseCampaignConfig } from '../../../packages/intent/src/config.ts';
@@ -44,6 +44,27 @@ const DICE_OFF = 'off';
 const ATTEMPT_WORDS = new Set(['try', 'tries', 'attempt', 'attempts', 'roll', 'rolls']);
 const WORD_SEPARATOR = /[^\p{L}]+/u;
 const BASE_POOL_DICE = 2;
+const ATTRIBUTE_WORDS: ReadonlyMap<string, Attribute> = new Map(
+  Object.entries({
+    might: 'might',
+    strength: 'might',
+    force: 'might',
+    lift: 'might',
+    agility: 'agility',
+    dexterity: 'agility',
+    dodge: 'agility',
+    sneak: 'agility',
+    wits: 'wits',
+    intellect: 'wits',
+    recall: 'wits',
+    search: 'wits',
+    presence: 'presence',
+    charm: 'presence',
+    persuade: 'presence',
+    intimidate: 'presence',
+  } as const),
+);
+const NO_ENTITIES: readonly CampaignEntity[] = [];
 const ISSUE_SEPARATOR = '; ';
 
 const rolled = <T>(result: { ok: true; roll: T } | { ok: false; issues: ManifestIssue[] }): T => {
@@ -54,14 +75,28 @@ const rolled = <T>(result: { ok: true; roll: T } | { ok: false; issues: Manifest
 const isScore = (value: unknown): value is number =>
   Number.isInteger(value) && Number(value) >= ATTRIBUTE_MIN && Number(value) <= ATTRIBUTE_MAX;
 
-const d20Check = (events: readonly CampaignEvent[], actorId: CharacterId): Check | undefined => {
-  const parsed = parseCharacterProfile(profileOf(events, actorId));
+const wordsOf = (input: string) => input.toLowerCase().split(WORD_SEPARATOR);
+
+const attributeOf = (input: string): Attribute =>
+  wordsOf(input)
+    .map((word) => ATTRIBUTE_WORDS.get(word))
+    .find((attribute) => attribute !== undefined) ?? DEFAULT_CHECK_ATTRIBUTE;
+
+type CheckSource = (
+  events: readonly CampaignEvent[],
+  actorId: CharacterId,
+  input: string,
+  worldProfile: unknown,
+) => Check | undefined;
+
+const d20Check: CheckSource = (events, actorId, input, worldProfile) => {
+  const parsed = parseCharacterProfile(profileOf(events, actorId, worldProfile));
   if (!parsed.ok) return undefined;
   const scores = new Map(parsed.profile.traits.map(({ id, value }) => [id, value]));
   const attributes = Object.fromEntries(ATTRIBUTES.map((id) => [id, scores.get(id)]));
   if (!ATTRIBUTES.every((id) => isScore(attributes[id]))) return undefined;
   const sheet = createSheet({ characterId: actorId, attributes: attributes as Record<Attribute, number> });
-  const attribute = DEFAULT_CHECK_ATTRIBUTE;
+  const attribute = attributeOf(input);
   return (actionId, rng) => {
     const check = attemptCheck({ actionId, sheet, attribute, dc: DEFAULT_CHECK_DC, rng });
     if (!check.ok) throw new RangeError(check.error.issues.map(({ message }) => message).join(ISSUE_SEPARATOR));
@@ -69,10 +104,7 @@ const d20Check = (events: readonly CampaignEvent[], actorId: CharacterId): Check
   };
 };
 
-const CHECKS: readonly (readonly [
-  RulePackManifest,
-  (events: readonly CampaignEvent[], actorId: CharacterId) => Check | undefined,
-])[] = [
+const CHECKS: readonly (readonly [RulePackManifest, CheckSource])[] = [
   [D20_LITE_MANIFEST, d20Check],
   [
     DICE_POOL_LITE_MANIFEST,
@@ -83,20 +115,22 @@ const CHECKS: readonly (readonly [
   ],
 ];
 
-const isAttempt = (input: string) =>
-  input
-    .toLowerCase()
-    .split(WORD_SEPARATOR)
-    .some((word) => ATTEMPT_WORDS.has(word));
+const isAttempt = (input: string) => wordsOf(input).some((word) => ATTEMPT_WORDS.has(word));
 
-export const checkFor = (events: readonly CampaignEvent[], input: string, actorId: CharacterId): Check | undefined => {
+export const checkFor = (
+  events: readonly CampaignEvent[],
+  input: string,
+  actorId: CharacterId,
+  entities = NO_ENTITIES,
+): Check | undefined => {
   const saved = parseCampaignConfig(campaignConfigOf(events));
   if (!saved.ok || !isAttempt(input)) return undefined;
   const { values, capabilities, rulepack } = saved.config;
   if (values.dice === DICE_OFF || !capabilities.supported.includes(DICE_FIELD)) return undefined;
+  const entity = entities.find(({ id, kind }) => id === actorId && kind === CHARACTER_KIND);
   return CHECKS.find(
     ([pack]) => pack.id === rulepack?.id && pack.edition === rulepack.edition && pack.revision === rulepack.revision,
-  )?.[1](events, actorId);
+  )?.[1](events, actorId, input, entity?.data);
 };
 
 const revealsOf = ({ pool, draws }: RollEvent): MechanicReveal[] =>

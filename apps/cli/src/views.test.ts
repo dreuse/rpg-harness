@@ -14,14 +14,22 @@ import { createCharacterStore } from '../../../packages/persistence/src/characte
 import { MIGRATIONS, openDatabase } from '../../../packages/persistence/src/database.ts';
 import { createEntityStore } from '../../../packages/persistence/src/entity-store.ts';
 import type { CreationRules } from '../../../packages/rules/src/character-builder.ts';
-import { D20_LITE_CREATION } from '../../../packages/rules/src/d20-lite.ts';
+import {
+  ATTRIBUTE_MAX,
+  attemptCheck,
+  checkBonus,
+  createSheet,
+  D20_LITE_CREATION,
+  DEFAULT_CHECK_DC,
+} from '../../../packages/rules/src/d20-lite.ts';
 import { SHEET_SCHEMA_VERSION } from '../../../packages/rules/src/sheet-schema.ts';
 import { importSheet, SHEET_EXPORT_FORMAT } from '../../../packages/rules/src/sheet-view.ts';
-import { createEngineGateway, openClientSession, readCampaignState } from './engine-gateway.ts';
+import { createEngineGateway, FAKE_GAME_MASTER, openClientSession, readCampaignState } from './engine-gateway.ts';
 import { main } from './main.ts';
 import { editableSheet, printable, renderView, sheetComponents } from './views.ts';
 
 const CAMPAIGN = 'Ember';
+const HIGH_DRAW = 0.95;
 const ACTION = 'I light the lantern';
 const PLAYER: Visibility = 'player';
 const PUBLIC: Visibility = 'public';
@@ -562,6 +570,47 @@ test('a d20-lite campaign accepts sheet edits from the client session and rolls 
     assert.match(await run(dataDir, ['sheet', CAMPAIGN]), /might: 8/i);
     await run(dataDir, ['play', CAMPAIGN], ['I try to climb the wall']);
     assert.equal(readCampaignState(dataDir, CAMPAIGN).events.at(-1)?.type, CHECK_RESOLVED);
+  }));
+
+test('rpg-42a.10: an out-of-range attribute edit is rejected and an injected rng rolls the named attribute', () =>
+  withDataDir(async (dataDir) => {
+    await run(
+      dataDir,
+      ['new', CAMPAIGN, 'A fantasy adventure using the D20-Lite rules'],
+      ['A scout named Wren with might 6, agility 8, wits 7 and presence 4.'],
+    );
+    const { session, campaignId, close } = openClientSession(dataDir, CAMPAIGN);
+    try {
+      const envelope = { version: PROTOCOL_VERSION, campaignId } as const;
+      const snapshot = session.getSnapshot({ ...envelope, type: 'GetCampaignSnapshot' });
+      assert.ok(snapshot.ok);
+      const rejected = session.editSheetField({
+        ...envelope,
+        type: 'EditSheetField',
+        actionId: randomUUID(),
+        expectedRevision: snapshot.value.revision,
+        actorId: snapshot.value.characters[0]?.id ?? '',
+        fieldId: 'agility',
+        value: ATTRIBUTE_MAX + 1,
+      });
+      assert.equal(rejected.ok, false);
+      assert.match(rejected.ok ? '' : rejected.error.message, /agility must be between/);
+    } finally {
+      close();
+    }
+    const rng = () => HIGH_DRAW;
+    const gateway = createEngineGateway(dataDir, FAKE_GAME_MASTER, rng);
+    for await (const _ of gateway.open(CAMPAIGN, 'play', lines(['I try to dodge the arrow']), assert.ifError));
+    const resolved = readCampaignState(dataDir, CAMPAIGN).events.at(-1);
+    assert.equal(resolved?.type, CHECK_RESOLVED);
+    const sheet = createSheet({
+      characterId: 'wren' as never,
+      attributes: { might: 6, agility: 8, wits: 7, presence: 4 },
+    });
+    const expected = attemptCheck({ actionId: 'dodge', sheet, attribute: 'agility', dc: DEFAULT_CHECK_DC, rng });
+    const resolution = resolved?.payload.resolution as { rolls: { draws: unknown }[]; bonus: number };
+    assert.deepEqual(resolution.rolls[0]?.draws, expected.rolls[0]?.draws);
+    assert.equal(resolution.bonus, checkBonus({ sheet, attribute: 'agility' }));
   }));
 
 test('an editable d20-lite sheet labels fields from the creation schema', () =>

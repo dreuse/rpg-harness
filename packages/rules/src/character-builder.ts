@@ -99,6 +99,11 @@ const inBounds = (value: number, { min, max }: Bounds) =>
 
 const rangeMessage = ({ min, max }: Bounds) => `must be between ${min ?? '-∞'} and ${max ?? '∞'}`;
 
+export const rangeIssue = (rules: CreationRules, fieldId: string, value: unknown): string | undefined => {
+  const bounds = boundsOf(rules.constraints, fieldId);
+  return typeof value === 'number' && !inBounds(value, bounds) ? rangeMessage(bounds) : undefined;
+};
+
 const entriesOf = (values: unknown) =>
   typeof values === 'object' && values !== null && !Array.isArray(values) ? Object.entries(values) : [];
 

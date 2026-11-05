@@ -90,7 +90,11 @@ const storedProfile = ({ entities, state }: ViewSource, hero: Character) => {
   if (entity !== undefined)
     return visibleTo([entity], PLAYER_VIEWER).length === 0
       ? undefined
-      : { data: entity.data, visibility: entity.visibility, traitVisibility: undefined };
+      : {
+          data: profileOf(state.events, hero.id, entity.data),
+          visibility: entity.visibility,
+          traitVisibility: undefined,
+        };
   const created = state.events.findLast(
     ({ type, payload }) => type === CHARACTER_CREATED && payload.actorId === hero.id,
   );

@@ -47,6 +47,8 @@ import { parseCampaignConfig } from '../../../packages/intent/src/config.ts';
 import { type Scoped, type Viewer, visibleTo } from '../../../packages/memory/src/knowledge.ts';
 import { createEntityStore } from '../../../packages/persistence/src/entity-store.ts';
 import { createEventStore } from '../../../packages/persistence/src/event-store.ts';
+import { rangeIssue } from '../../../packages/rules/src/character-builder.ts';
+import { creationRulesFor } from './quickstart.ts';
 import { checkFor, emitVisualizations, resultsOf, visualizationPreferenceOf } from './roll-visualization.ts';
 import { panelsOf, printable, sheetFields, type ViewSource } from './views.ts';
 
@@ -273,6 +275,9 @@ export const createClientSessions = (
     if (sheet === undefined) return failure('Rejected', `${edit.actorId} has no character sheet`);
     const checked = requestSheetEdit(sheet.schema, sheet.values, edit);
     if (!checked.ok) return checked;
+    const rules = creationRulesFor(savedConfig(engine.getState(campaignId).events)?.rulepack ?? null);
+    const outOfRange = rules === undefined ? undefined : rangeIssue(rules, edit.fieldId, edit.value);
+    if (outOfRange !== undefined) return failure('Rejected', `${edit.fieldId} ${outOfRange}`);
     port.commit(edit);
     sync();
     return { ok: true, value: { revision: engine.getState(campaignId).revision } };
@@ -320,7 +325,7 @@ export const createClientSessions = (
         return attempt(() => {
           engine.submitAction(
             { campaignId, actionId, expectedRevision, sceneId, actorId, input, intent: input },
-            checkFor(engine.getState(campaignId).events, input, actorId),
+            checkFor(engine.getState(campaignId).events, input, actorId, readWorld(campaignId, actorId).entities),
           );
           sync();
           return { revision: engine.getState(campaignId).revision };

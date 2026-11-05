@@ -32,6 +32,7 @@ import { canonicalFacts, type Fact, PLAYER_VIEWER, visibleTo } from '../../../pa
 import { createCampaignStore } from '../../../packages/persistence/src/campaign-store.ts';
 import { MIGRATIONS, openDatabase } from '../../../packages/persistence/src/database.ts';
 import type { BuildInput, BuildResult } from '../../../packages/rules/src/character-builder.ts';
+import type { Rng } from '../../../packages/rules/src/dice.ts';
 import { backupArchive, exportArchive, restoreArchive } from './campaign-archive.ts';
 import { type Ask, createCharacter } from './character-creation.ts';
 import {
@@ -137,12 +138,18 @@ export const narratedTurn = (store: CampaignStore, outcome: GameplayOutcome): Co
   return committed;
 };
 
-const narratingEngine = (store: CampaignStore, narrator: Narrator): Engine => ({
-  ...createEngine(store),
+const narratingEngine = (store: CampaignStore, narrator: Narrator, rng: Rng): Engine => ({
+  ...createEngine(store, rng),
   submitAction: (action, check) =>
     narratedTurn(
       store,
-      playGameplayTurn(store, narrator, (target, played) => performAction(target, played, check), action, NO_FACTS),
+      playGameplayTurn(
+        store,
+        narrator,
+        (target, played) => performAction(target, played, check, rng),
+        action,
+        NO_FACTS,
+      ),
     ),
 });
 
@@ -261,6 +268,7 @@ const openSession = (
   name: string,
   readOnly = false,
   gm: GameMaster = FAKE_GAME_MASTER,
+  rng: Rng = Math.random,
 ): OpenSession => {
   const path = databasePath(dataDir, name);
   if (!existsSync(path)) throw missingCampaign(dataDir, name);
@@ -272,7 +280,7 @@ const openSession = (
     const row = database.prepare(SELECT_CAMPAIGN_ID).get();
     if (row === undefined) throw new Error(`Campaign ${name} has no saved state.`);
     const close = () => connection.close();
-    const engine = 'narrator' in gm ? narratingEngine(store, gm.narrator) : createEngine(store);
+    const engine = 'narrator' in gm ? narratingEngine(store, gm.narrator, rng) : createEngine(store, rng);
     const session = { engine, store, campaignId: String(row.id), database };
     const narrate = async () => {
       if ('request' in gm) await narrateLatest(session, gm.request);
@@ -301,8 +309,13 @@ const sheetsOf = ({ engine, store }: Session, readWorld: WorldSource): SheetPort
   },
 });
 
-export const openClientSession = (dataDir: string, name: string, gm: GameMaster = FAKE_GAME_MASTER) => {
-  const opened = openSession(dataDir, name, false, gm);
+export const openClientSession = (
+  dataDir: string,
+  name: string,
+  gm: GameMaster = FAKE_GAME_MASTER,
+  rng: Rng = Math.random,
+) => {
+  const opened = openSession(dataDir, name, false, gm, rng);
   const { engine, campaignId, database, narrate, close } = opened;
   try {
     const readWorld = worldOf(database);
@@ -320,8 +333,8 @@ export const openClientSession = (dataDir: string, name: string, gm: GameMaster 
   }
 };
 
-const playTui = async (dataDir: string, name: string, terminal: Terminal, gm: GameMaster) => {
-  const { session, campaignId, narrate, close } = openClientSession(dataDir, name, gm);
+const playTui = async (dataDir: string, name: string, terminal: Terminal, gm: GameMaster, rng: Rng) => {
+  const { session, campaignId, narrate, close } = openClientSession(dataDir, name, gm, rng);
   try {
     await runTui(session, campaignId, terminal, narrate);
   } finally {
@@ -408,10 +421,10 @@ const characterFor = async (dataDir: string, name: string, config: CampaignConfi
   return result.status === 'created' ? addCharacter(dataDir, name, build) : unfinishedText(result);
 };
 
-const act = async (dataDir: string, name: string, input: string, gm: GameMaster): Promise<string> => {
-  const session = openSession(dataDir, name, false, gm);
+const act = async (dataDir: string, name: string, input: string, gm: GameMaster, rng: Rng): Promise<string> => {
+  const session = openSession(dataDir, name, false, gm, rng);
   try {
-    const { engine, campaignId } = session;
+    const { engine, campaignId, database } = session;
     const state = engine.getState(campaignId);
     const [actor] = state.characters;
     const scene = state.currentScene;
@@ -426,7 +439,7 @@ const act = async (dataDir: string, name: string, input: string, gm: GameMaster)
         input,
         intent: input,
       },
-      checkFor(state.events, input, actor.id),
+      checkFor(state.events, input, actor.id, worldOf(database)(campaignId, actor.id).entities),
     );
     await session.narrate();
     const narrated = engine.getState(campaignId).turns.find(({ id }) => id === committed.turn.id);
@@ -646,7 +659,11 @@ const restore = (dataDir: string, file: string) => {
   return `Restored campaign ${campaign}. Run rpg resume ${campaign} to continue.`;
 };
 
-export const createEngineGateway = (dataDir: string, gm: GameMaster = FAKE_GAME_MASTER): CampaignGateway => ({
+export const createEngineGateway = (
+  dataDir: string,
+  gm: GameMaster = FAKE_GAME_MASTER,
+  rng: Rng = Math.random,
+): CampaignGateway => ({
   home: (terminal) =>
     runHome(
       {
@@ -655,7 +672,7 @@ export const createEngineGateway = (dataDir: string, gm: GameMaster = FAKE_GAME_
         archive: (name) => void archiveCampaign(dataDir, name),
         unarchive: (name) => unarchiveCampaign(dataDir, name),
         remove: (name, confirm, archived) => deleteCampaign(dataDir, name, confirm, archived),
-        play: (name, playing) => playTui(dataDir, name, playing, gm),
+        play: (name, playing) => playTui(dataDir, name, playing, gm, rng),
         start: (lines) => guidedStart(dataDir, lines, createCampaignFrom),
       },
       terminal,
@@ -679,7 +696,7 @@ export const createEngineGateway = (dataDir: string, gm: GameMaster = FAKE_GAME_
     if (character !== undefined) yield character;
   },
   view: (name, view) => readView(dataDir, name, view),
-  tui: (name, terminal) => playTui(dataDir, name, terminal, gm),
+  tui: (name, terminal) => playTui(dataDir, name, terminal, gm, rng),
   start: (lines) => guidedStart(dataDir, lines, createCampaignFrom),
   importRules: (files, lines) => importRules(process.cwd(), files, lines),
   open: async function* (name, _mode, lines, onTurnError) {
@@ -688,7 +705,7 @@ export const createEngineGateway = (dataDir: string, gm: GameMaster = FAKE_GAME_
       if (line.trim() === '') continue;
       let narration: string;
       try {
-        narration = await act(dataDir, name, line.trim(), gm);
+        narration = await act(dataDir, name, line.trim(), gm, rng);
       } catch (error) {
         onTurnError(error);
         continue;

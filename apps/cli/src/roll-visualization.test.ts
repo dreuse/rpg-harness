@@ -223,6 +223,40 @@ test('a d20-lite attempt checks the hero default attribute against the pack DC a
   assert.equal(checkFor(campaign, TRY, 'stranger'), undefined);
 });
 
+test('rpg-42a.10: an attempt checks the attribute its words name and falls back to the default', () => {
+  const campaign = [
+    ...configured(builtInConfig('d20-lite')),
+    heroCreated({ might: 6, agility: 8, wits: 3, presence: 9 }),
+  ];
+  const modifierOf = (input: string) => {
+    const resolved = checkFor(campaign, input, HERO)?.('act', createSeededRng(SEED));
+    return resolved?.bonus;
+  };
+  assert.equal(modifierOf('I try to dodge the arrow'), 3);
+  assert.equal(modifierOf('I try to use my wits'), -2);
+  assert.equal(modifierOf('I try to persuade the guard'), 4);
+  assert.equal(modifierOf('I try to climb the wall'), 1);
+});
+
+test('rpg-42a.10: a world-entity character rolls with its sheet edits', () => {
+  const profile = heroCreated(ATTRIBUTES).payload.profile;
+  const entity = {
+    id: HERO,
+    campaignId: 'c',
+    kind: 'character',
+    name: 'Wren',
+    data: profile,
+    visibility: 'player',
+    actorId: null,
+  };
+  const events = [...configured(builtInConfig('d20-lite')), sheetEdited(DEFAULT_CHECK_ATTRIBUTE, STRONG.might)];
+  const resolved = checkFor(events, 'I try to climb the wall', HERO, [entity as never])?.(
+    'climb',
+    createSeededRng(SEED),
+  );
+  assert.equal(resolved?.bonus, MIGHT_MOD);
+});
+
 test('an attempt in a dice campaign gets the rulepack check and every other turn rolls nothing', () => {
   const TRY = 'I try to climb the wall';
   const pool = checkFor(

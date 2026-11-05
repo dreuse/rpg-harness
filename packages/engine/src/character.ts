@@ -93,13 +93,16 @@ export const editSheetField = (store: CampaignStore, edit: SheetFieldEdit): Comm
   return commit(store, action, [[SHEET_FIELD_EDITED, payload, EDIT_VISIBILITY]]);
 };
 
-export const profileOf = (events: readonly CampaignEvent[], actorId: CharacterId): unknown => {
-  const created = events.findLast(({ type, payload }) => type === CHARACTER_CREATED && payload.actorId === actorId);
-  const profile = created?.payload.profile;
-  if (created === undefined || !isRecord(profile) || !Array.isArray(profile.traits)) return profile;
+export const profileOf = (events: readonly CampaignEvent[], actorId: CharacterId, worldProfile?: unknown): unknown => {
+  const created =
+    worldProfile === undefined
+      ? events.findLast(({ type, payload }) => type === CHARACTER_CREATED && payload.actorId === actorId)
+      : undefined;
+  const profile = worldProfile ?? created?.payload.profile;
+  if (!isRecord(profile) || !Array.isArray(profile.traits)) return profile;
   const edits = new Map(
     events
-      .slice(events.indexOf(created) + 1)
+      .slice(created === undefined ? 0 : events.indexOf(created) + 1)
       .filter(({ type, payload }) => type === SHEET_FIELD_EDITED && payload.actorId === actorId)
       .map(({ payload }) => [payload.fieldId, payload.value]),
   );
