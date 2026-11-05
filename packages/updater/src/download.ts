@@ -1,5 +1,5 @@
 import { createHash, createPublicKey, randomUUID, verify } from 'node:crypto';
-import { createWriteStream, mkdirSync, renameSync, rmSync } from 'node:fs';
+import { createWriteStream, mkdirSync, openSync, renameSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
@@ -89,7 +89,7 @@ const save = async (response: Response, asset: ReleaseAsset, temp: string) => {
         yield chunk;
       }
     },
-    createWriteStream(temp, { flags: CREATE_EXCLUSIVE }),
+    createWriteStream(temp, { fd: openSync(temp, CREATE_EXCLUSIVE) }),
   );
   if (bytes !== asset.size) throw incomplete();
   return hash.digest(HEX);
