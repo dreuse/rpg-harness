@@ -615,3 +615,22 @@ test('rpg-42a.21: sheet components keep groups, edit rights, display names and c
     },
   ]);
 });
+
+test('sheet components pass numeric limits from the field edit', () => {
+  const view = {
+    rulepack: { ...RULEPACK, sourceRefs: [] },
+    groups: [
+      {
+        id: 'core' as const,
+        fields: [
+          { id: 'might', widget: 'number' as const, value: 6, edit: { editable: true, min: 1, max: 10 } },
+          { id: 'name', widget: 'text' as const, value: 'Ana', edit: { editable: true } },
+        ],
+      },
+    ],
+    computed: [],
+  };
+  const [might, name] = sheetComponents(view);
+  assert.deepEqual([might?.min, might?.max], [1, 10]);
+  assert.equal(Object.hasOwn(name ?? {}, 'min'), false);
+});

@@ -163,7 +163,11 @@ const CATALOG: Readonly<Record<string, Readonly<Record<string, string>>>> = {
     'empty.sheet': 'No character sheet yet.',
     'sheet.noStats': 'No stats tracked yet.',
     'sheet.save': 'Save',
-    'sheet.saveLabel': 'Save {name}',
+    'sheet.edit': 'Edit sheet',
+    'sheet.cancel': 'Cancel',
+    'sheet.number': 'Enter a number.',
+    'sheet.min': 'Enter {min} or more.',
+    'sheet.max': 'Enter {max} or less.',
     'sheet.group.core': 'Core',
     'sheet.group.custom': 'Custom',
     'sheet.group.computed': 'Computed',
@@ -261,7 +265,11 @@ const CATALOG: Readonly<Record<string, Readonly<Record<string, string>>>> = {
     'empty.sheet': 'Aún no hay ficha de personaje.',
     'sheet.noStats': 'Aún no hay estadísticas.',
     'sheet.save': 'Guardar',
-    'sheet.saveLabel': 'Guardar {name}',
+    'sheet.edit': 'Editar hoja',
+    'sheet.cancel': 'Cancelar',
+    'sheet.number': 'Introduce un número.',
+    'sheet.min': 'Introduce {min} o más.',
+    'sheet.max': 'Introduce {max} o menos.',
     'sheet.group.core': 'Básico',
     'sheet.group.custom': 'Personalizado',
     'sheet.group.computed': 'Calculado',
@@ -379,8 +387,10 @@ const valueText = (value: ViewComponent['value'], locale: string): string => {
   return String(value);
 };
 
-export const componentLabel = ({ kind, label, value }: ViewComponent, locale: string = DEFAULT_LOCALE): string => {
+export const componentValue = ({ kind, value }: ViewComponent, locale: string = DEFAULT_LOCALE): string => {
   const ratio = kind === 'progress' && typeof value === 'string' ? PROGRESS_RATIO.exec(value) : null;
-  const text = ratio ? `${ratio[1]} ${translate(locale, 'label.progressOf')} ${ratio[2]}` : valueText(value, locale);
-  return `${label}${LABEL_SEPARATOR}${text}`;
+  return ratio ? `${ratio[1]} ${translate(locale, 'label.progressOf')} ${ratio[2]}` : valueText(value, locale);
 };
+
+export const componentLabel = (component: ViewComponent, locale: string = DEFAULT_LOCALE): string =>
+  `${component.label}${LABEL_SEPARATOR}${componentValue(component, locale)}`;

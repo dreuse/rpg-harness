@@ -1,5 +1,4 @@
 import { join } from 'node:path';
-import { PROTOCOL_VERSION } from '../../../packages/client-protocol/src/protocol.ts';
 import { WINDOW_HEIGHT, WINDOW_WIDTH } from './main.ts';
 import { BRIDGE_KEY } from './preload.ts';
 import { COMPACT_MAX_WIDTH, MEDIUM_MAX_WIDTH } from './renderer.ts';
@@ -124,13 +123,8 @@ const nextStep = (step: string) =>
 const steps = (...parts: readonly string[]) => `(async () => { ${parts.join(' ')} })()`;
 
 const JOURNEY_LISTENER = `window.${BRIDGE_KEY}.onLine((line) => { const message = JSON.parse(line); if (message.type === 'Snapshot') window.journeySnapshot = message.snapshot; });`;
-const SHEET_EDIT = `(() => {
-  const { campaignId, revision, characters } = window.journeySnapshot;
-  const send = (command) => window.${BRIDGE_KEY}.send(JSON.stringify({ version: ${PROTOCOL_VERSION}, campaignId, ...command }));
-  send({ type: 'EditSheetField', actionId: crypto.randomUUID(), expectedRevision: revision, actorId: characters[0].id, fieldId: ${JSON.stringify(JOURNEY_EDIT.fieldId)}, value: ${JOURNEY_EDIT.value} });
-  send({ type: 'GetCampaignSnapshot' });
-  send({ type: 'RequestView', viewId: 'sheet' });
-})();`;
+const SHEET_INPUT_SELECTOR = `#sheet-field-${JOURNEY_EDIT.fieldId}`;
+const SHEET_VALUE = `document.querySelector('[data-stat="${JOURNEY_EDIT.fieldId}"] dd')?.textContent === '${JOURNEY_EDIT.value}'`;
 
 type JourneyStep = { readonly script: string; readonly shot?: string };
 
@@ -179,10 +173,18 @@ export const JOURNEY: Readonly<Record<'first' | 'reopen', readonly JourneyStep[]
     {
       script: steps(
         `await ${until('window.journeySnapshot?.turns.length > 1')};`,
-        SHEET_EDIT,
-        `await ${until(`document.querySelector('[data-region="sheet"] input[id="sheet-field-${JOURNEY_EDIT.fieldId}"]')?.value === '${JOURNEY_EDIT.value}' && ${SETTLED}`)};`,
+        click('#sheet-edit'),
+        `await ${until(`document.querySelector(${JSON.stringify(SHEET_INPUT_SELECTOR)})`)};`,
+        `document.querySelector(${JSON.stringify(SHEET_INPUT_SELECTOR)}).value = '${JOURNEY_EDIT.value}';`,
       ),
       shot: 'sheet-edit',
+    },
+    {
+      script: steps(
+        `document.querySelector('[data-sheet-form]').requestSubmit();`,
+        `await ${until(`${SHEET_VALUE} && ${SETTLED}`)};`,
+      ),
+      shot: 'sheet-saved',
     },
   ],
   reopen: [

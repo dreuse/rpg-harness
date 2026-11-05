@@ -15,9 +15,11 @@ import {
   initialState,
   layoutFor,
   PLAY_REGIONS,
+  parseSheetValue,
   type Transport,
   viewModel,
 } from './renderer.ts';
+import { renderView } from './view.ts';
 
 const CAMPAIGN = 'c1';
 const OTHER = 'c2';
@@ -281,7 +283,7 @@ test('UI10 view model carries font scale, motion flag and text-only sheet labels
   assert.deepEqual(model.sheetGroups, [
     {
       id: '',
-      fields: [{ id: 'hp', name: 'HP', label: 'HP: 7 of 10', value: '7/10', editable: false, changed: false }],
+      fields: [{ id: 'hp', name: 'HP', text: '7 of 10', value: '7/10', editable: false, changed: false }],
     },
   ]);
   assert.deepEqual(viewModel(initialState, WIDE_WIDTH).sheetGroups, []);
@@ -584,7 +586,7 @@ test('rpg-42a.21: the sheet groups fields and keeps edit rights and explanations
   assert.deepEqual(viewModel(client.state(), WIDE_WIDTH).sheetGroups, [
     {
       id: 'core',
-      fields: [{ id: 'might', name: 'Might', label: 'Might: 3', value: 3, editable: true, changed: false }],
+      fields: [{ id: 'might', name: 'Might', text: '3', value: 3, editable: true, changed: false }],
     },
     {
       id: 'computed',
@@ -592,7 +594,7 @@ test('rpg-42a.21: the sheet groups fields and keeps edit rights and explanations
         {
           id: 'armor',
           name: 'Armor',
-          label: 'Armor: 5',
+          text: '5',
           value: 5,
           editable: false,
           explanation: '= might + 2',
@@ -630,6 +632,137 @@ test('rpg-42a.21: a sheet edit sends EditSheetField, shows a rejection and refre
     wire.sent.slice(sent).map(({ type }) => type),
     ['GetCampaignSnapshot', 'RequestView'],
   );
+});
+
+const EDIT_SHEET = {
+  campaignId: CAMPAIGN,
+  viewId: 'sheet',
+  components: [
+    ...GROUPED_SHEET.components,
+    { kind: 'field', id: 'title', label: 'Title', value: 'Scout', group: 'custom', editable: true },
+    { kind: 'field', id: 'hidden', label: 'Hidden', value: false, group: 'custom', editable: true },
+  ],
+};
+const sheetEdits = (sent: readonly ClientCommand[]) =>
+  sent.flatMap((command) =>
+    command.type === 'EditSheetField' ? [{ fieldId: command.fieldId, value: command.value }] : [],
+  );
+const editingSheet = () => {
+  const { wire, client } = connectedClient();
+  wire.receive({ type: 'View', campaignId: CAMPAIGN, view: EDIT_SHEET });
+  client.openSheetEdit();
+  return { wire, client, editing: () => viewModel(client.state(), WIDE_WIDTH).sheetEditing };
+};
+
+test('rpg-42a.29: one sheet save sends only changed valid values and closes the editor', () => {
+  const { wire, client, editing } = editingSheet();
+  assert.equal(editing(), true);
+  client.saveSheet({ might: 'lots', title: 'Warden' });
+  assert.deepEqual(sheetEdits(wire.sent), []);
+  assert.equal(editing(), true);
+  assert.deepEqual(client.state().sheetErrors, { might: 'Enter a number.' });
+  client.saveSheet({ might: ' ', title: 'Warden' });
+  assert.deepEqual(sheetEdits(wire.sent), []);
+  client.saveSheet({ might: '3', title: 'Warden', hidden: true, armor: '9' });
+  assert.deepEqual(sheetEdits(wire.sent), [{ fieldId: 'title', value: 'Warden' }]);
+  assert.equal(editing(), false);
+  assert.deepEqual(client.state().sheetErrors, {});
+  wire.receive({ type: 'Accepted', actionId: 'a0' });
+  wire.receive({ type: 'Snapshot', snapshot: snapshotAt(2) });
+  assert.deepEqual(sheetEdits(wire.sent), [
+    { fieldId: 'title', value: 'Warden' },
+    { fieldId: 'hidden', value: true },
+  ]);
+});
+
+const STALE_REVISION = 'StaleRevision';
+const revisionCheckingEngine = (wire: ReturnType<typeof fakeTransport>, start: number) => {
+  let revision = start;
+  let handled = wire.sent.length;
+  const applied: unknown[] = [];
+  const pump = () => {
+    while (handled < wire.sent.length) {
+      const command = wire.sent[handled++] as ClientCommand;
+      if (command.type === 'GetCampaignSnapshot') wire.receive({ type: 'Snapshot', snapshot: snapshotAt(revision) });
+      if (command.type !== 'EditSheetField') continue;
+      if (command.expectedRevision !== revision) {
+        wire.receive({
+          type: 'Rejected',
+          actionId: command.actionId,
+          error: { code: STALE_REVISION, message: 'stale' },
+        });
+        continue;
+      }
+      revision += 1;
+      applied.push(command.fieldId);
+      wire.receive({ type: 'Accepted', actionId: command.actionId });
+    }
+  };
+  return { pump, applied };
+};
+
+test('rpg-42a.29: one sheet save applies every changed field against an engine that rejects stale revisions', () => {
+  const { wire, client } = editingSheet();
+  const engine = revisionCheckingEngine(wire, client.state().snapshot?.revision ?? 0);
+  client.saveSheet({ might: '4', title: 'Warden' });
+  engine.pump();
+  assert.deepEqual(engine.applied, ['might', 'title']);
+  assert.deepEqual(client.state().sheetErrors, {});
+  assert.equal(client.state().sheetEditing, false);
+});
+
+test('rpg-42a.29: leaving the adventure drops sheet edits not yet sent', () => {
+  const { wire, client } = editingSheet();
+  client.saveSheet({ might: '4', title: 'Warden' });
+  wire.receive({ type: 'Accepted', actionId: 'a0' });
+  client.select(OTHER);
+  wire.receive({ type: 'Snapshot', snapshot: { ...snapshotAt(2), campaignId: OTHER } });
+  assert.deepEqual(sheetEdits(wire.sent), [{ fieldId: 'might', value: 4 }]);
+});
+
+test('rpg-42a.29: sheet bounds from the View message reach the inputs and block out of range saves', () => {
+  const { wire, client } = connectedClient();
+  const bounded = {
+    ...EDIT_SHEET,
+    components: EDIT_SHEET.components.map((component) =>
+      component.id === 'might' ? { ...component, min: 1, max: 20 } : component,
+    ),
+  };
+  wire.receive({ type: 'View', campaignId: CAMPAIGN, view: bounded });
+  client.openSheetEdit();
+  const html = renderView(viewModel(client.state(), WIDE_WIDTH), 'en');
+  assert.match(html, /<input id="sheet-field-might" name="might" type="number" step="any" required min="1" max="20"/);
+  client.saveSheet({ might: '0' });
+  assert.deepEqual(sheetEdits(wire.sent), []);
+  assert.deepEqual(client.state().sheetErrors, { might: 'Enter 1 or more.' });
+});
+
+test('rpg-42a.29: cancel leaves the editor and drops its messages, a rejection reopens it', () => {
+  const { wire, client, editing } = editingSheet();
+  client.saveSheet({ might: '' });
+  client.cancelSheetEdit();
+  assert.equal(editing(), false);
+  assert.deepEqual(client.state().sheetErrors, {});
+  client.openSheetEdit();
+  client.saveSheet({ might: '99' });
+  assert.deepEqual(sheetEdits(wire.sent), [{ fieldId: 'might', value: 99 }]);
+  assert.equal(editing(), false);
+  wire.receive({ type: 'Rejected', actionId: 'a0', error: { code: 'Rejected', message: 'might must be at most 20' } });
+  assert.equal(editing(), true);
+  assert.deepEqual(client.state().sheetErrors, { might: 'might must be at most 20' });
+  client.goHome();
+  assert.equal(client.state().sheetEditing, false);
+});
+
+test('rpg-42a.29: sheet values are checked against the field type and its bounds', () => {
+  const number = { value: 3, min: 1, max: 20 };
+  assert.deepEqual(parseSheetValue(number, '7', 'en'), { ok: true, value: 7 });
+  assert.deepEqual(parseSheetValue(number, '0', 'en'), { ok: false, error: 'Enter 1 or more.' });
+  assert.deepEqual(parseSheetValue(number, '21', 'es'), { ok: false, error: 'Introduce 20 o menos.' });
+  assert.deepEqual(parseSheetValue({ value: 3 }, 'Infinity', 'en'), { ok: false, error: 'Enter a number.' });
+  assert.deepEqual(parseSheetValue({ value: 3 }, '-4.5', 'en'), { ok: true, value: -4.5 });
+  assert.deepEqual(parseSheetValue({ value: false }, true, 'en'), { ok: true, value: true });
+  assert.deepEqual(parseSheetValue({ value: 'Scout' }, 'Warden', 'en'), { ok: true, value: 'Warden' });
 });
 
 test('rpg-42a.21: a sheet edit needs a character and a known field', () => {

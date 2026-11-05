@@ -106,7 +106,7 @@ test('UI08 renderView escapes every untrusted text and labels regions', () => {
   assert.match(html, /role="status"/);
   assert.match(html, /role="alert"/);
   assert.match(html, /data-action="retry"/);
-  assert.ok(html.includes(`>${ESCAPED}: no value<`));
+  assert.ok(html.includes(`<dt>${ESCAPED}</dt><dd>no value</dd>`));
 });
 
 test('UI08 renderView follows layout, font scale and reduced motion', () => {
@@ -543,7 +543,7 @@ test('UI15: the conversation shows the latest roll with a skip button and a rece
 
 test('UI15: changed sheet values carry a highlight marker', () => {
   const changed = { ...state, sheetChanged: ['n'] };
-  assert.match(renderView(viewModel(changed, WIDE_WIDTH), 'en'), /<li data-changed>/);
+  assert.match(renderView(viewModel(changed, WIDE_WIDTH), 'en'), /<div data-stat="n" data-changed>/);
   assert.doesNotMatch(renderView(viewModel(state, WIDE_WIDTH), 'en'), /data-changed/);
 });
 
@@ -591,21 +591,61 @@ test('rpg-42a.21: the sheet renders one titled group per SheetView group', () =>
   assert.match(renderView(viewModel(sheetState(), WIDE_WIDTH), 'es'), /<h4 id="sheet-group-computed">Calculado<\/h4>/);
 });
 
-test('rpg-42a.21: editable sheet fields are labelled inputs with a save button', () => {
+const editing = (sheetErrors: DesktopState['sheetErrors'] = {}) => ({ ...sheetState(sheetErrors), sheetEditing: true });
+
+test('rpg-42a.29: the sheet shows read-only stat blocks and one Edit action', () => {
   const html = renderView(viewModel(sheetState(), WIDE_WIDTH), 'en');
+  assert.match(html, /<dl data-stats><div data-stat="might"><dt>Might<\/dt><dd>3<\/dd><\/div><\/dl>/);
+  assert.match(html, /<div data-stat="hidden"><dt>Hidden<\/dt><dd>no<\/dd><\/div>/);
+  assert.equal(html.match(/data-sheet-action="edit"/g)?.length, 1);
+  assert.match(html, /<button type="button" id="sheet-edit" data-sheet-action="edit">Edit sheet<\/button>/);
+  assert.doesNotMatch(html, /<input id="sheet-field-|data-sheet-form/);
+  const readOnly = {
+    ...sheetState(),
+    views: { sheet: { ...sheetState().views.sheet, components: [] } },
+  } as DesktopState;
+  assert.doesNotMatch(renderView(viewModel(readOnly, WIDE_WIDTH), 'en'), /sheet-edit/);
+});
+
+test('rpg-42a.29: editing shows native inputs with one Save and one Cancel for the sheet', () => {
+  const components = editing().views.sheet?.components ?? [];
+  const bounded: DesktopState = {
+    ...editing(),
+    views: {
+      sheet: {
+        campaignId: CAMPAIGN,
+        viewId: 'sheet',
+        components: components.map((component) =>
+          component.id === 'might' ? { ...component, min: 1, max: 20 } : component,
+        ),
+      },
+    },
+  };
+  const html = renderView(viewModel(bounded, WIDE_WIDTH), 'en');
+  assert.match(html, /<form data-sheet-form novalidate aria-label="Edit sheet">/);
   assert.match(
     html,
-    /<form data-sheet-field="might"><label for="sheet-field-might">Might<\/label><input id="sheet-field-might" name="might" type="number" step="any" required value="3"><button type="submit" id="sheet-save-might" aria-label="Save Might">Save<\/button><\/form>/,
+    /<div data-stat="might"><label for="sheet-field-might">Might<\/label><input id="sheet-field-might" name="might" type="number" step="any" required min="1" max="20" value="3"><\/div>/,
   );
   assert.match(html, /<input id="sheet-field-hidden" name="hidden" type="checkbox">/);
-  assert.doesNotMatch(html, /data-sheet-field="armor"/);
+  assert.match(html, /<div data-stat="armor"><span>Armor<\/span><span><span tabindex="0"/);
+  assert.match(
+    html,
+    /<div data-actions><button type="submit" id="sheet-save" data-primary>Save<\/button><button type="button" id="sheet-cancel" data-sheet-action="cancel">Cancel<\/button><\/div><\/form>/,
+  );
+  assert.equal(html.match(/type="submit"/g)?.length, 1);
+  assert.doesNotMatch(html, /id="sheet-edit"/);
+  assert.match(
+    renderView(viewModel(editing(), WIDE_WIDTH), 'en'),
+    /name="might" type="number" step="any" required value="3">/,
+  );
 });
 
 test('rpg-42a.21: a rejected sheet edit shows an alert tied to its input', () => {
-  const html = renderView(viewModel(sheetState({ might: HOSTILE }), WIDE_WIDTH), 'en');
+  const html = renderView(viewModel(editing({ might: HOSTILE }), WIDE_WIDTH), 'en');
   assert.match(
     html,
-    /<input id="sheet-field-might" name="might" type="number" step="any" required value="3" aria-invalid="true" aria-describedby="sheet-error-might">/,
+    /<input id="sheet-field-might" name="might" type="number" step="any" required value="3" aria-invalid="true" aria-describedby="sheet-error-might"><p role="alert" id="sheet-error-might">/,
   );
   assert.ok(html.includes(`<p role="alert" id="sheet-error-might">${ESCAPED}</p>`));
 });
@@ -614,7 +654,7 @@ test('rpg-42a.21: a computed value shows its explanation on hover and keyboard f
   const html = renderView(viewModel(sheetState(), WIDE_WIDTH), 'en');
   assert.ok(
     html.includes(
-      `<span tabindex="0" aria-describedby="sheet-explain-armor">Armor: 5</span><span role="tooltip" id="sheet-explain-armor">${ESCAPED}</span>`,
+      `<dd><span tabindex="0" aria-describedby="sheet-explain-armor">5</span><span role="tooltip" id="sheet-explain-armor">${ESCAPED}</span></dd>`,
     ),
   );
 });

@@ -234,6 +234,8 @@ export type ViewComponent = {
   readonly group?: string;
   readonly editable?: boolean;
   readonly explanation?: string;
+  readonly min?: number;
+  readonly max?: number;
 };
 
 export type ViewDescriptor = {

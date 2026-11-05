@@ -23,7 +23,8 @@ import {
   queryPreferences,
   queryStart,
   renderView,
-  SHEET_FIELD,
+  SHEET_ACTION,
+  SHEET_FORM,
   SHEET_INPUT,
   START_CONTROL,
   START_CONTROLS,
@@ -61,6 +62,9 @@ const DISCLOSURE_SELECTORS = ['[data-diagnostics]', ARCHIVED_SELECTOR, '[data-se
 const HOME_REGION = '[data-region="campaigns"]';
 const KEEP_ENTER_REGIONS = [START_REGION, HOME_REGION, '[data-region="status"]', '[data-region="sheet"]'];
 const SHEET_INPUT_SELECTOR = `#${SHEET_INPUT}`;
+const SHEET_FORM_SELECTOR = `[${SHEET_FORM}]`;
+const SHEET_FIRST_INPUT = `${SHEET_FORM_SELECTOR} input`;
+const SHEET_EDIT_SELECTOR = '#sheet-edit';
 const HEADING_SELECTOR = '#heading-status';
 const FIRST_CONTINUE_SELECTOR = '#home-continue-0';
 const OPEN_MENU_SELECTOR = 'details[open]';
@@ -152,9 +156,7 @@ export const mountPage = ({
     const model = viewModel(client.state(), width(), preferences);
     const focused = selectorOf(root.querySelector<HTMLElement>(FOCUSED_SELECTOR));
     const typed = entryValue();
-    const sheetTyped = focused?.startsWith(SHEET_INPUT_SELECTOR)
-      ? root.querySelector<HTMLInputElement>(focused)?.value
-      : undefined;
+    const sheetTyped = sheetInputs().map((field) => ({ field, value: field?.value, checked: field?.checked }));
     const caret = root.querySelector<HTMLInputElement>(ENTRY_SELECTOR);
     const selection = { start: caret?.selectionStart ?? null, end: caret?.selectionEnd ?? null };
     const opened = DISCLOSURE_SELECTORS.map(
@@ -181,8 +183,12 @@ export const mountPage = ({
     }
     const entry = root.querySelector<HTMLInputElement>(ENTRY_SELECTOR);
     if (entry !== null && typed !== undefined) entry.value = typed;
-    const sheetInput = focused === undefined ? null : root.querySelector<HTMLInputElement>(focused);
-    if (sheetInput !== null && sheetTyped !== undefined) sheetInput.value = sheetTyped;
+    sheetInputs().forEach((field, index) => {
+      const kept = sheetTyped[index];
+      if (field === null || !kept?.field) return;
+      if (kept.value !== undefined) field.value = kept.value;
+      if (kept.checked !== undefined) field.checked = kept.checked;
+    });
     if (focused !== undefined) root.querySelector<HTMLElement>(focused)?.focus();
     if (focused === ENTRY_SELECTOR && selection.start !== null && selection.end !== null)
       entry?.setSelectionRange?.(selection.start, selection.end);
@@ -203,14 +209,34 @@ export const mountPage = ({
     client.startAction(option.action);
     if (shownStep === step) root.querySelector<HTMLElement>(`[${START_OPTION}="${index}"]`)?.focus();
   };
-  const editSheet = (fieldId: string) => {
-    const field = root.querySelector<HTMLInputElement>(`${SHEET_INPUT_SELECTOR}${cssEscape(fieldId)}`);
-    const current = client.state().views.sheet?.components.find(({ id }) => id === fieldId)?.value;
-    if (field === null || current === undefined) return;
-    if (typeof current === 'boolean') return client.editSheet(fieldId, field.checked);
-    if (typeof current !== 'number') return client.editSheet(fieldId, field.value);
-    const value = Number(field.value);
-    if (field.value.trim() !== '' && Number.isFinite(value)) client.editSheet(fieldId, value);
+  const editableFields = () =>
+    client.state().sheetEditing
+      ? (client.state().views.sheet?.components ?? []).filter(({ editable }) => editable === true)
+      : [];
+  const sheetInputs = () =>
+    editableFields().map(({ id }) => root.querySelector<HTMLInputElement>(`${SHEET_INPUT_SELECTOR}${cssEscape(id)}`));
+  const leaveSheetEdit = () => {
+    if (!client.state().sheetEditing) root.querySelector<HTMLElement>(SHEET_EDIT_SELECTOR)?.focus();
+  };
+  const saveSheet = () => {
+    const values = Object.fromEntries(
+      editableFields().flatMap(({ id, value }) => {
+        const field = root.querySelector<HTMLInputElement>(`${SHEET_INPUT_SELECTOR}${cssEscape(id)}`);
+        if (field === null) return [];
+        return [[id, typeof value === 'boolean' ? field.checked : field.value]];
+      }),
+    );
+    client.saveSheet(values, preferences.locale);
+    leaveSheetEdit();
+  };
+  const sheetAction = (action: string | null) => {
+    if (action === 'edit') {
+      client.openSheetEdit();
+      return root.querySelector<HTMLElement>(SHEET_FIRST_INPUT)?.focus();
+    }
+    if (action !== 'cancel') return;
+    client.cancelSheetEdit();
+    leaveSheetEdit();
   };
   const continueCampaign = (name: string) => {
     shownPane = undefined;
@@ -263,6 +289,7 @@ export const mountPage = ({
     if (region !== undefined) return focusRegion(region);
     if (action === 'newAdventure') return client.openStart();
     const target = event.target as ClickTarget | undefined;
+    if (action === 'closeMenu' && target?.closest(SHEET_FORM_SELECTOR)) return sheetAction('cancel');
     if (action === 'closeMenu') return closeMenu(target);
     if (
       action === 'submit' &&
@@ -316,6 +343,8 @@ export const mountPage = ({
     const control = target?.closest(`[${START_CONTROL}]`)?.getAttribute(START_CONTROL);
     if (isStartControl(control)) return startControl(control);
     if (target?.closest(SKIP_SELECTOR)) return client.settle();
+    const sheet = target?.closest(`[${SHEET_ACTION}]`);
+    if (sheet) return sheetAction(sheet.getAttribute(SHEET_ACTION));
     const motion = MOTION_SETTINGS.find(
       (setting) => setting === target?.closest(`[${MOTION_ATTRIBUTE}]`)?.getAttribute(MOTION_ATTRIBUTE),
     );
@@ -332,10 +361,9 @@ export const mountPage = ({
     if (query !== undefined && query !== client.state().home.query) client.search(query);
   });
   root.addEventListener(SUBMIT, (event) => {
-    const sheetField = closestTarget(event)?.closest(`[${SHEET_FIELD}]`)?.getAttribute(SHEET_FIELD);
-    if (sheetField !== undefined && sheetField !== null) {
+    if (closestTarget(event)?.closest(SHEET_FORM_SELECTOR)) {
       event.preventDefault();
-      return editSheet(sheetField);
+      return saveSheet();
     }
     if (!closestTarget(event)?.closest(`[${START_FORM}]`)) return;
     event.preventDefault();

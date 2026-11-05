@@ -24,7 +24,7 @@ export const VIEW_REGISTRY: Readonly<Record<ViewId, readonly ViewComponentKind[]
 };
 
 const DESCRIPTOR_KEYS = ['campaignId', 'viewId', 'components'];
-const COMPONENT_KEYS = ['kind', 'id', 'label', 'value', 'group', 'editable', 'explanation'];
+const COMPONENT_KEYS = ['kind', 'id', 'label', 'value', 'group', 'editable', 'explanation', 'min', 'max'];
 
 export const failure = (code: ProtocolErrorCode, message: string): Result<never> => ({
   ok: false,
@@ -78,16 +78,24 @@ export const readList = (input: unknown): readonly unknown[] | undefined => {
 };
 
 const sheetDetails = (values: Record<string, unknown>): Result<Partial<ViewComponent>> => {
-  const { group, editable, explanation } = values;
+  const { group, editable, explanation, min, max } = values;
   if (group !== undefined && (typeof group !== 'string' || group.length === 0))
     return failure('MalformedCommand', 'component.group must be a non-empty text');
   if (editable !== undefined && typeof editable !== 'boolean')
     return failure('MalformedCommand', 'component.editable must be a flag');
   if (explanation !== undefined && typeof explanation !== 'string')
     return failure('MalformedCommand', 'component.explanation must be text');
+  for (const [name, limit] of [
+    ['min', min],
+    ['max', max],
+  ] as const)
+    if (limit !== undefined && (typeof limit !== 'number' || !Number.isFinite(limit)))
+      return failure('MalformedCommand', `component.${name} must be a finite number`);
   return {
     ok: true,
     value: {
+      ...(min === undefined ? {} : { min: min as number }),
+      ...(max === undefined ? {} : { max: max as number }),
       ...(group === undefined ? {} : { group }),
       ...(editable === undefined ? {} : { editable }),
       ...(explanation === undefined ? {} : { explanation }),

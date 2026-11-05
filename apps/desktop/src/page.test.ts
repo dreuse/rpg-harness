@@ -697,23 +697,47 @@ const playingSheet = () => {
   return page;
 };
 
-test('rpg-42a.21 page saves a sheet field inline and shows the engine rejection', () => {
+const TITLE_INPUT = '#sheet-field-title';
+const SHEET_FORM = { 'data-sheet-form': '' };
+const SHEET_EDIT = '#sheet-edit';
+
+test('rpg-42a.29 page edits the whole sheet with one save and shows inline and engine messages', () => {
   const page = playingSheet();
-  page.fields[MIGHT_INPUT] = '99';
-  page.submit({ 'data-sheet-field': 'might' });
-  page.fields['#sheet-field-title'] = 'Warden';
-  page.submit({ 'data-sheet-field': 'title' });
+  assert.doesNotMatch(page.root.innerHTML, /data-sheet-form/);
+  page.click({ 'data-sheet-action': 'edit' });
+  assert.match(page.root.innerHTML, /<form data-sheet-form novalidate/);
+  assert.equal(page.focused.at(-1), '[data-sheet-form] input');
   page.fields[MIGHT_INPUT] = 'lots';
-  page.submit({ 'data-sheet-field': 'might' });
-  assert.deepEqual(edits(page), [
-    { fieldId: 'might', value: 99 },
-    { fieldId: 'title', value: 'Warden' },
-  ]);
+  page.fields[TITLE_INPUT] = 'Warden';
+  page.submit(SHEET_FORM);
+  assert.deepEqual(edits(page), []);
+  assert.match(page.root.innerHTML, /<p role="alert" id="sheet-error-might">Enter a number\.<\/p>/);
+  assert.equal(page.fields[TITLE_INPUT], 'Warden');
+  page.fields[MIGHT_INPUT] = '99';
+  page.submit(SHEET_FORM);
+  assert.deepEqual(edits(page), [{ fieldId: 'might', value: 99 }]);
+  assert.doesNotMatch(page.root.innerHTML, /data-sheet-form/);
+  assert.equal(page.focused.at(-1), SHEET_EDIT);
   page.receive({ type: 'Rejected', actionId: 'a0', error: { code: 'Rejected', message: 'might must be at most 20' } });
   assert.match(page.root.innerHTML, /<p role="alert" id="sheet-error-might">might must be at most 20<\/p>/);
+  page.receive({ type: 'Snapshot', snapshot: SNAPSHOT });
+  assert.deepEqual(edits(page), [{ fieldId: 'might', value: 99 }]);
 });
 
-test('rpg-42a.21 page keeps Enter and the typed value for sheet inputs', async () => {
+test('rpg-42a.29 Escape and Cancel leave the sheet editor without sending', () => {
+  const page = playingSheet();
+  page.click({ 'data-sheet-action': 'edit' });
+  page.fields[MIGHT_INPUT] = '5';
+  page.press('Escape', SHEET_FORM);
+  assert.doesNotMatch(page.root.innerHTML, /data-sheet-form/);
+  assert.equal(page.focused.at(-1), SHEET_EDIT);
+  page.click({ 'data-sheet-action': 'edit' });
+  page.click({ 'data-sheet-action': 'cancel' });
+  assert.doesNotMatch(page.root.innerHTML, /data-sheet-form/);
+  assert.deepEqual(edits(page), []);
+});
+
+test('rpg-42a.21 page keeps Enter and the typed values for sheet inputs', async () => {
   const page = playingSheet();
   page.input.value = 'look around';
   const before = page.prevented();
@@ -721,9 +745,12 @@ test('rpg-42a.21 page keeps Enter and the typed value for sheet inputs', async (
   await settle();
   assert.equal(page.prevented(), before);
   assert.deepEqual(submitted(page), []);
+  page.click({ 'data-sheet-action': 'edit' });
   page.root.querySelector(MIGHT_INPUT)?.focus();
   page.fields[MIGHT_INPUT] = '7';
+  page.fields[TITLE_INPUT] = 'Warden';
   page.receive({ type: 'View', campaignId: CAMPAIGN, view: EDITABLE_SHEET });
   assert.equal(page.fields[MIGHT_INPUT], '7');
+  assert.equal(page.fields[TITLE_INPUT], 'Warden');
   assert.equal(page.focused.at(-1), MIGHT_INPUT);
 });

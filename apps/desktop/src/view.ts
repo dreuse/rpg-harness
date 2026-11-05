@@ -196,39 +196,61 @@ const rollTray = ({ rolls: [latest, ...older] }: ViewModel, locale: string) =>
     ? ''
     : `<section data-rolls aria-label="${escapeHtml(translate(locale, 'region.rolls'))}">${renderRoll(latest, locale)}${rollHistory(older, locale)}</section>`;
 
-export const SHEET_FIELD = 'data-sheet-field';
+export const SHEET_FORM = 'data-sheet-form';
+export const SHEET_ACTION = 'data-sheet-action';
 export const SHEET_INPUT = 'sheet-field-';
 const NUMBER_INPUT = 'type="number" step="any" required';
 const TEXT_INPUT = 'type="text"';
 
-const sheetInput = ({ id, value, error }: SheetField) => {
+const bound = (name: string, value: number | undefined) => (value === undefined ? '' : ` ${name}="${value}"`);
+
+const sheetInput = ({ id, value, error, min, max }: SheetField) => {
   const name = escapeHtml(id);
   const invalid = error === undefined ? '' : ` aria-invalid="true" aria-describedby="sheet-error-${name}"`;
   const typed =
     typeof value === 'boolean'
       ? `type="checkbox"${value ? ' checked' : ''}`
-      : `${typeof value === 'number' ? NUMBER_INPUT : TEXT_INPUT} value="${escapeHtml(String(value ?? ''))}"`;
+      : typeof value === 'number'
+        ? `${NUMBER_INPUT}${bound('min', min)}${bound('max', max)} value="${value}"`
+        : `${TEXT_INPUT} value="${escapeHtml(String(value ?? ''))}"`;
   return `<input id="${SHEET_INPUT}${name}" name="${name}" ${typed}${invalid}>`;
 };
 
-const sheetEditor = (field: SheetField, locale: string) => {
-  const name = escapeHtml(field.id);
-  return `<form ${SHEET_FIELD}="${name}"><label for="${SHEET_INPUT}${name}">${escapeHtml(field.name)}</label>${sheetInput(field)}<button type="submit" id="sheet-save-${name}" aria-label="${escapeHtml(translate(locale, 'sheet.saveLabel', { name: field.name }))}">${escapeHtml(translate(locale, 'sheet.save'))}</button>${field.error === undefined ? '' : `<p role="alert" id="sheet-error-${name}">${escapeHtml(field.error)}</p>`}</form>`;
-};
+const sheetError = ({ id, error }: SheetField) =>
+  error === undefined ? '' : `<p role="alert" id="sheet-error-${escapeHtml(id)}">${escapeHtml(error)}</p>`;
 
-const sheetValue = ({ id, label, explanation }: SheetField) =>
+const sheetValue = ({ id, text, explanation }: SheetField) =>
   explanation === undefined
-    ? escapeHtml(label)
-    : `<span tabindex="0" aria-describedby="sheet-explain-${escapeHtml(id)}">${escapeHtml(label)}</span><span role="tooltip" id="sheet-explain-${escapeHtml(id)}">${escapeHtml(explanation)}</span>`;
+    ? escapeHtml(text)
+    : `<span tabindex="0" aria-describedby="sheet-explain-${escapeHtml(id)}">${escapeHtml(text)}</span><span role="tooltip" id="sheet-explain-${escapeHtml(id)}">${escapeHtml(explanation)}</span>`;
 
-const sheetItem = (locale: string) => (field: SheetField) =>
-  `<li${field.changed ? ' data-changed' : ''}>${field.editable ? sheetEditor(field, locale) : sheetValue(field)}</li>`;
+const statOpen = ({ id, changed }: SheetField) =>
+  `<div data-stat="${escapeHtml(id)}"${changed ? ' data-changed' : ''}>`;
 
-const sheetGroup = ({ id, fields }: SheetGroup, locale: string) => {
-  const items = `<ul>${fields.map(sheetItem(locale)).join('')}</ul>`;
+const statView = (field: SheetField) =>
+  `${statOpen(field)}<dt>${escapeHtml(field.name)}</dt><dd>${sheetValue(field)}</dd></div>`;
+
+const statEditor = (field: SheetField) =>
+  field.editable
+    ? `${statOpen(field)}<label for="${SHEET_INPUT}${escapeHtml(field.id)}">${escapeHtml(field.name)}</label>${sheetInput(field)}${sheetError(field)}</div>`
+    : `${statOpen(field)}<span>${escapeHtml(field.name)}</span><span>${sheetValue(field)}</span></div>`;
+
+const sheetGroup = ({ id, fields }: SheetGroup, locale: string, editing: boolean) => {
+  const items = editing
+    ? `<div data-stats>${fields.map(statEditor).join('')}</div>`
+    : `<dl data-stats>${fields.map(statView).join('')}</dl>`;
   if (id === UNGROUPED) return items;
   const group = escapeHtml(id);
   return `<section data-sheet-group="${group}" aria-labelledby="sheet-group-${group}"><h4 id="sheet-group-${group}">${escapeHtml(translate(locale, `sheet.group.${id}`))}</h4>${items}</section>`;
+};
+
+const sheetBody = (groups: readonly SheetGroup[], editing: boolean, name: string, locale: string) => {
+  const editable = groups.some(({ fields }) => fields.some((field) => field.editable));
+  const body = groups.map((group) => sheetGroup(group, locale, editing && editable)).join('');
+  if (!editable) return name + body;
+  if (!editing)
+    return `<div data-sheet-head>${name}<button type="button" id="sheet-edit" ${SHEET_ACTION}="edit">${escapeHtml(translate(locale, 'sheet.edit'))}</button></div>${body}`;
+  return `${name}<form ${SHEET_FORM} novalidate aria-label="${escapeHtml(translate(locale, 'sheet.edit'))}">${body}<div data-actions><button type="submit" id="sheet-save"${PRIMARY}>${escapeHtml(translate(locale, 'sheet.save'))}</button><button type="button" id="sheet-cancel" ${SHEET_ACTION}="cancel">${escapeHtml(translate(locale, 'sheet.cancel'))}</button></div></form>`;
 };
 
 const REGION_BODIES: Readonly<Record<Region, (model: ViewModel, locale: string) => string>> = {
@@ -242,9 +264,9 @@ const REGION_BODIES: Readonly<Record<Region, (model: ViewModel, locale: string) 
           `<li data-action-id="${escapeHtml(actionId)}"${pending ? ' aria-busy="true"' : ''}>${actionId === OPENING_ACTION_ID ? '' : speaker(locale, 'player', input)}${gmLine(locale, narration, pending)}</li>`,
       )
       .join('')}</ol>${model.conversation.length === 0 ? empty(locale, 'conversation') : ''}${rollTray(model, locale)}`,
-  sheet: ({ sheetGroups, character }, locale) => {
+  sheet: ({ sheetGroups, sheetEditing, character }, locale) => {
     const name = character === undefined ? '' : `<h3>${escapeHtml(character)}</h3>`;
-    if (sheetGroups.length > 0) return name + sheetGroups.map((group) => sheetGroup(group, locale)).join('');
+    if (sheetGroups.length > 0) return sheetBody(sheetGroups, sheetEditing, name, locale);
     return character === undefined
       ? empty(locale, 'sheet')
       : `${name}<p data-empty>${escapeHtml(translate(locale, 'sheet.noStats'))}</p>`;

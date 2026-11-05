@@ -205,6 +205,8 @@ export const sheetComponents = ({ groups, computed }: SheetView) => {
         value,
         group,
         editable: edit.editable,
+        ...(edit.min === undefined ? {} : { min: edit.min }),
+        ...(edit.max === undefined ? {} : { max: edit.max }),
         ...(explanation === undefined || explanation === '' ? {} : { explanation }),
       };
     }),

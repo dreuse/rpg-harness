@@ -90,14 +90,23 @@ const dieHtml = (shape: string, sides: number) => (faces: readonly number[]) =>
     .map((face) => `<span>${face}</span>`)
     .join('')}</span></span></span>`;
 
+const rollTotal = ({ total }: VisualizationFinal) =>
+  total === undefined ? '' : `<span data-roll-total aria-hidden="true">${total}</span>`;
+
+const rollOutcome = ({ outcome }: VisualizationFinal) => {
+  if (outcome === undefined) return '';
+  const word = escapeHtml(outcomeLabel(outcome));
+  return `<strong data-outcome="${word}" aria-hidden="true">${word}</strong>`;
+};
+
 export const renderRoll = (plan: RollPlan, locale: string) =>
-  `<figure data-roll data-animated="${plan.animated}"><div data-dice>${plan.groups
+  `<figure data-roll data-animated="${plan.animated}"><div data-roll-result><div data-dice>${plan.groups
     .map(
       ({ shape, sides, dice }) => `<div data-dice-group="${shape}">${dice.map(dieHtml(shape, sides)).join('')}</div>`,
     )
     .join(
       '',
-    )}${plan.tokens.map((label) => `<span data-token>${escapeHtml(label)}</span>`).join('')}</div><figcaption>${escapeHtml(rollSummary(plan, locale))}</figcaption>${plan.animated ? `<button type="button" data-roll-skip>${escapeHtml(translate(locale, 'roll.skip'))}</button>` : ''}</figure>`;
+    )}${plan.tokens.map((label) => `<span data-token>${escapeHtml(label)}</span>`).join('')}</div>${rollTotal(plan.final)}${rollOutcome(plan.final)}</div><figcaption>${escapeHtml(rollSummary(plan, locale))}</figcaption>${plan.animated ? `<button type="button" data-roll-skip>${escapeHtml(translate(locale, 'roll.skip'))}</button>` : ''}</figure>`;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);

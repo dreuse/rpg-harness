@@ -121,3 +121,13 @@ test('sheet components carry group, editable and explanation as plain data', () 
   expectRejected(descriptor('sheet', 'field', { explanation: 2 }));
   expectRejected(descriptor('sheet', 'field', { explanation: () => 'x' }));
 });
+
+test('sheet components carry min and max limits as finite numbers', () => {
+  const limits = { value: 3, editable: true, min: 1, max: 10 };
+  const result = parseViewDescriptor(descriptor('sheet', 'field', limits));
+  assert.equal(result.ok, true);
+  if (result.ok) assert.deepEqual(result.value.components[0], { kind: 'field', id: 'c1', label: 'Label', ...limits });
+  expectRejected(descriptor('sheet', 'field', { min: '1' }));
+  expectRejected(descriptor('sheet', 'field', { max: Number.NaN }));
+  expectRejected(descriptor('sheet', 'field', { max: Number.POSITIVE_INFINITY }));
+});

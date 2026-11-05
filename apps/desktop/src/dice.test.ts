@@ -103,6 +103,18 @@ test('rpg-42a.17 a rules outcome id reads as a plain word in the roll caption', 
   assert.match(html, /<figcaption>d20 13, total 14, success<\/figcaption>/);
 });
 
+test('rpg-42a.29 the dice card puts the die, the total and the outcome word side by side', () => {
+  const html = renderRoll(rollPlan(rollOf([die(20, 13)], { total: 14, outcome: 'check.success' }), 'off'), LOCALE);
+  assert.match(
+    html,
+    /<div data-roll-result><div data-dice>[\s\S]*<\/div><span data-roll-total aria-hidden="true">14<\/span><strong data-outcome="success" aria-hidden="true">success<\/strong><\/div><figcaption>/,
+  );
+  const bare = renderRoll(rollPlan(rollOf([{ kind: 'token', label: '<Ace>' }]), 'off'), LOCALE);
+  assert.doesNotMatch(bare, /data-roll-total|data-outcome/);
+  const hostile = renderRoll(rollPlan(rollOf([die(6, 2)], { outcome: '"><b>' }), 'off'), LOCALE);
+  assert.match(hostile, /<strong data-outcome="&quot;&gt;&lt;b&gt;" aria-hidden="true">&quot;&gt;&lt;b&gt;<\/strong>/);
+});
+
 test('UI15: malformed visualization messages are ignored', () => {
   assert.equal(parseVisualization({ type: VISUALIZATION_EVENT }), undefined);
   assert.equal(
