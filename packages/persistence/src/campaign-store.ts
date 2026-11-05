@@ -9,8 +9,10 @@ import {
   type Character,
   type CommittedTurn,
   MAIN_BRANCH,
+  PLAYER_TURN,
   type Scene,
   StaleRevisionError,
+  SYSTEM_TURN,
   TURN_VISIBILITIES,
   type Turn,
   type TurnCommit,
@@ -34,14 +36,14 @@ const OWNED_CHARACTER = 'SELECT 1 FROM character WHERE id = ? AND campaign_id = 
 const OWNED_SCENE = 'SELECT 1 FROM scene WHERE id = ? AND campaign_id = ?';
 const OWNED_EVENT = 'SELECT 1 FROM event_log WHERE id = ? AND campaign_id = ?';
 const INSERT_TURN =
-  'INSERT INTO turn (id, campaign_id, scene_id, action_id, actor_id, input, narration, revision) VALUES (?, ?, ?, ?, ?, ?, ?, ?)';
+  'INSERT INTO turn (id, campaign_id, scene_id, action_id, actor_id, input, narration, kind, revision) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)';
 const APPEND_EVENT =
   'INSERT INTO event_log (id, campaign_id, branch_id, revision, action_id, turn_id, causation_id, type, payload, visibility) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
 const RECORD_NARRATION = 'UPDATE turn SET narration = ? WHERE id = ? AND campaign_id = ?';
 const SELECT_CHARACTERS = 'SELECT id, campaign_id, name FROM character WHERE campaign_id = ? ORDER BY rowid';
 const SELECT_CURRENT_SCENE =
   'SELECT scene.id, scene.campaign_id, scene.title FROM scene JOIN campaign ON campaign.current_scene_id = scene.id WHERE campaign.id = ?';
-const TURN_COLUMNS = 'SELECT id, campaign_id, scene_id, action_id, actor_id, input, narration FROM turn';
+const TURN_COLUMNS = 'SELECT id, campaign_id, scene_id, action_id, actor_id, input, narration, kind FROM turn';
 const SELECT_RECENT_TURNS = `${TURN_COLUMNS} WHERE campaign_id = ? ORDER BY revision DESC LIMIT ${RECENT_TURN_WINDOW}`;
 const SELECT_TURN_BY_ACTION = `${TURN_COLUMNS} WHERE campaign_id = ? AND action_id = ?`;
 const EVENT_COLUMNS = 'SELECT id, campaign_id, turn_id, causation_id, type, payload FROM event_log';
@@ -70,6 +72,7 @@ const toTurn = (row: Row): Turn => ({
   actorId: String(row.actor_id),
   input: String(row.input),
   narration: String(row.narration),
+  ...(row.kind === SYSTEM_TURN ? { kind: SYSTEM_TURN } : {}),
 });
 
 const toEvent = (row: Row): CampaignEvent => ({
@@ -169,7 +172,17 @@ const writeTurn = (
   );
   database
     .prepare(INSERT_TURN)
-    .run(turn.id, campaignId, turn.sceneId, turn.actionId, turn.actorId, turn.input, turn.narration, revision);
+    .run(
+      turn.id,
+      campaignId,
+      turn.sceneId,
+      turn.actionId,
+      turn.actorId,
+      turn.input,
+      turn.narration,
+      turn.kind ?? PLAYER_TURN,
+      revision,
+    );
   for (const event of events) {
     const reference = `event ${event.id}`;
     requireInCampaign(campaignId, reference, event.campaignId === campaignId && event.turnId === turn.id);

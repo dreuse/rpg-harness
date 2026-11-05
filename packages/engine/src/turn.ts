@@ -20,7 +20,9 @@ import {
   SCENE_OPENED,
   type SceneId,
   StaleRevisionError,
+  SYSTEM_TURN,
   type Turn,
+  type TurnKind,
   type TurnVisibility,
 } from '../../domain/src/campaign.ts';
 import type { Rng, RollEvent } from '../../rules/src/dice.ts';
@@ -113,16 +115,20 @@ export const validate = (state: CampaignState, action: PlayerAction) => {
   requireValid(actionId, action.intent.trim() !== '', 'intent is blank');
 };
 
-export const toCommittedTurn = ({
-  campaignId,
-  actionId,
-  expectedRevision,
-  sceneId,
-  actorId,
-  input,
-  intent,
-}: PlayerAction) => {
-  const turn: Turn = { id: randomUUID(), campaignId, sceneId, actionId, actorId, input, narration: PENDING_NARRATION };
+export const toCommittedTurn = (
+  { campaignId, actionId, expectedRevision, sceneId, actorId, input, intent }: PlayerAction,
+  kind?: TurnKind,
+) => {
+  const turn: Turn = {
+    id: randomUUID(),
+    campaignId,
+    sceneId,
+    actionId,
+    actorId,
+    input,
+    narration: PENDING_NARRATION,
+    ...(kind === undefined ? {} : { kind }),
+  };
   const event = (causationId: string | null, type: string, payload: Record<string, unknown>): CampaignEvent =>
     turnEvent(turn, causationId, type, payload);
   const submitted = event(null, PLAYER_ACTION_SUBMITTED, { actorId, sceneId, input, intent });
@@ -134,8 +140,9 @@ export const commit = (
   action: PlayerAction,
   steps: readonly Step[],
   characters: readonly Character[] = [],
+  kind?: TurnKind,
 ): CommittedTurn => {
-  const { turn, events } = toCommittedTurn(action);
+  const { turn, events } = toCommittedTurn(action, kind);
   const chained: CampaignEvent[] = [...events];
   const visibility: Record<EventId, TurnVisibility> = {};
   for (const [type, payload, shown] of steps) {
@@ -152,6 +159,13 @@ export const commit = (
     visibility,
   });
 };
+
+export const commitSystem = (
+  store: CampaignStore,
+  action: PlayerAction,
+  steps: readonly Step[],
+  characters: readonly Character[] = [],
+): CommittedTurn => commit(store, action, steps, characters, SYSTEM_TURN);
 
 const sameAction = ({ turn, events }: CommittedTurn, action: PlayerAction) =>
   turn.sceneId === action.sceneId &&

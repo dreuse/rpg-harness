@@ -32,7 +32,17 @@ import {
   summarize,
 } from '../../memory/src/history.ts';
 import { CONTEXT_BUDGETS, type ContextBudgetPreset, DEFAULT_CONTEXT_BUDGET } from '../../memory/src/packet.ts';
-import { commit, loadState, type PlayerAction, recorded, replayOf, requireValid, type Step, validate } from './turn.ts';
+import {
+  commit,
+  commitSystem,
+  loadState,
+  type PlayerAction,
+  recorded,
+  replayOf,
+  requireValid,
+  type Step,
+  validate,
+} from './turn.ts';
 
 export const ENTITY_INTRODUCED = 'EntityIntroduced';
 export const FACT_RECORDED = 'FactRecorded';
@@ -127,7 +137,7 @@ export const introduceEntity = (
     requireValid(actionId, known(sourceId) && known(targetId), `relationship ${sourceId} -> ${targetId} is dangling`);
   }
   return project(
-    commit(store, input, [
+    commitSystem(store, input, [
       [ENTITY_INTRODUCED, { entity, relationships }, turnVisibility(entity.visibility)],
       ...recordedFacts.map((fact): Step => [FACT_RECORDED, { fact }, turnVisibility(fact.visibility)]),
     ]),
@@ -148,7 +158,7 @@ export const openPending = (store: CampaignStore, input: PendingOpening): Commit
   requireValid(actionId, text.trim() !== '', 'pending text is blank');
   requireValid(actionId, entityIds.length > NONE, 'pending item links no entity');
   requireValid(actionId, !openIds(state.events).has(pendingId), `pending ${pendingId} is already open`);
-  return commit(store, input, [[PENDING_OPENED, payload, turnVisibility(visibility)]]);
+  return commitSystem(store, input, [[PENDING_OPENED, payload, turnVisibility(visibility)]]);
 };
 
 export const resolvePending = (store: CampaignStore, input: PendingResolution): CommittedTurn => {

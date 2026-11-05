@@ -1,5 +1,5 @@
 import { DatabaseSync } from 'node:sqlite';
-import { MAIN_BRANCH } from '../../domain/src/campaign.ts';
+import { MAIN_BRANCH, PLAYER_TURN, SYSTEM_TURN, TURN_KINDS } from '../../domain/src/campaign.ts';
 import { FACT_LAYERS, VISIBILITY_LEVELS, type Visibility } from '../../domain/src/entity.ts';
 
 export type Migration = { readonly version: number; readonly sql: string };
@@ -14,6 +14,15 @@ const GM_VISIBILITY: Visibility = 'gm';
 const ACTOR_SCOPED_VISIBILITY: Visibility = 'actor-scoped';
 const APPEND_ONLY_EVENTS = 'event_log is append-only';
 const sqlList = (values: readonly string[]) => values.map((value) => `'${value}'`).join(', ');
+const LEGACY_SYSTEM_EVENTS = [
+  'CharacterCreated',
+  'SheetFieldEdited',
+  'VoiceProfileSet',
+  'ClaimCorrected',
+  'EntityIntroduced',
+  'PendingOpened',
+  'CheckOffered',
+];
 const VISIBILITY_CHECK = `CHECK (visibility IN (${sqlList(VISIBILITY_LEVELS)}))`;
 const ACTOR_SCOPE_CHECK = `CHECK (visibility <> '${ACTOR_SCOPED_VISIBILITY}' OR actor_id IS NOT NULL)`;
 
@@ -141,6 +150,15 @@ export const MIGRATIONS: readonly Migration[] = [
       );
       CREATE INDEX event_log_campaign_revision ON event_log (campaign_id, revision);
       CREATE INDEX event_log_campaign_type_revision ON event_log (campaign_id, type, revision);
+    `,
+  },
+  {
+    version: 9,
+    sql: `
+      ALTER TABLE turn ADD COLUMN kind TEXT NOT NULL DEFAULT '${PLAYER_TURN}' CHECK (kind IN (${sqlList(TURN_KINDS)}));
+      UPDATE turn SET kind = '${SYSTEM_TURN}' WHERE id IN (
+        SELECT turn_id FROM event_log WHERE type IN (${sqlList(LEGACY_SYSTEM_EVENTS)})
+      );
     `,
   },
 ];

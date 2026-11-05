@@ -34,6 +34,7 @@ import type { ContinuityLogRecord } from '../../narrative/src/continuity.ts';
 import { type CampaignChange, recordChange } from './memory.ts';
 import {
   commit,
+  commitSystem,
   loadState,
   type PlayerAction,
   recorded,
@@ -206,7 +207,7 @@ export const correctStoryFact = (
     `no ${kind} fact about ${entityId} can be corrected`,
   );
   checkClaim(actionId, payload, visibilityIn(state, entities));
-  return commit(store, action, [[CLAIM_CORRECTED, { ...payload }, CORRECTION_VISIBILITY]]);
+  return commitSystem(store, action, [[CLAIM_CORRECTED, { ...payload }, CORRECTION_VISIBILITY]]);
 };
 
 export const readStoryMemory = (store: CampaignStore, entities: EntityStore, campaignId: CampaignId): StoryMemory => {

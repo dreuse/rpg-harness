@@ -5,7 +5,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { test } from 'node:test';
-import { MAIN_BRANCH } from '../../domain/src/campaign.ts';
+import { MAIN_BRANCH, PLAYER_TURN, SYSTEM_TURN } from '../../domain/src/campaign.ts';
+import { createCampaignStore } from './campaign-store.ts';
 import {
   ClosedConnectionError,
   InterruptedMigrationError,
@@ -283,5 +284,46 @@ test('interrupted migration can be detected or recovered without deleting user d
     assert.equal(countCampaigns(path), 1);
 
     assert.throws(() => openDatabase(path), SchemaTooNewError);
+  });
+});
+
+const BEFORE_KIND_VERSION = MIGRATIONS.length - 1;
+const SYSTEM_TURN_ID = 'turn-system';
+const PLAY_TURN_ID = 'turn-play';
+const INSERT_KIND_TURN =
+  "INSERT INTO turn (id, campaign_id, scene_id, action_id, actor_id, input, narration, revision) VALUES (?, ?, 'scene-1', ?, 'hero', 'input', '', ?)";
+const INSERT_KIND_EVENT =
+  "INSERT INTO event_log (id, campaign_id, branch_id, revision, action_id, turn_id, type, payload) VALUES (?, ?, ?, ?, ?, ?, ?, '{}')";
+
+test('rpg-cm63.20: upgrading marks stored sheet turns as system and keeps play turns', async () => {
+  await withTempDir((path) => {
+    const legacy = openDatabase(path, { migrations: MIGRATIONS.slice(0, BEFORE_KIND_VERSION) });
+    const { database } = legacy;
+    database.prepare('INSERT INTO campaign (id, name) VALUES (?, ?)').run(CAMPAIGN_ID, CAMPAIGN_NAME);
+    database.prepare('INSERT INTO character (id, campaign_id, name) VALUES (?, ?, ?)').run('hero', CAMPAIGN_ID, 'Hero');
+    database.prepare('INSERT INTO scene (id, campaign_id, title) VALUES (?, ?, ?)').run('scene-1', CAMPAIGN_ID, 'Gate');
+    database.prepare(INSERT_KIND_TURN).run(SYSTEM_TURN_ID, CAMPAIGN_ID, 'a1', 1);
+    database.prepare(INSERT_KIND_TURN).run(PLAY_TURN_ID, CAMPAIGN_ID, 'a2', 2);
+    const insertEvent = database.prepare(INSERT_KIND_EVENT);
+    insertEvent.run('e1', CAMPAIGN_ID, MAIN_BRANCH, 1, 'a1', SYSTEM_TURN_ID, 'CharacterCreated');
+    insertEvent.run('e2', CAMPAIGN_ID, MAIN_BRANCH, 2, 'a2', PLAY_TURN_ID, 'PlayerActionSubmitted');
+    database.prepare('UPDATE campaign SET revision = 2, current_scene_id = ? WHERE id = ?').run('scene-1', CAMPAIGN_ID);
+    legacy.close();
+
+    const upgraded = openDatabase(path);
+    const kinds = upgraded.database.prepare('SELECT id, kind FROM turn ORDER BY revision').all();
+    assert.deepEqual(
+      kinds.map((row) => ({ ...row })),
+      [
+        { id: SYSTEM_TURN_ID, kind: SYSTEM_TURN },
+        { id: PLAY_TURN_ID, kind: PLAYER_TURN },
+      ],
+    );
+    const turns = createCampaignStore(upgraded.database).load(CAMPAIGN_ID)?.turns ?? [];
+    assert.deepEqual(
+      turns.map(({ kind }) => kind),
+      [SYSTEM_TURN, undefined],
+    );
+    upgraded.close();
   });
 });

@@ -464,7 +464,7 @@ test('resume and views upgrade a campaign saved before the latest migration', ()
         narration: 'Old rain.',
       });
       connection.database.exec(
-        `DROP TABLE campaign_snapshot; DROP INDEX event_log_campaign_revision; DROP INDEX event_log_campaign_type_revision; DELETE FROM schema_migrations WHERE version = ${MIGRATIONS.length};`,
+        `ALTER TABLE turn DROP COLUMN kind; DELETE FROM schema_migrations WHERE version = ${MIGRATIONS.length};`,
       );
     } finally {
       connection.close();

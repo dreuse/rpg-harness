@@ -421,7 +421,14 @@ test('committed rolls are not visualized when the campaign has not turned visual
 test('rpg-42a.23: campaign summary narrates the last play turn, not a sheet edit', () => {
   const campaign = { id: 'c1', name: 'Ashfall' };
   const turn = { id: 't1', campaignId: campaign.id, sceneId: 's1', actorId: 'h1', input: 'look', narration: 'Fog.' };
-  const edit = { ...turn, id: 't2', actionId: 'a2', input: 'edit sheet field might', narration: '' };
+  const edit = {
+    ...turn,
+    id: 't2',
+    actionId: 'a2',
+    input: 'edit sheet field might',
+    narration: '',
+    kind: 'system' as const,
+  };
   const events = [
     { id: 'e1', campaignId: campaign.id, turnId: edit.id, causationId: null, type: SHEET_FIELD_EDITED, payload: {} },
   ];

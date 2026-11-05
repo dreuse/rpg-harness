@@ -6,17 +6,15 @@ import {
   CHECK_OFFERED,
   type CharacterId,
   type CommittedTurn,
+  SYSTEM_TURN,
   type TurnVisibility,
 } from '../../domain/src/campaign.ts';
 import type { CharacterProfile } from '../../domain/src/character.ts';
-import { PENDING_OPENED } from '../../memory/src/graph.ts';
-import { CLAIM_CORRECTED } from '../../memory/src/ledger.ts';
 import { type BuildInput, buildCharacter, type CreationRules } from '../../rules/src/character-builder.ts';
 import { isRecord } from '../../rules/src/rulepack.ts';
 import type { Visibility } from '../../rules/src/sheet-schema.ts';
-import { ENTITY_INTRODUCED } from './memory.ts';
 import {
-  commit,
+  commitSystem,
   InvalidActionError,
   loadState,
   type PlayerAction,
@@ -26,7 +24,6 @@ import {
   storedTurnOf,
   validate,
 } from './turn.ts';
-import { VOICE_PROFILE_SET } from './voice-profile.ts';
 
 export { CHARACTER_CREATED };
 
@@ -36,15 +33,6 @@ const OWNER_VISIBLE: readonly Visibility[] = ['public', 'owner'];
 const EDIT_INTENT = 'edit sheet field';
 const EDIT_VISIBILITY: TurnVisibility = 'player';
 const NO_SCENE = '';
-const SHEET_EVENTS: readonly string[] = [
-  CHARACTER_CREATED,
-  SHEET_FIELD_EDITED,
-  VOICE_PROFILE_SET,
-  CLAIM_CORRECTED,
-  ENTITY_INTRODUCED,
-  PENDING_OPENED,
-  CHECK_OFFERED,
-];
 
 const ownerVisible = (rules: CreationRules, profile: CharacterProfile): CharacterProfile => {
   const visible = new Set(
@@ -74,7 +62,7 @@ export const commitCharacter = (store: CampaignStore, input: CharacterCreation):
   if (stored !== undefined) return stored;
   validate(state, input);
   const character = { id: actorId, campaignId, name: result.character.profile.identity.name };
-  return commit(store, input, [[CHARACTER_CREATED, payload]], [character]);
+  return commitSystem(store, input, [[CHARACTER_CREATED, payload]], [character]);
 };
 
 export type SheetFieldEdit = Pick<PlayerAction, 'campaignId' | 'actionId' | 'expectedRevision' | 'actorId'> & {
@@ -104,7 +92,7 @@ export const editSheetField = (store: CampaignStore, edit: SheetFieldEdit): Comm
   validate(state, action);
   requireValid(actionId, fieldId.trim() !== '', 'field id is blank');
   requireValid(actionId, isSheetValue(value), `value for ${fieldId} must be text, a finite number or a flag`);
-  return commit(store, action, [[SHEET_FIELD_EDITED, payload, EDIT_VISIBILITY]]);
+  return commitSystem(store, action, [[SHEET_FIELD_EDITED, payload, EDIT_VISIBILITY]]);
 };
 
 export const profileOf = (events: readonly CampaignEvent[], actorId: CharacterId, worldProfile?: unknown): unknown => {
@@ -126,7 +114,4 @@ export const profileOf = (events: readonly CampaignEvent[], actorId: CharacterId
   return { ...profile, traits };
 };
 
-export const playTurns = ({ turns, events }: Pick<CampaignState, 'turns' | 'events'>) => {
-  const sheetTurns = new Set(events.filter(({ type }) => SHEET_EVENTS.includes(type)).map(({ turnId }) => turnId));
-  return turns.filter(({ id }) => !sheetTurns.has(id));
-};
+export const playTurns = ({ turns }: Pick<CampaignState, 'turns'>) => turns.filter(({ kind }) => kind !== SYSTEM_TURN);

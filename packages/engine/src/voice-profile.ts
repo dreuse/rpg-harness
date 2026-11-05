@@ -1,7 +1,7 @@
 import type { CampaignEvent, CampaignStore, CommittedTurn } from '../../domain/src/campaign.ts';
 import type { EntityId, EntityStore } from '../../domain/src/entity.ts';
 import { NARRATOR_SPEAKER, toVoiceProfile, type VoiceProfile } from '../../domain/src/voice.ts';
-import { commit, loadState, type PlayerAction, recorded, replayOf, requireValid, validate } from './turn.ts';
+import { commitSystem, loadState, type PlayerAction, recorded, replayOf, requireValid, validate } from './turn.ts';
 
 export const VOICE_PROFILE_SET = 'VoiceProfileSet';
 
@@ -26,7 +26,7 @@ export const setVoiceProfile = (
     speakerId === NARRATOR_SPEAKER || entities.getEntity(campaignId, speakerId)?.kind === NPC_KIND,
     `speaker ${speakerId} is neither the narrator nor an npc`,
   );
-  return commit(store, input, [[VOICE_PROFILE_SET, { speakerId, profile }]]);
+  return commitSystem(store, input, [[VOICE_PROFILE_SET, { speakerId, profile }]]);
 };
 
 export const voiceProfileOf = (events: readonly CampaignEvent[], speakerId: EntityId): VoiceProfile | undefined =>

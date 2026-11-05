@@ -7,7 +7,7 @@ import {
   PLAYER_ACTION_SUBMITTED,
 } from '../../domain/src/campaign.ts';
 import { isRecord } from '../../rules/src/rulepack.ts';
-import { commit, loadState, type PlayerAction, recorded, replayOf, validate } from './turn.ts';
+import { commitSystem, loadState, type PlayerAction, recorded, replayOf, validate } from './turn.ts';
 
 export type CheckOffer = {
   readonly offerId: string;
@@ -34,7 +34,7 @@ export const offerCheck = (store: CampaignStore, input: CheckOffering): Committe
   const stored = replayOf(store, state, input, recorded(CHECK_OFFERED, { offer: input.offer }));
   if (stored !== undefined) return stored;
   validate(state, input);
-  return commit(store, input, [[CHECK_OFFERED, { offer: input.offer }, 'player']]);
+  return commitSystem(store, input, [[CHECK_OFFERED, { offer: input.offer }, 'player']]);
 };
 
 export const pendingCheckOffer = (events: readonly CampaignEvent[]): CheckOffer | undefined => {

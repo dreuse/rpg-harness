@@ -33,6 +33,11 @@ export type Scene = { readonly id: SceneId; readonly campaignId: CampaignId; rea
 
 export const OPENING_ACTION_ID = 'opening';
 
+export const TURN_KINDS = ['player', 'system'] as const;
+export type TurnKind = (typeof TURN_KINDS)[number];
+export const PLAYER_TURN: TurnKind = 'player';
+export const SYSTEM_TURN: TurnKind = 'system';
+
 export type Turn = {
   readonly id: TurnId;
   readonly campaignId: CampaignId;
@@ -41,6 +46,7 @@ export type Turn = {
   readonly actorId: CharacterId;
   readonly input: string;
   readonly narration: string;
+  readonly kind?: TurnKind;
 };
 
 export type CampaignEvent = {

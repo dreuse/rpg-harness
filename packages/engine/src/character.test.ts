@@ -8,7 +8,7 @@ import { type BuildInput, buildCharacter, type CreationRules } from '../../rules
 import { SHEET_SCHEMA_VERSION } from '../../rules/src/sheet-schema.ts';
 import { CHARACTER_CREATED, commitCharacter, editSheetField, playTurns, SHEET_FIELD_EDITED } from './character.ts';
 import { createEngine } from './engine.ts';
-import { commit, InvalidActionError, openScene } from './turn.ts';
+import { commit, commitSystem, InvalidActionError, openScene } from './turn.ts';
 
 const IN_MEMORY = ':memory:';
 const ACTION_ID = 'create-ash';
@@ -177,4 +177,12 @@ test('rpg-42a.23: character creation and sheet edits are not play turns', () =>
       playTurns(state).map(({ actionId }) => actionId),
       [state.turns[0]?.actionId],
     );
+  }));
+
+test('rpg-cm63.20: a system commit of any new event type is hidden by turn kind', () =>
+  withCampaign(({ store, engine, campaignId, action }) => {
+    commitSystem(store, action, [['BrandNewSystemEvent', {}]]);
+    const state = engine.getState(campaignId);
+    assert.equal(state.turns.at(-1)?.kind, 'system');
+    assert.equal(playTurns(state).length, 1);
   }));
