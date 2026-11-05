@@ -205,7 +205,9 @@ const narratingEngine = (
 type GmCall = { readonly databasePath: string; readonly model: string | undefined };
 type GmTurnReply = { readonly narration: string; readonly segments: readonly GmSegment[]; readonly usage?: GmUsage };
 type PacketRequest = (packet: ContextPacket, call: GmCall) => Promise<GmTurnReply>;
-type ModelSummarizer = (...[level, texts, model]: [...Parameters<Summarizer>, string?]) => ReturnType<Summarizer>;
+type ModelSummarizer = (
+  ...[level, texts, language, model]: [...Parameters<Summarizer>, string?]
+) => ReturnType<Summarizer>;
 
 export type GameMaster = ({ readonly narrator: PacketNarrator } | { readonly request: PacketRequest }) & {
   readonly summarizer: ModelSummarizer;
@@ -248,7 +250,8 @@ const providerGameMaster = (narrate: PacketRequest, summarize: ModelSummarizer):
         );
       }
     },
-    summarizer: (level, texts, model) => (failed ? fakeSummarizer(level, texts) : summarize(level, texts, model)),
+    summarizer: (level, texts, language, model) =>
+      failed ? fakeSummarizer(level, texts, language) : summarize(level, texts, language, model),
   };
 };
 
@@ -257,16 +260,16 @@ const chosen = (model: string | undefined) => (model === PROVIDER_DEFAULT_MODEL 
 export const apiGameMaster = (route: ApiRoute, summaryRoute: ApiRoute = route): GameMaster =>
   providerGameMaster(
     (packet, { model }) => requestNarration({ ...route, model: chosen(model) ?? route.model }, packet),
-    (level, texts, model) =>
-      requestSummary({ ...summaryRoute, model: chosen(model) ?? summaryRoute.model }, level, texts),
+    (level, texts, language, model) =>
+      requestSummary({ ...summaryRoute, model: chosen(model) ?? summaryRoute.model }, level, texts, language),
   );
 
 export const claudeCodeGameMaster = (route: ClaudeCodeRoute): GameMaster =>
   providerGameMaster(
     (packet, { databasePath, model }) =>
       requestClaudeNarration({ ...route, model: chosen(model) ?? route.model }, packet, databasePath),
-    (level, texts, model) =>
-      requestClaudeSummary({ ...route, summaryModel: chosen(model) ?? route.summaryModel }, level, texts),
+    (level, texts, language, model) =>
+      requestClaudeSummary({ ...route, summaryModel: chosen(model) ?? route.summaryModel }, level, texts, language),
   );
 
 const chosenGameMaster = async (env: NodeJS.ProcessEnv): Promise<{ gm: GameMaster; route: GmRoute }> => {
@@ -366,7 +369,9 @@ const openSession = (
       };
       if ('request' in gm)
         await narrateLatest(session, (packet) => gm.request(packet, { databasePath: path, model }), sessionId);
-      summarized = summarizeInBackground(session, (level, texts) => gm.summarizer(level, texts, summaryModel));
+      summarized = summarizeInBackground(session, (level, texts, language) =>
+        gm.summarizer(level, texts, language, summaryModel),
+      );
     };
     const settle = () => Promise.race([summarized, settled()]);
     return { ...session, sessionId, gmDefaults, narrate, settle, close };
@@ -447,7 +452,13 @@ const claimFile = (path: string, name: string) => {
   }
 };
 
-const createCampaign = (dataDir: string, name: string, opening: Opening, config: CampaignConfig): string => {
+const createCampaign = (
+  dataDir: string,
+  name: string,
+  opening: Opening,
+  config: CampaignConfig,
+  language?: string,
+): string => {
   mkdirSync(dataDir, { recursive: true });
   const path = databasePath(dataDir, name);
   claimFile(path, name);
@@ -455,7 +466,7 @@ const createCampaign = (dataDir: string, name: string, opening: Opening, config:
   try {
     connection = openDatabase(path);
     const store = createCampaignStore(connection.database);
-    const campaign = createEngine(store).createCampaign(name);
+    const campaign = createEngine(store).createCampaign(name, language);
     openScene(store, {
       campaignId: campaign.id,
       actorName: HERO_NAME,
@@ -702,10 +713,10 @@ export const deleteCampaign = (dataDir: string, name: string, confirm: string, a
 };
 
 export const createCampaignFrom = (dataDir: string, command: CreateCampaign, client?: string): CampaignSummary => {
-  const { name } = command;
+  const { name, language } = command;
   const config = commandConfig(command, client);
   const character = startingCharacter(config);
-  createCampaign(dataDir, name, openingFor(config, DEFAULT_OPENING), config);
+  createCampaign(dataDir, name, openingFor(config, DEFAULT_OPENING), config, language);
   try {
     if (character !== undefined) addCharacter(dataDir, name, character);
   } catch (error) {
@@ -841,9 +852,9 @@ export const createEngineGateway = (
       defaultUpdateContext(dataDir, () => campaignDatabases(dataDir)),
       request,
     ),
-  create: async function* (name, intent, ask, client) {
+  create: async function* (name, intent, ask, client, language) {
     const config = newCampaignConfig(intent, client);
-    const scene = createCampaign(dataDir, name, openingFor(config, DEFAULT_OPENING), config);
+    const scene = createCampaign(dataDir, name, openingFor(config, DEFAULT_OPENING), config, language);
     yield `${SAVED_SETTINGS}\n${describeConfig(config)}\n${scene}`;
     const character = await characterFor(dataDir, name, config, ask);
     if (character !== undefined) yield character;

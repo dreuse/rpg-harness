@@ -12,7 +12,7 @@ import type {
 import type { RuleCitation } from '../../domain/src/character.ts';
 import type { GmSettings, GmUsageTotals } from '../../domain/src/gm.ts';
 import type { RulesUsage } from '../../domain/src/rules-usage.ts';
-import type { SavedVoiceSettings } from '../../domain/src/voice.ts';
+import { isLocale, type SavedVoiceSettings } from '../../domain/src/voice.ts';
 import type { VisualizationEvent } from './visualization.ts';
 
 export type {
@@ -83,6 +83,7 @@ export type CreateCampaign = Header<'CreateCampaign'> & {
   readonly name: string;
   readonly intent?: string;
   readonly choices?: Readonly<Record<string, unknown>>;
+  readonly language?: string;
 };
 export type ArchiveCampaign = Header<'ArchiveCampaign'> & { readonly name: string };
 export type DeleteCampaign = Header<'DeleteCampaign'> & {
@@ -92,7 +93,8 @@ export type DeleteCampaign = Header<'DeleteCampaign'> & {
 };
 export type OpenCampaign = Header<'OpenCampaign'> & { readonly name: string };
 export type UnarchiveCampaign = Header<'UnarchiveCampaign'> & { readonly name: string };
-export type PlanCampaign = Header<'PlanCampaign'> & Omit<CreateCampaign, keyof Header<'CreateCampaign'> | 'name'>;
+export type PlanCampaign = Header<'PlanCampaign'> &
+  Omit<CreateCampaign, keyof Header<'CreateCampaign'> | 'name' | 'language'>;
 export type CampaignCommand =
   | CreateCampaign
   | ArchiveCampaign
@@ -215,6 +217,7 @@ export type CampaignSnapshot = {
   readonly characters: readonly Character[];
   readonly currentScene: Scene | undefined;
   readonly turns: readonly Turn[];
+  readonly language?: string;
   readonly voice?: SavedVoiceSettings;
   readonly gm?: GmSnapshot;
   readonly rules?: RulesUsage;
@@ -302,7 +305,7 @@ export interface ClientSession {
   saveGmSettings(command: SaveGmSettings): Result<Accepted>;
 }
 
-type FieldKind = 'id' | 'name' | 'text' | 'revision' | 'flag' | 'number' | 'primitive' | 'record';
+type FieldKind = 'id' | 'name' | 'text' | 'revision' | 'flag' | 'number' | 'primitive' | 'record' | 'locale';
 type FieldSpec = { readonly kind: FieldKind; readonly optional?: true };
 
 const HEADER_FIELDS = ['version', 'type'];
@@ -330,7 +333,7 @@ const PLAN_SPECS: Readonly<Record<string, FieldSpec>> = {
 
 const COMMAND_FIELDS: Record<CommandType, Readonly<Record<string, FieldSpec>>> = {
   ListCampaigns: {},
-  CreateCampaign: { name: NAME, ...PLAN_SPECS },
+  CreateCampaign: { name: NAME, ...PLAN_SPECS, language: { kind: 'locale', optional: true } },
   ArchiveCampaign: { name: NAME },
   DeleteCampaign: { name: NAME, confirm: ID, archived: { kind: 'flag', optional: true } },
   OpenCampaign: { name: NAME },
@@ -388,6 +391,7 @@ const FIELD_CHECKS: Record<FieldKind, (value: unknown) => boolean> = {
   number: (value) => typeof value === 'number' && Number.isFinite(value),
   primitive: (value) => FIELD_CHECKS.text(value) || FIELD_CHECKS.flag(value) || FIELD_CHECKS.number(value),
   record: (value) => isRecord(value),
+  locale: isLocale,
 };
 
 export const failure = (code: ProtocolErrorCode, message: string): Result<never> => ({

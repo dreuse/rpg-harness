@@ -3,12 +3,14 @@ import { test } from 'node:test';
 import { CampaignNotFoundError, MAIN_BRANCH } from '../../domain/src/campaign.ts';
 import { createCampaignStore } from '../../persistence/src/campaign-store.ts';
 import { openDatabase } from '../../persistence/src/database.ts';
-import { createEngine } from './engine.ts';
+import { listScopedEvents } from '../../persistence/src/event-store.ts';
+import { campaignLanguageOf, createEngine } from './engine.ts';
 
 const IN_MEMORY = ':memory:';
 const FIRST_NAME = 'Tiny Test';
 const SECOND_NAME = 'Tiny Test Renamed';
 const MISSING_ID = 'missing';
+const PORTUGUESE = 'pt-BR';
 const INITIAL_REVISION = 0;
 const SELECT_EVENTS = 'SELECT campaign_id, branch_id, revision, action_id, type, payload FROM event_log ORDER BY seq';
 
@@ -58,5 +60,16 @@ test('engine rejects unknown campaigns without writing', () => {
   assert.throws(() => engine.getCampaign(MISSING_ID), CampaignNotFoundError);
   assert.throws(() => engine.renameCampaign(MISSING_ID, SECOND_NAME), CampaignNotFoundError);
   assert.equal(connection.database.prepare('SELECT COUNT(*) AS total FROM event_log').get()?.total, 0);
+  connection.close();
+});
+
+test('rpg-42a.40 a campaign keeps the language chosen at creation and old campaigns record none', () => {
+  const { connection, engine } = openEngine();
+  const chosen = engine.createCampaign(FIRST_NAME, PORTUGUESE);
+  const plain = engine.createCampaign(SECOND_NAME);
+  const eventsOf = (campaignId: string) => listScopedEvents(connection.database, campaignId);
+  assert.equal(campaignLanguageOf(eventsOf(chosen.id)), PORTUGUESE);
+  assert.equal(campaignLanguageOf(eventsOf(plain.id)), undefined);
+  assert.throws(() => engine.createCampaign('Bad', 'not a locale!'), RangeError);
   connection.close();
 });

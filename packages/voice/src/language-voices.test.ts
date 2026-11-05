@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { KOKORO_PROVIDER_ID } from './kokoro-provider.ts';
-import { narratorFallback, noVoiceNotice, voicesFor } from './language-voices.ts';
+import { narratorFallback, noVoiceNotice, voiceLocaleFor, voicesFor } from './language-voices.ts';
 import { MLX_KOKORO_PROVIDER_ID } from './mlx-audio-engine.ts';
 import type { TtsProvider } from './tts.ts';
 
@@ -45,4 +45,10 @@ test('tells the player when the voice for their language is not available on thi
 test('says nothing when a voice for the language is ready', () => {
   assert.equal(noVoiceNotice('pt-BR', [provider(MLX_KOKORO_PROVIDER_ID, true)]), undefined);
   assert.equal(noVoiceNotice('en-US', [provider(KOKORO_PROVIDER_ID, true)]), undefined);
+});
+
+test('rpg-42a.40 the voice locale follows the campaign language when a provider speaks it', () => {
+  assert.equal(voiceLocaleFor('pt-BR', 'en-US'), 'pt-BR');
+  assert.equal(voiceLocaleFor('en', 'pt-BR'), 'en');
+  assert.equal(voiceLocaleFor('ja', 'en-US'), 'en-US');
 });

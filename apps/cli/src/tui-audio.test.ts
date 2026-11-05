@@ -3,13 +3,14 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { type TestContext, test } from 'node:test';
-import type { SavedVoiceSettings } from '../../../packages/client-protocol/src/protocol.ts';
+import { PROTOCOL_VERSION, type SavedVoiceSettings } from '../../../packages/client-protocol/src/protocol.ts';
 import type { VoiceSession } from '../../../packages/voice/src/voice-settings.ts';
 import { createEngineGateway, openClientSession } from './engine-gateway.ts';
 import { createTuiAudio, defaultTuiAudio } from './tui-audio.ts';
 
 const SUPPORTED_LOCALES = ['en-US'];
 const NO_SCENE = 'No scene to act in yet.';
+const PORTUGUESE = 'pt-BR';
 const TEMP_PREFIX = 'rpg-tui-audio-';
 const CAMPAIGN = 'Ember';
 const NO_CHARACTER = async () => undefined;
@@ -117,4 +118,36 @@ test('rpg-cm63.5 tui binds pause, resume, skip and stop to the playback control'
   assert.deepEqual(calls, ['pause', 'resume', 'skip', 'stop']);
   assert.deepEqual(acted, []);
   assert.equal(audio.input('/dance', act), undefined);
+});
+
+test('rpg-42a.40 tui voice locale defaults to the campaign language', async (t: TestContext) => {
+  const dataDir = mkdtempSync(join(tmpdir(), TEMP_PREFIX));
+  t.after(() => rmSync(dataDir, { recursive: true, force: true }));
+  for await (const _ of createEngineGateway(dataDir).create(CAMPAIGN, undefined, NO_CHARACTER, undefined, PORTUGUESE));
+  const opened = openClientSession(dataDir, CAMPAIGN);
+  try {
+    assert.match(defaultTuiAudio(opened.session, opened.campaignId).status(), /, pt-BR, /);
+  } finally {
+    opened.close();
+  }
+});
+
+test('rpg-42a.40 a campaign without a recorded language keeps the system voice locale', async (t: TestContext) => {
+  const dataDir = mkdtempSync(join(tmpdir(), TEMP_PREFIX));
+  t.after(() => rmSync(dataDir, { recursive: true, force: true }));
+  for await (const _ of createEngineGateway(dataDir).create(CAMPAIGN, undefined, NO_CHARACTER));
+  const opened = openClientSession(dataDir, CAMPAIGN);
+  try {
+    const snapshot = opened.session.getSnapshot({
+      version: PROTOCOL_VERSION,
+      type: 'GetCampaignSnapshot',
+      campaignId: opened.campaignId,
+    });
+    assert.ok(snapshot.ok);
+    assert.equal('language' in snapshot.value, false);
+    const { locale } = Intl.DateTimeFormat().resolvedOptions();
+    assert.match(defaultTuiAudio(opened.session, opened.campaignId).status(), new RegExp(`, ${locale}, `));
+  } finally {
+    opened.close();
+  }
 });

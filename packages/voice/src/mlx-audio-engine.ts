@@ -11,22 +11,17 @@ import {
   type KokoroEngine,
   type KokoroProvider,
   type KokoroProviderOptions,
+  MLX_KOKORO_CAPABILITIES,
+  MLX_KOKORO_PROVIDER_ID,
 } from './kokoro-provider.ts';
 
-export const MLX_KOKORO_PROVIDER_ID = 'kokoro-mlx';
+export { MLX_KOKORO_CAPABILITIES, MLX_KOKORO_PROVIDER_ID };
 export const MLX_AUDIO_DIR_ENV = 'RPG_MLX_AUDIO_DIR';
 export const MLX_AUDIO_TOKEN_ENV = 'RPG_MLX_AUDIO_TOKEN';
 export const MLX_AUDIO_MODEL_ID = 'mlx-community/Kokoro-82M-bf16';
 export const MLX_AUDIO_MODEL_REVISION = 'a71e4d38b236d968966a2002c4c895dbd12b1c3c';
 export const MLX_AUDIO_START_TIMEOUT_MS = 60_000;
 export const MLX_AUDIO_SERVICE_SOURCE = join(import.meta.dirname, 'mlx-audio-service.py');
-
-export const MLX_KOKORO_CAPABILITIES: KokoroCapabilities = Object.freeze({
-  languages: Object.freeze(['pt-BR']),
-  voices: Object.freeze(['pf_dora', 'pm_alex', 'pm_santa']),
-  streaming: true,
-  emotion: false,
-});
 
 const APPLE_PLATFORM = 'darwin';
 const APPLE_SILICON = 'arm64';

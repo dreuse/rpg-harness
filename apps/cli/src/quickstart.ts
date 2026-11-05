@@ -63,9 +63,12 @@ const GENRE_PACKS: readonly {
   story?: StoryKit;
 }[] = [FANTASY_PACK, SCIENCE_FICTION_PACK, HORROR_PACK, MYSTERY_PACK, MODERN_ADVENTURE_PACK, BLANK_WORLD_PACK];
 const GENRE_ALIASES: Readonly<Record<string, readonly string[]>> = {
-  [MYSTERY_PACK.genre.id]: ['mystery'],
-  [MODERN_ADVENTURE_PACK.genre.id]: ['modern'],
-  [BLANK_WORLD_PACK.genre.id]: ['blank'],
+  [FANTASY_PACK.genre.id]: ['fantasia'],
+  [SCIENCE_FICTION_PACK.genre.id]: ['ficção científica'],
+  [HORROR_PACK.genre.id]: ['terror'],
+  [MYSTERY_PACK.genre.id]: ['mystery', 'mistério'],
+  [MODERN_ADVENTURE_PACK.genre.id]: ['modern', 'moderna'],
+  [BLANK_WORLD_PACK.genre.id]: ['blank', 'mundo em branco'],
 };
 const REGISTRY: Registry = {
   rulepacks: BUILT_IN_PACKS,

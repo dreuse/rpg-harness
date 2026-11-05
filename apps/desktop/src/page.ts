@@ -1,5 +1,6 @@
 import type { CampaignSnapshot } from '../../../packages/client-protocol/src/protocol.ts';
 import { MOTION_SETTINGS } from '../../../packages/client-protocol/src/visualization.ts';
+import { voiceLocaleFor } from '../../../packages/voice/src/language-voices.ts';
 import { createMicrophoneController } from '../../../packages/voice/src/microphone.ts';
 import { createSubtitleTranscript } from '../../../packages/voice/src/subtitles.ts';
 import { type RendererAction, SUPPORTED_LOCALES, translate } from './accessibility.ts';
@@ -446,10 +447,15 @@ export const mountPage = ({
     }
     if (SPEECH_FIELDS.includes(field)) setup.update({ [field]: value });
   };
+  const defaultVoice = ({ language }: CampaignSnapshot) => ({
+    ...voicePreferences,
+    locale: language === undefined ? voicePreferences.locale : voiceLocaleFor(language, voicePreferences.locale),
+    microphone: MICROPHONE_OFF,
+  });
   const loadVoice = ({ snapshot }: DesktopState) => {
     if (snapshot === undefined || snapshot === loaded || client.voicePending()) return;
     loaded = snapshot;
-    voice.load(snapshot.voice ?? { ...voicePreferences, microphone: MICROPHONE_OFF }).then(render);
+    voice.load(snapshot.voice ?? defaultVoice(snapshot)).then(render);
   };
   let settling = false;
   const settleLater = ({ rolling, sheetChanged }: DesktopState) => {

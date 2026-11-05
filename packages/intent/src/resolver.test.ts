@@ -95,3 +95,11 @@ test("N04 unknown 'd&d 1.9' requests clarification rather than guessing official
   assert.equal(unknown.available.length, REGISTRY.rulepacks.length);
   assert.equal(resolveRuleset(REGISTRY, { id: 'dd', edition: '5e' }).status, 'clarification_needed');
 });
+
+test('rpg-42a.40 pt-BR edition spellings resolve to the same pack', () => {
+  for (const edition of ['5ª edição', '5º edição', '5a edição', '5ª']) {
+    const resolved = resolveRuleset(REGISTRY, { id: 'D&D', edition });
+    assert.ok(resolved.status === 'resolved', edition);
+    assert.equal(resolved.rulepack.edition, '5e');
+  }
+});

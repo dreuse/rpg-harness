@@ -37,7 +37,7 @@ const ORDINAL_WORDS: Record<string, string> = {
   tenth: '10',
 };
 const ORDINAL_WORD = new RegExp(String.raw`\b(?:${Object.keys(ORDINAL_WORDS).join('|')})\b`, 'g');
-const EDITION_FORM = /^(\d+(?:\.\d+)*)\s*(?:st|nd|rd|th)?\s*(?:e|ed|edition)?$/;
+const EDITION_FORM = /^(\d+(?:\.\d+)*)\s*(?:st|nd|rd|th|ª|º|a)?\s*(?:e|ed|edition|edição)?$/;
 const AMPERSAND = /&/g;
 const NON_ALPHANUMERIC = /[^a-z0-9]/g;
 const WHITESPACE = /\s+/g;

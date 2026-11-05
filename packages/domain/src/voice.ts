@@ -17,7 +17,7 @@ export interface VoiceProfile {
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 const isFilled = (value: unknown): value is string => typeof value === 'string' && value.trim() !== '';
-const isLocale = (value: unknown): value is string => {
+export const isLocale = (value: unknown): value is string => {
   if (!isFilled(value)) return false;
   try {
     return Intl.getCanonicalLocales(value)[0] === value;

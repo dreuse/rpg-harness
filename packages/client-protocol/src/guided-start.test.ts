@@ -17,7 +17,7 @@ import {
   startScreen,
   stepOf,
 } from './guided-start.ts';
-import { missingKeys } from './locale.ts';
+import { DEFAULT_LOCALE, missingKeys } from './locale.ts';
 import {
   type CampaignPlan,
   failure,
@@ -89,6 +89,7 @@ test('rpg-42a.14 guide path skipping every step sends no choices, so the engine 
     type: 'CreateCampaign',
     name: DEFAULT_ADVENTURE_NAME,
     choices: {},
+    language: DEFAULT_LOCALE,
   });
   assert.deepEqual(planCommand(skipAll), { version: PROTOCOL_VERSION, type: 'PlanCampaign', choices: {} });
   assert.deepEqual(planCommand(skipAll, 'tui').choices, { client: 'tui' });
@@ -98,6 +99,7 @@ test('rpg-42a.14 guide path skipping every step sends no choices, so the engine 
     version: PROTOCOL_VERSION,
     type: 'CreateCampaign',
     name: DEFAULT_ADVENTURE_NAME,
+    language: DEFAULT_LOCALE,
   });
 });
 
@@ -123,6 +125,7 @@ test('rpg-42a.14 each guide step is skippable, choices advance and back returns 
       character: 'Ash, a tired knight',
       voiceOutput: true,
     },
+    language: DEFAULT_LOCALE,
   });
   const back = run([{ kind: 'back' }, { kind: 'back' }, { kind: 'back' }], chosen);
   assert.equal(stepOf(back), 'rules');
@@ -350,6 +353,7 @@ test('rpg-42a.39 guided start reads in Brazilian Portuguese and names the defaul
   const unknown = startScreen(skipAll, OPTIONS, failure('UnknownEdition', 'D&D 1.9'), 'pt-BR');
   assert.equal(unknown.error, 'Importe seu livro de regras. D&D 1.9');
   assert.equal(createCommand(skipAll, undefined, 'pt-BR').name, 'Minha aventura');
+  assert.equal(createCommand(skipAll, undefined, 'pt-BR').language, 'pt-BR');
   assert.equal(createCommand({ ...skipAll, name: 'Ashfall' }, undefined, 'pt-BR').name, 'Ashfall');
 });
 
@@ -392,4 +396,20 @@ test('rpg-42a.38 features step drops the dice animation for a diceless ruleset',
       'This game does not use dice.',
     ),
   );
+});
+
+test('rpg-42a.40 genre and rules pages tell non-English players that built-in packs are in English', () => {
+  const genre = run([{ kind: 'path', path: 'guide' }, { kind: 'next' }]);
+  const rules = run([{ kind: 'skip' }], genre);
+  assert.deepEqual([stepOf(genre), stepOf(rules)], ['genre', 'rules']);
+  for (const draft of [genre, rules]) {
+    assert.ok(
+      startScreen(draft, OPTIONS, undefined, 'pt-BR').text.includes(String(START_CATALOG['pt-BR']?.['packs.english'])),
+    );
+    assert.ok(
+      !startScreen(draft, OPTIONS, undefined, DEFAULT_LOCALE).text.includes(
+        String(START_CATALOG.en?.['packs.english']),
+      ),
+    );
+  }
 });

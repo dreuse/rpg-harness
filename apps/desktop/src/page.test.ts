@@ -950,3 +950,16 @@ test('rpg-cm63.7 page without a voice bridge keeps text play and reports voice u
   assert.match(page.root.innerHTML, /data-voice-step="unavailable"/);
   assert.deepEqual(spokenOutputs(page), []);
 });
+
+test('rpg-42a.40 desktop voice locale defaults to the campaign language when it has a voice', async () => {
+  const page = fakePage();
+  mount(page, { voice: { ...DEFAULT_PREFERENCES.voice, consent: CONSENT } }, () => {
+    return { start: async () => DENIED, stop: () => {} };
+  });
+  page.receive(READY);
+  page.receive({ type: 'Campaigns', campaigns: [SNAPSHOT.campaign] });
+  continueHarbor(page);
+  page.receive({ type: 'Snapshot', snapshot: { ...SNAPSHOT, language: 'pt-BR' } });
+  await settle();
+  assert.match(page.root.innerHTML, /<p data-voice-summary>[^<]*(pt-BR|Portuguese)/);
+});

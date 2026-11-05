@@ -117,6 +117,8 @@ export const START_CATALOG: Catalog = {
     'character.noSheet':
       'This game does not use a character sheet. Give your character a name and a short description.',
     'features.noDice': 'This game does not use dice.',
+    'packs.english':
+      'Built-in genres and rules are written in English. The game master still narrates in your language.',
     'features.text': 'These stay off unless you turn them on.',
   },
   'pt-BR': {
@@ -169,6 +171,7 @@ export const START_CATALOG: Catalog = {
     'rules.noSheet': 'Alguns sistemas não têm ficha de personagem. Você só precisa de um nome e uma descrição curta.',
     'character.noSheet': 'Este jogo não usa ficha de personagem. Dê ao seu personagem um nome e uma descrição curta.',
     'features.noDice': 'Este jogo não usa dados.',
+    'packs.english': 'Os gêneros e regras incluídos estão em inglês. O mestre ainda narra no seu idioma.',
     'features.text': 'Estes ficam desligados, a não ser que você os ligue.',
   },
 };
@@ -299,6 +302,7 @@ export const createCommand = (draft: StartDraft, client?: string, locale = DEFAU
   type: 'CreateCampaign',
   name: draft.name || text(locale, 'name.default'),
   ...planFields(draft, client),
+  language: safeLocale(locale),
 });
 
 export const parseStartDraft = (raw: unknown): StartDraft => {
@@ -334,6 +338,11 @@ const errorText = (locale: string, { code, message }: { readonly code: string; r
     : message;
 
 type Page = Pick<StartScreen, 'title' | 'text' | 'options'> & Partial<StartScreen>;
+
+const PACK_LANGUAGE = 'en';
+
+const packNotice = (locale: string) =>
+  new Intl.Locale(safeLocale(locale)).language === PACK_LANGUAGE ? [] : [text(locale, 'packs.english')];
 
 const usageOf = (draft: StartDraft, options: StartOptions) =>
   options.rulesets.find(
@@ -437,7 +446,7 @@ const PAGES: Readonly<
   }),
   genre: (draft, { genres }, _plan, locale) => ({
     title: text(locale, 'genre.title'),
-    text: [text(locale, 'genre.text')],
+    text: [text(locale, 'genre.text'), ...packNotice(locale)],
     options: genres.map(({ id, name, blurb }) => choose('genre', id, name, blurb, draft)),
   }),
   rules: (draft, { rulesets }, _plan, locale) => ({
@@ -447,6 +456,7 @@ const PAGES: Readonly<
       text(locale, 'rules.noDice'),
       text(locale, 'rules.noSheet'),
       text(locale, 'import.hint', { rulebook: text(locale, 'import.rulebook') }),
+      ...packNotice(locale),
     ],
     options: rulesets.map(({ id, edition, blurb, recommended }) =>
       choose(

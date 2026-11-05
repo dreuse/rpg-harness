@@ -10,6 +10,7 @@ import type {
 } from '../../../packages/domain/src/campaign.ts';
 import type { CampaignEntity } from '../../../packages/domain/src/entity.ts';
 import { playTurns } from '../../../packages/engine/src/character.ts';
+import { campaignLanguageOf } from '../../../packages/engine/src/engine.ts';
 import { contextBudgetOf, recordSummary } from '../../../packages/engine/src/memory.ts';
 import { campaignConfigOf, loadState } from '../../../packages/engine/src/turn.ts';
 import { parseCampaignConfig } from '../../../packages/intent/src/config.ts';
@@ -32,7 +33,7 @@ import {
 import { createEntityStore, createFactStore } from '../../../packages/persistence/src/entity-store.ts';
 import { touchesOf, walkGraph } from '../../../packages/persistence/src/graph.ts';
 import { scopedEventsOf, worldOf } from './client-session.ts';
-import { SYSTEM_PROMPT } from './gm-api.ts';
+import { languageInstruction, SYSTEM_PROMPT } from './gm-api.ts';
 import { describeConfig } from './quickstart.ts';
 import { panelsOf } from './views.ts';
 
@@ -40,7 +41,11 @@ export const SCENE_TURN_LIMIT = 20;
 export const CHAPTER_SCENE_COUNT = 5;
 export const FAKE_SUMMARY_LENGTH = 400;
 
-export type Summarizer = (level: SummaryLevel, texts: readonly string[]) => Promise<string>;
+export type Summarizer = (
+  level: SummaryLevel,
+  texts: readonly string[],
+  language: string | undefined,
+) => Promise<string>;
 
 const REWRITTEN_LEVEL: SummaryLevel = 'campaign';
 const PLAYER_SUMMARY = { visibility: 'player', actorId: null } as const;
@@ -80,6 +85,7 @@ export const contextPacketOf = (
 ): ContextPacket => {
   const campaignId = state.campaign.id;
   const scoped = scopedEventsOf(database)(campaignId);
+  const language = campaignLanguageOf(scoped);
   const visibleEvents = new Set(visibleTo(scoped, viewer).map(({ id }) => id));
   const entityStore = createEntityStore(database);
   const entities = visibleTo(entityStore.listEntities(campaignId), viewer);
@@ -122,7 +128,7 @@ export const contextPacketOf = (
   const { inventory, quests } = panelsOf({ state, eventScopes: scoped, ...world }, viewer);
   return buildContextPacket(
     {
-      instructions: [SYSTEM_PROMPT],
+      instructions: [SYSTEM_PROMPT, ...(language === undefined ? [] : [languageInstruction(language)])],
       ruleset: config === undefined ? [] : [describeConfig(config)],
       setting: [state.currentScene?.title ?? state.campaign.name],
       campaignSummary: visibleSummaries(summaries, viewer, 'campaign'),
@@ -170,7 +176,9 @@ export const summarizeCampaign = async (
     });
   };
   const state = loadState(store, campaignId);
-  const written = summariesOf(scopedEventsOf(database)(campaignId));
+  const scoped = scopedEventsOf(database)(campaignId);
+  const language = campaignLanguageOf(scoped);
+  const written = summariesOf(scoped);
   const ofLevel = (level: SummaryLevel) =>
     written.filter((summary) => summary.level === level).map(({ summary }) => summary);
   const covered = new Set<EventId>(ofLevel('scene').flatMap(({ sourceEventIds }) => sourceEventIds));
@@ -178,7 +186,7 @@ export const summarizeCampaign = async (
   const open = playTurns(state).filter((turn) => !eventsOf(turn).some((id) => covered.has(id)));
   const scenes = [...ofLevel('scene')];
   for (const segment of chunks(open, SCENE_TURN_LIMIT)) {
-    const text = await summarizer('scene', segment.map(turnText));
+    const text = await summarizer('scene', segment.map(turnText), language);
     const draft = { id: randomUUID(), campaignId, text, sourceEventIds: segment.flatMap(eventsOf), ...PLAYER_SUMMARY };
     const scene = write('scene', segment[0]?.sceneId ?? campaignId, summarize(state.events, draft));
     if (scene === undefined) return;
@@ -191,6 +199,7 @@ export const summarizeCampaign = async (
     const text = await summarizer(
       'chapter',
       parts.map(({ text: part }) => part),
+      language,
     );
     const chapter = write('chapter', randomUUID(), condense(state.events, { id: randomUUID(), text }, parts));
     if (chapter === undefined) return;
@@ -200,6 +209,7 @@ export const summarizeCampaign = async (
   const text = await summarizer(
     'campaign',
     chapters.map(({ text: part }) => part),
+    language,
   );
   write('campaign', campaignId, condense(state.events, { id: randomUUID(), text }, chapters));
 };

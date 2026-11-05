@@ -12,8 +12,7 @@ import {
   PROVIDER_DEFAULT_MODEL,
   ProviderError,
   SUMMARY_MODEL_ENV,
-  SUMMARY_PROMPT,
-  SYSTEM_PROMPT,
+  summaryPrompt,
   usageOf,
 } from './gm-api.ts';
 import { narrationOf, narratorSegments, SEGMENTS_SCHEMA, segmentsOf } from './gm-segments.ts';
@@ -199,13 +198,15 @@ export const requestClaudeNarration = (
   packet: Pick<ContextPacket, 'sections'>,
   databasePath: string,
 ): Promise<GmReply> => {
-  const { stable, variable } = packetParts(packet);
-  return request(route, SYSTEM_PROMPT, [stable, variable].join(PART_SEPARATOR), databasePath);
+  const { instructions, stable, variable } = packetParts(packet);
+  return request(route, instructions, [stable, variable].join(PART_SEPARATOR), databasePath);
 };
 
 export const requestClaudeSummary = async (
   route: ClaudeCodeRoute,
   level: SummaryLevel,
   texts: readonly string[],
+  language: string | undefined,
 ): Promise<string> =>
-  (await request({ ...route, model: route.summaryModel }, SUMMARY_PROMPT, frameData({ level, texts }))).narration;
+  (await request({ ...route, model: route.summaryModel }, summaryPrompt(language), frameData({ level, texts })))
+    .narration;

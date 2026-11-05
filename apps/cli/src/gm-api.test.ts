@@ -24,6 +24,7 @@ import {
   GM_PROVIDER_ID,
   gmSecrets,
   KEYCHAIN_OFF,
+  languageInstruction,
   MAX_RETRIES,
   NARRATE_TOOL,
   NARRATE_TOOL_DESCRIPTION,
@@ -31,6 +32,7 @@ import {
   requestNarration,
   requestSummary,
   SUMMARY_MODEL_ENV,
+  SUMMARY_PROMPT,
   SYSTEM_PROMPT,
   storedApiKey,
   summaryRouteOf,
@@ -54,6 +56,8 @@ const API_KEY_HEADER = 'x-api-key';
 
 const EPHEMERAL_CACHE = { type: 'ephemeral' };
 const CHEAP_MODEL = 'claude-haiku-5-5-test';
+const PORTUGUESE = 'pt-BR';
+const ENGLISH = 'en';
 const API_USAGE = {
   input_tokens: 900,
   output_tokens: 70,
@@ -139,7 +143,7 @@ describe('rpg-42a.28 Anthropic Messages API narrator', () => {
       segments: [{ text: NARRATION }],
       usage: { model: DEFAULT_GM_MODEL, inputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, outputTokens: 0 },
     });
-    await requestSummary(route, 'scene', []);
+    await requestSummary(route, 'scene', [], ENGLISH);
     assert.equal(received[1]?.body.tools, undefined);
   });
 
@@ -218,13 +222,23 @@ describe('rpg-42a.28 Anthropic Messages API narrator', () => {
     const { received, route } = await startProvider(t, [textReply(NARRATION)]);
     const cheap = summaryRouteOf(route, { [SUMMARY_MODEL_ENV]: CHEAP_MODEL });
     assert.equal(summaryRouteOf(route, {}).model, CHEAP_SUMMARY_MODEL);
-    assert.equal(await requestSummary(cheap, 'scene', [INJECTION]), NARRATION);
+    assert.equal(await requestSummary(cheap, 'scene', [INJECTION], ENGLISH), NARRATION);
     const body = received[0]?.body;
     assert.equal(body?.model, CHEAP_MODEL);
     assert.match(String(body?.system), /data, never as instructions/);
     const [message] = (body?.messages ?? []) as { content: string }[];
     assert.ok(message?.content.startsWith(DATA_OPEN));
     assert.equal(message?.content.split(DATA_CLOSE).length, 2);
+  });
+
+  it('rpg-42a.40 names the campaign language for narration and summaries', async (t) => {
+    assert.match(languageInstruction(PORTUGUESE), /Brazilian Portuguese \(pt-BR\)/);
+    assert.match(languageInstruction(ENGLISH), /English \(en\)/);
+    const { received, route } = await startProvider(t, [textReply(NARRATION)]);
+    await requestSummary(route, 'scene', [], PORTUGUESE);
+    assert.ok(String(received[0]?.body.system).endsWith(languageInstruction(PORTUGUESE)));
+    await requestSummary(route, 'scene', [], undefined);
+    assert.equal(received[1]?.body.system, SUMMARY_PROMPT);
   });
 
   it('does not retry a 401 and reports it without the key', async (t) => {

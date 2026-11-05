@@ -216,3 +216,133 @@ test('N02 multi-word ruleset names keep connectors and colons', () => {
     edition: '5th edition',
   });
 });
+
+const PT_COMPLEX_REQUEST =
+  'uma história de detetive noir com um mundo dinâmico, ritmo lento, sem combate, narração por voz, em D&D 5ª edição';
+
+const fieldsOf = (text: string) => {
+  const { settings, conflicts } = proposalOf(text);
+  assert.deepEqual(conflicts, [], text);
+  return Object.fromEntries(settings.map((setting) => [setting.field, setting.value]));
+};
+
+test('rpg-42a.40 extracts a complex pt-BR request into the same typed settings', () => {
+  const { settings, conflicts } = proposalOf(PT_COMPLEX_REQUEST);
+  assert.deepEqual(conflicts, []);
+  assert.equal(settingFor(settings, 'genre')?.value, 'detetive noir');
+  assert.equal(settingFor(settings, 'simulation')?.value, 'dynamic');
+  assert.equal(settingFor(settings, 'pacing')?.value, 'slow');
+  assert.equal(settingFor(settings, 'combat')?.value, 'off');
+  assert.equal(settingFor(settings, 'voiceOutput')?.value, true);
+  assert.deepEqual(settingFor(settings, 'ruleset')?.value, { id: 'D&D', edition: '5ª edição' });
+  for (const setting of settings)
+    assert.equal(PT_COMPLEX_REQUEST.slice(setting.evidence.start, setting.evidence.end), setting.evidence.text);
+});
+
+test('rpg-42a.40 pt-BR setting cues mirror the English cues', () => {
+  const probes: [string, Partial<Record<ProposedSetting['field'], unknown>>][] = [
+    ['quero um mundo dinâmico mas ritmo tranquilo', { simulation: 'dynamic', pacing: 'slow' }],
+    ['um mundo vivo', { simulation: 'balanced' }],
+    ['uma aventura no mundo persistente', { genre: null, simulation: 'balanced' }],
+    ['mundo estático', { simulation: 'off' }],
+    ['sem simulação', { simulation: 'off' }],
+    ['ritmo equilibrado', { pacing: 'balanced' }],
+    ['ritmo rápido', { pacing: 'fast' }],
+    ['com combate tático', { combat: 'on' }],
+    ['com dados', { dice: 'on' }],
+    ['sem dados', { dice: 'off' }],
+    ['com dados animados', { diceVisualization: true }],
+    ['animação de dados', { diceVisualization: true }],
+    ['mostrar os dados', { diceVisualization: true }],
+    ['sem atributos', { attributes: 'off' }],
+    ['sem fichas de personagem', { attributes: 'off' }],
+    ['narração falada', { voiceOutput: true }],
+    ['texto para fala', { voiceOutput: true }],
+    ['comandos de voz', { voiceInput: true }],
+    ['controle por voz', { voiceInput: true }],
+    ['música ambiente', { ambience: true }],
+    ['trilha sonora', { ambience: true }],
+    ['história ramificada', { timeline: 'branching' }],
+    ['linha do tempo ramificada', { timeline: 'branching' }],
+  ];
+  for (const [text, expected] of probes) {
+    const fields = fieldsOf(text);
+    if (expected.genre === null) delete fields.genre;
+    const { genre: _genre, ...rest } = expected;
+    assert.deepEqual(fields, rest, text);
+  }
+});
+
+test('rpg-42a.40 pt-BR negation and clause breaks mirror the English cases', () => {
+  const probes: [string, Partial<Record<ProposedSetting['field'], unknown>>][] = [
+    ['não quero um mundo dinâmico', { simulation: 'off' }],
+    ['não quero música ambiente', { ambience: false }],
+    ['nunca um mundo dinâmico', { simulation: 'off' }],
+    ['sem narração por voz e música ambiente', { voiceOutput: false, ambience: false }],
+    ['sem comandos de voz', { voiceInput: false }],
+    ['sem animação de dados', { diceVisualization: false }],
+    ['sem combate mas um mundo dinâmico', { combat: 'off', simulation: 'dynamic' }],
+    ['nada de ritmo rápido', {}],
+    ['não quero uma história de terror', {}],
+    ['sem mundo estático', {}],
+    ['não D&D 5ª edição', {}],
+  ];
+  for (const [text, expected] of probes) assert.deepEqual(fieldsOf(text), expected, text);
+});
+
+test('rpg-42a.40 pt-BR genre and ruleset phrases are extracted and cues win over the genre phrase', () => {
+  const genres: [string, string][] = [
+    ['uma aventura de fantasia num mundo vasto', 'fantasia'],
+    ['um jogo de ficção científica', 'ficção científica'],
+    ['uma história de terror usando as regras Narrative', 'terror'],
+    ['uma aventura moderna', 'moderna'],
+    ['um mundo em branco', 'mundo em branco'],
+  ];
+  for (const [text, genre] of genres) assert.equal(settingFor(proposalOf(text).settings, 'genre')?.value, genre, text);
+  assert.equal(settingFor(proposalOf('uma história com dados').settings, 'genre'), undefined);
+  for (const [text, field, value] of [
+    ['quero uma aventura de ritmo rápido', 'pacing', 'fast'],
+    ['uma história ramificada', 'timeline', 'branching'],
+  ] as const) {
+    assert.equal(settingFor(proposalOf(text).settings, field)?.value, value, text);
+    assert.equal(settingFor(proposalOf(text).settings, 'genre'), undefined, text);
+  }
+  const rulesets: [string, unknown][] = [
+    ['usando as regras Narrative', { id: 'Narrative', edition: null }],
+    ['jogar no sistema d20-lite', { id: 'd20-lite', edition: null }],
+    ['com as regras de Call of Cthulhu', { id: 'Call of Cthulhu', edition: null }],
+    ['a 5ª edição de D&D', { id: 'D&D', edition: '5ª edição' }],
+    ['Pathfinder 2ª edição', { id: 'Pathfinder', edition: '2ª edição' }],
+  ];
+  for (const [text, value] of rulesets)
+    assert.deepEqual(settingFor(proposalOf(text).settings, 'ruleset')?.value, value, text);
+});
+
+test('rpg-42a.40 adversarial pt-BR input within the length bound completes quickly', () => {
+  const started = performance.now();
+  for (const unit of ['uma ', 'uma história de a ', 'não ', 'mundo ', 'no ', 'de ', '5ª edição ', 'Aã '])
+    assert.ok(
+      proposeCampaignIntent(unit.repeat(MAX_INTENT_TEXT_LENGTH / unit.length).slice(0, MAX_INTENT_TEXT_LENGTH)).ok,
+    );
+  assert.ok(performance.now() - started < ADVERSARIAL_BOUND_MS);
+});
+
+test('rpg-42a.40 a pt-BR "no" (in the) never negates a cue', () => {
+  const probes: [string, Partial<Record<ProposedSetting['field'], unknown>>][] = [
+    ['Uma aventura no espaço num mundo vivo', { simulation: 'balanced' }],
+    ['Uma história no Brasil com narração falada', { voiceOutput: true }],
+    ['Uma aventura no espaço com dados', { dice: 'on' }],
+    ['Quero uma campanha no Rio com combate tático', { combat: 'on' }],
+    ['Uma aventura no espaço em D&D 5ª edição', { ruleset: { id: 'D&D', edition: '5ª edição' } }],
+  ];
+  for (const [text, expected] of probes) {
+    const fields = fieldsOf(text);
+    delete fields.genre;
+    assert.deepEqual(fields, expected, text);
+  }
+});
+
+test('rpg-42a.40 pt-BR editions accept ª, º and a', () => {
+  for (const edition of ['5ª edição', '5º edição', '5a edição'])
+    assert.deepEqual(settingFor(proposalOf(`D&D ${edition}`).settings, 'ruleset')?.value, { id: 'D&D', edition });
+});

@@ -8,7 +8,7 @@ import { setTimeout } from 'node:timers/promises';
 import { PROTOCOL_VERSION } from '../../../packages/client-protocol/src/protocol.ts';
 import type { CampaignStore, CommittedTurn } from '../../../packages/domain/src/campaign.ts';
 import { GameMasterInterruptedError } from '../../../packages/engine/src/scripted-session.ts';
-import type { ContextPacket } from '../../../packages/memory/src/packet.ts';
+import { type ContextPacket, packetParts } from '../../../packages/memory/src/packet.ts';
 import { openDatabase } from '../../../packages/persistence/src/database.ts';
 import { type ProviderReply, startProviderServer, textReply } from '../../../packages/testkit/src/provider-server.ts';
 import {
@@ -24,7 +24,7 @@ import {
   openClientSession,
   readCampaignState,
 } from './engine-gateway.ts';
-import { API_KEY_ENV, apiRouteOf, FAKE_ROUTE, GM_API_URL_ENV, GM_ROUTE_ENV } from './gm-api.ts';
+import { API_KEY_ENV, apiRouteOf, FAKE_ROUTE, GM_API_URL_ENV, GM_ROUTE_ENV, languageInstruction } from './gm-api.ts';
 import { SCENE_TURN_LIMIT, type Summarizer } from './gm-context.ts';
 import { narrationOf } from './gm-segments.ts';
 import { hermeticGmEnv } from './gm-test-env.ts';
@@ -43,6 +43,7 @@ const NO_DELAY_MS = 0;
 const NO_CHARACTER = async () => undefined;
 const SUMMARY_WAIT_MS = 1_000;
 const STUCK = 'stuck';
+const PORTUGUESE = 'pt-BR';
 
 const tempDataDir = (t: TestContext) => {
   const dataDir = mkdtempSync(join(tmpdir(), 'rpg-api-gm-'));
@@ -85,6 +86,27 @@ const play = async (dataDir: string, gm: GameMaster, actions: readonly string[])
 const lastNarration = (dataDir: string) => readCampaignState(dataDir, CAMPAIGN).turns.at(-1)?.narration;
 
 describe('rpg-42a.28 API game master wiring', () => {
+  it('rpg-42a.40 a fake game master receives the campaign language instruction in the packet', async (t) => {
+    const dataDir = tempDataDir(t);
+    for await (const _ of createEngineGateway(dataDir).create(
+      CAMPAIGN,
+      undefined,
+      NO_CHARACTER,
+      undefined,
+      PORTUGUESE,
+    ));
+    const packets: ContextPacket[] = [];
+    const gm: GameMaster = {
+      narrator: (packet) => {
+        packets.push(packet);
+        return { narration: NARRATION, segments: [{ text: NARRATION }] };
+      },
+      summarizer: FAKE_GAME_MASTER.summarizer,
+    };
+    await play(dataDir, gm, [ACTION]);
+    assert.ok(packetParts(packets[0] ?? { sections: [] }).instructions.endsWith(languageInstruction(PORTUGUESE)));
+  });
+
   it('records the provider narration from a player-only brief', async (t) => {
     const dataDir = await seededCampaign(t);
     const { received, gm } = await providerGm(t, [textReply(NARRATION)]);

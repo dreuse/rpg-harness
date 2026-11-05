@@ -1,5 +1,11 @@
-import { KOKORO_CAPABILITIES, KOKORO_PROVIDER_ID, type KokoroCapabilities, speaksLanguage } from './kokoro-provider.ts';
-import { MLX_KOKORO_CAPABILITIES, MLX_KOKORO_PROVIDER_ID } from './mlx-audio-engine.ts';
+import {
+  KOKORO_CAPABILITIES,
+  KOKORO_PROVIDER_ID,
+  type KokoroCapabilities,
+  MLX_KOKORO_CAPABILITIES,
+  MLX_KOKORO_PROVIDER_ID,
+  speaksLanguage,
+} from './kokoro-provider.ts';
 import type { TtsProvider } from './tts.ts';
 import type { VoiceProfile } from './voice.ts';
 
@@ -26,6 +32,9 @@ const languageName = (language: string): string => {
 
 export const voicesFor = (language: string): LanguageVoices | undefined =>
   LANGUAGE_VOICES.find((entry) => speaksLanguage(entry.capabilities, language));
+
+export const voiceLocaleFor = (campaignLanguage: string, fallback: string): string =>
+  voicesFor(campaignLanguage) === undefined ? fallback : campaignLanguage;
 
 export const narratorFallback = (language: string): VoiceProfile['fallbacks'][number] | undefined => {
   const voices = voicesFor(language);

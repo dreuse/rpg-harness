@@ -42,7 +42,7 @@ import type { CampaignEntity, Relationship, Visibility } from '../../../packages
 import { EMPTY_GM_USAGE_TOTALS, type GmSettings } from '../../../packages/domain/src/gm.ts';
 import { playTurns, SHEET_FIELD_EDITED } from '../../../packages/engine/src/character.ts';
 import { currentEncounter } from '../../../packages/engine/src/encounter.ts';
-import type { Engine } from '../../../packages/engine/src/engine.ts';
+import { campaignLanguageOf, type Engine } from '../../../packages/engine/src/engine.ts';
 import { gmSettingsOf, gmUsageOf } from '../../../packages/engine/src/gm-settings.ts';
 import { CHECK_RESOLVED, campaignConfigOf } from '../../../packages/engine/src/turn.ts';
 import { voiceSettingsOf } from '../../../packages/engine/src/voice-settings.ts';
@@ -230,6 +230,7 @@ export const createClientSessions = (
     const { campaign, revision, characters, currentScene } = state;
     const events = readEvents(campaignId);
     const voice = voiceSettingsOf(events);
+    const language = campaignLanguageOf(events);
     const gm = gmSnapshotOf(events, defaults(), sessionId);
     const config = savedConfig(state.events);
     return deepFreeze(
@@ -241,6 +242,7 @@ export const createClientSessions = (
         characters,
         currentScene,
         turns: playTurns(state),
+        ...(language === undefined ? {} : { language }),
         ...(voice === undefined ? {} : { voice }),
         ...(gm === undefined ? {} : { gm }),
         ...(config === undefined ? {} : { rules: usageFor(config.rulepack) }),

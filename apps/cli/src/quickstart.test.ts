@@ -136,6 +136,19 @@ test('plain-English genre names resolve to installed genre ids', () => {
   assert.throws(() => planCampaign('a western story'), /not installed/);
 });
 
+test('rpg-42a.40 pt-BR genre names resolve to installed genre ids', () => {
+  const cases = [
+    ['uma história de mistério', 'investigative-mystery'],
+    ['uma aventura moderna', 'modern-adventure'],
+    ['um mundo em branco', 'blank-world'],
+    ['um jogo de ficção científica', 'science-fiction'],
+    ['uma aventura de fantasia num mundo vasto', 'fantasy'],
+    ['uma história de terror usando as regras Narrative', 'horror'],
+  ] as const;
+  for (const [text, id] of cases) assert.equal(planCampaign(text).genre?.id, id, text);
+  assert.throws(() => planCampaign('uma história de faroeste'), /not installed/);
+});
+
 const PLAN = { version: PROTOCOL_VERSION, type: 'PlanCampaign' } as const;
 const DOCUMENTED_DEFAULTS = [
   { field: 'ruleset', value: 'none', provenance: 'default' },

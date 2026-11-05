@@ -4,6 +4,7 @@ import {
   CAMPAIGN_RENAMED,
   type Campaign,
   type CampaignChange,
+  type CampaignEvent,
   type CampaignId,
   CampaignNotFoundError,
   type CampaignState,
@@ -12,14 +13,14 @@ import {
   MAIN_BRANCH,
 } from '../../domain/src/campaign.ts';
 import type { GmSettings } from '../../domain/src/gm.ts';
-import type { SavedVoiceSettings } from '../../domain/src/voice.ts';
+import { isLocale, type SavedVoiceSettings } from '../../domain/src/voice.ts';
 import type { Rng } from '../../rules/src/dice.ts';
 import { type GmSettingsSave, saveGmSettings } from './gm-settings.ts';
 import { type Check, type PlayerAction, performAction } from './turn.ts';
 import { saveVoiceSettings, type VoiceSettingsSave } from './voice-settings.ts';
 
 export type Engine = {
-  createCampaign(name: string): Campaign;
+  createCampaign(name: string, language?: string): Campaign;
   getCampaign(id: CampaignId): Campaign;
   getState(id: CampaignId): CampaignState;
   renameCampaign(id: CampaignId, name: string): Campaign;
@@ -28,14 +29,19 @@ export type Engine = {
   saveGmSettings(save: GmSettingsSave): GmSettings;
 };
 
-const change = ({ id, name }: Campaign, type: string): CampaignChange => ({
+const change = ({ id, name }: Campaign, type: string, language?: string): CampaignChange => ({
   id: randomUUID(),
   campaignId: id,
   branchId: MAIN_BRANCH,
   actionId: randomUUID(),
   type,
-  payload: { name },
+  payload: language === undefined ? { name } : { name, language },
 });
+
+export const campaignLanguageOf = (events: readonly Pick<CampaignEvent, 'type' | 'payload'>[]): string | undefined => {
+  const language = events.find(({ type }) => type === CAMPAIGN_CREATED)?.payload.language;
+  return isLocale(language) ? language : undefined;
+};
 
 const loadState = (store: CampaignStore, id: CampaignId) => {
   const state = store.load(id);
@@ -44,9 +50,10 @@ const loadState = (store: CampaignStore, id: CampaignId) => {
 };
 
 export const createEngine = (store: CampaignStore, rng: Rng = Math.random): Engine => ({
-  createCampaign: (name) => {
+  createCampaign: (name, language) => {
+    if (language !== undefined && !isLocale(language)) throw new RangeError(`invalid campaign language ${language}`);
     const campaign = { id: randomUUID(), name };
-    store.createCampaign(campaign, change(campaign, CAMPAIGN_CREATED));
+    store.createCampaign(campaign, change(campaign, CAMPAIGN_CREATED, language));
     return campaign;
   },
   getCampaign: (id) => loadState(store, id).campaign,

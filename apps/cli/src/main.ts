@@ -36,7 +36,13 @@ export type CampaignMode = 'play' | 'resume';
 
 export type CampaignGateway = {
   home: (terminal: Terminal) => Promise<void>;
-  create: (name: string, intent: string | undefined, ask: Ask, client?: string) => AsyncIterable<string>;
+  create: (
+    name: string,
+    intent: string | undefined,
+    ask: Ask,
+    client?: string,
+    language?: string,
+  ) => AsyncIterable<string>;
   list: () => string;
   archive: (campaign: string) => string;
   remove: (campaign: string, lines: AsyncIterable<string>) => AsyncIterable<string>;
@@ -274,7 +280,7 @@ export const main = async (argv: readonly string[], io: Io, gateway: CampaignGat
     if (unexpected.length > 0) return unexpectedArgument(unexpected[0]);
     return run(io, () =>
       command === 'new'
-        ? withAsk(io, (ask) => gateway.create(name, intent, ask, client))
+        ? withAsk(io, (ask) => gateway.create(name, intent, ask, client, io.locale))
         : gateway.open(
             name,
             command,

@@ -99,6 +99,7 @@ const VALID_COMMANDS = [
   LIST_CAMPAIGNS,
   CREATE,
   { ...CREATE, intent: 'a grim fantasy heist' },
+  { ...CREATE, language: 'pt-BR' },
   { ...CREATE, choices: { genre: 'fantasy', ruleset: { id: 'd20-lite', edition: null } } },
   ARCHIVE,
   DELETE,
@@ -289,6 +290,8 @@ test('rpg-42a.12: campaign lifecycle commands reject malformed or unexpected fie
     assert.equal(code(parseCommand({ ...CREATE, choices })), 'MalformedCommand');
   }
   assert.equal(code(parseCommand({ ...CREATE, intent: 'fantasy', choices: {} })), 'MalformedCommand');
+  for (const language of ['', 'not a locale!', 7])
+    assert.equal(code(parseCommand({ ...CREATE, language })), 'MalformedCommand', String(language));
   assert.equal(code(parseCommand({ ...PLAN, intent: 'fantasy', choices: {} })), 'MalformedCommand');
   assert.equal(code(parseCommand({ ...PLAN, name: 'Ashfall' })), 'UnexpectedField');
   assert.equal(code(parseCommand({ ...PLAN, campaignId: CAMPAIGN_ID })), 'UnexpectedField');

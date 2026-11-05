@@ -15,6 +15,7 @@ import { createCampaignStore } from '../../../packages/persistence/src/campaign-
 import { openDatabase } from '../../../packages/persistence/src/database.ts';
 import { createEntityStore, createFactStore } from '../../../packages/persistence/src/entity-store.ts';
 import { createEventStore } from '../../../packages/persistence/src/event-store.ts';
+import { languageInstruction, SYSTEM_PROMPT } from './gm-api.ts';
 import {
   CHAPTER_SCENE_COUNT,
   contextPacketOf,
@@ -25,6 +26,7 @@ import {
 } from './gm-context.ts';
 
 const IN_MEMORY = ':memory:';
+const PORTUGUESE = 'pt-BR';
 const CAMPAIGN = { id: 'campaign-1', name: 'Long Road' };
 const CREATED_EVENT = {
   id: 'created-1',
@@ -48,11 +50,11 @@ const ILSE = 'ilse';
 const PUBLIC = { visibility: 'public' as const, actorId: null };
 const SECRET = { visibility: 'gm' as const, actorId: null };
 
-const campaign = () => {
+const campaign = (payload: Readonly<Record<string, unknown>> = CREATED_EVENT.payload) => {
   const connection = openDatabase(IN_MEMORY);
   const { database } = connection;
   const store = createCampaignStore(database);
-  store.createCampaign(CAMPAIGN, CREATED_EVENT);
+  store.createCampaign(CAMPAIGN, { ...CREATED_EVENT, payload });
   openScene(store, { campaignId: CAMPAIGN.id, actorName: 'Mara', sceneTitle: 'The Docks', narration: 'Gulls cry.' });
   const entities = createEntityStore(database);
   const facts = createFactStore(database);
@@ -132,6 +134,37 @@ const longCampaign = () => {
   return fixture;
 };
 
+it('rpg-42a.40 asks for narration and summaries in the campaign language', async () => {
+  const fixture = campaign({ ...CREATED_EVENT.payload, language: PORTUGUESE });
+  const instructions = (of: ReturnType<typeof campaign>) =>
+    packetAt(of, play(of.store, 'turn-1')).sections.find(({ name }) => name === 'instructions')?.items;
+  assert.deepEqual(instructions(fixture), [SYSTEM_PROMPT, languageInstruction(PORTUGUESE)]);
+  const languages = new Set<string | undefined>();
+  playUntil(fixture, 2, SCENE_TURN_LIMIT + 2);
+  await summarizeCampaign(fixture.database, fixture.store, CAMPAIGN.id, async (_level, texts, language) => {
+    languages.add(language);
+    return texts.join(' ');
+  });
+  assert.deepEqual([...languages], [PORTUGUESE]);
+  fixture.connection.close();
+});
+
+it('rpg-42a.40 a campaign without a recorded language gets no language line', async () => {
+  const fixture = campaign();
+  const instructions = packetAt(fixture, play(fixture.store, 'turn-1')).sections.find(
+    ({ name }) => name === 'instructions',
+  )?.items;
+  assert.deepEqual(instructions, [SYSTEM_PROMPT]);
+  const languages = new Set<string | undefined>();
+  playUntil(fixture, 2, SCENE_TURN_LIMIT + 2);
+  await summarizeCampaign(fixture.database, fixture.store, CAMPAIGN.id, async (_level, texts, language) => {
+    languages.add(language);
+    return texts.join(' ');
+  });
+  assert.deepEqual([...languages], [undefined]);
+  fixture.connection.close();
+});
+
 it('rpg-42a.36 leaves out pending items beyond the pending hop limit', () => {
   const fixture = campaign();
   meetIlse(fixture);
@@ -165,9 +198,9 @@ it('rpg-42a.36 overlapping summary runs write each scene summary once', async ()
   const fixture = campaign();
   playUntil(fixture, NPC_TURN + 1, NPC_TURN + 1 + SCENE_TURN_LIMIT);
   const gate = Promise.withResolvers<void>();
-  const slow: Summarizer = async (level, texts) => {
+  const slow: Summarizer = async (level, texts, language) => {
     await gate.promise;
-    return fakeSummarizer(level, texts);
+    return fakeSummarizer(level, texts, language);
   };
   const runs = [1, 2].map(() => summarizeCampaign(fixture.database, fixture.store, CAMPAIGN.id, slow));
   gate.resolve();

@@ -32,6 +32,7 @@ export interface KokoroProvider extends TtsProvider {
 }
 
 export const KOKORO_PROVIDER_ID = 'kokoro';
+export const MLX_KOKORO_PROVIDER_ID = 'kokoro-mlx';
 export const KOKORO_IDLE_TIMEOUT_MS = 300_000;
 export const KOKORO_MAX_CONCURRENT = 1;
 export const KOKORO_MIME_TYPE = 'audio/wav';
@@ -263,3 +264,10 @@ export const createKokoroProvider = ({
     },
   };
 };
+
+export const MLX_KOKORO_CAPABILITIES: KokoroCapabilities = Object.freeze({
+  languages: Object.freeze(['pt-BR']),
+  voices: Object.freeze(['pf_dora', 'pm_alex', 'pm_santa']),
+  streaming: true,
+  emotion: false,
+});

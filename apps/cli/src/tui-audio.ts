@@ -5,6 +5,7 @@ import {
   type SavedVoiceSettings,
 } from '../../../packages/client-protocol/src/protocol.ts';
 import type { CampaignId } from '../../../packages/domain/src/campaign.ts';
+import { voiceLocaleFor } from '../../../packages/voice/src/language-voices.ts';
 import { DEFAULT_PLAYBACK_SPEED } from '../../../packages/voice/src/playback.ts';
 import { applyPlaybackCommand, type PlaybackControl } from '../../../packages/voice/src/playback-controls.ts';
 import { DEFAULT_VOICE_SETTINGS } from '../../../packages/voice/src/voice.ts';
@@ -85,7 +86,9 @@ export const defaultTuiAudio = (client: ClientSession, campaignId: CampaignId): 
   const snapshot = () => client.getSnapshot({ version: PROTOCOL_VERSION, type: 'GetCampaignSnapshot', campaignId });
   const current = snapshot();
   const saved = current.ok ? current.value.voice : undefined;
-  const { locale } = Intl.DateTimeFormat().resolvedOptions();
+  const { locale: systemLocale } = Intl.DateTimeFormat().resolvedOptions();
+  const language = current.ok ? current.value.language : undefined;
+  const locale = language === undefined ? systemLocale : voiceLocaleFor(language, systemLocale);
   const fallback: SavedVoiceSettings = {
     microphone: MICROPHONE_OFF,
     spokenOutput: DEFAULT_VOICE_SETTINGS.spokenOutput,
