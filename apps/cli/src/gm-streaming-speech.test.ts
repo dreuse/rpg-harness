@@ -125,9 +125,9 @@ describe('rpg-cm63.17 streaming speech in the GM turn flow', () => {
     const gate = Promise.withResolvers<void>();
     const gm: GameMaster = {
       request: async (_packet, { onSegment }) => {
-        onSegment?.(FIRST);
+        onSegment?.({ text: FIRST });
         await gate.promise;
-        onSegment?.(SECOND);
+        onSegment?.({ text: SECOND });
         return reply(`${FIRST} ${SECOND}`);
       },
       summarizer: FAKE_GAME_MASTER.summarizer,
@@ -149,7 +149,7 @@ describe('rpg-cm63.17 streaming speech in the GM turn flow', () => {
     const { dataDir, played, runtime } = await setup(t, [kokoro([]), kokoro([], 'kokoro-mlx')]);
     const gm: GameMaster = {
       request: async (_packet, { onSegment }) => {
-        onSegment?.(FIRST);
+        onSegment?.({ text: FIRST });
         return reply(FIRST);
       },
       summarizer: FAKE_GAME_MASTER.summarizer,
@@ -168,7 +168,7 @@ describe('rpg-cm63.17 streaming speech in the GM turn flow', () => {
     const { dataDir, runtime } = await setup(t, [kokoro(english), kokoro(portuguese, 'kokoro-mlx')], 'pt-BR');
     const gm: GameMaster = {
       request: async (_packet, { onSegment }) => {
-        onSegment?.(FIRST);
+        onSegment?.({ text: FIRST });
         return reply(FIRST);
       },
       summarizer: FAKE_GAME_MASTER.summarizer,
@@ -271,7 +271,7 @@ describe('rpg-cm63.17 streaming speech in the GM turn flow', () => {
     const { dataDir, runtime } = await setup(t);
     const gm: GameMaster = {
       request: async (_packet, { onSegment }) => {
-        onSegment?.(FIRST);
+        onSegment?.({ text: FIRST });
         return reply(FIRST);
       },
       summarizer: FAKE_GAME_MASTER.summarizer,
@@ -303,6 +303,28 @@ describe('rpg-cm63.17 streaming speech in the GM turn flow', () => {
     await runtime.speech.idle();
     assert.deepEqual(streams, [false]);
     assert.deepEqual(played, []);
+  });
+
+  it('rpg-cm63.36: speaks a streamed NPC segment with the NPC voice and the narrator segment with the narrator voice', async (t) => {
+    const { dataDir, played, runtime } = await setup(t);
+    const gm: GameMaster = {
+      request: async (_packet, { onSegment }) => {
+        onSegment?.({ text: FIRST });
+        onSegment?.({ speakerId: 'old-tam', text: 'Sit down, stranger.' });
+        return reply(`${FIRST} Sit down, stranger.`, [
+          { text: FIRST },
+          { speakerId: 'old-tam', text: 'Sit down, stranger.' },
+        ]);
+      },
+      summarizer: FAKE_GAME_MASTER.summarizer,
+    };
+    const opened = openWith(dataDir, gm, runtime);
+    t.after(() => opened.close());
+    submit(opened, {});
+    await opened.narrate();
+    await runtime.speech.idle();
+    assert.deepEqual(played, [`narrator|${FIRST}`, 'old-tam|Sit down, stranger.']);
+    assert.equal(readCampaignState(dataDir, CAMPAIGN).turns.at(-1)?.narration, `${FIRST} Sit down, stranger.`);
   });
 
   it('uses the tagged non-streaming reply in dialogue mode and speaks only the dialogue', async (t) => {
@@ -340,8 +362,8 @@ describe('rpg-cm63.17 streaming speech in the GM turn flow', () => {
     blocked.current = true;
     const gm: GameMaster = {
       request: async (_packet, { onSegment }) => {
-        onSegment?.(FIRST);
-        onSegment?.(SECOND);
+        onSegment?.({ text: FIRST });
+        onSegment?.({ text: SECOND });
         await settle();
         throw new ProviderError('stream broke');
       },
@@ -361,7 +383,7 @@ describe('rpg-cm63.17 streaming speech in the GM turn flow', () => {
     const gm: GameMaster = {
       request: async (_packet, { onSegment }) => {
         runtime.speech.stop();
-        onSegment?.(FIRST);
+        onSegment?.({ text: FIRST });
         return reply(FIRST);
       },
       summarizer: FAKE_GAME_MASTER.summarizer,
@@ -375,10 +397,17 @@ describe('rpg-cm63.17 streaming speech in the GM turn flow', () => {
   });
 
   it('the api route streams with stream:true only when the turn speaks', async (t) => {
-    const { dataDir, runtime } = await setup(t);
+    const { dataDir, played, runtime } = await setup(t);
     const sse = (event: object) => `data: ${JSON.stringify(event)}\n\n`;
-    const text = (value: string) => sse({ type: 'content_block_delta', delta: { type: 'text_delta', text: value } });
-    const provider = await startProviderServer([{ body: `${text(`${FIRST} `)}${text(SECOND)}` }]);
+    const toolStart = sse({
+      type: 'content_block_start',
+      index: 0,
+      content_block: { type: 'tool_use', id: 'toolu_1', name: 'narrate', input: {} },
+    });
+    const input = (value: string) =>
+      sse({ type: 'content_block_delta', index: 0, delta: { type: 'input_json_delta', partial_json: value } });
+    const segments = JSON.stringify({ segments: [{ text: FIRST }, { speakerId: 'old-tam', text: SECOND }] });
+    const provider = await startProviderServer([{ body: `${toolStart}${input(segments)}` }]);
     t.after(provider.close);
     const gm = apiGameMaster({ ...apiRouteOf(KEY, { [GM_API_URL_ENV]: provider.url }), retryDelayMs: 0 });
     const opened = openWith(dataDir, gm, runtime);
@@ -387,6 +416,7 @@ describe('rpg-cm63.17 streaming speech in the GM turn flow', () => {
     await opened.narrate();
     await runtime.speech.idle();
     assert.equal(provider.received[0]?.body.stream, true);
+    assert.deepEqual(played, [`narrator|${FIRST}`, `old-tam|${SECOND}`]);
     assert.equal(readCampaignState(dataDir, CAMPAIGN).turns.at(-1)?.narration, `${FIRST} ${SECOND}`);
     assert.ok(!FALLBACK_WORDS.includes(FIRST));
   });
@@ -396,8 +426,8 @@ describe('rpg-cm63.22 streamed narration for the desktop', () => {
   const streamingGm = (streams: boolean[]): GameMaster => ({
     request: async (_packet, { onSegment }) => {
       streams.push(onSegment !== undefined);
-      onSegment?.(FIRST);
-      onSegment?.(SECOND);
+      onSegment?.({ text: FIRST });
+      onSegment?.({ text: SECOND });
       return reply(`${FIRST} ${SECOND}`);
     },
     summarizer: FAKE_GAME_MASTER.summarizer,

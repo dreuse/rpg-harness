@@ -37,16 +37,28 @@ const harness = (mode: Parameters<typeof createTurnSpeech>[0]['mode'] = 'full') 
 
 test('the first streamed sentence opens the turn and is held before the reply ends', () => {
   const { turn, calls } = harness();
-  turn.heard(FIRST);
+  turn.heard({ text: FIRST });
   assert.deepEqual(calls, [`commit:${TURN}`, `hold:${TURN}:${FIRST}`]);
-  turn.heard(SECOND);
+  turn.heard({ text: SECOND });
   assert.deepEqual(calls.slice(2), [`hold:${TURN}:${SECOND}`]);
+});
+
+test('rpg-cm63.36: a streamed NPC segment is spoken in full mode and skipped in narrator mode', () => {
+  const NPC_LINE = { speakerId: 'old-tam', text: 'Sit down, stranger.' };
+  const full = harness('full');
+  full.turn.heard({ text: FIRST });
+  full.turn.heard(NPC_LINE);
+  assert.deepEqual(full.calls.slice(1), [`hold:${TURN}:${FIRST}`, `hold:${TURN}:${NPC_LINE.text}`]);
+  const narratorOnly = harness('narrator');
+  narratorOnly.turn.heard({ text: FIRST });
+  narratorOnly.turn.heard(NPC_LINE);
+  assert.deepEqual(narratorOnly.calls.slice(1), [`hold:${TURN}:${FIRST}`]);
 });
 
 test('a streamed reply that matches the recorded narration is kept', () => {
   const { turn, calls } = harness();
-  turn.heard(FIRST);
-  turn.heard(SECOND);
+  turn.heard({ text: FIRST });
+  turn.heard({ text: SECOND });
   turn.settle({ narration: `${FIRST}\n\n${SECOND}`, segments: [{ text: `${FIRST} ${SECOND}` }] });
   assert.ok(!calls.some((call) => call.startsWith('reject')));
   assert.equal(calls.at(-1), `finish:${TURN}`);
@@ -54,7 +66,7 @@ test('a streamed reply that matches the recorded narration is kept', () => {
 
 test('a streamed reply replaced by a different narration discards the queued audio', () => {
   const { turn, calls } = harness();
-  turn.heard(FIRST);
+  turn.heard({ text: FIRST });
   turn.settle({
     narration: 'The game master is unavailable.',
     segments: [{ text: 'The game master is unavailable.' }],
@@ -64,7 +76,7 @@ test('a streamed reply replaced by a different narration discards the queued aud
 
 test('abandon discards the queued audio of a failed stream', () => {
   const { turn, calls } = harness();
-  turn.heard(FIRST);
+  turn.heard({ text: FIRST });
   turn.abandon();
   assert.deepEqual(calls.slice(-2), [`reject:${TURN}`, `finish:${TURN}`]);
 });
@@ -119,9 +131,9 @@ test('the narrator profile uses the saved locale and its default voice', () => {
 
 test('a stop during the turn drops its remaining streamed and recorded speech', () => {
   const { turn, calls, generation } = harness();
-  turn.heard(FIRST);
+  turn.heard({ text: FIRST });
   generation.current += 1;
-  turn.heard(SECOND);
+  turn.heard({ text: SECOND });
   turn.settle({ narration: `${FIRST} ${SECOND}`, segments: [{ text: `${FIRST} ${SECOND}` }] });
   assert.deepEqual(calls, [`commit:${TURN}`, `hold:${TURN}:${FIRST}`, `finish:${TURN}`]);
 });
@@ -143,7 +155,7 @@ test('a failing utterance builder never breaks the turn and discards its audio',
       throw new Error('no profile');
     },
   });
-  assert.doesNotThrow(() => turn.heard(FIRST));
+  assert.doesNotThrow(() => turn.heard({ text: FIRST }));
   assert.doesNotThrow(() => turn.settle({ narration: FIRST, segments: [{ text: FIRST }] }));
   assert.ok(calls.includes(`reject:${TURN}`));
 });
@@ -171,7 +183,7 @@ test('an utterance held for speech carries the saved speed as its profile pace i
       utterancesOf: (segments) =>
         segments.map(({ text }) => ({ ...utteranceOf(text), profile: narratorProfileOf('en', FAST) })),
     });
-    turn.heard(FIRST);
+    turn.heard({ text: FIRST });
     assert.equal(held[0]?.profile.pace, FAST, mode);
   }
 });

@@ -1,8 +1,4 @@
-import { isRecord } from './gm-segments.ts';
-
 const DATA_PREFIX = 'data:';
-const TEXT_DELTA = 'text_delta';
-const BLOCK_DELTA = 'content_block_delta';
 const LINE_BREAK = '\n';
 
 export async function* sseLinesOf(chunks: AsyncIterable<Uint8Array>): AsyncGenerator<string> {
@@ -18,21 +14,11 @@ export async function* sseLinesOf(chunks: AsyncIterable<Uint8Array>): AsyncGener
   if (buffer !== '') yield buffer;
 }
 
-const deltaOf = (line: string): string | undefined => {
+export const sseEventOf = (line: string): unknown => {
   if (!line.startsWith(DATA_PREFIX)) return undefined;
   try {
-    const event: unknown = JSON.parse(line.slice(DATA_PREFIX.length));
-    if (!isRecord(event) || event.type !== BLOCK_DELTA || !isRecord(event.delta)) return undefined;
-    const { type, text } = event.delta;
-    return type === TEXT_DELTA && typeof text === 'string' ? text : undefined;
+    return JSON.parse(line.slice(DATA_PREFIX.length));
   } catch {
     return undefined;
   }
 };
-
-export async function* sseTextDeltasOf(lines: AsyncIterable<string>): AsyncGenerator<string> {
-  for await (const line of lines) {
-    const text = deltaOf(line);
-    if (text !== undefined) yield text;
-  }
-}

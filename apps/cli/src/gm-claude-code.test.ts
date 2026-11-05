@@ -351,6 +351,25 @@ describe('rpg-42a.33 Claude Code CLI game master', () => {
     assert.equal(reply.narration, NARRATION);
   });
 
+  it('rpg-cm63.36: a stream reply that leaks a proposals block falls back to the non-stream route once', async (t) => {
+    const leaked = resultOf({ result: '**Narration:** Rain.\n\n**Proposals:**\n- Entity: old-tam (npc)' });
+    const { bin, calls } = fakeClaude(t, [{ stdout: leaked }, { stdout: resultOf() }]);
+    const gm = claudeCodeGameMaster(routeFor(bin));
+    assert.ok('request' in gm);
+    const heard: string[] = [];
+    const reply = await gm.request(packet(), {
+      databasePath: DATABASE,
+      model: undefined,
+      onSegment: ({ text }) => heard.push(text),
+    });
+    assert.deepEqual(heard, []);
+    assert.equal(reply.narration, NARRATION);
+    assert.deepEqual(
+      calls().map(({ args }) => valueAfter(args, '--output-format')),
+      ['stream-json', 'json'],
+    );
+  });
+
   it('rpg-cm63.3: the Claude Code game master returns segments joined to the narration', async (t) => {
     const segments = [{ text: NARRATION }, { speakerId: 'npc-stranger', text: 'Sit.' }];
     const { bin } = fakeClaude(t, [{ stdout: resultOf({ structured_output: { segments } }) }]);

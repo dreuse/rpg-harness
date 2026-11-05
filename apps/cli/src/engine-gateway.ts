@@ -92,7 +92,7 @@ import {
   requestClaudeNarration,
   requestClaudeSummary,
 } from './gm-claude-code.ts';
-import { requestClaudeStream } from './gm-claude-stream.ts';
+import { MalformedStreamReply, requestClaudeStream } from './gm-claude-stream.ts';
 import { contextPacketOf, fakeSummarizer, openingPacketOf, type Summarizer, summarizeCampaign } from './gm-context.ts';
 import { readGmDefaults, writeGmDefaults } from './gm-defaults.ts';
 import { requestFitting, TOO_LONG_MESSAGE } from './gm-limits.ts';
@@ -245,7 +245,7 @@ const narratingEngine = (
 type GmCall = {
   readonly databasePath: string;
   readonly model: string | undefined;
-  readonly onSegment?: (segment: string) => void;
+  readonly onSegment?: (segment: GmSegment) => void;
 };
 type GmTurnReply = {
   readonly narration: string;
@@ -328,7 +328,11 @@ export const claudeCodeGameMaster = (route: ClaudeCodeRoute): GameMaster =>
       const routed = { ...route, model: chosen(model) ?? route.model };
       return onSegment === undefined
         ? requestClaudeNarration(routed, packet, databasePath)
-        : requestClaudeStream(routed, packet, onSegment);
+        : requestClaudeStream(routed, packet, onSegment).catch((error: unknown) =>
+            error instanceof MalformedStreamReply
+              ? requestClaudeNarration(routed, packet, databasePath)
+              : Promise.reject(error),
+          );
     },
     (level, texts, language, model) =>
       requestClaudeSummary({ ...route, summaryModel: chosen(model) ?? route.summaryModel }, level, texts, language),
@@ -372,15 +376,15 @@ const streamOf = (voice: TurnSpeech | undefined, listener: StreamedSegment | und
   const heard = voice?.streams ? voice.heard : undefined;
   const shown = voice?.streams ? listener : undefined;
   if (heard === undefined && shown === undefined) return undefined;
-  return (segment: string) => {
+  return (segment: GmSegment) => {
     heard?.(segment);
-    shown?.(turnId, segment);
+    shown?.(turnId, segment.text);
   };
 };
 
 const narrateLatest = async (
   { engine, store, campaignId, database }: Session,
-  request: (packet: ContextPacket, onSegment?: (segment: string) => void) => Promise<GmTurnReply>,
+  request: (packet: ContextPacket, onSegment?: (segment: GmSegment) => void) => Promise<GmTurnReply>,
   sessionId: string,
   speak: SpeakTurn,
   calibrates: boolean,

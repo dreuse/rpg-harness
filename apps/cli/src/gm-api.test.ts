@@ -39,7 +39,7 @@ import {
   streamNarration,
   summaryRouteOf,
 } from './gm-api.ts';
-import { narrationOf, SEGMENTS_SCHEMA } from './gm-segments.ts';
+import { type GmSegment, narrationOf, SEGMENTS_SCHEMA } from './gm-segments.ts';
 
 const LOCALHOST = '127.0.0.1';
 const BAD_REQUEST = 400;
@@ -347,30 +347,55 @@ describe('rpg-42a.28 Anthropic Messages API narrator', () => {
 
 describe('rpg-cm63.17 streamed API narration', () => {
   const sse = (event: object) => `data: ${JSON.stringify(event)}\n\n`;
-  const delta = (text: string) => sse({ type: 'content_block_delta', delta: { type: 'text_delta', text } });
-  const streamBody = (...texts: string[]) =>
+  const textDelta = (text: string) =>
+    sse({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text } });
+  const toolStart = sse({
+    type: 'content_block_start',
+    index: 1,
+    content_block: { type: 'tool_use', id: 'toolu_1', name: NARRATE_TOOL, input: {} },
+  });
+  const inputDelta = (partial_json: string) =>
+    sse({ type: 'content_block_delta', index: 1, delta: { type: 'input_json_delta', partial_json } });
+  const FIRST = 'The door creaks open slowly.';
+  const SECOND = 'Dust falls from the beams.';
+  const PROPOSAL = {
+    kind: 'entity',
+    id: 'old-tam',
+    entityKind: 'npc',
+    name: 'Old Tam',
+    visibility: 'player',
+  };
+  const INPUT = JSON.stringify({
+    segments: [{ text: FIRST }, { speakerId: 'old-tam', text: SECOND, important: true }],
+    proposals: [PROPOSAL],
+  });
+  const streamBody = (...parts: string[]) =>
     [
       sse({ type: 'message_start', message: { usage: { input_tokens: 900, cache_read_input_tokens: 1200 } } }),
-      ...texts.map(delta),
+      textDelta('**Narration:** Preamble. **Proposals:** - Entity: old-tam'),
+      toolStart,
+      ...parts.map(inputDelta),
       sse({ type: 'message_delta', usage: { output_tokens: 70 } }),
       sse({ type: 'message_stop' }),
     ].join('');
-  const FIRST = 'The door creaks open slowly.';
-  const SECOND = 'Dust falls from the beams.';
+  const split = (input: string) => [input.slice(0, 20), input.slice(20, 60), input.slice(60)];
 
-  it('sends stream:true without the narrate tool and speaks each finished sentence while it streams', async (t) => {
-    const { received, route } = await startProvider(t, [
-      { body: streamBody('The door creaks ', 'open slowly. ', SECOND) },
-    ]);
-    const heard: string[] = [];
+  it('sends stream:true with the narrate tool and hands each structured segment over with its speaker', async (t) => {
+    const { received, route } = await startProvider(t, [{ body: streamBody(...split(INPUT)) }]);
+    const heard: GmSegment[] = [];
     const reply = await streamNarration(route, packet(), (segment) => heard.push(segment));
     const body = received[0]?.body;
     assert.equal(body?.stream, true);
-    assert.equal(body?.tools, undefined);
-    assert.equal(body?.tool_choice, undefined);
-    assert.deepEqual(heard, [FIRST, SECOND]);
+    assert.equal((body?.tool_choice as { name?: string } | undefined)?.name, NARRATE_TOOL);
+    const expected = [{ text: FIRST }, { speakerId: 'old-tam', text: SECOND, important: true }];
+    assert.deepEqual(heard, expected);
+    assert.deepEqual(reply.segments, expected);
     assert.equal(reply.narration, `${FIRST} ${SECOND}`);
-    assert.deepEqual(reply.segments, [{ text: `${FIRST} ${SECOND}` }]);
+    assert.deepEqual(
+      reply.proposals?.map(({ id }) => id),
+      ['old-tam'],
+    );
+    assert.doesNotMatch(JSON.stringify([heard, reply.segments, reply.narration]), /Preamble|Proposals|\*\*/);
     assert.deepEqual(reply.usage, {
       model: DEFAULT_GM_MODEL,
       inputTokens: 900,
@@ -380,18 +405,17 @@ describe('rpg-cm63.17 streamed API narration', () => {
     });
   });
 
-  it('keeps paragraph breaks in the recorded narration while the callback gets trimmed segments', async (t) => {
-    const { route } = await startProvider(t, [{ body: streamBody(`${FIRST}\n\n`, SECOND) }]);
-    const heard: string[] = [];
-    const reply = await streamNarration(route, packet(), (segment) => heard.push(segment));
-    assert.deepEqual(heard, [FIRST, SECOND]);
-    assert.equal(reply.narration, `${FIRST}\n\n${SECOND}`);
-    assert.deepEqual(reply.segments, [{ text: `${FIRST}\n\n${SECOND}` }]);
+  it('speaks the first segment before the rest of the input arrives', async (t) => {
+    const first = '{"segments":[{"text":"The door creaks open slowly."},';
+    const { route } = await startProvider(t, [{ body: streamBody(first, '{"text":"Dust."}]}') }]);
+    const order: string[] = [];
+    await streamNarration(route, packet(), ({ text }) => order.push(text));
+    assert.deepEqual(order, [FIRST, 'Dust.']);
   });
 
   it('retries a retryable status before any text arrives', async (t) => {
-    const { received, route } = await startProvider(t, [{ status: BAD_GATEWAY }, { body: streamBody(FIRST) }]);
-    assert.equal((await streamNarration(route, packet(), () => {})).narration, FIRST);
+    const { received, route } = await startProvider(t, [{ status: BAD_GATEWAY }, { body: streamBody(INPUT) }]);
+    assert.equal((await streamNarration(route, packet(), () => {})).narration, `${FIRST} ${SECOND}`);
     assert.equal(received.length, 2);
   });
 
@@ -400,7 +424,7 @@ describe('rpg-cm63.17 streamed API narration', () => {
     assertRedacted(await failureOf(streamNarration(route, packet(), () => {})));
   });
 
-  it('fails when the stream carries no text', async (t) => {
+  it('fails when the stream carries no narrate input', async (t) => {
     const { route } = await startProvider(t, [{ body: streamBody() }]);
     await failureOf(streamNarration(route, packet(), () => {}));
   });

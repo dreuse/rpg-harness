@@ -8,8 +8,9 @@ import type { SummaryLevel } from '../../../packages/memory/src/history.ts';
 import { type ContextPacket, frameData, packetParts } from '../../../packages/memory/src/packet.ts';
 import type { SecretReader } from '../../../packages/voice/src/providers.ts';
 import { type GmProposal, proposalsOf } from './gm-proposals.ts';
+import { toolInputStream } from './gm-segment-stream.ts';
 import { type GmSegment, isRecord, narrationOf, narratorSegments, SEGMENTS_SCHEMA, segmentsOf } from './gm-segments.ts';
-import { sseLinesOf, sseTextDeltasOf } from './gm-sse.ts';
+import { sseEventOf, sseLinesOf } from './gm-sse.ts';
 
 export { isRecord };
 
@@ -106,7 +107,6 @@ const TEXT_BLOCK = 'text';
 const TOOL_USE_BLOCK = 'tool_use';
 const EPHEMERAL_CACHE = { type: 'ephemeral' } as const;
 const DARWIN = 'darwin';
-const STREAMING_SPEECH_MODULE = '../../../packages/voice/src/streaming-speech.ts';
 
 export type ApiRoute = {
   readonly key: string;
@@ -334,10 +334,9 @@ const streamUsageOf = (line: string): Record<string, unknown> | undefined => {
 export const streamNarration = async (
   route: ApiRoute,
   packet: Pick<ContextPacket, 'sections'>,
-  onSegment: (segment: string) => void,
+  onSegment: (segment: GmSegment) => void,
 ): Promise<GmReply> => {
   const { instructions, stable, variable } = packetParts(packet);
-  const { segmentDeltas } = await import(STREAMING_SPEECH_MODULE);
   const response = await retried(route, () =>
     open(
       route,
@@ -347,34 +346,32 @@ export const streamNarration = async (
           { type: TEXT_BLOCK, text: stable, cache_control: EPHEMERAL_CACHE },
           { type: TEXT_BLOCK, text: variable },
         ],
+        tools: NARRATE_TOOLS,
       },
       true,
     ),
   );
   if (response.body === null) throw new ProviderError('The provider sent a malformed reply.');
-  const chunks = response.body;
   let usage: Record<string, unknown> = {};
-  async function* observed(): AsyncGenerator<string> {
-    for await (const line of sseLinesOf(chunks)) {
-      usage = { ...usage, ...streamUsageOf(line) };
-      yield line;
-    }
-  }
-  let raw = '';
-  async function* tapped(): AsyncGenerator<string> {
-    for await (const text of sseTextDeltasOf(observed())) {
-      raw += text;
-      yield text;
-    }
-  }
+  const narrate = toolInputStream(NARRATE_TOOL);
   try {
-    for await (const segment of segmentDeltas(tapped())) onSegment(segment);
+    for await (const line of sseLinesOf(response.body)) {
+      usage = { ...usage, ...streamUsageOf(line) };
+      for (const segment of narrate.push(sseEventOf(line))) onSegment(segment);
+    }
   } catch {
     throw new ProviderError('The provider stream stopped early.');
   }
-  const narration = raw.trim();
-  if (narration === '') throw new ProviderError('The provider sent a malformed reply.');
-  return { narration, segments: narratorSegments(narration), usage: usageOf(usage, route.model) };
+  const input = narrate.input();
+  const segments = segmentsOf(input);
+  if (segments === undefined) throw new ProviderError('The provider sent a malformed reply.');
+  const proposals = proposalsOf(input);
+  return {
+    narration: narrationOf(segments),
+    segments,
+    ...(proposals === undefined ? {} : { proposals }),
+    usage: usageOf(usage, route.model),
+  };
 };
 
 export const requestSummary = async (

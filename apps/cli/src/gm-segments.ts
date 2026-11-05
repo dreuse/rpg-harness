@@ -1,5 +1,6 @@
 import type { Delivery } from '../../../packages/voice/src/voice.ts';
 import { PROPOSALS_SCHEMA } from './gm-proposals.ts';
+import { hasProposalsBlock, playerTextOf } from './player-text.ts';
 
 export const NEUTRAL_EMOTION = 'neutral';
 const NARRATOR_ID = 'narrator';
@@ -90,13 +91,15 @@ const speakerOf = (value: unknown) => {
 };
 
 const segmentOf = (value: unknown): GmSegment[] => {
-  if (!isRecord(value) || typeof value.text !== 'string' || value.text.trim() === '') return [];
+  if (!isRecord(value) || typeof value.text !== 'string' || hasProposalsBlock(value.text)) return [];
+  const text = playerTextOf(value.text);
+  if (text === '') return [];
   const speakerId = speakerOf(value.speakerId);
   const delivery = deliveryOf(value.delivery);
   return [
     {
       ...(speakerId === undefined ? {} : { speakerId }),
-      text: value.text.trim(),
+      text,
       ...(value.important === true ? { important: true } : {}),
       ...(delivery === undefined ? {} : { delivery }),
     },
@@ -109,7 +112,7 @@ export const segmentsOf = (value: unknown): readonly GmSegment[] | undefined => 
   return segments.length === 0 ? undefined : segments;
 };
 
-export const narratorSegments = (text: string): readonly GmSegment[] => [{ text }];
+export const narratorSegments = (text: string): readonly GmSegment[] => [{ text: playerTextOf(text) }];
 
 export const narrationOf = (segments: readonly GmSegment[]): string =>
   segments.map(({ text }) => text).join(SEGMENT_SEPARATOR);

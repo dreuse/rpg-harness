@@ -25,7 +25,7 @@ export interface TurnSpeechOptions {
 
 export interface TurnSpeech {
   readonly streams: boolean;
-  heard(segment: string): void;
+  heard(segment: GmSegment): void;
   settle(reply: { readonly narration: string; readonly segments: readonly GmSegment[] }): void;
   abandon(): void;
 }
@@ -78,11 +78,11 @@ export const createTurnSpeech = ({ speech, turnId, mode, utterancesOf }: TurnSpe
 
   return {
     streams: STREAMING_MODES.includes(mode),
-    heard: guarded((segment: string) => {
+    heard: guarded((segment: GmSegment) => {
       if (stopped()) return;
       if (heard.length === 0) speech.commit(turnId);
-      heard.push(segment);
-      for (const utterance of spoken([{ text: segment }])) speech.hold(turnId, utterance);
+      heard.push(segment.text);
+      for (const utterance of spoken([segment])) speech.hold(turnId, utterance);
     }),
     settle: guarded(({ narration, segments }) => {
       if (stopped()) return speech.finish(turnId);

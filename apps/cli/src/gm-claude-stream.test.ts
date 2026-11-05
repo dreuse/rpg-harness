@@ -1,27 +1,22 @@
 import assert from 'node:assert/strict';
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, type TestContext, test } from 'node:test';
-import { segmentDeltas } from '../../../packages/voice/src/streaming-speech.ts';
 import { ProviderError } from './gm-api.ts';
 import { claudeCodeRouteOf, MAX_OUTPUT_BYTES } from './gm-claude-code.ts';
-import { claudeStreamArgs, streamClaudeNarration, textDeltasOf } from './gm-claude-stream.ts';
+import { claudeStreamArgs, MalformedStreamReply, streamClaudeNarration } from './gm-claude-stream.ts';
+import { type GmSegment, SEGMENTS_SCHEMA } from './gm-segments.ts';
 
 const DATA_DIR = mkdtempSync(join(tmpdir(), 'rpg-stream-data-'));
 const DATA_ENV = { RPG_DATA_DIR: DATA_DIR };
 after(() => rmSync(DATA_DIR, { recursive: true, force: true }));
 
-const delta = (text: string) =>
-  JSON.stringify({ type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'text_delta', text } } });
-async function* lines(values: readonly string[]) {
-  for (const value of values) yield value;
-}
-const collect = async (source: AsyncIterable<string>) => {
-  const out: string[] = [];
-  for await (const item of source) out.push(item);
-  return out;
-};
+const FIXTURE = join(import.meta.dirname, 'fixtures', 'claude-stream-structured.jsonl');
+const recorded = () => readFileSync(FIXTURE, 'utf8').split('\n').filter(Boolean);
+const NARRATION =
+  'Rain drums on the roof of the Hollow Lantern. A fire cracks in the hearth. "Sit down, stranger. You are dripping on my floor." He pushes a clay cup across the table.';
+const LEAKED = /\*\*|Proposals|Entity:|Thread:|old-tam \(|thornwood/i;
 
 test('claudeStreamArgs switches the output format to stream-json with partial messages', () => {
   const args = claudeStreamArgs(claudeCodeRouteOf('claude', {}), 'sys');
@@ -29,16 +24,9 @@ test('claudeStreamArgs switches the output format to stream-json with partial me
   assert.ok(args.includes('--include-partial-messages') && args.includes('--verbose'));
 });
 
-test('textDeltasOf yields text deltas, skips other and malformed lines', async () => {
-  const out = await collect(
-    textDeltasOf(lines([delta('The door creaks open. '), 'not json', '{"type":"system"}', '', delta('Dust falls.')])),
-  );
-  assert.deepEqual(out, ['The door creaks open. ', 'Dust falls.']);
-});
-
-test('a fake stream-json stream feeds complete segments', async () => {
-  const stream = textDeltasOf(lines([delta('The door creaks '), delta('open slowly. '), delta('Dust falls.')]));
-  assert.deepEqual(await collect(segmentDeltas(stream)), ['The door creaks open slowly.', 'Dust falls.']);
+test('claudeStreamArgs forces the segments schema so the model answers with structured output', () => {
+  const args = claudeStreamArgs(claudeCodeRouteOf('claude', {}), 'sys');
+  assert.equal(args[args.indexOf('--json-schema') + 1], JSON.stringify(SEGMENTS_SCHEMA));
 });
 
 const STREAM_OK = ['#!/bin/sh', 'cat >/dev/null'];
@@ -51,28 +39,67 @@ const fakeClaude = (t: TestContext, outputLines: readonly string[], exitCode = 0
   chmodSync(bin, 0o755);
   return bin;
 };
-const resultLine = JSON.stringify({
-  type: 'result',
-  is_error: false,
-  result: 'The door creaks open slowly. Dust falls.',
-  usage: { input_tokens: 1, output_tokens: 2 },
+const textResult = (result: string) =>
+  JSON.stringify({ type: 'result', is_error: false, result, usage: { input_tokens: 1, output_tokens: 2 } });
+
+test('streams the structured segments in order with their speakers and ignores text_delta', async (t: TestContext) => {
+  const bin = fakeClaude(t, recorded());
+  const seen: GmSegment[] = [];
+  const reply = await streamClaudeNarration(claudeCodeRouteOf(bin, DATA_ENV), 'sys', 'input', (segment) =>
+    seen.push(segment),
+  );
+  assert.deepEqual(seen, [
+    {
+      text: 'Rain drums on the roof of the Hollow Lantern. A fire cracks in the hearth.',
+      delivery: { emotion: 'calm', intensity: 0.4, pace: 0.9 },
+    },
+    {
+      speakerId: 'old-tam',
+      text: '"Sit down, stranger. You are dripping on my floor."',
+      important: true,
+      delivery: { emotion: 'tender' },
+    },
+    { text: 'He pushes a clay cup across the table.' },
+  ]);
+  assert.deepEqual(reply.segments, seen);
+  assert.equal(reply.narration, NARRATION);
 });
 
-test('streamClaudeNarration hands segments to the callback and returns the final reply', async (t: TestContext) => {
-  const bin = fakeClaude(t, [delta('The door creaks '), delta('open slowly. '), delta('Dust falls.'), resultLine]);
-  const seen: string[] = [];
-  const reply = await streamClaudeNarration(
-    claudeCodeRouteOf(bin, DATA_ENV),
-    'sys',
-    'input',
-    (segment) => void seen.push(segment),
+test('parses the proposals from the structured output and shows nothing about them', async (t: TestContext) => {
+  const bin = fakeClaude(t, recorded());
+  const seen: GmSegment[] = [];
+  const reply = await streamClaudeNarration(claudeCodeRouteOf(bin, DATA_ENV), 'sys', 'input', (segment) =>
+    seen.push(segment),
   );
-  assert.deepEqual(seen, ['The door creaks open slowly.', 'Dust falls.']);
-  assert.equal(reply.narration, 'The door creaks open slowly. Dust falls.');
+  assert.deepEqual(
+    reply.proposals?.map(({ kind, id }) => [kind, id]),
+    [
+      ['entity', 'old-tam'],
+      ['pending', 'tam-thornwood-lights'],
+    ],
+  );
+  assert.doesNotMatch(JSON.stringify(seen), LEAKED);
+  assert.doesNotMatch(reply.narration, LEAKED);
+  assert.doesNotMatch(JSON.stringify(reply.segments), LEAKED);
+});
+
+test('a text-only reply is sanitized for the player', async (t: TestContext) => {
+  const bin = fakeClaude(t, [textResult('**Narration:** Rain falls on the *old* roof.')]);
+  const reply = await streamClaudeNarration(claudeCodeRouteOf(bin, DATA_ENV), 'sys', 'input', () => {});
+  assert.equal(reply.narration, 'Rain falls on the old roof.');
+});
+
+test('a text-only reply with a proposals block is malformed', async (t: TestContext) => {
+  const leaked = '**Narration:** Rain falls.\n\n**Proposals:**\n- Entity: old-tam (npc)';
+  const bin = fakeClaude(t, [textResult(leaked)]);
+  await assert.rejects(
+    streamClaudeNarration(claudeCodeRouteOf(bin, DATA_ENV), 'sys', 'input', () => {}),
+    MalformedStreamReply,
+  );
 });
 
 test('streamClaudeNarration rejects on a non-zero exit', async (t: TestContext) => {
-  const bin = fakeClaude(t, [delta('Hello there friend. '), resultLine], 3);
+  const bin = fakeClaude(t, recorded(), 3);
   await assert.rejects(
     streamClaudeNarration(claudeCodeRouteOf(bin, DATA_ENV), 'sys', 'input', () => {}),
     ProviderError,
@@ -95,7 +122,7 @@ test('streamClaudeNarration stops and fails when stdout passes the size cap', as
 });
 
 test('streamClaudeNarration propagates a throwing onSegment', async (t: TestContext) => {
-  const bin = fakeClaude(t, [delta('Hello there friend. '), resultLine]);
+  const bin = fakeClaude(t, recorded());
   await assert.rejects(
     streamClaudeNarration(claudeCodeRouteOf(bin, DATA_ENV), 'sys', 'input', () => {
       throw new Error('boom');
@@ -108,22 +135,18 @@ test('the first segment reaches the callback before the reply ends', async (t: T
   const dir = mkdtempSync(join(tmpdir(), 'rpg-stream-'));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   const bin = join(dir, 'claude');
+  const lines = recorded();
+  const stop = lines.findLastIndex((line) => line.includes('content_block_stop'));
   const printed = (line: string) => `printf '%s\\n' '${line}'`;
   writeFileSync(
     bin,
-    [
-      ...STREAM_OK,
-      printed(delta('The door creaks open slowly. ')),
-      'sleep 0.3',
-      printed(delta('Dust falls.')),
-      printed(resultLine),
-    ].join('\n'),
+    [...STREAM_OK, ...lines.slice(0, stop).map(printed), 'sleep 0.3', ...lines.slice(stop).map(printed)].join('\n'),
   );
   chmodSync(bin, 0o755);
   const MIN_GAP_MS = 200;
   const heard: number[] = [];
   await streamClaudeNarration(claudeCodeRouteOf(bin, DATA_ENV), 'sys', 'input', () => void heard.push(Date.now()));
   const ended = Date.now();
-  assert.equal(heard.length, 2);
+  assert.equal(heard.length, 3);
   assert.ok(ended - (heard[0] ?? ended) >= MIN_GAP_MS);
 });

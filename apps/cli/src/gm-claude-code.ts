@@ -18,7 +18,7 @@ import {
   usageOf,
 } from './gm-api.ts';
 import { proposalsOf } from './gm-proposals.ts';
-import { narrationOf, narratorSegments, SEGMENTS_SCHEMA, segmentsOf } from './gm-segments.ts';
+import { narrationOf, SEGMENTS_SCHEMA, segmentsOf } from './gm-segments.ts';
 import { userDataDir } from './setup-check.ts';
 
 export const GM_PROFILE_ENV = 'RPG_GM_PROFILE';
@@ -68,7 +68,7 @@ const SETTING_SOURCES = ['--setting-sources', 'project'];
 const PART_SEPARATOR = '\n';
 const NO_PROMPT_MODE = 'dontAsk';
 const IGNORE = () => {};
-const NARRATION_SCHEMA = JSON.stringify(SEGMENTS_SCHEMA);
+export const NARRATION_SCHEMA = JSON.stringify(SEGMENTS_SCHEMA);
 
 export type ClaudeCodeRoute = {
   readonly bin: string;
@@ -193,7 +193,7 @@ export const replyOf = ({ code, stdout }: Exit, model: string | undefined): GmRe
       'Claude Code reported an error. Run claude once in a terminal to check that it is signed in.',
     );
   const text = typeof body.result === 'string' ? body.result.trim() : '';
-  const segments = segmentsOf(body.structured_output) ?? (text === '' ? undefined : narratorSegments(text));
+  const segments = segmentsOf(body.structured_output) ?? segmentsOf({ segments: [{ text }] });
   if (segments === undefined) throw new ProviderError('Claude Code sent a malformed reply.');
   const proposals = proposalsOf(body.structured_output);
   return {
