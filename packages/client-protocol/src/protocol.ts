@@ -182,6 +182,7 @@ export type StartRuleset = {
   readonly edition: string;
   readonly blurb: string;
   readonly recommended: boolean;
+  readonly readyMade: boolean;
   readonly sheet: readonly string[];
 };
 export type StartOptions = { readonly genres: readonly StartGenre[]; readonly rulesets: readonly StartRuleset[] };

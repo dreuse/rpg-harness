@@ -265,6 +265,7 @@ export const START_CONTROL = 'data-start-control';
 export const START_FORM = 'data-start-form';
 export const START_TITLE = 'data-start-title';
 export const START_ENTRY = 'start-entry';
+export const START_SAVE = 'start-save';
 export const START_CONTROLS = ['back', 'skip', 'next', 'start', 'close'] as const;
 export type StartControl = (typeof START_CONTROLS)[number];
 const DETAIL_SEPARATOR = ' - ';
@@ -280,7 +281,7 @@ const startOption =
 const startEntry = ({ entry }: StartScreen, locale: string) =>
   entry === undefined
     ? ''
-    : `<form ${START_FORM}="${START_ENTRY}"><label for="${START_ENTRY}">${escapeHtml(entry.label)}</label><input id="${START_ENTRY}" name="${START_ENTRY}" value="${escapeHtml(entry.value)}"><button type="submit">${escapeHtml(translate(locale, 'start.save'))}</button></form>`;
+    : `<form ${START_FORM}="${START_ENTRY}"><label for="${START_ENTRY}">${escapeHtml(entry.label)}</label><input id="${START_ENTRY}" name="${START_ENTRY}" value="${escapeHtml(entry.value)}"><button type="submit" id="${START_SAVE}">${escapeHtml(translate(locale, 'start.save'))}</button></form>`;
 
 const shownControls = (screen: StartScreen): readonly StartControl[] =>
   START_CONTROLS.filter(

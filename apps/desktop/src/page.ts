@@ -148,6 +148,8 @@ export const mountPage = ({
     const model = viewModel(client.state(), width(), preferences);
     const focused = selectorOf(root.querySelector<HTMLElement>(FOCUSED_SELECTOR));
     const typed = entryValue();
+    const caret = root.querySelector<HTMLInputElement>(ENTRY_SELECTOR);
+    const selection = { start: caret?.selectionStart ?? null, end: caret?.selectionEnd ?? null };
     const opened = DISCLOSURE_SELECTORS.map(
       (selector) => root.querySelector<HTMLDetailsElement>(selector)?.open === true,
     );
@@ -173,6 +175,8 @@ export const mountPage = ({
     const entry = root.querySelector<HTMLInputElement>(ENTRY_SELECTOR);
     if (entry !== null && typed !== undefined) entry.value = typed;
     if (focused !== undefined) root.querySelector<HTMLElement>(focused)?.focus();
+    if (focused === ENTRY_SELECTOR && selection.start !== null && selection.end !== null)
+      entry?.setSelectionRange?.(selection.start, selection.end);
     const search = focused === SEARCH_SELECTOR ? root.querySelector<HTMLInputElement>(SEARCH_SELECTOR) : null;
     search?.setSelectionRange?.(search.value.length, search.value.length);
   };

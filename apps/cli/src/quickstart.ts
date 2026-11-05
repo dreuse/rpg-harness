@@ -166,6 +166,16 @@ const sheetOf = ({ id, edition }: (typeof BUILT_IN_PACKS)[number]) =>
     .filter(({ derived }) => derived === undefined)
     .map(({ id: field, label }) => label ?? field);
 
+const readyMadeOn = (pack: (typeof BUILT_IN_PACKS)[number]) => {
+  const rules = creationRulesFor(pack);
+  return (
+    rules === undefined ||
+    GENRE_PACKS.every(({ genre }) =>
+      genre.archetypes.every(({ name }) => buildCharacter(describedBuild(rules, name)).status === 'created'),
+    )
+  );
+};
+
 export const startOptions = (): StartOptions => {
   const lightest = Math.min(...BUILT_IN_PACKS.map((pack) => featuresOf(pack).length));
   return {
@@ -182,6 +192,7 @@ export const startOptions = (): StartOptions => {
         edition: pack.edition,
         blurb: features.length === 0 ? LIGHT_RULES : `Rules for ${LIST.format(features)}.`,
         recommended: features.length === lightest,
+        readyMade: readyMadeOn(pack),
         sheet: sheetOf(pack),
       };
     }),

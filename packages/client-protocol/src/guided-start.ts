@@ -88,6 +88,7 @@ const STEP_FIELDS: Partial<Record<StartStep, readonly string[]>> = {
 };
 const DRAFT_KEYS = ['path', 'step', 'name', 'intent', 'choices'];
 const NEXT = 1;
+const NO_READY_MADE = 'Ready-made characters need a sheet on these rules. Describe your own.';
 const EDITION_KEYS = ['id', 'edition'] as const;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -213,15 +214,18 @@ const characterPage = (draft: StartDraft, { genres, rulesets }: StartOptions): P
   const sheet =
     ruleset === undefined || ruleset.sheet.length === 0 ? [] : [`Your rules track ${ruleset.sheet.join(', ')}.`];
   const value = typeof draft.choices.character === 'string' ? draft.choices.character : '';
+  const hidden = ruleset?.readyMade === false;
   return {
     title: 'Pick your character',
     text: [
       genre === undefined
         ? 'Pick a genre to see ready-made characters.'
-        : 'Pick a ready-made character, or describe your own.',
+        : hidden
+          ? NO_READY_MADE
+          : 'Pick a ready-made character, or describe your own.',
       ...sheet,
     ],
-    options: (genre?.characters ?? []).map(({ name, summary }) =>
+    options: (hidden ? [] : (genre?.characters ?? [])).map(({ name, summary }) =>
       choose('character', name, name, `${summary}.`, draft),
     ),
     entry: { label: 'Describe your character', value },

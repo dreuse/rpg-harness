@@ -14,6 +14,8 @@ export type Ask = (question: string) => Promise<string | undefined>;
 const NAME_QUESTION = 'Name?';
 const NAME_PATTERN = /\b(?:named|called)\s+([\p{L}\p{N}'-]+)/iu;
 const NAME_END = /[,.;]/;
+const MAX_FALLBACK_NAME_WORDS = 4;
+const WORD_BREAK = /\s+/;
 const NUMBER_AFTER = String.raw`(?:\s*(?:of|=|:))?\s*(-?\d+(?:\.\d+)?)\b`;
 const REGEX_SPECIALS = /[.*+?^${}()|[\]\\]/g;
 const TRUE_ANSWERS = ['yes', 'y', 'true'];
@@ -23,6 +25,8 @@ const escaped = (text: string) => text.replace(REGEX_SPECIALS, '\\$&');
 const wordPattern = (term: string, after = '') =>
   new RegExp(String.raw`(?<![\p{L}\p{N}])${escaped(term)}${after}`, 'giu');
 const termsOf = (field: SheetField) => [field.id, ...(field.label === undefined ? [] : [field.label])];
+const shortName = (description: string) =>
+  (description.split(NAME_END, 1)[0] ?? '').trim().split(WORD_BREAK).slice(0, MAX_FALLBACK_NAME_WORDS).join(' ');
 const only = <T>(found: Set<T>) => (found.size === 1 ? [...found][0] : undefined);
 
 const numberIn = (description: string, field: SheetField) => {
@@ -74,7 +78,7 @@ export const describedBuild = (rules: CreationRules, description: string): Build
   rules,
   backstory: description,
   proposal: {
-    name: description.match(NAME_PATTERN)?.[1] ?? description.split(NAME_END, 1)[0]?.trim() ?? '',
+    name: description.match(NAME_PATTERN)?.[1] ?? shortName(description),
     ...proposalFrom(rules, description),
   },
 });

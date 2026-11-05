@@ -260,7 +260,9 @@ test('UI08 queryPreferences reads the window query and falls back on bad input',
 
 const START_OPTIONS = {
   genres: [{ id: 'evil', name: HOSTILE, blurb: HOSTILE, characters: [{ name: HOSTILE, summary: HOSTILE }] }],
-  rulesets: [{ id: 'narrative', edition: 'original', blurb: 'Light rules.', recommended: true, sheet: [] }],
+  rulesets: [
+    { id: 'narrative', edition: 'original', blurb: 'Light rules.', recommended: true, readyMade: true, sheet: [] },
+  ],
 };
 const guideAt = (step: string, choices = {}): StartDraft => ({
   ...INITIAL_DRAFT,

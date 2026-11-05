@@ -43,6 +43,7 @@ const fakePage = () => {
   const sent: ClientCommand[] = [];
   const saved: StartDraft[] = [];
   const fields: Record<string, string> = {};
+  const selections: Record<string, [number, number]> = {};
   let prevented = 0;
   let onLine = (_line: string) => {};
   const bridge: PageOptions['bridge'] = {
@@ -72,6 +73,18 @@ const fakePage = () => {
         focused.push(selector);
         active = element;
       },
+      get selectionStart() {
+        return selections[selector]?.[0] ?? null;
+      },
+      get selectionEnd() {
+        return selections[selector]?.[1] ?? null;
+      },
+      setSelectionRange:
+        selector === ENTRY
+          ? (start: number, end: number) => {
+              selections[selector] = [start, end];
+            }
+          : undefined,
       get value() {
         return fields[selector];
       },
@@ -91,6 +104,7 @@ const fakePage = () => {
         html = next;
         active = null;
         for (const key of Object.keys(fields)) delete fields[key];
+        for (const key of Object.keys(selections)) delete selections[key];
       },
       style: { setProperty: (name: string, value: string) => (style[name] = value) },
       addEventListener: on('root:'),
@@ -117,6 +131,7 @@ const fakePage = () => {
     focused,
     saved,
     fields,
+    selections,
     prevented: () => prevented,
     receive: (message: object) => onLine(JSON.stringify(message)),
     click: (attributes: Record<string, string>) => listeners.get('root:click')?.(event(attributes)),
@@ -632,4 +647,27 @@ test('UI15: page settles only the roll it scheduled', () => {
   assert.equal(client.state().rolling, true);
   timers.shift()?.();
   assert.equal(client.state().rolling, false);
+});
+
+test('rpg-42a.19 page keeps the focused entry and caret when the same step redraws', () => {
+  const page = fakePage();
+  mount(page, {}, deniedMicrophone, { ...INITIAL_DRAFT, path: 'describe' });
+  page.root.querySelector(ENTRY)?.focus();
+  page.fields[ENTRY] = 'A horror story';
+  page.selections[ENTRY] = [2, 5];
+  page.focused.length = 0;
+  page.receive(READY);
+  assert.deepEqual(page.selections[ENTRY], [2, 5]);
+  assert.equal(page.fields[ENTRY], 'A horror story');
+  assert.equal(page.focused.at(-1), ENTRY);
+});
+
+test('rpg-42a.19 page keeps focus on the save button when the same step redraws', () => {
+  const page = fakePage();
+  mount(page, {}, deniedMicrophone, { ...INITIAL_DRAFT, path: 'describe' });
+  assert.match(page.root.innerHTML, /<button type="submit" id="start-save">/);
+  page.root.querySelector('#start-save')?.focus();
+  page.focused.length = 0;
+  page.receive(READY);
+  assert.equal(page.focused.at(-1), '#start-save');
 });

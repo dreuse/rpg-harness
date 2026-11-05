@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { buildCharacter, type CreationRules } from '../../../packages/rules/src/character-builder.ts';
 import { SHEET_SCHEMA_VERSION, type SheetField } from '../../../packages/rules/src/sheet-schema.ts';
-import { createCharacter } from './character-creation.ts';
+import { createCharacter, describedBuild } from './character-creation.ts';
 
 const rulepack = { id: 'any-pack', edition: '2', revision: 'r1', sourceRefs: [] };
 
@@ -115,4 +115,10 @@ test('a description cannot invent unsupported stats or items', async () => {
     ['grit', 'wits', 'calling'],
   );
   assert.deepEqual(character.equipment, ['rope']);
+});
+
+test('describedBuild falls back to a short name from the first clause', () => {
+  const build = describedBuild(rules, 'Weathered river pilot who never sails twice, grit 3');
+  assert.equal(build.proposal.name, 'Weathered river pilot who');
+  assert.equal(describedBuild(rules, 'Ash').proposal.name, 'Ash');
 });

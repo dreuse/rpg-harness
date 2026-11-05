@@ -36,8 +36,15 @@ const OPTIONS: StartOptions = {
     { id: 'horror', name: 'Creeping horror', blurb: 'The scratching stopped.', characters: [] },
   ],
   rulesets: [
-    { id: 'd20-lite', edition: 'original', blurb: 'Rules for checks and dice.', recommended: false, sheet: ['Might'] },
-    { id: 'narrative', edition: 'original', blurb: 'Light rules.', recommended: true, sheet: [] },
+    {
+      id: 'd20-lite',
+      edition: 'original',
+      blurb: 'Rules for checks and dice.',
+      recommended: false,
+      readyMade: true,
+      sheet: ['Might'],
+    },
+    { id: 'narrative', edition: 'original', blurb: 'Light rules.', recommended: true, readyMade: true, sheet: [] },
   ],
 };
 const PLAN: Result<CampaignPlan> = {
@@ -169,6 +176,30 @@ test('rpg-42a.14 character step offers ready-made characters of the chosen genre
   assert.deepEqual(screen.options[0]?.action, { kind: 'choose', field: 'character', value: 'Hedge witch' });
   assert.ok(screen.text.some((line) => line.includes('Might')));
   assert.equal(screen.entry?.value, '');
+});
+
+test('rpg-42a.19 character step hides ready-made characters on rules without a sheet for them', () => {
+  const sheetless: StartOptions = {
+    ...OPTIONS,
+    rulesets: OPTIONS.rulesets.map((ruleset) =>
+      ruleset.id === 'd20-lite' ? { ...ruleset, readyMade: false } : ruleset,
+    ),
+  };
+  const at = (ruleset: string) =>
+    startScreen(
+      run([
+        { kind: 'path', path: 'guide' },
+        { kind: 'next' },
+        { kind: 'choose', field: 'genre', value: 'fantasy' },
+        { kind: 'choose', field: 'ruleset', value: { id: ruleset, edition: 'original' } },
+      ]),
+      sheetless,
+      undefined,
+    );
+  const hidden = at('d20-lite');
+  assert.deepEqual(hidden.options, []);
+  assert.ok(hidden.text.includes('Ready-made characters need a sheet on these rules. Describe your own.'));
+  assert.equal(at('narrative').options.length, 1);
 });
 
 test('rpg-42a.14 summary shows chosen or default for each setting and an unknown edition asks for an import', () => {

@@ -203,3 +203,17 @@ test('rpg-42a.14 plan builds the chosen character from the ruleset sheet and nev
     /^Your character needs Might, Agility, Wits, and Presence\./,
   );
 });
+
+test('rpg-42a.19 ready-made characters are offered only on rules that can build them from a name', () => {
+  const { genres, rulesets } = startOptions();
+  const readyMade = Object.fromEntries(rulesets.map(({ id, readyMade }) => [id, readyMade]));
+  assert.deepEqual(readyMade, { 'd20-lite': false, 'dice-pool-lite': true, narrative: true });
+  const [archetype] = genres[0]?.characters ?? [];
+  assert.ok(archetype !== undefined);
+  assert.deepEqual(characterEntry({ ruleset: NARRATIVE_RULES, character: archetype.name }), {
+    field: 'character',
+    value: archetype.name,
+    provenance: 'explicit',
+  });
+  assert.match(String(characterEntry({ ruleset: D20_RULES, character: archetype.name })), /^Your character needs/);
+});
