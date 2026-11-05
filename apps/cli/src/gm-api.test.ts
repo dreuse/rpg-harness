@@ -404,3 +404,7 @@ describe('rpg-cm63.17 streamed API narration', () => {
     await failureOf(streamNarration(route, packet(), () => {}));
   });
 });
+
+it('the system prompt tells the GM when to mark a speaker important', () => {
+  assert.match(SYSTEM_PROMPT, /important/);
+});
