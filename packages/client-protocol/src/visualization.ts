@@ -37,6 +37,7 @@ export type VisualizationEvent = {
   readonly mechanic: string;
   readonly frames: readonly VisualizationFrame[];
   readonly final: VisualizationFinal;
+  readonly replayed?: true;
 };
 
 export type VisualizationPreference = { readonly enabled: boolean };

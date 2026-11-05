@@ -519,6 +519,15 @@ test('UI15: a roll never blocks input or delays the committed turn', () => {
   assert.equal(model.rolls[0]?.groups[0]?.dice[0]?.at(-1), 17);
 });
 
+test('rpg-42a.35: a replayed roll from an earlier session shows as settled history', () => {
+  const { wire, client } = connectedClient();
+  wire.receive({ ...rollEvent('old', 5), replayed: true });
+  assert.equal(client.state().rolling, false);
+  assert.equal(viewModel(client.state(), WIDE_WIDTH).rolls[0]?.animated, false);
+  wire.receive(rollEvent('new', 9));
+  assert.equal(viewModel(client.state(), WIDE_WIDTH).rolls[0]?.animated, true);
+});
+
 test('UI15: skip settles the roll, history keeps recent rolls and motion preferences render immediately', () => {
   const { wire, client } = connectedClient();
   for (let index = 0; index < 7; index += 1) wire.receive(rollEvent(`r${index}`, index + 1));

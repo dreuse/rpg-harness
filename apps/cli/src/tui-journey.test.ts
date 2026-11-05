@@ -99,6 +99,7 @@ test('rpg-42a.17 TUI journey: first run, guided start, roll, sheet edit, quit, r
     assert.match(reopen.transcript.join('\n'), new RegExp(`1\\. ${DEFAULT_ADVENTURE_NAME}`));
     assert.match(continued?.join('\n') ?? '', new RegExp(ACTION));
     assert.match(edited?.join('\n') ?? '', /8/);
+    assert.doesNotMatch([...(continued ?? []), ...(edited ?? [])].join('\n'), /d20 -> /);
     t.assert.snapshot({ first, reopen });
   }
 });

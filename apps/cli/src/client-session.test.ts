@@ -712,6 +712,7 @@ test('rolls of the current encounter stored before subscribing replay once to th
   const player = collect(on.sessionFor(PLAYER_VIEWER), on.envelope);
   on.sessionFor(PLAYER_VIEWER).getSnapshot({ ...on.envelope, type: 'GetCampaignSnapshot' });
   assert.equal(mechanics(player).length, 1);
+  assert.ok(mechanics(player).every((event) => event.type === VISUALIZATION_EVENT && event.replayed));
 
   const secret = setup(visualizedConfig(true));
   resolveRoll(secret.seed, secret.turn.actorId, 'gm');
@@ -846,8 +847,9 @@ test('an attempt in a d20-lite campaign rolls through the engine and reaches the
   assert.deepEqual(reveal?.kind === 'die' && reveal.sides, 20);
   assert.match((shown?.type === VISUALIZATION_EVENT && shown.final.outcome) || '', /^check\./);
 
+  assert.equal(shown?.type === VISUALIZATION_EVENT && shown.replayed, undefined);
   const late = collect(sessionFor(PLAYER_VIEWER), envelope);
-  assert.deepEqual(mechanics(late), [shown]);
+  assert.deepEqual(mechanics(late), [{ ...shown, replayed: true }]);
   const resumed: ClientEvent[] = [];
   sessionFor(PLAYER_VIEWER).subscribeEvents(
     { ...envelope, type: 'SubscribeEvents', fromRevision: accepted.value.revision },

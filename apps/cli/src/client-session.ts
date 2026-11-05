@@ -354,7 +354,7 @@ export const createClientSessions = (
         const unsubscribe = log.subscribe(fromRevision, filtered, scope);
         attempt(() => {
           const { results, preference } = replayedRolls(fromRevision);
-          for (const event of emitVisualizations(results, scope, preference)) filtered(event);
+          for (const event of emitVisualizations(results, scope, preference)) filtered({ ...event, replayed: true });
         });
         return unsubscribe;
       },

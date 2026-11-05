@@ -539,7 +539,7 @@ export const createDesktopClient = ({
       const roll = parseVisualization(message);
       if (roll === undefined) return;
       const rolls = [roll, ...state.rolls.filter(({ resultId }) => resultId !== roll.resultId)].slice(0, ROLL_HISTORY);
-      return update({ rolls, rolling: true });
+      return update({ rolls, rolling: roll.replayed !== true });
     }
     if (message.type === PLANNED && isResult(message.result)) return onPlanned(message.command, message.result);
     if (message.type === CREATED && isResult(message.result)) return onCreated(message.result);
