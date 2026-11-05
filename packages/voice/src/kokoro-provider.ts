@@ -18,6 +18,8 @@ export interface KokoroCapabilities {
 
 export interface KokoroProviderOptions {
   readonly engine: KokoroEngine;
+  readonly id?: string;
+  readonly capabilities?: KokoroCapabilities;
   readonly idleTimeoutMs?: number;
   readonly maxConcurrent?: number;
 }
@@ -25,6 +27,7 @@ export interface KokoroProviderOptions {
 export interface KokoroProvider extends TtsProvider {
   readonly capabilities: KokoroCapabilities;
   healthy(): boolean;
+  preload(): Promise<void>;
   dispose(): Promise<void>;
 }
 
@@ -34,7 +37,6 @@ export const KOKORO_MAX_CONCURRENT = 1;
 export const KOKORO_MIME_TYPE = 'audio/wav';
 
 const ENGLISH = 'en';
-const LANGUAGE_SUBTAG_SEPARATOR = '-';
 
 export const KOKORO_CAPABILITIES: KokoroCapabilities = Object.freeze({
   languages: Object.freeze([ENGLISH]),
@@ -110,11 +112,28 @@ const sentenceSegmenter = new Intl.Segmenter(ENGLISH, { granularity: 'sentence' 
 const splitSentences = (text: string): string[] =>
   [...sentenceSegmenter.segment(text)].map(({ segment }) => segment.trim()).filter((sentence) => sentence !== '');
 
-const primaryLanguage = (tag: string): string => (tag.split(LANGUAGE_SUBTAG_SEPARATOR)[0] ?? '').toLowerCase();
+const localeOf = (tag: string): Intl.Locale | undefined => {
+  try {
+    return new Intl.Locale(tag);
+  } catch {
+    return undefined;
+  }
+};
 
-const supports = (utterance: CommittedUtterance, voiceId: string): boolean =>
-  KOKORO_CAPABILITIES.languages.includes(primaryLanguage(utterance.profile.language)) &&
-  KOKORO_CAPABILITIES.voices.includes(voiceId);
+export const speaksLanguage = (capabilities: KokoroCapabilities, tag: string): boolean => {
+  const wanted = localeOf(tag)?.maximize();
+  return capabilities.languages.some((entry) => {
+    const offered = localeOf(entry);
+    return (
+      offered !== undefined &&
+      offered.language === wanted?.language &&
+      (offered.region === undefined || offered.region === wanted.region)
+    );
+  });
+};
+
+const supports = (capabilities: KokoroCapabilities, utterance: CommittedUtterance, voiceId: string): boolean =>
+  speaksLanguage(capabilities, utterance.profile.language) && capabilities.voices.includes(voiceId);
 
 const MIN_CONCURRENT = 1;
 
@@ -129,6 +148,8 @@ const assertOptions = (idleTimeoutMs: number, maxConcurrent: number): void => {
 
 export const createKokoroProvider = ({
   engine,
+  id = KOKORO_PROVIDER_ID,
+  capabilities = KOKORO_CAPABILITIES,
   idleTimeoutMs = KOKORO_IDLE_TIMEOUT_MS,
   maxConcurrent = KOKORO_MAX_CONCURRENT,
 }: KokoroProviderOptions): KokoroProvider => {
@@ -159,6 +180,11 @@ export const createKokoroProvider = ({
     return loaded;
   };
 
+  const armIdleTimer = (): void => {
+    idleTimer = setTimeout(() => void unload(), idleTimeoutMs);
+    idleTimer.unref?.();
+  };
+
   const acquire = (signal: AbortSignal): Promise<boolean> =>
     new Promise((resolve) => {
       if (signal.aborted) return resolve(false);
@@ -186,10 +212,7 @@ export const createKokoroProvider = ({
       return;
     }
     active -= 1;
-    if (active === 0) {
-      idleTimer = setTimeout(() => void unload(), idleTimeoutMs);
-      idleTimer.unref?.();
-    }
+    if (active === 0) armIdleTimer();
   };
 
   const synthesizeSentence = async (
@@ -208,14 +231,21 @@ export const createKokoroProvider = ({
   };
 
   return {
-    id: KOKORO_PROVIDER_ID,
+    id,
     locality: 'local',
     retention: 'none',
-    capabilities: KOKORO_CAPABILITIES,
+    capabilities,
     healthy: () => engine.ready(),
+    preload: async () => {
+      await ensureLoaded();
+      if (active === 0) {
+        clearTimeout(idleTimer);
+        armIdleTimer();
+      }
+    },
     dispose: unload,
     async *synthesize(utterance, voiceId, signal): AsyncGenerator<SpeechChunk> {
-      if (!supports(utterance, voiceId)) return;
+      if (!supports(capabilities, utterance, voiceId)) return;
       const sentences = splitSentences(utterance.text);
       const speed = kokoroSpeed(utterance.delivery);
       for (const [sequence, sentence] of sentences.entries()) {

@@ -1,6 +1,6 @@
 # ADR 0019 — Local TTS: Kokoro-82M through kokoro-js, in-process in Node
 
-**Status:** Accepted. **Decision:** The default local TTS provider is Kokoro-82M through `kokoro-js` with the `fp32` ONNX model on CPU. It runs in-process in the Node engine. There is no local Python service. Speech is English only. Other languages fall back to text narration.
+**Status:** Accepted, amended for pt-BR (see Amendment 1). **Decision:** The default local TTS provider is Kokoro-82M through `kokoro-js` with the `fp32` ONNX model on CPU. It runs in-process in the Node engine. There is no local Python service. Speech is English only. Other languages fall back to text narration.
 
 **Context:** rpg-cm63.1, Phase 0 of the local voice epic rpg-cm63. Three candidates ran on the dev machine (M3 Max, 64 GB): kokoro-js (ONNX in Node), mlx-audio (Kokoro-82M on MLX, Python) and Chatterbox multilingual (PyTorch on MPS, Python). Measurements, versions and the run command are in `docs/voice/spike-results.md`.
 
@@ -41,3 +41,66 @@
 - pt-BR in-process: the ONNX model repo has the pt-BR voices (`pf_dora`, `pm_alex`, `pm_santa`). kokoro-js needs a pt-BR phonemizer and a way around its fixed voice table. Not measured.
 - pt-BR through an optional local mlx-audio service: measured at 47 to 80 ms first audio for short lines. It brings back the Python runtime and works only on Apple Silicon.
 - Expressive NPC lines through Chatterbox: only for pre-rendered audio, not for live turns.
+
+## Amendment 1 — Brazilian Portuguese through an optional mlx-audio service (rpg-cm63.9)
+
+**Status:** Accepted. **Decision:** pt-BR speech uses an optional local mlx-audio service, provider id `kokoro-mlx`. English stays on in-process kokoro-js. The service is installed only with consent, runs only on Apple Silicon Macs, and starts on demand. Every other platform keeps text narration for pt-BR, as before.
+
+### In-process route (tried first)
+
+- kokoro-js 1.2.1 rejects every voice outside its English table and phonemizes with English language ids only. A pt-BR route would drive the ONNX model directly, load `voices/pf_dora.bin` from the ONNX repo, and phonemize with an espeak-ng WASM build.
+- The session that built this amendment had no permission to run the downloaded espeak-ng WASM. So pt-BR phonemes from WASM were never produced or heard. The route is unmeasured, not rejected.
+- espeak-ng and its WASM builds are GPL-3. The `phonemizer` package that kokoro-js bundles already embeds an espeak-ng WASM build. The owner must check the licence before this route ships.
+- mlx-audio already ran pt-BR end to end in the spike, so it is the measured route.
+
+### Design
+
+- `packages/voice/src/mlx-audio-service.py` is a stdlib `http.server` on `127.0.0.1` with a random port. It accepts only `POST /synthesize`. Each start gets a new random 32-byte bearer token, passed by environment and compared with `hmac.compare_digest`.
+- Requests are checked: at most 16 KiB of body and 2000 characters of text, a fixed voice allowlist (`pf_dora`, `pm_alex`, `pm_santa`), and a numeric speed from 0.5 to 2.0. Campaign text goes in the request body only, never in arguments or a shell.
+- The engine starts `venv/bin/python -I mlx-audio-service.py serve`. The environment has `PATH`, `HOME`, `TMPDIR`, `LANG`, `HF_HOME`, `HF_HUB_OFFLINE=1` and the token, and nothing else. The service prints `READY <port>`. It exits on SIGTERM or when stdin closes, so it cannot outlive the engine.
+- The model is pinned to `mlx-community/Kokoro-82M-bf16` at revision `a71e4d38b236d968966a2002c4c895dbd12b1c3c`. Only the config, the weights and the three pt-BR voices are loaded.
+- The service copies the espeak-ng data to a short temp path. This works around the mlx-audio path length bug that the spike found.
+- `KokoroProvider` gains `preload()`. A cold service start took 2.1 to 3.4 s, which is close to the 5 s first-chunk timeout. A caller should preload when a pt-BR campaign opens.
+- The installer runs only with a `ModelConsent` that matches the offer (about 1499 MiB: 1159 MiB of Python packages plus a 340 MiB model). It runs `uv venv`, `uv pip install` with the spike's pinned specs from public PyPI, and then the service `download` mode. A missing `uv` gives a plain message.
+- Narrator default per language: `af_heart` for English and `pf_dora` for pt-BR. Important NPCs get a stable hashed voice from the same language that differs from the narrator, so in pt-BR they get `pm_alex` or `pm_santa`.
+- `noVoiceNotice` tells the player in plain English when no voice exists for their language, for example European Portuguese, or when the pt-BR voices are not available on this computer.
+
+### Measured basis (M3 Max, 64 GB)
+
+Spike rerun with `node scripts/voice-spike/run.ts --skip-install --candidates mlx-audio`, mlx-audio 0.6.4, mlx 0.32.4 and misaki 0.9.4 on the MLX GPU:
+
+| Metric | Value |
+|---|---|
+| Load ms | 1048 |
+| Warm-up ms | 4651 |
+| Median first audio ms | 63 |
+| Median RTF | 0.036 |
+| Peak footprint MiB | 3987 |
+| Passages ok | 8/8 |
+
+| pt-BR passage | First audio ms | Audio s | RTF |
+|---|---|---|---|
+| narration | 699 | 16.00 | 0.074 |
+| npc-warning | 47 | 3.13 | 0.039 |
+| npc-innkeeper | 73 | 4.45 | 0.034 |
+| emotional | 58 | 4.55 | 0.034 |
+
+Through the provider and the service (`mlx-audio-engine.integration.test.ts`, two runs):
+
+| Voice | First audio ms | RTF |
+|---|---|---|
+| pf_dora (narration) | 567 to 1029 | 0.092 to 0.176 |
+| pm_alex (NPC) | 57 to 199 | 0.042 to 0.137 |
+| pm_santa (NPC) | 95 to 412 | 0.037 to 0.143 |
+
+The first sentence after start is the slowest. The second run was slower overall, probably because of machine load.
+
+### Narrator voice
+
+`pf_dora` stays the pt-BR narrator default. Latency is the same across the three voices, so the measurements do not favour another voice. The samples for listening are not yet judged by a person. If the owner prefers another voice after listening, only the `narrator` entry in `LANGUAGE_VOICES` changes.
+
+### Consequences
+
+- pt-BR speech needs about 1.5 GB of disk and about 4 GB of peak footprint while the service is loaded. The idle unload stops the service.
+- The Python packages are pinned at the top level only. Their dependencies resolve at install time.
+- Only pt-BR is offered through mlx-audio. Other Kokoro languages are not measured and not claimed.

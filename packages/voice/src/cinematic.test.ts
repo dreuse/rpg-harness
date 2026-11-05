@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { importantNpcProfile } from './cinematic.ts';
 import { KOKORO_CAPABILITIES, KOKORO_DELIVERY_SPEED, KOKORO_PROVIDER_ID, kokoroSpeed } from './kokoro-provider.ts';
+import { MLX_KOKORO_CAPABILITIES, MLX_KOKORO_PROVIDER_ID } from './mlx-audio-engine.ts';
 import type { VoiceProfile } from './voice.ts';
 
 const NARRATOR_VOICE = 'af_heart';
@@ -87,6 +88,31 @@ test('a stored kokoro voice survives a narrator voice change', () => {
   assert.ok(storedVoice !== undefined);
   const recast = importantNpcProfile('npc-7', withNarratorVoice(storedVoice), stored);
   assert.equal(recast, stored);
+});
+
+const PORTUGUESE_NARRATOR: VoiceProfile = {
+  ...NARRATOR,
+  language: 'pt-BR',
+  fallbacks: [{ providerId: MLX_KOKORO_PROVIDER_ID, voiceId: 'pf_dora' }],
+};
+
+test('important NPCs in a Brazilian Portuguese campaign get a pt-BR voice distinct from the narrator', () => {
+  const ids = Array.from({ length: NPC_COUNT }, (_, index) => `npc-${index}`);
+  const voices = ids.map((id) => {
+    const [fallback] = importantNpcProfile(id, PORTUGUESE_NARRATOR).fallbacks;
+    assert.equal(fallback?.providerId, MLX_KOKORO_PROVIDER_ID);
+    return fallback?.voiceId;
+  });
+  for (const voice of voices) {
+    assert.ok(voice !== undefined && MLX_KOKORO_CAPABILITIES.voices.includes(voice));
+    assert.notEqual(voice, 'pf_dora');
+  }
+  assert.ok(new Set(voices).size > 1);
+});
+
+test('important NPCs in a language without voices keep the base profile', () => {
+  const base: VoiceProfile = { ...NARRATOR, language: 'pt-PT', fallbacks: [{ providerId: 'cloud', voiceId: 'x' }] };
+  assert.deepEqual(importantNpcProfile('npc-7', base), { ...base, id: 'npc-7' });
 });
 
 test('a stored profile without a kokoro voice gets one added', () => {

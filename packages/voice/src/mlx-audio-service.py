@@ -1,0 +1,163 @@
+import hmac
+import io
+import json
+import os
+import shutil
+import signal
+import sys
+import tempfile
+import threading
+import wave
+from http.server import BaseHTTPRequestHandler, HTTPServer
+
+MODEL = "mlx-community/Kokoro-82M-bf16"
+REVISION = "a71e4d38b236d968966a2002c4c895dbd12b1c3c"
+VOICES = {"pf_dora", "pm_alex", "pm_santa"}
+MODEL_FILES = ["config.json", "kokoro-v1_0.safetensors", *(f"voices/{voice}.safetensors" for voice in sorted(VOICES))]
+WARMUP_VOICE = "pf_dora"
+WARMUP_TEXT = "Olá."
+HOST = "127.0.0.1"
+ANY_FREE_PORT = 0
+TOKEN_ENV = "RPG_MLX_AUDIO_TOKEN"
+BEARER = "Bearer "
+SYNTHESIZE_PATH = "/synthesize"
+MAX_BODY_BYTES = 16 * 1024
+MAX_TEXT_CHARS = 2000
+MIN_SPEED = 0.5
+MAX_SPEED = 2.0
+NO_SPLIT = r"\n+"
+PCM_MAX = 32767
+PCM_SAMPLE_WIDTH = 2
+MONO = 1
+ESPEAK_DATA_COPY = "espeak-ng-data"
+SERVE = "serve"
+DOWNLOAD = "download"
+HTTP_OK = 200
+HTTP_BAD_REQUEST = 400
+HTTP_UNAUTHORIZED = 401
+HTTP_NOT_FOUND = 404
+HTTP_TOO_LARGE = 413
+HTTP_SERVER_ERROR = 500
+
+
+def download():
+    from huggingface_hub import snapshot_download
+
+    snapshot_download(MODEL, revision=REVISION, allow_patterns=MODEL_FILES)
+
+
+def short_espeak_data():
+    import espeakng_loader
+    import misaki.espeak
+    from phonemizer.backend.espeak.wrapper import EspeakWrapper
+
+    root = tempfile.mkdtemp()
+    shutil.copytree(espeakng_loader.get_data_path(), os.path.join(root, ESPEAK_DATA_COPY))
+    EspeakWrapper.set_data_path(os.path.join(root, ESPEAK_DATA_COPY))
+    return root
+
+
+def load():
+    from mlx_audio.tts.utils import load_model
+
+    model = load_model(MODEL, revision=REVISION, allow_patterns=MODEL_FILES)
+    synthesize(model, WARMUP_TEXT, WARMUP_VOICE, 1.0)
+    return model
+
+
+def synthesize(model, text, voice, speed):
+    import numpy as np
+
+    parts = []
+    sample_rate = 0
+    for result in model.generate(text=text, voice=voice, speed=speed, lang_code=voice[0], split_pattern=NO_SPLIT):
+        parts.append(np.array(result.audio))
+        sample_rate = result.sample_rate
+    pcm = (np.clip(np.concatenate(parts), -1, 1) * PCM_MAX).astype(np.int16)
+    out = io.BytesIO()
+    with wave.open(out, "wb") as wav:
+        wav.setnchannels(MONO)
+        wav.setsampwidth(PCM_SAMPLE_WIDTH)
+        wav.setframerate(sample_rate)
+        wav.writeframes(pcm.tobytes())
+    return out.getvalue()
+
+
+def parse(body):
+    request = json.loads(body)
+    text, voice, speed = request.get("text"), request.get("voice"), request.get("speed")
+    if not isinstance(text, str) or not text.strip() or len(text) > MAX_TEXT_CHARS:
+        return None
+    if voice not in VOICES:
+        return None
+    if isinstance(speed, bool) or not isinstance(speed, (int, float)) or not MIN_SPEED <= speed <= MAX_SPEED:
+        return None
+    return text, voice, float(speed)
+
+
+def handler(model, token):
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, *args):
+            pass
+
+        def reply(self, status, body=b"", content_type="text/plain"):
+            self.send_response(status)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def do_POST(self):
+            if self.path != SYNTHESIZE_PATH:
+                return self.reply(HTTP_NOT_FOUND)
+            if not hmac.compare_digest(self.headers.get("Authorization", ""), BEARER + token):
+                return self.reply(HTTP_UNAUTHORIZED)
+            length = int(self.headers.get("Content-Length") or 0)
+            if length > MAX_BODY_BYTES:
+                return self.reply(HTTP_TOO_LARGE)
+            try:
+                parsed = parse(self.rfile.read(length))
+            except (ValueError, AttributeError):
+                parsed = None
+            if parsed is None:
+                return self.reply(HTTP_BAD_REQUEST)
+            try:
+                audio = synthesize(model, *parsed)
+            except Exception:
+                return self.reply(HTTP_SERVER_ERROR)
+            return self.reply(HTTP_OK, audio, "audio/wav")
+
+    return Handler
+
+
+def serve():
+    token = os.environ.get(TOKEN_ENV, "")
+    if not token:
+        sys.exit(f"{TOKEN_ENV} is not set")
+    ready_out = sys.stdout
+    sys.stdout = sys.stderr
+    espeak_root = short_espeak_data()
+
+    def stop(*_):
+        shutil.rmtree(espeak_root, ignore_errors=True)
+        os._exit(0)
+
+    signal.signal(signal.SIGTERM, stop)
+    threading.Thread(target=lambda: (sys.stdin.read(), stop()), daemon=True).start()
+    server = HTTPServer((HOST, ANY_FREE_PORT), handler(load(), token))
+    ready_out.write(f"READY {server.server_address[1]}\n")
+    ready_out.flush()
+    server.serve_forever()
+
+
+def main():
+    mode = sys.argv[1] if len(sys.argv) > 1 else ""
+    if mode == DOWNLOAD:
+        download()
+    elif mode == SERVE:
+        serve()
+    else:
+        sys.exit(f"usage: {SERVE} | {DOWNLOAD}")
+
+
+main()

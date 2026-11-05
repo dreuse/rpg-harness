@@ -283,3 +283,51 @@ test('dispose unloads a loaded model', async () => {
   await provider.dispose();
   assert.equal(engine.unloads, 1);
 });
+
+const PT_BR_CAPABILITIES = { languages: ['pt-BR'], voices: ['pf_dora'], streaming: true, emotion: false };
+const ptProfile = (language: string): CommittedUtterance => ({
+  ...UTTERANCE,
+  text: 'Fala baixo. O capitão escuta tudo.',
+  profile: { ...PROFILE, language, fallbacks: [{ providerId: 'kokoro-mlx', voiceId: 'pf_dora' }] },
+});
+
+test('takes its id and capabilities from the options and matches the language region', async () => {
+  const engine = fakeEngine();
+  const provider = createKokoroProvider({ engine, id: 'kokoro-mlx', capabilities: PT_BR_CAPABILITIES });
+  assert.equal(provider.id, 'kokoro-mlx');
+  assert.deepEqual(provider.capabilities, PT_BR_CAPABILITIES);
+  assert.equal((await speak(provider, ptProfile('pt-BR'), 'pf_dora')).length, 2);
+  assert.equal((await speak(provider, ptProfile('pt'), 'pf_dora')).length, 2);
+  assert.deepEqual(await speak(provider, ptProfile('pt-PT'), 'pf_dora'), []);
+  assert.deepEqual(await speak(provider, UTTERANCE, VOICE), []);
+  await provider.dispose();
+});
+
+test('an English capability without a region matches every English region', async () => {
+  const provider = createKokoroProvider({ engine: fakeEngine() });
+  for (const language of ['en', 'en-US', 'en-AU']) {
+    assert.equal((await speak(provider, { ...UTTERANCE, profile: { ...PROFILE, language } })).length, SENTENCE_COUNT);
+  }
+  await provider.dispose();
+});
+
+test('preload loads the engine once before the first sentence and starts the idle timer', async () => {
+  mock.timers.enable({ apis: ['setTimeout'] });
+  try {
+    const engine = fakeEngine();
+    const provider = createKokoroProvider({ engine });
+    await provider.preload();
+    assert.equal(engine.loads, 1);
+    await speak(provider);
+    assert.equal(engine.loads, 1);
+    mock.timers.tick(KOKORO_IDLE_TIMEOUT_MS);
+    await settle();
+    assert.equal(engine.unloads, 1);
+    await provider.preload();
+    mock.timers.tick(KOKORO_IDLE_TIMEOUT_MS);
+    await settle();
+    assert.equal(engine.unloads, 2);
+  } finally {
+    mock.timers.reset();
+  }
+});

@@ -70,7 +70,7 @@ export const KOKORO_MODEL_OFFER = offerFor(KOKORO_MODEL_FILES, KOKORO_MODEL_SOUR
 
 export const kokoroModelRoot = (dir: string): string => join(dir, KOKORO_MODEL_ID);
 
-const consented = (consent: ModelConsent | undefined, offer: ModelOffer): boolean =>
+export const consented = (consent: ModelConsent | undefined, offer: ModelOffer): boolean =>
   consent?.accepted === true && consent.source === offer.source && consent.bytes === offer.bytes;
 
 const sizeOf = async (path: string): Promise<number | undefined> => {
