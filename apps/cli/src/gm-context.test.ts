@@ -3,6 +3,7 @@ import { after, describe, it } from 'node:test';
 import { type CampaignStore, type CommittedTurn, MAIN_BRANCH } from '../../../packages/domain/src/campaign.ts';
 import { saveGmSettings } from '../../../packages/engine/src/gm-settings.ts';
 import { introduceEntity, openPending, saveContextBudget } from '../../../packages/engine/src/memory.ts';
+import { applyOocProposal } from '../../../packages/engine/src/ooc.ts';
 import { proposeClaims } from '../../../packages/engine/src/story-memory.ts';
 import { openScene, type PlayerAction, performAction } from '../../../packages/engine/src/turn.ts';
 import { setVoiceTraits } from '../../../packages/engine/src/voice-profile.ts';
@@ -58,6 +59,7 @@ const CREATED_EVENT = {
 const LONG_CAMPAIGN_TURNS = 1000;
 const NPC_TURN = 5;
 const RETURN_TURN = 900;
+const RETCONNED_INPUT = 'I shout the forbidden word';
 const NPC_FACT = 'Captain Ilse owes Mara a ship';
 const NPC_SECRET = 'Captain Ilse sold the map to pirates';
 const WORLD_FACT = 'The old king died in the winter of the first turn';
@@ -174,6 +176,30 @@ it('rpg-42a.40 asks for narration and summaries in the campaign language', async
     return texts.join(' ');
   });
   assert.deepEqual([...languages], [PORTUGUESE]);
+  fixture.connection.close();
+});
+
+it('rpg-42a.91 scene summaries leave out a retconned turn', async () => {
+  const fixture = campaign();
+  play(fixture.store, 'turn-1');
+  play(fixture.store, 'taken-back', RETCONNED_INPUT);
+  applyOocProposal(fixture.store, {
+    campaignId: CAMPAIGN.id,
+    actionId: 'retcon',
+    expectedRevision: fixture.store.load(CAMPAIGN.id)?.revision ?? 0,
+    proposal: { kind: 'retcon_last_turn', summary: 'Take back your last turn' },
+  });
+  playUntil(fixture, 2, SCENE_TURN_LIMIT + 2);
+  const summarized: string[] = [];
+  await summarizeCampaign(fixture.database, fixture.store, CAMPAIGN.id, async (_level, texts) => {
+    summarized.push(...texts);
+    return texts.join(' ');
+  });
+  assert.ok(summarized.length > 0);
+  assert.equal(
+    summarized.some((text) => text.includes(RETCONNED_INPUT)),
+    false,
+  );
   fixture.connection.close();
 });
 

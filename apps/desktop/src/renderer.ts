@@ -11,6 +11,7 @@ import {
   stepOf,
 } from '../../../packages/client-protocol/src/guided-start.ts';
 import { hasSearch, homeCards, relativeTime } from '../../../packages/client-protocol/src/home.ts';
+import { parseOocInput } from '../../../packages/client-protocol/src/ooc.ts';
 import {
   CAMPAIGN_HEALTHS,
   type CampaignPanels,
@@ -27,6 +28,7 @@ import {
   type SavedVoiceSettings,
   type SaveVoiceSettings,
   type StartOptions,
+  type SubmitOocMessage,
   type SubmitPlayerAction,
   type ViewComponent,
   type ViewDescriptor,
@@ -36,6 +38,7 @@ import { VISUALIZATION_EVENT, type VisualizationEvent } from '../../../packages/
 import { NARRATION, type Ready } from '../../../packages/client-protocol/src/wire.ts';
 import type { CampaignId, NoCheckReason } from '../../../packages/domain/src/campaign.ts';
 import type { GmSettings } from '../../../packages/domain/src/gm.ts';
+import type { OocProposal } from '../../../packages/domain/src/ooc.ts';
 import { DEFAULT_RULES_USAGE, usesDice, usesSheet } from '../../../packages/domain/src/rules-usage.ts';
 import { componentValue, DEFAULT_LOCALE, DEFAULT_PREFERENCES, translate, type UiPreferences } from './accessibility.ts';
 import { effectiveMotion, parseVisualization, ROLL_HISTORY, rollPlan } from './dice.ts';
@@ -66,6 +69,7 @@ const REJECTED = 'Rejected';
 const PLANNED = 'Planned';
 const CREATED = 'Created';
 const CHANGED = 'Changed';
+const OOC_RESULT = 'OocResult';
 const DESKTOP_CLIENT = 'desktop';
 const OPTIONS_REQUEST = planCommand(INITIAL_DRAFT);
 const NO_REVISION = -1;
@@ -90,6 +94,25 @@ export type StartState = {
   readonly options?: StartOptions | undefined;
   readonly plan?: Result<CampaignPlan> | undefined;
   readonly created?: string | undefined;
+};
+export type OocProposalStatus = 'open' | 'applying' | 'applied' | 'declined';
+export type OocProposalState = {
+  readonly proposal: OocProposal;
+  readonly status: OocProposalStatus;
+  readonly error?: string;
+};
+export type OocExchange = {
+  readonly id: string;
+  readonly text: string;
+  readonly asking: boolean;
+  readonly reply?: string;
+  readonly error?: string;
+  readonly proposals: readonly OocProposalState[];
+};
+export type OocState = {
+  readonly active: boolean;
+  readonly exchanges: readonly OocExchange[];
+  readonly undoable?: string | undefined;
 };
 export type HomeConfirm = { readonly kind: 'archive' | 'delete'; readonly name: string; readonly archived?: boolean };
 export type HomeState = {
@@ -116,6 +139,7 @@ export type DesktopState = {
   readonly sheetChanged: readonly string[];
   readonly sheetErrors: Readonly<Record<string, string>>;
   readonly sheetEditing: boolean;
+  readonly ooc: OocState;
 };
 
 export type Transport = {
@@ -154,6 +178,7 @@ export const initialState: DesktopState = {
   sheetChanged: [],
   sheetErrors: {},
   sheetEditing: false,
+  ooc: { active: false, exchanges: [] },
 };
 
 const statusLabel = ({ status, attempts }: Connection, locale: string) =>
@@ -331,6 +356,7 @@ export const viewModel = (
       ? startScreen(state.start.draft, state.start.options, state.start.plan, preferences.locale, voices)
       : undefined,
     created: state.start.created,
+    ooc: state.ooc,
   };
 };
 
@@ -408,6 +434,7 @@ export const createDesktopClient = ({
   const voiceSaves = new Map<unknown, SaveVoiceSettings>();
   const sheetEdits = new Map<unknown, string>();
   const gmSaves = new Set<unknown>();
+  const oocPending = new Map<unknown, { readonly exchangeId: string; readonly index: number }>();
   let queuedEdits: (readonly [string, unknown])[] = [];
   const retried = new Set<unknown>();
   let staleSaves: SaveVoiceSettings[] = [];
@@ -424,6 +451,7 @@ export const createDesktopClient = ({
     voiceSaves.clear();
     sheetEdits.clear();
     gmSaves.clear();
+    oocPending.clear();
     queuedEdits = [];
     retried.clear();
     staleSaves = [];
@@ -576,6 +604,7 @@ export const createDesktopClient = ({
       sheetChanged: [],
       sheetErrors: {},
       sheetEditing: false,
+      ooc: initialState.ooc,
     };
     update({});
     follow();
@@ -648,6 +677,7 @@ export const createDesktopClient = ({
     if (message.type === PLANNED && isResult(message.result)) return onPlanned(message.command, message.result);
     if (message.type === CREATED && isResult(message.result)) return onCreated(message.result);
     if (message.type === CHANGED && isResult(message.result)) return onChanged(message.command, message.result);
+    if (message.type === OOC_RESULT) return onOocResult(message);
     if (message.type === ACCEPTED) return settle(message.actionId);
     if (message.type === REJECTED) {
       const error = isRecord(message.error) ? String(message.error.message) : String(message.error);
@@ -695,6 +725,100 @@ export const createDesktopClient = ({
   transport.onClose(disconnect);
   transport.connect();
 
+  const changeExchange = (
+    exchangeId: string,
+    change: (exchange: OocExchange) => OocExchange,
+    undoable: string | undefined = state.ooc.undoable,
+  ) =>
+    update({
+      ooc: {
+        ...state.ooc,
+        undoable,
+        exchanges: state.ooc.exchanges.map((exchange) => (exchange.id === exchangeId ? change(exchange) : exchange)),
+      },
+    });
+
+  const setProposal = (exchange: OocExchange, index: number, next: Partial<OocProposalState>): OocExchange => ({
+    ...exchange,
+    proposals: exchange.proposals.map((entry, position) => (position === index ? { ...entry, ...next } : entry)),
+  });
+
+  const onOocResult = (message: Record<string, unknown>) => {
+    const { command, actionId, result } = message;
+    if (!isResult(result)) return;
+    const failed = result.ok ? undefined : result.error.message;
+    if (command === 'SubmitOocMessage') {
+      const reply = result.ok && isRecord(result.value) ? result.value : undefined;
+      const proposals = Array.isArray(reply?.proposals) ? (reply.proposals as OocProposal[]) : [];
+      return changeExchange(String(actionId), (exchange) => ({
+        ...exchange,
+        asking: false,
+        ...(typeof reply?.reply === 'string' ? { reply: reply.reply } : {}),
+        ...(failed === undefined ? {} : { error: failed }),
+        proposals: proposals.map((proposal) => ({ proposal, status: 'open' as const })),
+      }));
+    }
+    if (command === 'UndoOocChange') {
+      update({ ooc: { ...state.ooc, undoable: undefined } });
+      return refresh();
+    }
+    const pending = oocPending.get(actionId);
+    oocPending.delete(actionId);
+    if (pending === undefined) return;
+    const summary = result.ok && isRecord(result.value) ? String(result.value.summary) : undefined;
+    changeExchange(
+      pending.exchangeId,
+      (exchange) =>
+        setProposal(
+          exchange,
+          pending.index,
+          failed === undefined ? { status: 'applied' } : { status: 'open', error: failed },
+        ),
+      summary ?? state.ooc.undoable,
+    );
+    if (failed === undefined) refresh();
+  };
+
+  const talkToGm = (input: string): Result<SubmitOocMessage> => {
+    const { snapshot } = state;
+    const text = (parseOocInput(input) ?? input).trim();
+    if (snapshot === undefined) return failure('Rejected', 'no campaign selected yet');
+    const parsed = parseCommand({
+      version: PROTOCOL_VERSION,
+      type: 'SubmitOocMessage',
+      campaignId: snapshot.campaignId,
+      actionId: newActionId(),
+      text,
+    });
+    if (!parsed.ok) return parsed;
+    const message = parsed.value as SubmitOocMessage;
+    update({
+      ooc: {
+        ...state.ooc,
+        exchanges: [...state.ooc.exchanges, { id: message.actionId, text, asking: true, proposals: [] }],
+      },
+    });
+    send(message);
+    return { ok: true, value: message };
+  };
+
+  const confirmOoc = (exchangeId: string, index: number) => {
+    const { snapshot } = state;
+    const entry = state.ooc.exchanges.find(({ id }) => id === exchangeId)?.proposals[index];
+    if (snapshot === undefined || entry?.status !== 'open') return;
+    const actionId = newActionId();
+    oocPending.set(actionId, { exchangeId, index });
+    changeExchange(exchangeId, (exchange) => setProposal(exchange, index, { status: 'applying' }));
+    send({
+      version: PROTOCOL_VERSION,
+      type: 'ConfirmOocProposal',
+      campaignId: snapshot.campaignId,
+      actionId,
+      expectedRevision: snapshot.revision,
+      proposal: entry.proposal as unknown as Record<string, unknown>,
+    });
+  };
+
   const submitAction = (input: string, rollOfferId?: string): Result<SubmitPlayerAction> => {
     const { snapshot } = state;
     const sceneId = snapshot?.currentScene?.id;
@@ -734,7 +858,16 @@ export const createDesktopClient = ({
     goHome: () => {
       const { selected, snapshot, panels, streaming, ...rest } = state;
       queuedEdits = [];
-      state = { ...rest, views: {}, rolls: [], rolling: false, sheetChanged: [], sheetErrors: {}, sheetEditing: false };
+      state = {
+        ...rest,
+        views: {},
+        rolls: [],
+        rolling: false,
+        sheetChanged: [],
+        sheetErrors: {},
+        sheetEditing: false,
+        ooc: initialState.ooc,
+      };
       update({});
       send(LIST_CAMPAIGNS);
     },
@@ -775,8 +908,25 @@ export const createDesktopClient = ({
         ? failure('Rejected', 'no roll is offered right now')
         : submitAction(offer.label, offer.offerId);
     },
-    submit: (input: string): Result<SubmitPlayerAction> =>
-      ROLL_PATTERN.test(input.trim()) ? rollNow() : submitAction(input),
+    submit: (input: string): Result<SubmitPlayerAction | SubmitOocMessage> => {
+      if (state.ooc.active || parseOocInput(input) !== undefined) return talkToGm(input);
+      return ROLL_PATTERN.test(input.trim()) ? rollNow() : submitAction(input);
+    },
+    toggleOoc: () => update({ ooc: { ...state.ooc, active: !state.ooc.active } }),
+    confirmOoc,
+    declineOoc: (exchangeId: string, index: number) =>
+      changeExchange(exchangeId, (exchange) => setProposal(exchange, index, { status: 'declined' })),
+    undoOoc: () => {
+      const { snapshot } = state;
+      if (snapshot === undefined || state.ooc.undoable === undefined) return;
+      send({
+        version: PROTOCOL_VERSION,
+        type: 'UndoOocChange',
+        campaignId: snapshot.campaignId,
+        actionId: newActionId(),
+        expectedRevision: snapshot.revision,
+      });
+    },
     startScreen: () => startScreen(state.start.draft, state.start.options, state.start.plan, locale(), voices()),
     openStart: () => {
       update({ start: { ...state.start, open: true, created: undefined } });

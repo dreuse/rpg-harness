@@ -125,6 +125,8 @@ const ACTIONS: ReadonlySet<string> = new Set([
   'EditSheetField',
 ]);
 
+const OOC_COMMANDS: ReadonlySet<string> = new Set(['SubmitOocMessage', 'ConfirmOocProposal', 'UndoOocChange']);
+
 export const daemonTransport = (daemon: Pick<Daemon, 'ready' | 'command' | 'subscribe'>): Transport => {
   let onLine = (_line: string) => {};
   let onClose = (_error: string) => {};
@@ -151,6 +153,13 @@ export const daemonTransport = (daemon: Pick<Daemon, 'ready' | 'command' | 'subs
         result?.ok ? { type: 'Accepted', actionId } : { type: 'Rejected', actionId, error: result?.error ?? message },
       );
     }
+    if (OOC_COMMANDS.has(command.type) && 'actionId' in command)
+      return emit({
+        type: 'OocResult',
+        command: command.type,
+        actionId: command.actionId,
+        result: result ?? failure('Rejected', String(message)),
+      });
     if (command.type === 'PlanCampaign' || command.type === 'CreateCampaign')
       return emit({
         type: command.type === 'PlanCampaign' ? 'Planned' : 'Created',

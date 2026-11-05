@@ -30,6 +30,9 @@ import {
   type KeyTarget,
   LOCALE_ATTRIBUTE,
   NAV_ATTRIBUTE,
+  OOC_ATTRIBUTE,
+  OOC_EXCHANGE,
+  OOC_INDEX,
   PANE_ATTRIBUTE,
   queryPreferences,
   queryStart,
@@ -90,6 +93,7 @@ export const FONT_SCALE_PROPERTY = '--font-scale';
 export const ROOT_ID = 'app';
 export const FORM_ID = 'action-form';
 export const INPUT_ID = 'action-input';
+export const OOC_TOGGLE_ID = 'ooc-toggle';
 
 const CLICK = 'click';
 const TOGGLE = 'toggle';
@@ -175,7 +179,8 @@ type ClickTarget = { closest(selector: string): { getAttribute(name: string): st
 export type PageElements = {
   readonly root: Pick<HTMLElement, 'innerHTML' | 'style' | 'addEventListener' | 'querySelector'>;
   readonly form: Pick<HTMLFormElement, 'addEventListener' | 'requestSubmit'>;
-  readonly input: Pick<HTMLInputElement, 'value'>;
+  readonly input: Pick<HTMLInputElement, 'value'> & Partial<Pick<HTMLInputElement, 'placeholder'>>;
+  readonly oocToggle?: Pick<HTMLButtonElement, 'addEventListener' | 'setAttribute' | 'textContent'>;
   readonly keys: KeyTarget;
 };
 export type PageOptions = {
@@ -225,7 +230,7 @@ const assignmentsOf = (speech: SpeechPreferences, campaignId: string | undefined
       );
 
 export const mountPage = ({
-  elements: { root, form, input, keys },
+  elements: { root, form, input, oocToggle, keys },
   bridge,
   search,
   width,
@@ -357,6 +362,10 @@ export const mountPage = ({
       (selector) => root.querySelector<HTMLDetailsElement>(selector)?.open === true,
     );
     localize(preferences.locale);
+    const talking = client.state().ooc.active;
+    oocToggle?.setAttribute('aria-pressed', String(talking));
+    if (oocToggle !== undefined) oocToggle.textContent = translate(preferences.locale, 'ooc.toggle');
+    input.placeholder = translate(preferences.locale, talking ? 'ooc.placeholder' : 'action.placeholder');
     sound?.update(
       preferences.sound,
       model.playing ? sceneSoundInput(model.scene?.title, model.scene) : undefined,
@@ -518,6 +527,12 @@ export const mountPage = ({
     if (action !== 'archive' && action !== 'delete') return;
     client.askHome(action, name, archived);
     root.querySelector<HTMLElement>(CANCEL_SELECTOR)?.focus();
+  };
+  const oocAction = (action: string | null, exchange: string | null, index: string | null) => {
+    if (action === 'undo') return client.undoOoc();
+    if (exchange === null || index === null) return;
+    if (action === 'confirm') client.confirmOoc(exchange, Number(index));
+    if (action === 'decline') client.declineOoc(exchange, Number(index));
   };
   const cancelHome = () => {
     const asked = client.state().home.confirm;
@@ -698,6 +713,9 @@ export const mountPage = ({
     const control = target?.closest(`[${START_CONTROL}]`)?.getAttribute(START_CONTROL);
     if (isStartControl(control)) return startControl(control);
     if (target?.closest(SKIP_SELECTOR)) return client.settle();
+    const ooc = target?.closest(`[${OOC_ATTRIBUTE}]`);
+    if (ooc)
+      return oocAction(ooc.getAttribute(OOC_ATTRIBUTE), ooc.getAttribute(OOC_EXCHANGE), ooc.getAttribute(OOC_INDEX));
     if (target?.closest(`[${ROLL_OFFER_ATTRIBUTE}]`)) return void client.acceptRoll();
     const sheet = target?.closest(`[${SHEET_ACTION}]`);
     if (sheet) return sheetAction(sheet.getAttribute(SHEET_ACTION));
@@ -756,10 +774,18 @@ export const mountPage = ({
   form.addEventListener(SUBMIT, (event) => {
     event.preventDefault();
     if (input.value.trim() === '') return;
+    if (client.state().ooc.active) {
+      if (client.submit(input.value).ok) input.value = '';
+      return render();
+    }
     voice.say(input.value).then((route) => {
       if (route.kind !== 'action' || route.result.ok) input.value = '';
       render();
     });
+  });
+  oocToggle?.addEventListener('click', () => {
+    client.toggleOoc();
+    render();
   });
   bindKeys(keys, () => preferences, run);
   render();
@@ -793,6 +819,7 @@ const boot = () => {
       root: byId(ROOT_ID),
       form: byId<HTMLFormElement>(FORM_ID),
       input: byId<HTMLInputElement>(INPUT_ID),
+      oocToggle: byId<HTMLButtonElement>(OOC_TOGGLE_ID),
       keys: document,
     },
     bridge,

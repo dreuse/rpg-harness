@@ -560,6 +560,44 @@ const rollTray = ({ rolls: [latest, ...older] }: ViewModel, locale: string) =>
     : `<section data-rolls aria-label="${escapeHtml(translate(locale, 'region.rolls'))}">${renderRoll(latest, locale)}${rollHistory(older, locale)}</section>`;
 
 export const ROLL_OFFER_ATTRIBUTE = 'data-roll-offer';
+export const OOC_ATTRIBUTE = 'data-ooc';
+export const OOC_EXCHANGE = 'data-ooc-exchange';
+export const OOC_INDEX = 'data-ooc-index';
+export const OOC_PANEL = 'ooc-panel';
+
+const oocButton = (action: string, label: string, exchangeId: string, index: number) =>
+  `<button type="button" ${OOC_ATTRIBUTE}="${action}" ${OOC_EXCHANGE}="${escapeHtml(exchangeId)}" ${OOC_INDEX}="${index}">${escapeHtml(label)}</button>`;
+
+const oocProposal = (
+  { proposal, status, error }: ViewModel['ooc']['exchanges'][number]['proposals'][number],
+  exchangeId: string,
+  index: number,
+  locale: string,
+) => {
+  const summary = escapeHtml(proposal.summary);
+  const note = error === undefined ? '' : `<p role="alert">${escapeHtml(error)}</p>`;
+  if (status === 'applied')
+    return `<li data-ooc-status="applied">${summary}${LABEL_SEPARATOR}${escapeHtml(translate(locale, 'ooc.applied'))}</li>`;
+  if (status === 'declined')
+    return `<li data-ooc-status="declined">${summary}${LABEL_SEPARATOR}${escapeHtml(translate(locale, 'ooc.declined'))}</li>`;
+  const busy = status === 'applying' ? ' aria-busy="true"' : '';
+  const actions =
+    status === 'open'
+      ? `${oocButton('confirm', translate(locale, 'ooc.confirm'), exchangeId, index)}${oocButton('decline', translate(locale, 'ooc.decline'), exchangeId, index)}`
+      : '';
+  return `<li data-ooc-status="${status}"${busy}>${summary}${actions}${note}</li>`;
+};
+
+const oocExchange = (
+  { id, text, asking, reply, error, proposals }: ViewModel['ooc']['exchanges'][number],
+  locale: string,
+) =>
+  `<li ${OOC_EXCHANGE}="${escapeHtml(id)}"><p data-speaker="ooc-you"><span data-ooc-label>${escapeHtml(translate(locale, 'ooc.you'))}${LABEL_SEPARATOR}</span>${escapeHtml(text)}</p>${asking ? `<p data-speaker="system">${escapeHtml(translate(locale, 'ooc.asking'))}</p>` : ''}${reply === undefined ? '' : `<p data-speaker="ooc-gm"><span data-ooc-label>${escapeHtml(translate(locale, 'ooc.gm'))}${LABEL_SEPARATOR}</span>${escapeHtml(reply)}</p>`}${error === undefined ? '' : `<p role="alert">${escapeHtml(error)}</p>`}${proposals.length === 0 ? '' : `<ul>${proposals.map((entry, index) => oocProposal(entry, id, index, locale)).join('')}</ul>`}</li>`;
+
+const oocPanel = ({ ooc }: ViewModel, locale: string) =>
+  !ooc.active && ooc.exchanges.length === 0 && ooc.undoable === undefined
+    ? ''
+    : `<section id="${OOC_PANEL}" data-ooc-panel aria-labelledby="${OOC_PANEL}-heading"><h3 id="${OOC_PANEL}-heading">${escapeHtml(translate(locale, 'ooc.heading'))}</h3><p data-speaker="system">${escapeHtml(translate(locale, 'ooc.note'))}</p><ol aria-live="polite">${ooc.exchanges.map((exchange) => oocExchange(exchange, locale)).join('')}</ol>${ooc.undoable === undefined ? '' : `<button type="button" ${OOC_ATTRIBUTE}="undo">${escapeHtml(translate(locale, 'ooc.undo', { summary: ooc.undoable }))}</button>`}</section>`;
 
 const rollOfferButton = ({ rollOffer }: ViewModel, locale: string) =>
   rollOffer === undefined
@@ -641,7 +679,7 @@ const REGION_BODIES: Readonly<Record<Region, (model: ViewModel, locale: string) 
       )
       .join(
         '',
-      )}</ol>${model.conversation.length === 0 ? empty(locale, 'conversation') : ''}${rollOfferButton(model, locale)}${rollTray(model, locale)}`,
+      )}</ol>${model.conversation.length === 0 ? empty(locale, 'conversation') : ''}${rollOfferButton(model, locale)}${rollTray(model, locale)}${oocPanel(model, locale)}`,
   sheet: ({ sheetGroups, sheetEditing, character }, locale) => {
     const name = character === undefined ? '' : `<h3>${escapeHtml(character)}</h3>`;
     if (sheetGroups.length > 0) return sheetBody(sheetGroups, sheetEditing, name, locale);

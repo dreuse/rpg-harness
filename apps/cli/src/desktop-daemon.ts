@@ -279,6 +279,11 @@ const replier = ({ name, campaign, problem }: Served, gm: GameMaster) => {
     if (command.type === 'SaveGmSettings') return send({ id, type: 'Result', result: session.saveGmSettings(command) });
     if (command.type === 'SetCampaignLanguage')
       return send({ id, type: 'Result', result: session.setCampaignLanguage(command) });
+    if (command.type === 'SubmitOocMessage')
+      return send({ id, type: 'Result', result: session.submitOocMessage(command) });
+    if (command.type === 'ConfirmOocProposal')
+      return send({ id, type: 'Result', result: session.confirmOocProposal(command) });
+    if (command.type === 'UndoOocChange') return send({ id, type: 'Result', result: session.undoOocChange(command) });
     if (command.type === 'SaveGmDefaults') return send({ id, type: 'Result', result: saveGmDefaults(command) });
     if (command.type === 'GetStoryMemory' || command.type === 'CorrectStoryFact')
       return send({ id, type: 'Result', result: failure('Rejected', UNSUPPORTED_STORY_MEMORY) });

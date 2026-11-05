@@ -1059,6 +1059,85 @@ test('rpg-42a.74: /roll accepts the open offer by id and says so when none is op
   assert.match(output.join(''), /No roll is offered right now\./);
 });
 
+test('rpg-42a.91: /gm and (( )) go to the GM out of character; yes confirms, no declines, revert undoes', async () => {
+  const { session, campaignId } = engineSession();
+  const sent: string[] = [];
+  const confirmed: unknown[] = [];
+  let narrated = 0;
+  const proposal = {
+    kind: 'table_note' as const,
+    summary: 'Table note: NPCs speak modern English',
+    note: 'NPCs speak modern English',
+  };
+  const gm: ClientSession = {
+    ...session,
+    submitPlayerAction: (command) => {
+      sent.push(command.input);
+      return { ok: true, value: { revision: 3 } };
+    },
+    submitOocMessage: ({ text }) => {
+      sent.push(`ooc:${text}`);
+      return { ok: true, value: { reply: 'I can keep this.', proposals: [proposal] } };
+    },
+    confirmOocProposal: (command) => {
+      confirmed.push(command.proposal);
+      return { ok: true, value: { revision: 4, summary: proposal.summary } };
+    },
+    undoOocChange: () => ({ ok: true, value: { revision: 5, summary: proposal.summary } }),
+  };
+  const output: string[] = [];
+  const lines = (async function* () {
+    yield '(( NPCs speak modern English ))';
+    yield '/gm no';
+    yield '/gm yes';
+    yield '/gm NPCs speak modern English';
+    yield '/gm yes';
+    yield '/gm revert';
+    yield 'q';
+  })();
+  await runTui(gm, campaignId, { capabilities: PLAIN_WIDE, lines, write: (text) => output.push(text) }, async () => {
+    narrated++;
+  });
+  const screenText = output.join('');
+  assert.deepEqual(sent, ['ooc:NPCs speak modern English', 'ooc:NPCs speak modern English']);
+  assert.equal(narrated, 0);
+  assert.deepEqual(confirmed, [proposal]);
+  assert.match(screenText, /GM \(out of character\): I can keep this\. 1\. Table note: NPCs speak modern English/);
+  assert.match(screenText, /Nothing changed\./);
+  assert.match(screenText, /There is nothing to confirm\./);
+  assert.match(screenText, /Done: Table note: NPCs speak modern English\./);
+  assert.match(screenText, /Undone: Table note/);
+});
+
+test('rpg-42a.91: the TUI talks to the GM in Brazilian Portuguese', async () => {
+  const { session, campaignId } = engineSession();
+  const current = session.getSnapshot({ version: PROTOCOL_VERSION, type: 'GetCampaignSnapshot', campaignId });
+  assert.ok(current.ok);
+  const language = session.setCampaignLanguage({
+    version: PROTOCOL_VERSION,
+    type: 'SetCampaignLanguage',
+    campaignId,
+    actionId: 'pt',
+    expectedRevision: current.value.revision,
+    language: 'pt-BR',
+  });
+  assert.ok(language.ok);
+  const output: string[] = [];
+  const lines = (async function* () {
+    yield '/gm você esqueceu meu +2 por terreno alto';
+    yield '/gm não';
+    yield 'q';
+  })();
+  await runTui(session, campaignId, {
+    capabilities: PLAIN_WIDE,
+    lines,
+    write: (text) => output.push(text),
+    locale: 'pt-BR',
+  });
+  assert.match(output.join(''), /Mestre \(fora do personagem\): Justo\./);
+  assert.match(output.join(''), /Nada mudou\./);
+});
+
 test('rpg-42a.89: a roll an NPC made is labelled with the NPC name in the terminal indicator', () => {
   const npcRoll = toVisualizationEvent(
     {

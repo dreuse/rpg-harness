@@ -40,6 +40,7 @@ import {
   recordGmUsage,
 } from '../../../packages/engine/src/gm-settings.ts';
 import { contextBudgetOf } from '../../../packages/engine/src/memory.ts';
+import { withoutRetconned } from '../../../packages/engine/src/ooc.ts';
 import {
   CHECK_RESOLVED,
   CHECK_SKIPPED,
@@ -247,7 +248,9 @@ const narratingEngine = (
 ): Engine => {
   const narrator: Narrator = {
     narrate: (committed) => ({
-      narration: narrate(contextPacketOf(database, loadState(store, committed.turn.campaignId), committed)).narration,
+      narration: narrate(
+        contextPacketOf(database, withoutRetconned(loadState(store, committed.turn.campaignId)), committed),
+      ).narration,
       claims: [],
     }),
   };

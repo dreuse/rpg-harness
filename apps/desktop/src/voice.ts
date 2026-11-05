@@ -1,4 +1,9 @@
-import type { Result, SavedVoiceSettings, SubmitPlayerAction } from '../../../packages/client-protocol/src/protocol.ts';
+import type {
+  Result,
+  SavedVoiceSettings,
+  SubmitOocMessage,
+  SubmitPlayerAction,
+} from '../../../packages/client-protocol/src/protocol.ts';
 import { SPOKEN_OUTPUT_MODES } from '../../../packages/domain/src/voice.ts';
 import type { AudioFailure, TurnTranscription } from '../../../packages/voice/src/fallback.ts';
 import type {
@@ -26,7 +31,7 @@ import {
 } from '../../../packages/voice/src/voice-settings.ts';
 
 type Microphone = Pick<MicrophoneController, 'start' | 'stop'>;
-type Route = VoiceInputRoute<Result<SubmitPlayerAction>>;
+type Route = VoiceInputRoute<Result<SubmitPlayerAction | SubmitOocMessage>>;
 
 export type VoiceFallback = TypedFallbackReason | SttFallbackReason | AudioFailure;
 
@@ -37,7 +42,7 @@ export type DesktopVoiceOptions = {
   readonly supportedLocales: readonly string[];
   readonly subtitles: Pick<SubtitleTranscript, 'current'>;
   readonly openMicrophone: (settings: VoiceSettings) => Microphone;
-  readonly submit: (input: string) => Result<SubmitPlayerAction>;
+  readonly submit: (input: string) => Result<SubmitPlayerAction | SubmitOocMessage>;
   readonly save: (settings: SavedVoiceSettings) => void;
   readonly playback?: PlaybackControl;
 };

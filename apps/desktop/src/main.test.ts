@@ -142,6 +142,28 @@ test('rpg-cm63.22 daemon transport relays streamed narration lines before the ac
   ]);
 });
 
+test('rpg-42a.91 daemon transport relays out-of-character results without narration', async () => {
+  const reply = { ok: true as const, value: { reply: 'Sure.', proposals: [] } };
+  const applied = { ok: true as const, value: { revision: 3, summary: 'Done' } };
+  const wired = collect({
+    ...fakeDaemon({ SubmitOocMessage: reply, ConfirmOocProposal: applied, UndoOocChange: applied }),
+    command: async (input: unknown, onNarration?: unknown) => {
+      assert.equal(onNarration, undefined);
+      const { type } = input as { type: string };
+      return { id: 0, type: 'Result' as const, result: type === 'SubmitOocMessage' ? reply : applied };
+    },
+  });
+  wired.transport.send(command('SubmitOocMessage', { actionId: 'o1', text: 'hi' }));
+  wired.transport.send(command('ConfirmOocProposal', { actionId: 'o2', expectedRevision: 1, proposal: {} }));
+  wired.transport.send(command('UndoOocChange', { actionId: 'o3', expectedRevision: 2 }));
+  await flush();
+  assert.deepEqual(wired.lines, [
+    { type: 'OocResult', command: 'SubmitOocMessage', actionId: 'o1', result: reply },
+    { type: 'OocResult', command: 'ConfirmOocProposal', actionId: 'o2', result: applied },
+    { type: 'OocResult', command: 'UndoOocChange', actionId: 'o3', result: applied },
+  ]);
+});
+
 test('rpg-42a.21 daemon transport settles sheet edits as Accepted or Rejected', async () => {
   const edit = (results: Record<string, unknown>) => {
     const wired = collect(fakeDaemon(results));

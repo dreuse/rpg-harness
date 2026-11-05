@@ -1,0 +1,20 @@
+# ADR 0029 — Out-of-character channel to the GM
+
+**Status:** Accepted (rpg-42a.91). **Decision:** The player talks to the GM outside the story through three commands: `SubmitOocMessage`, `ConfirmOocProposal` and `UndoOocChange`. The GM answers with proposals. Only the engine applies a proposal, and only after the player confirms.
+
+**Context:** Every input was an in-fiction action. The player had no way to correct a missed modifier, a wrong NPC voice or a bad turn without editing data by hand.
+
+**Decision details:**
+- Input: a client sends text to `SubmitOocMessage` when the player turns on "Talk to the GM", or types `/gm <text>` or `(( <text> ))` (`parseOocInput`, `client-protocol`). `SubmitPlayerAction` rejects text with these prefixes, so out-of-character text never becomes `PlayerActionSubmitted`, a story turn, speech or a GM narration request.
+- Reply: `OocReply { reply, proposals[] }`. Proposal kinds are `table_note`, `house_rule`, `retcon_last_turn` and `roll_fix`. The proposals are stateless. A client sends the chosen proposal back in `ConfirmOocProposal`, and the engine validates it again. Declining sends nothing. The fake GM maps text to a proposal with fixed patterns (`gm-ooc.ts`).
+- State: one change event, `OocStateSaved`, holds `{ notes, houseRules, retconned, journal }`. The latest event wins, as with GM settings, so every apply and undo is a new append-only event. `journal` lists the applied changes with a one-line summary. `UndoOocChange` reverts the newest change that is not yet undone.
+- Table note: one short line, at most 8 notes of 200 characters. The packet adds it to the `style` section as `table note (player-authored): ...`, with an instruction that notes never override safety, privacy or isolation rules. Packet data is already framed as `campaign-data` JSON.
+- House rule: the CLI validates the rule through the I09 overlay (`applyHouseRule` on the campaign RulePack, replaying earlier house rules). A refusal changes nothing. The CLI ignores any client `source` and builds it from the proposal summary, as one line. The engine bounds the rule id (60 characters), the serialized rule (2000 characters) and any source note (one line, 200 characters). The engine stores the validated `{ id, source, rule }`. The packet adds its source note as `house rule (player-authored): ...`.
+- Retcon: `retconned` lists turn ids. `Engine.getState` hides those turns and their events, so every projection that reads the state skips them. The last play turn and the system turns after it are hidden. The opening scene cannot be retconned. Nothing is deleted, so undo removes the ids and the turns return.
+- Roll fix: the engine takes the last roll in the last play turn, asks a `RollCorrector` port for a new resolution, and commits a `RollCorrected` system turn, then saves the journal entry. The port is the only code that knows a ruleset. `correctD20Roll` keeps the stored dice, adds the modifier to the bonus and picks the outcome again. Undo hides that turn the same way as a retcon.
+
+**Consequences:**
+- The retcon hides turns in `Engine.getState` and in the GM packet and scene-summary reads (`summarizeCampaign`, the narrating engine). Readers that go straight to the event store, such as the visualization replay, still see them. Summaries written before a retcon keep the text of the turn they covered.
+- House rules are stored, validated and shown to the GM as notes. Live roll resolution does not read the overlay yet, and built-in RulePacks declare no primitives, so most rules are refused until a pack allows them.
+- Retcon does not re-narrate. The player sends a new action.
+- Only the fake GM maps text to proposals. A model-backed OOC reply is a follow-up.

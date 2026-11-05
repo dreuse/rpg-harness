@@ -164,6 +164,9 @@ const inMemorySession = (): ClientSession & { commit(event: DomainEvent): void }
     saveVoiceSettings: () => ({ ok: true, value: { revision } }),
     saveGmSettings: () => ({ ok: true, value: { revision } }),
     setCampaignLanguage: () => ({ ok: true, value: { revision } }),
+    submitOocMessage: () => ({ ok: true, value: { reply: '', proposals: [] } }),
+    confirmOocProposal: () => ({ ok: true, value: { revision, summary: '' } }),
+    undoOocChange: () => ({ ok: true, value: { revision, summary: '' } }),
   };
 };
 
@@ -238,6 +241,9 @@ test('UI01: clients cannot bypass the engine or trust unsolicited model state wr
     'SetCampaignLanguage',
     'GetStoryMemory',
     'CorrectStoryFact',
+    'SubmitOocMessage',
+    'ConfirmOocProposal',
+    'UndoOocChange',
   ]);
   const defaultsSave = { ...envelope, type: 'SaveGmDefaults', actionId: 'action-5' };
   assert.ok(parseCommand({ ...defaultsSave, model: 'sonnet', sessionBudgetTokens: 900 }).ok);

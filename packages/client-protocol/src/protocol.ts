@@ -12,11 +12,17 @@ import type {
 } from '../../domain/src/campaign.ts';
 import type { RuleCitation } from '../../domain/src/character.ts';
 import type { GmSettings, GmUsageTotals } from '../../domain/src/gm.ts';
+import type { OocApplied, OocReply } from '../../domain/src/ooc.ts';
 import type { RulesUsage } from '../../domain/src/rules-usage.ts';
 import { CLAIM_KINDS, type ClaimKind, type StoryMemory } from '../../domain/src/story-memory.ts';
 import { isLocale, type SavedVoiceSettings, type SpokenOutputMode } from '../../domain/src/voice.ts';
 import type { VisualizationEvent } from './visualization.ts';
 
+export type {
+  OocApplied,
+  OocProposal,
+  OocReply,
+} from '../../domain/src/ooc.ts';
 export type { StoryMemory, StoryMemoryEntry, StoryMemoryGroup } from '../../domain/src/story-memory.ts';
 export type {
   MicrophoneMode,
@@ -58,6 +64,9 @@ export const COMMAND_TYPES = [
   'SetCampaignLanguage',
   'GetStoryMemory',
   'CorrectStoryFact',
+  'SubmitOocMessage',
+  'ConfirmOocProposal',
+  'UndoOocChange',
 ] as const;
 export type CommandType = (typeof COMMAND_TYPES)[number];
 
@@ -167,6 +176,20 @@ export type CorrectStoryFact = Envelope<'CorrectStoryFact'> & {
   readonly value: string;
 };
 
+export type SubmitOocMessage = Envelope<'SubmitOocMessage'> & {
+  readonly actionId: string;
+  readonly text: string;
+};
+export type ConfirmOocProposal = Envelope<'ConfirmOocProposal'> & {
+  readonly actionId: string;
+  readonly expectedRevision: number;
+  readonly proposal: Readonly<Record<string, unknown>>;
+};
+export type UndoOocChange = Envelope<'UndoOocChange'> & {
+  readonly actionId: string;
+  readonly expectedRevision: number;
+};
+
 export type ClientCommand =
   | ListCampaigns
   | CampaignCommand
@@ -182,7 +205,10 @@ export type ClientCommand =
   | SaveGmDefaults
   | SetCampaignLanguage
   | GetStoryMemory
-  | CorrectStoryFact;
+  | CorrectStoryFact
+  | SubmitOocMessage
+  | ConfirmOocProposal
+  | UndoOocChange;
 
 export type ClientDomainEvent = Readonly<DomainEvent>;
 
@@ -361,6 +387,9 @@ export interface ClientSession {
   saveVoiceSettings(command: SaveVoiceSettings): Result<Accepted>;
   saveGmSettings(command: SaveGmSettings): Result<Accepted>;
   setCampaignLanguage(command: SetCampaignLanguage): Result<Accepted>;
+  submitOocMessage(command: SubmitOocMessage): Result<OocReply>;
+  confirmOocProposal(command: ConfirmOocProposal): Result<OocApplied>;
+  undoOocChange(command: UndoOocChange): Result<OocApplied>;
 }
 
 type FieldKind =
@@ -472,6 +501,9 @@ const COMMAND_FIELDS: Record<CommandType, Readonly<Record<string, FieldSpec>>> =
     key: { kind: 'id', optional: true },
     value: { kind: 'text' },
   },
+  SubmitOocMessage: { actionId: ID, text: { kind: 'text' } },
+  ConfirmOocProposal: { actionId: ID, expectedRevision: { kind: 'revision' }, proposal: { kind: 'record' } },
+  UndoOocChange: { actionId: ID, expectedRevision: { kind: 'revision' } },
 };
 
 const MAX_REPORTED_DICE = 100;

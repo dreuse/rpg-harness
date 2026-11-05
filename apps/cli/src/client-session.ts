@@ -1,5 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { createEventLog, EVENT_LOG_WINDOW } from '../../../packages/client-protocol/src/event-log.ts';
+import { parseOocInput } from '../../../packages/client-protocol/src/ooc.ts';
 import {
   type Accepted,
   type CampaignCommand,
@@ -51,6 +52,7 @@ import {
   type GmSettings,
   ledgerTotals,
 } from '../../../packages/domain/src/gm.ts';
+import { ROLL_CORRECTED } from '../../../packages/domain/src/ooc.ts';
 import { playTurns, SHEET_FIELD_EDITED } from '../../../packages/engine/src/character.ts';
 import { pendingCheckOffer } from '../../../packages/engine/src/check-offer.ts';
 import { currentEncounter } from '../../../packages/engine/src/encounter.ts';
@@ -64,7 +66,8 @@ import { type Scoped, type Viewer, visibleTo } from '../../../packages/memory/sr
 import { createEntityStore } from '../../../packages/persistence/src/entity-store.ts';
 import { type EventQuery, listScopedEvents } from '../../../packages/persistence/src/event-store.ts';
 import { rangeIssue } from '../../../packages/rules/src/character-builder.ts';
-import { DEFAULT_LOCALE, errorText, LocalizedError } from './messages.ts';
+import { correctD20Roll, fakeOocReply, houseRuleOf } from './gm-ooc.ts';
+import { DEFAULT_LOCALE, errorText, LocalizedError, say } from './messages.ts';
 import { creationRulesFor, usageFor } from './quickstart.ts';
 import {
   checkForAction,
@@ -103,7 +106,7 @@ const NEWLINE = '\n';
 const SCOPE_CACHE_SLACK = 2;
 const UNKNOWN_PLAY_TIME = null;
 
-const ROLL_EVENT_TYPES = [CHECK_RESOLVED, GM_ROLLED];
+const ROLL_EVENT_TYPES = [CHECK_RESOLVED, GM_ROLLED, ROLL_CORRECTED];
 
 export const scopedEventsOf =
   (database: DatabaseSync): EventSource =>
@@ -471,6 +474,11 @@ export const createClientSessions = (
         const accepted = accept<typeof command>(command, 'SubmitPlayerAction');
         if (!accepted.ok) return accepted;
         const { actionId, expectedRevision, sceneId, actorId, input, rollOfferId, reportedRoll } = accepted.value;
+        if (parseOocInput(input) !== undefined)
+          return failure(
+            'Rejected',
+            say(campaignLanguageOf(engine.getState(campaignId).changes) ?? DEFAULT_LOCALE, 'ooc.notAction'),
+          );
         return attempt(() => {
           const state = engine.getState(campaignId);
           try {
@@ -560,6 +568,48 @@ export const createClientSessions = (
           engine.setCampaignLanguage({ campaignId, actionId, expectedRevision, language });
           sync();
           return { revision: engine.getState(campaignId).revision };
+        });
+      },
+      submitOocMessage: (command) => {
+        const accepted = accept<typeof command>(command, 'SubmitOocMessage');
+        if (!accepted.ok) return accepted;
+        return attempt(() =>
+          deepFreeze(
+            fakeOocReply(
+              parseOocInput(accepted.value.text) ?? accepted.value.text,
+              campaignLanguageOf(engine.getState(campaignId).changes) ?? DEFAULT_LOCALE,
+            ),
+          ),
+        );
+      },
+      confirmOocProposal: (command) => {
+        const accepted = accept<typeof command>(command, 'ConfirmOocProposal');
+        if (!accepted.ok) return accepted;
+        const { actionId, expectedRevision, proposal } = accepted.value;
+        return attempt(() => {
+          const state = engine.getState(campaignId);
+          const locale = campaignLanguageOf(state.changes) ?? DEFAULT_LOCALE;
+          const prepared =
+            proposal.kind === 'house_rule' ? { ...proposal, rule: houseRuleOf(state, proposal, locale) } : proposal;
+          const applied = engine.applyOoc({
+            campaignId,
+            actionId,
+            expectedRevision,
+            proposal: prepared,
+            correctRoll: correctD20Roll,
+          });
+          sync();
+          return applied;
+        });
+      },
+      undoOocChange: (command) => {
+        const accepted = accept<typeof command>(command, 'UndoOocChange');
+        if (!accepted.ok) return accepted;
+        const { actionId, expectedRevision } = accepted.value;
+        return attempt(() => {
+          const undone = engine.undoOoc({ campaignId, actionId, expectedRevision });
+          sync();
+          return undone;
         });
       },
     };

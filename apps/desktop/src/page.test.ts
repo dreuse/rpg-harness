@@ -223,6 +223,57 @@ test('rpg-42a.7 page renders the view and drives the client through the bridge',
   assert.equal(page.focused.at(-1), '[data-region="sheet"]');
 });
 
+test('rpg-42a.91 the Talk to the GM toggle sends input out of character and never as an action', async () => {
+  const page = fakePage();
+  let click = () => {};
+  const toggle = {
+    textContent: '',
+    pressed: '',
+    setAttribute: (name: string, value: string) => {
+      if (name === 'aria-pressed') toggle.pressed = value;
+    },
+    addEventListener: (_type: string, listener: () => void) => {
+      click = listener;
+    },
+  };
+  const elements = { ...page.elements, oocToggle: toggle } as unknown as PageElements;
+  mountPage({
+    elements,
+    bridge: page.bridge,
+    search: `?${new URLSearchParams({ [PREFERENCES_QUERY]: JSON.stringify({ ...DEFAULT_PREFERENCES, locale: 'pt-BR' }) })}`,
+    width: () => WIDE_WIDTH,
+    newActionId: (() => {
+      let next = 0;
+      return () => `o${next++}`;
+    })(),
+    openMicrophone: deniedMicrophone,
+  });
+  page.receive(READY);
+  page.receive({ type: 'Campaigns', campaigns: [SNAPSHOT.campaign] });
+  continueHarbor(page);
+  page.receive({ type: 'Snapshot', snapshot: SNAPSHOT });
+  assert.equal(toggle.textContent, 'Falar com o mestre');
+  assert.equal(toggle.pressed, 'false');
+  click();
+  assert.equal(toggle.pressed, 'true');
+  page.input.value = 'NPCs speak modern English';
+  page.press('Enter');
+  await settle();
+  assert.deepEqual(submitted(page), []);
+  assert.deepEqual(
+    page.sent.filter(({ type }) => type === 'SubmitOocMessage').map((command) => 'text' in command && command.text),
+    ['NPCs speak modern English'],
+  );
+  assert.equal(page.input.value, '');
+  page.receive({
+    type: 'OocResult',
+    command: 'SubmitOocMessage',
+    actionId: 'o0',
+    result: { ok: true, value: { reply: 'Posso guardar isso.', proposals: [] } },
+  });
+  assert.match(page.root.innerHTML, /Posso guardar isso\./);
+});
+
 test('rpg-42a.7 page retries only from the retry button', () => {
   const page = fakePage();
   const client = mount(page);

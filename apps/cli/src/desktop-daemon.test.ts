@@ -738,6 +738,40 @@ describe('serve client-protocol commands over the desktop engine daemon', () => 
     assert.equal(rejectionOf(await daemon.command(correct)), 'Rejected');
   });
 
+  it('rpg-42a.91: serves out-of-character messages without narrating, speaking or adding a story turn', async (t) => {
+    const { env, campaignId } = await campaignEnv(t);
+    const daemon = supervise(t, { env });
+    const before = await snapshotOf(daemon, campaignId);
+    const narrations: unknown[] = [];
+    const reply = await daemon.command(
+      lifecycle('SubmitOocMessage', { campaignId, actionId: 'ooc-1', text: 'NPCs speak modern English' }),
+      (narration) => narrations.push(narration),
+    );
+    const { proposals } = acceptedValue<{ proposals: { kind: string }[] }>(reply);
+    assert.deepEqual(
+      proposals.map(({ kind }) => kind),
+      ['table_note'],
+    );
+    assert.deepEqual(narrations, []);
+    const after = await snapshotOf(daemon, campaignId);
+    assert.deepEqual([after.turns, after.revision], [before.turns, before.revision]);
+    const confirm = lifecycle('ConfirmOocProposal', {
+      campaignId,
+      actionId: 'ooc-2',
+      expectedRevision: before.revision,
+      proposal: proposals[0],
+    });
+    assert.ok(acceptedValue<{ summary: string }>(await daemon.command(confirm)).summary.length > 0);
+    const undo = lifecycle('UndoOocChange', {
+      campaignId,
+      actionId: 'ooc-3',
+      expectedRevision: (await snapshotOf(daemon, campaignId)).revision,
+    });
+    acceptedValue(await daemon.command(undo));
+    const rejected = await daemon.command(actionCommand(await snapshotOf(daemon, campaignId), '/gm hello'));
+    assert.equal(rejectionOf(rejected), 'Rejected');
+  });
+
   it('rpg-42a.13: opens another campaign, drops old subscriptions and rejects an unknown name', async (t) => {
     const { env, campaignId } = await campaignEnv(t);
     await createCampaigns(String(env[DATA_DIR_ENV]), [SECOND_CAMPAIGN]);

@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { Key } from 'node:readline';
 import { budgetWarning, gmUsageLines } from '../../../packages/client-protocol/src/gm-usage.ts';
+import { parseOocInput } from '../../../packages/client-protocol/src/ooc.ts';
 import {
   type CampaignSnapshot,
   type ClientEvent,
@@ -20,6 +21,7 @@ import {
   type VisualizationEvent,
 } from '../../../packages/client-protocol/src/visualization.ts';
 import { type CampaignId, OPENING_ACTION_ID } from '../../../packages/domain/src/campaign.ts';
+import type { OocProposal } from '../../../packages/domain/src/ooc.ts';
 import { DEFAULT_RULES_USAGE, type RulesUsage, usesDice, usesSheet } from '../../../packages/domain/src/rules-usage.ts';
 import type { PlaybackCommand, PlaybackControl } from '../../../packages/voice/src/playback-controls.ts';
 import type { VoiceDiagnosticsSummary } from '../../../packages/voice/src/voice-diagnostics.ts';
@@ -126,6 +128,10 @@ const STATUS_SEPARATOR = ' | ';
 const EDIT_PATTERN = /^\/edit\s+(\S+)\s+(.+)$/i;
 const LANGUAGE_PATTERN = /^\/language\s+(\S+)$/i;
 const ROLL_PATTERN = /^\/roll$/i;
+const OOC_CONFIRM = /^(?:yes|y|sim|s)$/iu;
+const OOC_DECLINE = /^(?:no|n|não|nao)$/iu;
+const OOC_REVERT = /^(?:revert|reverter)$/iu;
+const NOTICE_SEPARATOR = ' ';
 const FLAG_WORDS: Readonly<Record<string, boolean>> = {
   yes: true,
   true: true,
@@ -152,6 +158,7 @@ const helpLines = (data: TuiData) => {
     say(locale, 'help.edit'),
     say(locale, 'help.language'),
     say(locale, 'help.roll'),
+    say(locale, 'help.gm'),
     say(locale, 'help.toggle', { key: HELP_KEY }),
     say(locale, 'help.quit', { key: QUIT_KEY }),
     ...(data.audio === undefined ? [] : [say(locale, 'tui.audioHelp')]),
@@ -508,6 +515,51 @@ const editField = (session: ClientSession, data: TuiData, name: string, text: st
   return accepted.ok ? undefined : accepted.error.message;
 };
 
+const talkToGm = (session: ClientSession, data: () => TuiData, held: OocProposal[], input: string) => {
+  const { snapshot } = data();
+  const locale = localeOf(data());
+  const envelope = { version: PROTOCOL_VERSION, campaignId: snapshot.campaignId } as const;
+  const text = parseOocInput(input) ?? input;
+  if (OOC_DECLINE.test(text)) {
+    held.length = 0;
+    return say(locale, 'tui.oocDeclined');
+  }
+  if (OOC_CONFIRM.test(text)) {
+    if (held.length === 0) return say(locale, 'tui.oocNothing');
+    const notices: string[] = [];
+    for (const proposal of held.splice(0)) {
+      const applied = session.confirmOocProposal({
+        ...envelope,
+        type: 'ConfirmOocProposal',
+        actionId: randomUUID(),
+        expectedRevision: data().snapshot.revision,
+        proposal: proposal as unknown as Record<string, unknown>,
+      });
+      notices.push(
+        applied.ok ? say(locale, 'tui.oocApplied', { summary: applied.value.summary }) : applied.error.message,
+      );
+    }
+    return notices.join(NOTICE_SEPARATOR);
+  }
+  if (OOC_REVERT.test(text)) {
+    const undone = session.undoOocChange({
+      ...envelope,
+      type: 'UndoOocChange',
+      actionId: randomUUID(),
+      expectedRevision: snapshot.revision,
+    });
+    return undone.ok ? say(locale, 'tui.oocUndone', { summary: undone.value.summary }) : undone.error.message;
+  }
+  const reply = session.submitOocMessage({ ...envelope, type: 'SubmitOocMessage', actionId: randomUUID(), text });
+  if (!reply.ok) return reply.error.message;
+  held.splice(0, held.length, ...reply.value.proposals);
+  return [
+    say(locale, 'tui.oocReply', { reply: reply.value.reply }),
+    ...reply.value.proposals.map(({ summary }, index) => say(locale, 'tui.oocProposal', { index: index + 1, summary })),
+    ...(reply.value.proposals.length === 0 ? [] : [say(locale, 'tui.oocConfirm')]),
+  ].join(NOTICE_SEPARATOR);
+};
+
 const valuesOf = (sheet: readonly ViewComponent[]) => new Map(sheet.map(({ id, value }) => [id, value]));
 
 type Narrate = () => Promise<unknown>;
@@ -680,7 +732,9 @@ export const runTui = async (
   );
   const audio = terminal.audio?.(session, campaignId, playback);
   const data = () => read(session, campaignId, events, audio, terminal.locale ?? DEFAULT_LOCALE);
+  const held: OocProposal[] = [];
   const send: Act = (input) => {
+    if (parseOocInput(input) !== undefined) return talkToGm(session, data, held, input);
     const [, language] = LANGUAGE_PATTERN.exec(input.trim()) ?? [];
     if (language !== undefined) return setLanguage(session, data(), language);
     if (ROLL_PATTERN.test(input.trim())) return roll(session, data());
@@ -692,6 +746,7 @@ export const runTui = async (
   const act: Act = audio === undefined ? send : (input) => audio.input(input, send);
   const immediate: Immediate = (input) => {
     const text = input.trim();
+    if (parseOocInput(text) !== undefined) return true;
     if (playback === undefined || !text.startsWith(PLAYBACK_PREFIX)) return false;
     const command = text.slice(PLAYBACK_PREFIX.length);
     return (

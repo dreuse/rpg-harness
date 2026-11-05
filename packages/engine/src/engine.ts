@@ -14,9 +14,11 @@ import {
   MAIN_BRANCH,
 } from '../../domain/src/campaign.ts';
 import type { GmSettings } from '../../domain/src/gm.ts';
+import type { OocApplied } from '../../domain/src/ooc.ts';
 import { isLocale, type SavedVoiceSettings } from '../../domain/src/voice.ts';
 import type { Rng } from '../../rules/src/dice.ts';
 import { type GmSettingsSave, saveGmSettings } from './gm-settings.ts';
+import { applyOocProposal, type OocApplication, type OocUndo, undoOocChange, withoutRetconned } from './ooc.ts';
 import { type Check, type NoCheck, type PlayerAction, performAction, type ReportedRoll } from './turn.ts';
 import { saveVoiceSettings, type VoiceSettingsSave } from './voice-settings.ts';
 
@@ -36,6 +38,8 @@ export type Engine = {
   setCampaignLanguage(save: CampaignLanguageSave): string;
   saveVoiceSettings(save: VoiceSettingsSave): SavedVoiceSettings;
   saveGmSettings(save: GmSettingsSave): GmSettings;
+  applyOoc(application: OocApplication): OocApplied;
+  undoOoc(undo: OocUndo): OocApplied;
 };
 
 const LANGUAGE_EVENTS: ReadonlySet<string> = new Set([CAMPAIGN_CREATED, CAMPAIGN_LANGUAGE_CHANGED]);
@@ -68,7 +72,7 @@ export const createEngine = (store: CampaignStore, rng: Rng = Math.random): Engi
     return campaign;
   },
   getCampaign: (id) => loadState(store, id).campaign,
-  getState: (id) => loadState(store, id),
+  getState: (id) => withoutRetconned(loadState(store, id)),
   renameCampaign: (id, name) => {
     const { revision } = loadState(store, id);
     const campaign = { id, name };
@@ -94,4 +98,6 @@ export const createEngine = (store: CampaignStore, rng: Rng = Math.random): Engi
   submitAction: (action, check) => performAction(store, action, check, rng),
   saveVoiceSettings: (save) => saveVoiceSettings(store, save),
   saveGmSettings: (save) => saveGmSettings(store, save),
+  applyOoc: (application) => applyOocProposal(store, application),
+  undoOoc: (undo) => undoOocChange(store, undo),
 });

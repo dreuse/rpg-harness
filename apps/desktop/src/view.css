@@ -276,6 +276,39 @@ section[data-region="start"]:not(:has(h2)) {
   font-style: italic;
 }
 
+[data-ooc-panel] {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: var(--border-width) dashed var(--border-strong);
+  border-radius: var(--radius-2);
+}
+
+[data-ooc-exchange],
+[data-ooc-status] {
+  display: grid;
+  gap: var(--space-1);
+}
+
+[data-ooc] {
+  min-height: var(--target-min);
+  margin-inline-end: var(--space-2);
+}
+
+[data-speaker="ooc-you"],
+[data-speaker="ooc-gm"] {
+  font-size: calc(var(--text-md) * var(--font-scale, 1));
+}
+
+[data-ooc-label] {
+  font-weight: var(--weight-strong);
+}
+
+#ooc-toggle[aria-pressed="true"] {
+  border-color: var(--accent);
+  font-weight: var(--weight-strong);
+}
+
 [data-speaker-label] {
   position: absolute;
   width: 1px;
