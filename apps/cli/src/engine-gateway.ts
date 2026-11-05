@@ -533,6 +533,7 @@ const openSession = (
         const campaignLanguage = campaignLanguageOf(changes);
         const narrator = narratorProfileOf(
           campaignLanguage === undefined ? settings.locale : voiceLocaleFor(campaignLanguage, settings.locale),
+          settings.speed,
         );
         const entities = createEntityStore(database);
         const npcVoices = assignedNpcVoices({ entities, campaignId, narrator, assigned: settings.npcVoices ?? {} });

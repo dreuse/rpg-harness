@@ -1,4 +1,5 @@
 import { narratorFallback } from '../../../packages/voice/src/language-voices.ts';
+import { DEFAULT_PLAYBACK_SPEED } from '../../../packages/voice/src/playback.ts';
 import { NARRATOR_SPEAKER } from '../../../packages/voice/src/speaker-routing.ts';
 import type { StreamingSpeech } from '../../../packages/voice/src/streaming-speech.ts';
 import { spokenUtterance } from '../../../packages/voice/src/tts.ts';
@@ -10,7 +11,6 @@ import {
 } from '../../../packages/voice/src/voice.ts';
 import type { GmSegment } from './gm-segments.ts';
 
-const NARRATOR_PACE = 1;
 const NO_STYLE = '';
 const WHITESPACE = /\s+/;
 const WORD_JOIN = ' ';
@@ -30,12 +30,12 @@ export interface TurnSpeech {
   abandon(): void;
 }
 
-export const narratorProfileOf = (language: string): VoiceProfile => {
+export const narratorProfileOf = (language: string, speed = DEFAULT_PLAYBACK_SPEED): VoiceProfile => {
   const fallback = narratorFallback(language);
   return {
     id: NARRATOR_SPEAKER,
     language,
-    pace: NARRATOR_PACE,
+    pace: speed,
     style: NO_STYLE,
     pronunciations: {},
     fallbacks: fallback === undefined ? [] : [fallback],

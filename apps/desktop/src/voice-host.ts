@@ -153,7 +153,6 @@ export const createVoiceHost = ({
       speakerId: PREVIEW_SPEAKER,
       eventId: PREVIEW_EVENT,
       profile: { id: PREVIEW_SPEAKER, language, pace: speed, style: NO_STYLE, pronunciations: {}, fallbacks: [] },
-      delivery: { pace: speed },
     };
     return { hosted, voiceId, utterance };
   };

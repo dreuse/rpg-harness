@@ -113,10 +113,10 @@ const NO_INTENSITY = 0;
 const isEmotion = (emotion: unknown): emotion is DeliveryEmotion =>
   typeof emotion === 'string' && Object.hasOwn(KOKORO_DELIVERY_SPEED, emotion);
 
-export const kokoroSpeed = (delivery: Delivery | undefined): number => {
+export const kokoroSpeed = (delivery: Delivery | undefined, profilePace?: number): number => {
   const emotionSpeed = isEmotion(delivery?.emotion) ? KOKORO_DELIVERY_SPEED[delivery.emotion] : NEUTRAL_SPEED;
   const intensity = clamp(finiteOr(delivery?.intensity, FULL_INTENSITY), NO_INTENSITY, FULL_INTENSITY);
-  const pace = finiteOr(delivery?.pace, NEUTRAL_SPEED);
+  const pace = finiteOr(delivery?.pace, NEUTRAL_SPEED) * finiteOr(profilePace, NEUTRAL_SPEED);
   return clamp(pace * (NEUTRAL_SPEED + (emotionSpeed - NEUTRAL_SPEED) * intensity), MIN_RATE, MAX_RATE);
 };
 
@@ -274,7 +274,7 @@ export const createKokoroProvider = ({
     async *synthesize(utterance, voiceId, signal): AsyncGenerator<SpeechChunk> {
       if (!supports(capabilities, utterance, voiceId)) return;
       const sentences = shapeSentences(utterance.text, utterance.delivery);
-      const speed = kokoroSpeed(utterance.delivery);
+      const speed = kokoroSpeed(utterance.delivery, utterance.profile.pace);
       const blend = engine.blends
         ? usableBlend(capabilities, voiceId, voiceBlend?.(utterance.speakerId, voiceId))
         : undefined;

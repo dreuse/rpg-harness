@@ -126,6 +126,23 @@ test('passes the delivery speed to the engine and neutral speed without delivery
   await provider.dispose();
 });
 
+test('the profile pace scales the engine speed with or without delivery', async () => {
+  const engine = fakeEngine();
+  const speeds: number[] = [];
+  const synthesize = engine.synthesize;
+  engine.synthesize = (sentence, voiceId, signal, speed) => {
+    speeds.push(speed);
+    return synthesize(sentence, voiceId, signal, speed);
+  };
+  const provider = createKokoroProvider({ engine });
+  const fast = { ...PROFILE, pace: 1.5 };
+  await speak(provider, { ...UTTERANCE, text: 'Run!', profile: fast });
+  await speak(provider, { ...UTTERANCE, text: 'Run!', profile: fast, delivery: { pace: 0.5 } });
+  await speak(provider, { ...UTTERANCE, text: 'Run!', profile: { ...PROFILE, pace: 10 } });
+  assert.deepEqual(speeds, [1.5, 0.75, 2]);
+  await provider.dispose();
+});
+
 test('yields nothing for a non-English profile or an unknown voice', async () => {
   const engine = fakeEngine();
   const provider = createKokoroProvider({ engine });

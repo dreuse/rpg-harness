@@ -6,6 +6,7 @@ import type { VoiceFallback } from '../../../packages/domain/src/voice.ts';
 import { InvalidActionError, loadState } from '../../../packages/engine/src/turn.ts';
 import { setVoiceProfile, voiceProfileOf } from '../../../packages/engine/src/voice-profile.ts';
 import { importantNpcProfile } from '../../../packages/voice/src/cinematic.ts';
+import { DEFAULT_PLAYBACK_SPEED } from '../../../packages/voice/src/playback.ts';
 import { outputSegmentsOf, routeSegments } from '../../../packages/voice/src/speaker-routing.ts';
 import type { CommittedUtterance, VoiceProfile } from '../../../packages/voice/src/voice.ts';
 import type { GmSegment } from './gm-segments.ts';
@@ -26,11 +27,14 @@ export interface TurnUtterances {
   readonly important?: ReadonlySet<string> | undefined;
 }
 
+const pacedBy = (profile: VoiceProfile | undefined, speed: number) =>
+  profile === undefined ? undefined : { ...profile, pace: profile.pace * speed };
+
 const importantProfileOf = ({ store, entities, campaignId, turnId, narrator }: TurnUtterances, npcId: string) => {
   const state = loadState(store, campaignId);
   const stored = voiceProfileOf(state.events, npcId);
-  const profile = importantNpcProfile(npcId, narrator, stored);
-  if (isDeepStrictEqual(profile, stored)) return stored;
+  const profile = importantNpcProfile(npcId, { ...narrator, pace: DEFAULT_PLAYBACK_SPEED }, stored);
+  if (isDeepStrictEqual(profile, stored)) return pacedBy(stored, narrator.pace);
   const actionId = [VOICE_ACTION_PREFIX, turnId, npcId].join(VOICE_ACTION_SEPARATOR);
   try {
     setVoiceProfile(store, entities, {
@@ -44,7 +48,7 @@ const importantProfileOf = ({ store, entities, campaignId, turnId, narrator }: T
       speakerId: npcId,
       profile,
     });
-    return profile;
+    return pacedBy(profile, narrator.pace);
   } catch (error) {
     if (error instanceof InvalidActionError || error instanceof StaleRevisionError) return undefined;
     throw error;

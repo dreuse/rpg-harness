@@ -25,6 +25,7 @@ const GUARD_LINE = 'Move along.';
 const NARRATOR_LINE = 'Rain taps the window.';
 const SECOND_ACTION = 'look around';
 const SECOND_ACTION_ID = 'typed-2';
+const FAST = 1.5;
 const WHISPER = { emotion: 'whisper', intensity: 0.4 };
 
 const NARRATOR: VoiceProfile = {
@@ -51,7 +52,7 @@ const npc = (id: string, campaignId: string) => ({
   actorId: null,
 });
 
-const setup = async (t: TestContext) => {
+const setup = async (t: TestContext, narrator: VoiceProfile = NARRATOR) => {
   const dataDir = mkdtempSync(join(tmpdir(), TEMP_PREFIX));
   t.after(() => rmSync(dataDir, { recursive: true, force: true }));
   for await (const _ of createEngineGateway(dataDir).create(CAMPAIGN, undefined, NO_CHARACTER));
@@ -78,7 +79,7 @@ const setup = async (t: TestContext) => {
       campaignId,
       turnId: lastTurnId(),
       segments,
-      narrator: NARRATOR,
+      narrator,
       npcVoices,
       important,
     });
@@ -159,6 +160,13 @@ test('an important npc voice is persisted once and reused on the next turn', asy
   assert.deepEqual(second?.profile, first?.profile);
   assert.equal(profileSets(MONK_ID).length, 1);
   assert.equal(stateOf().revision, revision);
+});
+
+test('the saved speed paces an important npc without being persisted in its voice', async (t: TestContext) => {
+  const { speak, stateOf } = await setup(t, { ...NARRATOR, pace: FAST });
+  const [utterance] = speak([{ speakerId: MONK_ID, text: MONK_LINE, important: true }]);
+  assert.equal(utterance?.profile.pace, FAST);
+  assert.equal(voiceProfileOf(stateOf().events, MONK_ID)?.pace, NARRATOR.pace);
 });
 
 test('persisting a voice adds no play turn, snapshot turn or GM narration', async (t: TestContext) => {

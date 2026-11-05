@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { DEFAULT_PLAYBACK_SPEED } from '../../../packages/voice/src/playback.ts';
 import type { CommittedUtterance, VoiceProfile } from '../../../packages/voice/src/voice.ts';
 import { createTurnSpeech, narratorProfileOf, spokenIn, type TurnSpeechOptions } from './turn-speech.ts';
 
@@ -145,4 +146,32 @@ test('a failing utterance builder never breaks the turn and discards its audio',
   assert.doesNotThrow(() => turn.heard(FIRST));
   assert.doesNotThrow(() => turn.settle({ narration: FIRST, segments: [{ text: FIRST }] }));
   assert.ok(calls.includes(`reject:${TURN}`));
+});
+
+const FAST = 1.5;
+
+test('the narrator profile pace follows the saved speed and defaults to normal', () => {
+  assert.equal(narratorProfileOf('en', FAST).pace, FAST);
+  assert.equal(narratorProfileOf('en').pace, DEFAULT_PLAYBACK_SPEED);
+});
+
+test('an utterance held for speech carries the saved speed as its profile pace in every mode', () => {
+  for (const mode of ['narrator', 'full', 'cinematic'] as const) {
+    const held: CommittedUtterance[] = [];
+    const turn = createTurnSpeech({
+      speech: {
+        hold: (_turn, utterance) => void held.push(utterance),
+        commit: () => {},
+        reject: () => {},
+        finish: () => {},
+        generation: () => 0,
+      },
+      turnId: TURN,
+      mode,
+      utterancesOf: (segments) =>
+        segments.map(({ text }) => ({ ...utteranceOf(text), profile: narratorProfileOf('en', FAST) })),
+    });
+    turn.heard(FIRST);
+    assert.equal(held[0]?.profile.pace, FAST, mode);
+  }
 });

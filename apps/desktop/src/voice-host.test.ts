@@ -62,14 +62,16 @@ const fakeModel = (installed = false, { offer = OFFER, steps = [offer.bytes], ga
 
 const setup = (installed = false, modelOptions: ModelOptions = {}) => {
   const spoken: string[] = [];
+  const speeds: number[] = [];
   const { model, calls } = fakeModel(installed, modelOptions);
   let unloaded = 0;
   const provider = createKokoroProvider({
     engine: {
       ready: () => true,
       load: async () => {},
-      synthesize: async (sentence) => {
+      synthesize: async (sentence, _voiceId, _signal, speed) => {
         spoken.push(sentence);
+        speeds.push(speed);
         return AUDIO;
       },
       unload: async () => {
@@ -86,7 +88,7 @@ const setup = (installed = false, modelOptions: ModelOptions = {}) => {
   };
   let clock = 0;
   const host = createVoiceHost({ providers: [hosted], cacheDir, now: () => (clock += STEP_MS) });
-  return { host, spoken, calls, unloaded: () => unloaded };
+  return { host, spoken, speeds, calls, unloaded: () => unloaded };
 };
 
 const consent: ModelConsent = { accepted: true, ...OFFER };
@@ -160,6 +162,14 @@ test('rpg-cm63.7 voice host reports download progress only when the shown MiB va
   const progress: number[] = [];
   await host.download(KOKORO_PROVIDER_ID, { accepted: true, ...BIG_OFFER }, (bytes) => progress.push(bytes));
   assert.deepEqual(progress, [MIB, 2 * MIB, 3 * MIB]);
+});
+
+const PREVIEW_SPEED = 1.5;
+
+test('rpg-cm63.26 voice host previews at the requested speed, applied once', async () => {
+  const { host, speeds } = setup(true);
+  await host.preview({ ...PREVIEW, speed: PREVIEW_SPEED });
+  assert.deepEqual([...new Set(speeds)], [PREVIEW_SPEED]);
 });
 
 test('rpg-cm63.7 voice host previews a fixed line in the campaign language and caches it', async () => {
