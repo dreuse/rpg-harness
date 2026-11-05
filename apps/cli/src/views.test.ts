@@ -464,7 +464,7 @@ test('resume and views upgrade a campaign saved before the latest migration', ()
         narration: 'Old rain.',
       });
       connection.database.exec(
-        `ALTER TABLE scene DROP COLUMN location_kind; ALTER TABLE scene DROP COLUMN mood_tags; DELETE FROM schema_migrations WHERE version = ${MIGRATIONS.length};`,
+        `ALTER TABLE turn DROP COLUMN segments; DELETE FROM schema_migrations WHERE version = ${MIGRATIONS.length};`,
       );
     } finally {
       connection.close();

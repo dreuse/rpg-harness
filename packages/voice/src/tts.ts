@@ -53,8 +53,10 @@ const ABORTED = Symbol('aborted');
 
 const CINEMATIC: SpokenOutputMode = 'cinematic';
 
+export const keepsDelivery = (mode: SpokenOutputMode): boolean => mode === CINEMATIC;
+
 export const spokenUtterance = (utterance: CommittedUtterance, settings: VoiceSettings): CommittedUtterance => {
-  if (settings.spokenOutput === CINEMATIC || utterance.delivery === undefined) return utterance;
+  if (keepsDelivery(settings.spokenOutput) || utterance.delivery === undefined) return utterance;
   const { delivery: _delivery, ...plain } = utterance;
   return plain;
 };

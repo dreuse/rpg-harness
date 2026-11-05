@@ -1475,7 +1475,7 @@ const REPLAY_TURN = {
 };
 const REPLAY_BUTTON = { 'data-replay': 'r1' };
 
-const replayPage = async (spoken: boolean) => {
+const replayPage = async (spoken: boolean, turn: object = REPLAY_TURN, speakers: readonly object[] = []) => {
   const page = fakePage();
   const voice = fakeVoiceBridge();
   const stops: string[] = [];
@@ -1487,7 +1487,7 @@ const replayPage = async (spoken: boolean) => {
   });
   page.receive(READY);
   continueHarbor(page);
-  page.receive({ type: 'Snapshot', snapshot: { ...SNAPSHOT, turns: [REPLAY_TURN] } });
+  page.receive({ type: 'Snapshot', snapshot: { ...SNAPSHOT, speakers, turns: [turn] } });
   await settle();
   if (spoken) {
     page.click({ 'data-voice-setup': 'on' });
@@ -1507,7 +1507,15 @@ test('rpg-cm63.46 page replays a narration turn through the voice bridge and sto
   page.click(REPLAY_BUTTON);
   await settle();
   assert.deepEqual(replays(), [
-    { providerId: 'kokoro', voiceId: 'af_heart', language: 'en', speed: 1, text: 'The gate opens.' },
+    {
+      providerId: 'kokoro',
+      voiceId: 'af_heart',
+      language: 'en',
+      speed: 1,
+      text: 'The gate opens.',
+      style: '',
+      pronunciations: {},
+    },
   ]);
   assert.deepEqual(voice.playbackCommands, ['stop']);
   assert.match(page.root.innerHTML, /aria-label="Stop this passage" aria-pressed="true"/);
@@ -1527,4 +1535,54 @@ test('rpg-cm63.46 page replays a narration turn through the voice bridge and sto
 test('rpg-cm63.46 page shows no replay button before a voice is installed and spoken', async () => {
   const { page } = await replayPage(false);
   assert.doesNotMatch(page.root.innerHTML, /data-replay/);
+});
+
+const SEGMENT_DELIVERY = { emotion: 'angry' };
+
+const replayedSegments = async (mode?: string) => {
+  const turn = {
+    ...REPLAY_TURN,
+    segments: [
+      { text: 'The gate opens.' },
+      { speakerId: 'guard', text: 'Halt!', delivery: SEGMENT_DELIVERY },
+      { speakerId: 'stranger', text: 'Easy.' },
+    ],
+  };
+  const { page, replays, timers } = await replayPage(true, turn, [
+    { id: 'guard', name: 'Guard' },
+    { id: 'stranger', name: 'Stranger' },
+  ]);
+  page.fields['#voice-npc-speaker'] = 'Guard';
+  page.fields['#voice-npc-voice'] = 'am_adam';
+  page.click({ 'data-voice-npc': 'add' });
+  if (mode !== undefined) {
+    page.change({ 'data-voice-field': 'spokenOutput' }, mode);
+    await settle();
+  }
+  page.click(REPLAY_BUTTON);
+  for (let line = 0; line < 3; line += 1) {
+    await settle();
+    for (const run of timers.splice(0)) run();
+  }
+  await settle();
+  return replays().map((request) => {
+    const { voiceId, text, delivery } = request as { voiceId: string; text: string; delivery?: object };
+    return [voiceId, text, delivery];
+  });
+};
+
+test('rpg-cm63.49 page replays every stored segment with the voice assigned to its speaker, without delivery', async () => {
+  assert.deepEqual(await replayedSegments(), [
+    ['af_heart', 'The gate opens.', undefined],
+    ['am_adam', 'Halt!', undefined],
+    ['af_heart', 'Easy.', undefined],
+  ]);
+});
+
+test('rpg-cm63.49 page replays the stored delivery only in cinematic output', async () => {
+  assert.deepEqual(await replayedSegments('cinematic'), [
+    ['af_heart', 'The gate opens.', undefined],
+    ['am_adam', 'Halt!', SEGMENT_DELIVERY],
+    ['af_heart', 'Easy.', undefined],
+  ]);
 });

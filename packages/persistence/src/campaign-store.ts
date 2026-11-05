@@ -16,6 +16,7 @@ import {
   TURN_VISIBILITIES,
   type Turn,
   type TurnCommit,
+  type TurnSegment,
 } from '../../domain/src/campaign.ts';
 import type { Visibility } from '../../domain/src/entity.ts';
 import { RECENT_TURN_WINDOW, SNAPSHOT_EVERY_EVENTS } from '../../timelines/src/live.ts';
@@ -39,11 +40,12 @@ const INSERT_TURN =
   'INSERT INTO turn (id, campaign_id, scene_id, action_id, actor_id, input, narration, kind, revision) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)';
 const APPEND_EVENT =
   'INSERT INTO event_log (id, campaign_id, branch_id, revision, action_id, turn_id, causation_id, type, payload, visibility) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
-const RECORD_NARRATION = 'UPDATE turn SET narration = ? WHERE id = ? AND campaign_id = ?';
+const RECORD_NARRATION = 'UPDATE turn SET narration = ?, segments = ? WHERE id = ? AND campaign_id = ?';
 const SELECT_CHARACTERS = 'SELECT id, campaign_id, name FROM character WHERE campaign_id = ? ORDER BY rowid';
 const SELECT_CURRENT_SCENE =
   'SELECT scene.id, scene.campaign_id, scene.title, scene.location_kind, scene.mood_tags FROM scene JOIN campaign ON campaign.current_scene_id = scene.id WHERE campaign.id = ?';
-const TURN_COLUMNS = 'SELECT id, campaign_id, scene_id, action_id, actor_id, input, narration, kind FROM turn';
+const TURN_COLUMNS =
+  'SELECT id, campaign_id, scene_id, action_id, actor_id, input, narration, segments, kind FROM turn';
 const SELECT_RECENT_TURNS = `${TURN_COLUMNS} WHERE campaign_id = ? ORDER BY revision DESC LIMIT ${RECENT_TURN_WINDOW}`;
 const SELECT_TURN_BY_ACTION = `${TURN_COLUMNS} WHERE campaign_id = ? AND action_id = ?`;
 const EVENT_COLUMNS = 'SELECT id, campaign_id, turn_id, causation_id, type, payload FROM event_log';
@@ -66,6 +68,24 @@ const toScene = (row: Row): Scene => ({
   ...(typeof row.mood_tags === 'string' ? { moodTags: JSON.parse(row.mood_tags) as string[] } : {}),
 });
 
+const isSegment = (value: unknown): value is TurnSegment =>
+  typeof value === 'object' &&
+  value !== null &&
+  typeof (value as Row).text === 'string' &&
+  ((value as Row).speakerId === undefined || typeof (value as Row).speakerId === 'string') &&
+  ((value as Row).delivery === undefined ||
+    (typeof (value as Row).delivery === 'object' && (value as Row).delivery !== null));
+
+const segmentsOf = (stored: unknown): { segments?: readonly TurnSegment[] } => {
+  if (typeof stored !== 'string') return {};
+  try {
+    const parsed: unknown = JSON.parse(stored);
+    return Array.isArray(parsed) && parsed.every(isSegment) ? { segments: parsed } : {};
+  } catch {
+    return {};
+  }
+};
+
 const toTurn = (row: Row): Turn => ({
   id: String(row.id),
   campaignId: String(row.campaign_id),
@@ -74,6 +94,7 @@ const toTurn = (row: Row): Turn => ({
   actorId: String(row.actor_id),
   input: String(row.input),
   narration: String(row.narration),
+  ...segmentsOf(row.segments),
   ...(row.kind === SYSTEM_TURN ? { kind: SYSTEM_TURN } : {}),
 });
 
@@ -265,11 +286,14 @@ export const createCampaignStore = (
       written(commit.turn.campaignId, () =>
         inTransaction(database, () => storedTurn(database, commit.turn) ?? writeTurn(database, commit)),
       ),
-    recordNarration: (campaignId, turnId, narration) =>
+    recordNarration: (campaignId, turnId, narration, segments) =>
       requireInCampaign(
         campaignId,
         `turn ${turnId}`,
-        database.prepare(RECORD_NARRATION).run(narration, turnId, campaignId).changes !== NO_CHANGES,
+        database
+          .prepare(RECORD_NARRATION)
+          .run(narration, segments === undefined ? null : JSON.stringify(segments), turnId, campaignId).changes !==
+          NO_CHANGES,
       ),
     recordUsage: (event) =>
       written(event.campaignId, () =>

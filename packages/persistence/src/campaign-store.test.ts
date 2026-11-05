@@ -483,6 +483,44 @@ test('record narration on a committed turn without changing revision or events',
   connection.close();
 });
 
+const GM_SEGMENTS = [
+  { text: 'The ferryman nods.' },
+  { speakerId: 'npc-ferryman', text: 'Aye.', delivery: { emotion: 'calm', intensity: 0.5, pace: 0.9 } },
+];
+
+test('rpg-cm63.49 record narration stores the GM segments on the turn and old turns have none', () => {
+  const { connection, store } = openStore(IN_MEMORY);
+  create(store, CAMPAIGN);
+  store.commitTurn(COMMIT);
+  assert.equal(store.load(CAMPAIGN.id)?.turns[0]?.segments, undefined);
+  store.recordNarration(CAMPAIGN.id, TURN.id, 'The ferryman nods. Aye.', GM_SEGMENTS);
+  assert.deepEqual(store.load(CAMPAIGN.id)?.turns[0]?.segments, GM_SEGMENTS);
+  assert.deepEqual(store.findTurn(CAMPAIGN.id, TURN.actionId)?.turn.segments, GM_SEGMENTS);
+  connection.close();
+});
+
+const CORRUPT_SEGMENTS = [
+  'not json',
+  '{"text":"x"}',
+  '[{"speakerId":"a"}]',
+  '[{"text":7}]',
+  '[null]',
+  '[{"text":"x","speakerId":3}]',
+];
+
+test('rpg-cm63.49 a corrupt or wrong-shape stored segments value reads as no segments', () => {
+  const { connection, store } = openStore(IN_MEMORY);
+  create(store, CAMPAIGN);
+  store.commitTurn(COMMIT);
+  for (const stored of CORRUPT_SEGMENTS) {
+    connection.database.prepare('UPDATE turn SET segments = ? WHERE id = ?').run(stored, TURN.id);
+    const turn = store.load(CAMPAIGN.id)?.turns[0];
+    assert.equal(turn?.segments, undefined, stored);
+    assert.equal(turn?.narration, TURN.narration);
+  }
+  connection.close();
+});
+
 const TAGGED_SCENE = { ...SCENE, locationKind: 'tavern', moodTags: ['tense', 'rain'] };
 const LEGACY_SCENE_VERSION = 9;
 

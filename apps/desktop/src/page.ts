@@ -7,6 +7,7 @@ import { createMicrophoneController } from '../../../packages/voice/src/micropho
 import type { PlaybackControl } from '../../../packages/voice/src/playback-controls.ts';
 import { type ChannelSetting, isVolume, SOUND_CHANNELS } from '../../../packages/voice/src/sound-settings.ts';
 import { createSubtitleTranscript } from '../../../packages/voice/src/subtitles.ts';
+import { keepsDelivery } from '../../../packages/voice/src/tts.ts';
 import { type RendererAction, SUPPORTED_LOCALES, translate } from './accessibility.ts';
 import { SETTLE_MS } from './dice.ts';
 import { BRIDGE_KEY, type Bridge } from './preload.ts';
@@ -324,8 +325,22 @@ export const mountPage = ({
     changed: () => render(),
   });
   const replayTurn = (actionId: string) => {
-    const narration = client.state().snapshot?.turns.find((turn) => turn.actionId === actionId)?.narration;
-    if (narration !== undefined) void replay.toggle(actionId, [{ text: narration }]);
+    const snapshot = client.state().snapshot;
+    const turn = snapshot?.turns.find((candidate) => candidate.actionId === actionId);
+    if (turn === undefined) return;
+    const segments = turn.segments?.length ? turn.segments : [{ text: turn.narration }];
+    const nameOf = (speakerId?: string) => snapshot?.speakers?.find(({ id }) => id === speakerId)?.name ?? speakerId;
+    void replay.toggle(
+      actionId,
+      segments.map(({ speakerId, delivery, text }) => {
+        const name = nameOf(speakerId);
+        return {
+          text,
+          ...(name === undefined ? {} : { speakerId: name }),
+          ...(delivery !== undefined && keepsDelivery(voice.view().preferences.spokenOutput) ? { delivery } : {}),
+        };
+      }),
+    );
   };
   const startVoices = (): StartVoices => {
     const { provider, narratorVoice } = setup.view();

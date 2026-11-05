@@ -32,7 +32,7 @@ import {
 import { createMlxAudioInstaller, type MlxAudioInstaller } from '../../../packages/voice/src/mlx-audio-install.ts';
 import { MAX_PLAYBACK_SPEED, MIN_PLAYBACK_SPEED } from '../../../packages/voice/src/playback.ts';
 import type { SpeechChunk } from '../../../packages/voice/src/tts.ts';
-import type { CommittedUtterance } from '../../../packages/voice/src/voice.ts';
+import type { CommittedUtterance, Delivery } from '../../../packages/voice/src/voice.ts';
 
 export const VOICE_ROUTE_ENV = 'RPG_VOICE';
 export const FAKE_VOICE_ROUTE = 'fake';
@@ -40,6 +40,9 @@ export const VOICE_MODELS_DIR = 'voice-models';
 export const MLX_AUDIO_SUBDIR = 'mlx-audio';
 export const AUDIO_CACHE_DIR = 'audio-cache';
 export const MAX_SPEECH_CHARS = 4000;
+export const MAX_STYLE_CHARS = 200;
+export const MAX_PRONUNCIATIONS = 100;
+export const MAX_PRONUNCIATION_CHARS = 200;
 export const PREVIEW_CACHE_BYTES = 8 * 1024 * 1024;
 export const PREVIEW_LINES: Readonly<Record<string, string>> = {
   en: 'Welcome, traveller. Your story begins here.',
@@ -71,6 +74,9 @@ export type PreviewRequest = {
   readonly language: string;
   readonly speed: number;
   readonly text?: string;
+  readonly style?: string;
+  readonly pronunciations?: Readonly<Record<string, string>>;
+  readonly delivery?: Delivery;
 };
 export type PreviewAudio = {
   readonly chunks: readonly Uint8Array[];
@@ -90,11 +96,30 @@ export type VoiceHost = {
 const PREVIEW_EVENT = 'voice-preview';
 const PREVIEW_SPEAKER = 'narrator';
 const NO_STYLE = '';
-const REQUEST_FIELDS = ['providerId', 'voiceId', 'language', 'speed', 'text'];
+const NO_PRONUNCIATIONS: Readonly<Record<string, string>> = Object.freeze({});
+const REQUEST_FIELDS = ['providerId', 'voiceId', 'language', 'speed', 'text', 'style', 'pronunciations', 'delivery'];
+const DELIVERY_FIELDS = { emotion: 'string', intensity: 'number', pace: 'number' } as const;
 const BYTES_PER_MIB = 1024 * 1024;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
+
+const isPronunciations = (value: unknown): value is Record<string, string> =>
+  isRecord(value) &&
+  Object.keys(value).length <= MAX_PRONUNCIATIONS &&
+  Object.entries(value).every(
+    ([written, spoken]) =>
+      written.length <= MAX_PRONUNCIATION_CHARS &&
+      typeof spoken === 'string' &&
+      spoken.length <= MAX_PRONUNCIATION_CHARS,
+  );
+
+const isDelivery = (value: unknown): value is Delivery =>
+  isRecord(value) &&
+  Object.entries(value).every(
+    ([field, entry]) =>
+      Object.hasOwn(DELIVERY_FIELDS, field) && typeof entry === DELIVERY_FIELDS[field as keyof typeof DELIVERY_FIELDS],
+  );
 
 export const isConsent = (value: unknown): value is ModelConsent =>
   isRecord(value) &&
@@ -155,11 +180,20 @@ export const createVoiceHost = ({
       throw new RangeError('preview language is not spoken by this provider');
     if (typeof speed !== 'number' || !(speed >= MIN_PLAYBACK_SPEED && speed <= MAX_PLAYBACK_SPEED))
       throw new RangeError('preview speed is out of range');
+    const { style = NO_STYLE, pronunciations = NO_PRONUNCIATIONS, delivery } = value;
+    if (
+      typeof style !== 'string' ||
+      style.length > MAX_STYLE_CHARS ||
+      !isPronunciations(pronunciations) ||
+      (delivery !== undefined && !isDelivery(delivery))
+    )
+      throw new RangeError('preview voice profile is invalid');
     const utterance: CommittedUtterance = {
       text,
       speakerId: PREVIEW_SPEAKER,
       eventId: PREVIEW_EVENT,
-      profile: { id: PREVIEW_SPEAKER, language, pace: speed, style: NO_STYLE, pronunciations: {}, fallbacks: [] },
+      profile: { id: PREVIEW_SPEAKER, language, pace: speed, style, pronunciations, fallbacks: [] },
+      ...(delivery === undefined ? {} : { delivery }),
     };
     return { hosted, voiceId, utterance };
   };

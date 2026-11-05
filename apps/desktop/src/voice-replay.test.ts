@@ -155,3 +155,22 @@ test('rpg-cm63.46 nothing is spoken without an installed provider', async () => 
   assert.deepEqual(requests, []);
   assert.equal(replay.playing(), undefined);
 });
+
+test('rpg-cm63.49 replay builds each request with the live style and pronunciations and the segment delivery', async () => {
+  const { replay, requests, release, tick } = setup();
+  const delivery = { emotion: 'angry', intensity: 0.8 };
+  void replay.toggle(PASSAGE, [
+    { text: 'The gate opens.' },
+    { speakerId: 'Vyrnax', text: 'Who goes there?', delivery },
+  ]);
+  await tick();
+  await release();
+  await release();
+  assert.deepEqual(
+    requests.map(({ style, pronunciations, delivery: spoken }) => [style, pronunciations, spoken]),
+    [
+      ['', {}, undefined],
+      ['', {}, delivery],
+    ],
+  );
+});

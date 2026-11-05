@@ -1,4 +1,10 @@
-import { type CampaignState, type CampaignStore, type CommittedTurn, GM_ROLLED } from '../../domain/src/campaign.ts';
+import {
+  type CampaignState,
+  type CampaignStore,
+  type CommittedTurn,
+  GM_ROLLED,
+  type TurnSegment,
+} from '../../domain/src/campaign.ts';
 import {
   type ConsistencyInput,
   type ConsistencyReport,
@@ -9,7 +15,9 @@ import { gmRollIdOf } from './gm-roll.ts';
 import { GameMasterInterruptedError } from './scripted-session.ts';
 import { CHECK_RESOLVED, CHECK_SKIPPED, loadState, type PlayerAction, storedTurnOf } from './turn.ts';
 
-export type NarratedTurn = Pick<ConsistencyInput, 'narration' | 'claims'>;
+export type NarratedTurn = Pick<ConsistencyInput, 'narration' | 'claims'> & {
+  readonly segments?: readonly TurnSegment[];
+};
 
 export type NarrationContext = Omit<ConsistencyInput, 'narration' | 'claims' | 'events' | 'checkResolved'>;
 
@@ -54,7 +62,7 @@ const recordChecked = (
   store: CampaignStore,
   committed: CommittedTurn,
   context: NarrationContext,
-  { narration, claims }: NarratedTurn,
+  { narration, claims, segments }: NarratedTurn,
 ): GameplayOutcome => {
   const state = loadState(store, committed.turn.campaignId);
   const { events } = state;
@@ -63,7 +71,7 @@ const recordChecked = (
   const unrolled = claims.filter(({ kind, ref }) => kind !== 'outcome' || !rolledIds.has(ref));
   const report = checkConsistency({ ...context, narration, claims: unrolled, events, checkResolved });
   if (!report.ok) return { committed, inconsistent: report };
-  store.recordNarration(committed.turn.campaignId, committed.turn.id, narration);
+  store.recordNarration(committed.turn.campaignId, committed.turn.id, narration, segments);
   return { committed, narration };
 };
 

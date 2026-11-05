@@ -119,7 +119,7 @@ import {
   outcomeClaimsOf,
 } from './gm-proposals.ts';
 import { repeatedLinesOf } from './gm-repetition.ts';
-import { type GmSegment, narratorSegments } from './gm-segments.ts';
+import { type GmSegment, narratorSegments, turnSegmentsOf } from './gm-segments.ts';
 
 export { FAKE_GM_REPLY } from './gm-api.ts';
 
@@ -498,7 +498,7 @@ const narrateLatest = async (
       segments = voiceNotice === undefined ? final.segments : [{ text: voiceNotice }, ...final.segments];
       proposals = final.proposals ?? [];
       const narration = voiceNotice === undefined ? final.narration : `${voiceNotice} ${final.narration}`;
-      return { narration, claims: outcomeClaimsOf(proposals) };
+      return { narration, claims: outcomeClaimsOf(proposals), segments: turnSegmentsOf(segments) };
     },
   };
   const facts = createFactStore(database).listFacts(campaignId);

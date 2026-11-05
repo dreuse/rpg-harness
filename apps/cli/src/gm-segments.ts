@@ -1,3 +1,4 @@
+import type { TurnSegment } from '../../../packages/domain/src/campaign.ts';
 import type { Delivery } from '../../../packages/voice/src/voice.ts';
 import { PROPOSALS_SCHEMA } from './gm-proposals.ts';
 import { hasProposalsBlock, playerTextOf } from './player-text.ts';
@@ -111,6 +112,13 @@ export const segmentsOf = (value: unknown): readonly GmSegment[] | undefined => 
   const segments = Array.isArray(listed) ? listed.slice(0, MAX_SEGMENTS).flatMap(segmentOf) : [];
   return segments.length === 0 ? undefined : segments;
 };
+
+export const turnSegmentsOf = (segments: readonly GmSegment[]): readonly TurnSegment[] =>
+  segments.map(({ speakerId, text, delivery }) => ({
+    ...(speakerId === undefined ? {} : { speakerId }),
+    text,
+    ...(delivery === undefined ? {} : { delivery }),
+  }));
 
 export const narratorSegments = (text: string): readonly GmSegment[] => [{ text: playerTextOf(text) }];
 

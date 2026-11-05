@@ -48,6 +48,18 @@ export type TurnKind = (typeof TURN_KINDS)[number];
 export const PLAYER_TURN: TurnKind = 'player';
 export const SYSTEM_TURN: TurnKind = 'system';
 
+export type TurnDelivery = {
+  readonly emotion?: string;
+  readonly intensity?: number;
+  readonly pace?: number;
+};
+
+export type TurnSegment = {
+  readonly speakerId?: string;
+  readonly text: string;
+  readonly delivery?: TurnDelivery;
+};
+
 export type Turn = {
   readonly id: TurnId;
   readonly campaignId: CampaignId;
@@ -56,6 +68,7 @@ export type Turn = {
   readonly actorId: CharacterId;
   readonly input: string;
   readonly narration: string;
+  readonly segments?: readonly TurnSegment[];
   readonly kind?: TurnKind;
 };
 
@@ -125,7 +138,7 @@ export interface CampaignStore {
   renameCampaign(rename: CampaignRename): void;
   recordChange(change: CampaignChangeRecord): void;
   commitTurn(commit: TurnCommit): CommittedTurn;
-  recordNarration(campaignId: CampaignId, turnId: TurnId, narration: string): void;
+  recordNarration(campaignId: CampaignId, turnId: TurnId, narration: string, segments?: readonly TurnSegment[]): void;
   recordUsage(event: CampaignChange): void;
   load(id: CampaignId): CampaignState | undefined;
   findTurn(campaignId: CampaignId, actionId: string): CommittedTurn | undefined;

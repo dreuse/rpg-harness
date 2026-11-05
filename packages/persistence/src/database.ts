@@ -168,6 +168,7 @@ export const MIGRATIONS: readonly Migration[] = [
       ALTER TABLE scene ADD COLUMN mood_tags TEXT;
     `,
   },
+  { version: 11, sql: 'ALTER TABLE turn ADD COLUMN segments TEXT;' },
 ];
 
 const STARTED = 'started';

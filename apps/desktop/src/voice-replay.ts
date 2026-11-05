@@ -1,7 +1,11 @@
+import type { Delivery } from '../../../packages/voice/src/voice.ts';
 import type { PreviewAudio, PreviewRequest } from './voice-host.ts';
 import type { AudioOut } from './voice-setup.ts';
 
-export type ReplaySegment = { readonly speakerId?: string; readonly text: string };
+export type ReplaySegment = { readonly speakerId?: string; readonly text: string; readonly delivery?: Delivery };
+
+const NO_STYLE = '';
+const NO_PRONUNCIATIONS = {};
 
 export type ReplayOptions = {
   readonly preview: (request: PreviewRequest) => Promise<PreviewAudio>;
@@ -42,10 +46,19 @@ export const createReplay = ({
   };
 
   const speak = async (segments: readonly ReplaySegment[], mine: number, providerId: string) => {
-    for (const { speakerId, text } of segments) {
+    for (const { speakerId, text, delivery } of segments) {
       const voiceId = voiceOf(speakerId);
       if (voiceId === undefined || run !== mine) return;
-      const { chunks } = await preview({ providerId, voiceId, language: language(), speed: speed(), text });
+      const { chunks } = await preview({
+        providerId,
+        voiceId,
+        language: language(),
+        speed: speed(),
+        text,
+        style: NO_STYLE,
+        pronunciations: NO_PRONUNCIATIONS,
+        ...(delivery === undefined ? {} : { delivery }),
+      });
       if (run !== mine) return;
       const { durationMs = NO_DURATION_MS } = await audio.play(chunks, volume());
       await wait(durationMs);

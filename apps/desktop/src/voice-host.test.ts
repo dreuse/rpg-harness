@@ -3,10 +3,13 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, test } from 'node:test';
+import { audioCacheKey } from '../../../packages/voice/src/audio-budget.ts';
+import { createFileAudioCache } from '../../../packages/voice/src/audio-cache-store.ts';
 import type { ModelConsent, ModelManager } from '../../../packages/voice/src/kokoro-model.ts';
 import {
   createKokoroProvider,
   KOKORO_CAPABILITIES,
+  KOKORO_MIME_TYPE,
   KOKORO_PROVIDER_ID,
   MLX_KOKORO_CAPABILITIES,
   MLX_KOKORO_PROVIDER_ID,
@@ -15,7 +18,10 @@ import {
   createVoiceHost,
   fakeVoiceProviders,
   type HostedProvider,
+  MAX_PRONUNCIATION_CHARS,
+  MAX_PRONUNCIATIONS,
   MAX_SPEECH_CHARS,
+  MAX_STYLE_CHARS,
   mlxAudioProviders,
   PREVIEW_LINES,
   voiceProviders,
@@ -199,6 +205,81 @@ test('rpg-cm63.46 voice host speaks the given text and replays it from the audio
   assert.deepEqual(again.chunks, first.chunks);
   assert.equal(spoken.length, 1);
   assert.equal((await host.preview({ ...request, text: 'Another line.' })).cacheHit, false);
+});
+
+const LIVE_CACHE_BYTES = 1024 * 1024;
+const LIVE_LINE = 'Who goes there?';
+const LIVE_DELIVERY = { emotion: 'angry', intensity: 0.8, pace: 1.1 };
+const LIVE_STYLE = 'gravelly';
+const LIVE_PRONUNCIATIONS = { Vyrnax: 'VEER-nax', Ash: 'ash' };
+
+const seedLiveUtterance = (profile: { style: string; pronunciations: Record<string, string> }, delivery?: object) => {
+  const key = audioCacheKey(
+    KOKORO_PROVIDER_ID,
+    'am_adam',
+    {
+      text: LIVE_LINE,
+      speakerId: 'Vyrnax',
+      eventId: 'live-event',
+      profile: { id: 'Vyrnax', language: 'en', pace: 1, ...profile, fallbacks: [] },
+      ...(delivery === undefined ? {} : { delivery }),
+    },
+    { modelVersion: OFFER.source, outputFormat: KOKORO_MIME_TYPE },
+  );
+  createFileAudioCache(cacheDir, LIVE_CACHE_BYTES).set(key, [
+    {
+      audio: AUDIO,
+      final: true,
+      utteranceEventId: 'live-event',
+      sequence: 0,
+      mimeType: KOKORO_MIME_TYPE,
+      voiceId: 'am_adam',
+    },
+  ]);
+};
+
+test('rpg-cm63.49 a replay request with the live delivery hits the audio cache entry stored when spoken live', async () => {
+  seedLiveUtterance({ style: '', pronunciations: {} }, LIVE_DELIVERY);
+  const { host, spoken } = setup(true);
+  const request = { ...PREVIEW, voiceId: 'am_adam', text: LIVE_LINE };
+  const replay = await host.preview({ ...request, delivery: LIVE_DELIVERY });
+  assert.equal(replay.cacheHit, true);
+  assert.deepEqual(replay.chunks, [AUDIO]);
+  assert.deepEqual(spoken, []);
+  assert.equal((await host.preview(request)).cacheHit, false);
+});
+
+test('rpg-cm63.49 a replay request with the live style and pronunciations hits the stored audio cache entry', async () => {
+  seedLiveUtterance({ style: LIVE_STYLE, pronunciations: LIVE_PRONUNCIATIONS });
+  const { host, spoken } = setup(true);
+  const request = { ...PREVIEW, voiceId: 'am_adam', text: LIVE_LINE };
+  const replay = await host.preview({ ...request, style: LIVE_STYLE, pronunciations: LIVE_PRONUNCIATIONS });
+  assert.equal(replay.cacheHit, true);
+  assert.deepEqual(spoken, []);
+  assert.equal((await host.preview({ ...request, style: LIVE_STYLE })).cacheHit, false);
+});
+
+test('rpg-cm63.49 voice host rejects a replay request with malformed delivery, style or pronunciations', async () => {
+  const { host, spoken } = setup(true);
+  const request = { ...PREVIEW, text: LIVE_LINE };
+  const invalid = [
+    { ...request, delivery: 'angry' },
+    { ...request, delivery: { emotion: 7 } },
+    { ...request, delivery: { intensity: 'high' } },
+    { ...request, delivery: { volume: 1 } },
+    { ...request, style: 7 },
+    { ...request, pronunciations: 'x' },
+    { ...request, pronunciations: { Ash: 7 } },
+    { ...request, style: 'x'.repeat(MAX_STYLE_CHARS + 1) },
+    {
+      ...request,
+      pronunciations: Object.fromEntries(Array.from({ length: MAX_PRONUNCIATIONS + 1 }, (_, i) => [`w${i}`, 'x'])),
+    },
+    { ...request, pronunciations: { ['k'.repeat(MAX_PRONUNCIATION_CHARS + 1)]: 'x' } },
+    { ...request, pronunciations: { Ash: 'v'.repeat(MAX_PRONUNCIATION_CHARS + 1) } },
+  ];
+  for (const bad of invalid) await assert.rejects(host.preview(bad), RangeError);
+  assert.deepEqual(spoken, []);
 });
 
 test('rpg-cm63.7 voice host rejects previews it cannot speak instead of guessing', async () => {
