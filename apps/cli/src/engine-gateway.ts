@@ -42,7 +42,7 @@ import { PLAYER_VIEWER } from '../../../packages/memory/src/knowledge.ts';
 import type { ContextPacket } from '../../../packages/memory/src/packet.ts';
 import { createCampaignStore } from '../../../packages/persistence/src/campaign-store.ts';
 import { MIGRATIONS, openDatabase } from '../../../packages/persistence/src/database.ts';
-import { createFactStore } from '../../../packages/persistence/src/entity-store.ts';
+import { createEntityStore, createFactStore } from '../../../packages/persistence/src/entity-store.ts';
 import type { BuildInput, BuildResult } from '../../../packages/rules/src/character-builder.ts';
 import type { Rng } from '../../../packages/rules/src/dice.ts';
 import { backupArchive, exportArchive, restoreArchive } from './campaign-archive.ts';
@@ -84,6 +84,7 @@ import {
 } from './gm-claude-code.ts';
 import { contextPacketOf, fakeSummarizer, type Summarizer, summarizeCampaign } from './gm-context.ts';
 import { readGmDefaults, writeGmDefaults } from './gm-defaults.ts';
+import { commitProposals, type GmProposal } from './gm-proposals.ts';
 import { type GmSegment, narratorSegments } from './gm-segments.ts';
 
 export { FAKE_GM_REPLY } from './gm-api.ts';
@@ -203,7 +204,12 @@ const narratingEngine = (
 };
 
 type GmCall = { readonly databasePath: string; readonly model: string | undefined };
-type GmTurnReply = { readonly narration: string; readonly segments: readonly GmSegment[]; readonly usage?: GmUsage };
+type GmTurnReply = {
+  readonly narration: string;
+  readonly segments: readonly GmSegment[];
+  readonly proposals?: readonly GmProposal[];
+  readonly usage?: GmUsage;
+};
 type PacketRequest = (packet: ContextPacket, call: GmCall) => Promise<GmTurnReply>;
 type ModelSummarizer = (
   ...[level, texts, language, model]: [...Parameters<Summarizer>, string?]
@@ -308,17 +314,20 @@ const narrateLatest = async (
   const packet = contextPacketOf(database, state, committed);
   let usage: GmUsage | undefined;
   let segments: readonly GmSegment[] = NO_SEGMENTS;
+  let proposals: readonly GmProposal[] = [];
   const narrator = {
     narrate: async () => {
       const reply = await request(packet);
       usage = reply.usage;
       segments = reply.segments;
+      proposals = reply.proposals ?? [];
       return { narration: reply.narration, claims: [] };
     },
   };
   const facts = createFactStore(database).listFacts(campaignId);
   const outcome = await narrateTurn(store, narrator, committed, { facts, equipment: {}, viewer: PLAYER_VIEWER });
   if ('inconsistent' in outcome) store.recordNarration(campaignId, committed.turn.id, FAKE_GM_REPLY);
+  else commitProposals(store, createEntityStore(database), createFactStore(database), committed, proposals);
   if (usage !== undefined) recordGmUsage(store, { campaignId, turnId: committed.turn.id, sessionId, usage });
   return 'inconsistent' in outcome ? narratorSegments(FAKE_GM_REPLY) : segments;
 };

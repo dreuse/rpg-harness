@@ -1,4 +1,5 @@
 import type { Delivery } from '../../../packages/voice/src/voice.ts';
+import { PROPOSALS_SCHEMA } from './gm-proposals.ts';
 
 export const NEUTRAL_EMOTION = 'neutral';
 const NARRATOR_ID = 'narrator';
@@ -49,6 +50,7 @@ export const SEGMENTS_SCHEMA = {
         additionalProperties: false,
       },
     },
+    proposals: PROPOSALS_SCHEMA,
   },
   required: ['segments'],
   additionalProperties: false,

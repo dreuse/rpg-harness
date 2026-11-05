@@ -15,6 +15,7 @@ import {
   summaryPrompt,
   usageOf,
 } from './gm-api.ts';
+import { proposalsOf } from './gm-proposals.ts';
 import { narrationOf, narratorSegments, SEGMENTS_SCHEMA, segmentsOf } from './gm-segments.ts';
 
 export const GM_PROFILE_ENV = 'RPG_GM_PROFILE';
@@ -163,9 +164,11 @@ export const replyOf = ({ code, stdout }: Exit, model: string | undefined): GmRe
   const text = typeof body.result === 'string' ? body.result.trim() : '';
   const segments = segmentsOf(body.structured_output) ?? (text === '' ? undefined : narratorSegments(text));
   if (segments === undefined) throw new ProviderError('Claude Code sent a malformed reply.');
+  const proposals = proposalsOf(body.structured_output);
   return {
     narration: narrationOf(segments),
     segments,
+    ...(proposals === undefined ? {} : { proposals }),
     usage: usageOf(body.usage, model ?? PROVIDER_DEFAULT_MODEL, body.total_cost_usd),
   };
 };

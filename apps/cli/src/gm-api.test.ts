@@ -136,6 +136,22 @@ describe('rpg-42a.28 Anthropic Messages API narrator', () => {
     assert.deepEqual(body?.tool_choice, { type: 'tool', name: NARRATE_TOOL });
   });
 
+  it('rpg-42a.43: returns valid proposals and drops an invalid batch without failing the narration', async (t) => {
+    const proposal = { kind: 'entity', id: 'stranger', entityKind: 'npc', name: 'Old Stranger' };
+    const toolReply = (proposals: unknown) => ({
+      body: JSON.stringify({
+        content: [
+          { type: 'tool_use', id: 't1', name: NARRATE_TOOL, input: { segments: [{ text: NARRATION }], proposals } },
+        ],
+      }),
+    });
+    const { route } = await startProvider(t, [toolReply([proposal]), toolReply([{ ...proposal, run: 'x' }])]);
+    assert.deepEqual((await requestNarration(route, packet())).proposals, [{ ...proposal, visibility: 'player' }]);
+    const refused = await requestNarration(route, packet());
+    assert.equal(refused.proposals, undefined);
+    assert.equal(refused.narration, NARRATION);
+  });
+
   it('rpg-cm63.3: falls back to one narrator segment for plain text', async (t) => {
     const { received, route } = await startProvider(t, [textReply(NARRATION)]);
     assert.deepEqual(await requestNarration(route, packet()), {

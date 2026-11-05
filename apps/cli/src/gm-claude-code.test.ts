@@ -260,6 +260,22 @@ describe('rpg-42a.33 Claude Code CLI game master', () => {
     assert.deepEqual(JSON.parse(valueAfter(calls()[0]?.args ?? [], '--json-schema') ?? ''), SEGMENTS_SCHEMA);
   });
 
+  it('rpg-42a.43: returns valid proposals from the structured output and drops an invalid batch', async (t) => {
+    const proposal = { kind: 'pending', id: 'debt', pendingKind: 'promise', text: 'Repay.', entityIds: ['stranger'] };
+    const segments = [{ text: NARRATION }];
+    const { bin } = fakeClaude(t, [
+      { stdout: resultOf({ structured_output: { segments, proposals: [proposal] } }) },
+      { stdout: resultOf({ structured_output: { segments, proposals: [{ ...proposal, entityIds: [] }] } }) },
+    ]);
+    const route = routeFor(bin);
+    assert.deepEqual((await requestClaudeNarration(route, packet(), DATABASE)).proposals, [
+      { ...proposal, visibility: 'player' },
+    ]);
+    const refused = await requestClaudeNarration(route, packet(), DATABASE);
+    assert.equal(refused.proposals, undefined);
+    assert.equal(refused.narration, NARRATION);
+  });
+
   it('rpg-cm63.3: falls back to one narrator segment when the structured output is malformed', async (t) => {
     const { bin } = fakeClaude(t, [{ stdout: resultOf({ structured_output: { segments: 'oops' } }) }]);
     const reply = await requestClaudeNarration(routeFor(bin), packet(), DATABASE);
