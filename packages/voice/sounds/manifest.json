@@ -156,6 +156,66 @@
       "license": "CC0",
       "sha256": "f57283d08a0ecb052425af1ac1457f827fa27f423d49158963b3370c89fc942d",
       "bytes": 58187
+    },
+    {
+      "kind": "ambience",
+      "key": "rain",
+      "file": "ambience/rain.mp3",
+      "mimeType": "audio/mpeg",
+      "url": "https://opengameart.org/sites/default/files/1_7.mp3",
+      "sourcePage": "https://opengameart.org/content/rain-loopable",
+      "author": "Ylmir",
+      "license": "CC0",
+      "sha256": "da5f63758a4d74e10ab9dd1b0bed62aa4c06fd960af6a7cdb83266354d75204f",
+      "bytes": 649507
+    },
+    {
+      "kind": "ambience",
+      "key": "cave",
+      "file": "ambience/cave.ogg",
+      "mimeType": "audio/ogg",
+      "url": "https://opengameart.org/sites/default/files/dungeon_ambient_1.ogg",
+      "sourcePage": "https://opengameart.org/content/loopable-dungeon-ambience",
+      "author": "JaggedStone",
+      "license": "CC0",
+      "sha256": "df491823e4877371c34dbda4e9321cd83a4a14fa7573cee0ebca1ae423b70e6e",
+      "bytes": 1626352
+    },
+    {
+      "kind": "ambience",
+      "key": "sea",
+      "file": "ambience/sea.ogg",
+      "mimeType": "audio/ogg",
+      "url": "https://upload.wikimedia.org/wikipedia/commons/6/64/Ocean_Waves_on_a_Tropical_Beach.ogg",
+      "sourcePage": "https://commons.wikimedia.org/wiki/File:Ocean_Waves_on_a_Tropical_Beach.ogg",
+      "author": "Jarrod stanley",
+      "license": "CC0",
+      "sha256": "bae2fc0a0c1d36f43494883d9455ad151fc747a0770876b25436422ea8736e55",
+      "bytes": 17647690
+    },
+    {
+      "kind": "ambience",
+      "key": "battle",
+      "file": "ambience/battle.ogg",
+      "mimeType": "audio/ogg",
+      "url": "https://opengameart.org/sites/default/files/crowd_shouting.ogg",
+      "sourcePage": "https://opengameart.org/content/crowd-shoutingspeaking-ambience",
+      "author": "StarNinjas",
+      "license": "CC0",
+      "sha256": "a2c23a64c127c77717cbe4abb21f138bac9d9aa6cb3cc89d62bab5d0d96dd7ca",
+      "bytes": 335526
+    },
+    {
+      "kind": "ambience",
+      "key": "tension",
+      "file": "ambience/tension.ogg",
+      "mimeType": "audio/ogg",
+      "url": "https://upload.wikimedia.org/wikipedia/commons/0/03/Rafael_Krux_-_Horror_Suspense.ogg",
+      "sourcePage": "https://commons.wikimedia.org/wiki/File:Rafael_Krux_-_Horror_Suspense.ogg",
+      "author": "Rafael Krux",
+      "license": "CC0",
+      "sha256": "2f6ca4859bdf189f23ab9b72012ad82a809a89a057f9e7716eeb78ecf6f92ece",
+      "bytes": 3341380
     }
   ]
 }

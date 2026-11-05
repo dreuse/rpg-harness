@@ -85,9 +85,35 @@ test('the bundled manifest ships ambience and effect files with distinct hashes'
       .filter(({ kind }) => kind === wanted)
       .map(({ key }) => key)
       .toSorted();
-  assert.deepEqual(keysOf('ambience'), ['city', 'forest', 'storm', 'stream', 'tavern']);
+  assert.deepEqual(keysOf('ambience'), [
+    'battle',
+    'cave',
+    'city',
+    'forest',
+    'rain',
+    'sea',
+    'storm',
+    'stream',
+    'tavern',
+    'tension',
+  ]);
   assert.deepEqual(keysOf('effect'), ['bell', 'door-knock', 'gong', 'metal-hit']);
   assert.equal(new Set(sounds.map(({ sha256 }) => sha256)).size, sounds.length);
+});
+
+const mappedAmbienceKeys = () =>
+  new Set([
+    ...Object.values(BASE_SOUND_TABLE.locations),
+    ...Object.values(BASE_SOUND_TABLE.moods).flatMap(({ ambience }) => (ambience === undefined ? [] : [ambience])),
+  ]);
+
+test('every ambience key referenced by a base mapping has a manifest entry', () => {
+  const shipped = new Set(
+    loadBundledManifest()
+      .filter(({ kind }) => kind === 'ambience')
+      .map(({ key }) => key),
+  );
+  assert.deepEqual([...mappedAmbienceKeys()].filter((key) => !shipped.has(key)).toSorted(), []);
 });
 
 test('every shipped ambience key is the target of a base mapping', () => {
