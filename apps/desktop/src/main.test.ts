@@ -3,6 +3,7 @@ import { fork } from 'node:child_process';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { INITIAL_DRAFT, START_DRAFT_FILE } from '../../../packages/client-protocol/src/guided-start.ts';
+import { DEFAULT_LOCALE, LANGUAGE_ENV } from '../../../packages/client-protocol/src/locale.ts';
 import { type ClientEvent, EVENT_COMMITTED, PROTOCOL_VERSION } from '../../../packages/client-protocol/src/protocol.ts';
 import {
   API_KEY_ENV,
@@ -271,12 +272,19 @@ const fakeElectron = (files: Record<string, string> = {}) => {
   };
 };
 
-const start = (electron: ReturnType<typeof fakeElectron>, daemon = fakeDaemon(), voice?: VoiceHost) => {
+const HERMETIC_LOCALE = { [LANGUAGE_ENV]: DEFAULT_LOCALE };
+
+const start = (
+  electron: ReturnType<typeof fakeElectron>,
+  daemon = fakeDaemon(),
+  voice?: VoiceHost,
+  locale: Readonly<Record<string, string>> = HERMETIC_LOCALE,
+) => {
   const options: DaemonOptions[] = [];
   const main = startMain({
     ...electron,
     ...(voice === undefined ? {} : { voice }),
-    env: { [API_KEY_ENV]: API_KEY, CLAUDE_CODE_OAUTH_TOKEN: CONSUMER_TOKEN },
+    env: { [API_KEY_ENV]: API_KEY, CLAUDE_CODE_OAUTH_TOKEN: CONSUMER_TOKEN, ...locale },
     dataDir: DATA_DIR,
     preload: PRELOAD,
     page: PAGE,
@@ -299,7 +307,7 @@ test('UI08 main opens a sandboxed window with a scrubbed engine env', () => {
   });
   assert.deepEqual(WINDOW_SECURITY, { contextIsolation: true, nodeIntegration: false, sandbox: true });
   assert.equal(window.url.split('?')[0], PAGE);
-  assert.deepEqual(options[0]?.env, { [API_KEY_ENV]: API_KEY });
+  assert.deepEqual(options[0]?.env, { [API_KEY_ENV]: API_KEY, ...HERMETIC_LOCALE });
 });
 
 test('UI08 main relays ipc lines from its own window only', async () => {
@@ -358,6 +366,18 @@ test('UI08 main loads saved preferences and falls back on bad files', () => {
   }
 });
 
+test('rpg-42a.39 main follows the system locale until the player saves a language', () => {
+  const brazil = fakeElectron();
+  start(brazil, fakeDaemon(), undefined, { [LANGUAGE_ENV]: 'pt-BR' });
+  assert.equal(JSON.parse(preferencesOf(brazil) ?? '').locale, 'pt-BR');
+  const posix = fakeElectron();
+  start(posix, fakeDaemon(), undefined, { LANG: 'pt_BR.UTF-8' });
+  assert.equal(JSON.parse(preferencesOf(posix) ?? '').locale, 'pt-BR');
+  const saved = fakeElectron({ [join(DATA_DIR, PREFERENCES_FILE)]: JSON.stringify({ language: 'es' }) });
+  start(saved, fakeDaemon(), undefined, { [LANGUAGE_ENV]: 'pt-BR' });
+  assert.equal(JSON.parse(preferencesOf(saved) ?? '').locale, 'es');
+});
+
 test('UI08 main persists only valid preferences from its window', () => {
   const electron = fakeElectron();
   start(electron);
@@ -366,7 +386,10 @@ test('UI08 main persists only valid preferences from its window', () => {
   assert.deepEqual(electron.written, {});
   electron.ipc(CHANNELS.preferences, SENT_PREFERENCES);
   assert.deepEqual(electron.made, [DATA_DIR]);
-  assert.deepEqual(JSON.parse(electron.written[join(DATA_DIR, PREFERENCES_FILE)] ?? ''), SENT_PREFERENCES);
+  const { locale: _systemLocale, ...unchosen } = SENT_PREFERENCES;
+  assert.deepEqual(JSON.parse(electron.written[join(DATA_DIR, PREFERENCES_FILE)] ?? ''), unchosen);
+  electron.ipc(CHANNELS.preferences, { ...SENT_PREFERENCES, locale: 'es' });
+  assert.equal(JSON.parse(electron.written[join(DATA_DIR, PREFERENCES_FILE)] ?? '').language, 'es');
 });
 
 const PARENT_PORT_SHIM = `data:text/javascript,${encodeURIComponent(

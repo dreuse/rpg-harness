@@ -653,6 +653,36 @@ test('UI15: page saves the chosen motion setting and re-renders with it', () => 
   assert.equal(saved.length, 1);
 });
 
+test('rpg-42a.39 page saves the chosen language and re-renders in it', () => {
+  const saved: UiPreferences[] = [];
+  const page = fakePage();
+  mount(page, {}, deniedMicrophone, undefined, WIDE_WIDTH, {
+    bridge: { ...page.bridge, savePreferences: (preferences: UiPreferences) => saved.push(preferences) },
+  });
+  page.receive(READY);
+  page.receive({ type: 'Campaigns', campaigns: [SNAPSHOT.campaign] });
+  continueHarbor(page);
+  page.click({ 'data-locale': 'pt-BR' });
+  assert.equal(saved.at(-1)?.locale, 'pt-BR');
+  assert.match(page.root.innerHTML, /<summary id="settings-toggle">Configurações<\/summary>/);
+  page.click({ 'data-locale': 'xx' });
+  assert.equal(saved.length, 1);
+});
+
+test('rpg-42a.39 page localizes the document outside its root on every language change', () => {
+  const localized: string[] = [];
+  const page = fakePage();
+  mount(page, { locale: 'es' }, deniedMicrophone, undefined, WIDE_WIDTH, {
+    localize: (locale: string) => localized.push(locale),
+  });
+  page.receive(READY);
+  page.receive({ type: 'Campaigns', campaigns: [SNAPSHOT.campaign] });
+  continueHarbor(page);
+  page.click({ 'data-locale': 'pt-BR' });
+  assert.equal(localized[0], 'es');
+  assert.equal(localized.at(-1), 'pt-BR');
+});
+
 test('UI15: page settles only the roll it scheduled', () => {
   const timers: (() => void)[] = [];
   const page = fakePage();

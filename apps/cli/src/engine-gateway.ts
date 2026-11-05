@@ -90,6 +90,7 @@ export { FAKE_GM_REPLY } from './gm-api.ts';
 
 import { importRules } from './import-gateway.ts';
 import type { CampaignGateway } from './main.ts';
+import { LocalizedError } from './messages.ts';
 import {
   ClientUnsupported,
   commandConfig,
@@ -153,8 +154,8 @@ const archivePath = (dataDir: string, name: string) => databasePath(join(dataDir
 
 const missingCampaign = (dataDir: string, name: string) =>
   existsSync(archivePath(dataDir, name))
-    ? new Error(`Campaign ${name} is archived.`)
-    : new Error(`No campaign named ${name}. Run rpg new ${name} first.`);
+    ? new LocalizedError('campaign.archived', { name })
+    : new LocalizedError('campaign.missing', { name });
 
 const withNarration = ({ turn, ...rest }: CommittedTurn, narration: string): CommittedTurn => ({
   ...rest,
@@ -352,7 +353,7 @@ const openSession = (
     const { database } = connection;
     const store = createCampaignStore(database);
     const row = database.prepare(SELECT_CAMPAIGN_ID).get();
-    if (row === undefined) throw new Error(`Campaign ${name} has no saved state.`);
+    if (row === undefined) throw new LocalizedError('campaign.noState', { name });
     const close = () => connection.close();
     const engine = 'narrator' in gm ? narratingEngine(store, database, gm.narrator, rng) : createEngine(store, rng);
     const session = { engine, store, campaignId: String(row.id), database };
@@ -441,7 +442,7 @@ const claimFile = (path: string, name: string) => {
   try {
     closeSync(openSync(path, CREATE_EXCLUSIVE));
   } catch (error) {
-    if (isFileExists(error)) throw new Error(`A campaign named ${name} already exists.`);
+    if (isFileExists(error)) throw new LocalizedError('campaign.exists', { name });
     throw error;
   }
 };
@@ -483,7 +484,7 @@ const addCharacter = (dataDir: string, name: string, build: BuildInput): string 
     const state = engine.getState(campaignId);
     const [actor] = state.characters;
     const scene = state.currentScene;
-    if (actor === undefined || scene === undefined) throw new Error(`Campaign ${name} has no opening scene.`);
+    if (actor === undefined || scene === undefined) throw new LocalizedError('campaign.noScene', { name });
     commitCharacter(store, {
       campaignId,
       actionId: randomUUID(),
@@ -522,7 +523,7 @@ const act = async (
     const state = engine.getState(campaignId);
     const [actor] = state.characters;
     const scene = state.currentScene;
-    if (actor === undefined || scene === undefined) throw new Error(`Campaign ${name} has no opening scene.`);
+    if (actor === undefined || scene === undefined) throw new LocalizedError('campaign.noScene', { name });
     const committed = engine.submitAction(
       {
         campaignId,
@@ -648,7 +649,7 @@ export const archiveCampaign = (dataDir: string, name: string) => {
   try {
     linkSync(from, to);
   } catch (error) {
-    if (isFileExists(error)) throw new Error(`An archived campaign named ${name} already exists.`);
+    if (isFileExists(error)) throw new LocalizedError('campaign.archivedExists', { name });
     throw error;
   }
   rmSync(from);
@@ -657,11 +658,11 @@ export const archiveCampaign = (dataDir: string, name: string) => {
 
 export const unarchiveCampaign = (dataDir: string, name: string) => {
   const from = archivePath(dataDir, name);
-  if (!existsSync(from)) throw new Error(`No archived campaign named ${name}.`);
+  if (!existsSync(from)) throw new LocalizedError('campaign.noArchived', { name });
   try {
     linkSync(from, databasePath(dataDir, name));
   } catch (error) {
-    if (isFileExists(error)) throw new Error(`A campaign named ${name} already exists.`);
+    if (isFileExists(error)) throw new LocalizedError('campaign.exists', { name });
     throw error;
   }
   rmSync(from);
@@ -696,7 +697,7 @@ export const isSameCampaignFile = (dataDir: string, name: string, other: string)
 export const deleteCampaign = (dataDir: string, name: string, confirm: string, archived = false) => {
   const path = archived ? archivePath(dataDir, name) : savedFile(dataDir, name).path;
   if (!existsSync(path)) throw missingCampaign(dataDir, name);
-  if (confirm !== name) throw new Error(`Kept campaign ${name}: send its name as the confirm token to delete it.`);
+  if (confirm !== name) throw new LocalizedError('campaign.keptToken', { name });
   rmSync(path);
 };
 
@@ -753,7 +754,7 @@ const newCampaignConfig = (intent: string | undefined, client: string | undefine
     return planCampaign(intent, client === undefined ? {} : { client });
   } catch (error) {
     if (!(error instanceof ClientUnsupported)) throw error;
-    throw new Error(`${error.message} Add --client ${error.client}.`);
+    throw new LocalizedError('campaign.addClient', { message: error.message, client: error.client });
   }
 };
 
@@ -825,7 +826,7 @@ export const createEngineGateway = (
         unarchive: (name) => unarchiveCampaign(dataDir, name),
         remove: (name, confirm, archived) => deleteCampaign(dataDir, name, confirm, archived),
         play: (name, playing) => playTui(dataDir, name, playing, gm, rng),
-        start: (lines) => guidedStart(dataDir, lines, createCampaignFrom),
+        start: (lines, locale) => guidedStart(dataDir, lines, createCampaignFrom, locale),
       },
       terminal,
     ),
@@ -849,7 +850,7 @@ export const createEngineGateway = (
   },
   view: (name, view) => readView(dataDir, name, view),
   tui: (name, terminal) => playTui(dataDir, name, terminal, gm, rng),
-  start: (lines) => guidedStart(dataDir, lines, createCampaignFrom),
+  start: (lines, locale) => guidedStart(dataDir, lines, createCampaignFrom, locale),
   importRules: (files, lines) => importRules(process.cwd(), files, lines),
   open: async function* (name, _mode, lines, onTurnError) {
     yield readView(dataDir, name, RECAP_VIEW);

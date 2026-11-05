@@ -13,8 +13,10 @@ import { MAX_PLAYBACK_SPEED, MIN_PLAYBACK_SPEED } from '../../../packages/voice/
 import { VOICE_STAGES } from '../../../packages/voice/src/voice-diagnostics.ts';
 import {
   actionForKey,
-  loadPreferences,
+  endonym,
   type RendererAction,
+  readPreferences,
+  SUPPORTED_LOCALES,
   translate,
   type UiPreferences,
   voiceLabel,
@@ -296,7 +298,7 @@ const settingsMenu = (
   voice: DesktopVoiceView | undefined,
   setup: VoiceSetupView | undefined,
 ) =>
-  `<details data-settings><summary id="settings-toggle">${escapeHtml(translate(locale, 'settings.label'))}</summary><div>${motionControl(model.motion, locale)}${voiceSettings(voice, setup, locale)}${gmSettings(model.gm, locale)}</div></details>`;
+  `<details data-settings><summary id="settings-toggle">${escapeHtml(translate(locale, 'settings.label'))}</summary><div>${languageControl(locale)}${motionControl(model.motion, locale)}${voiceSettings(voice, setup, locale)}${gmSettings(model.gm, locale)}</div></details>`;
 
 const setupBody = ({ step, provider, progress, error }: VoiceSetupView, locale: string): string => {
   const text = (key: string, values?: Record<string, string | number>) =>
@@ -653,6 +655,14 @@ const motionControl = (current: string, locale: string): string =>
       `<button type="button" data-motion="${setting}" aria-pressed="${setting === current}">${escapeHtml(translate(locale, `motion.${setting}`))}</button>`,
   ).join('')}</fieldset>`;
 
+export const LOCALE_ATTRIBUTE = 'data-locale';
+
+const languageControl = (current: string): string =>
+  `<fieldset data-language-control><legend>${escapeHtml(translate(current, 'language.label'))}</legend>${SUPPORTED_LOCALES.map(
+    (locale) =>
+      `<button type="button" ${LOCALE_ATTRIBUTE}="${locale}" lang="${locale}" aria-pressed="${locale === current}">${escapeHtml(endonym(locale))}</button>`,
+  ).join('')}</fieldset>`;
+
 const mainOpen = (model: ViewModel, screen: 'home' | 'play') =>
   `<main data-screen="${screen}" data-layout="${model.layout.name}" data-animate="${model.animate}" style="--font-scale: ${model.fontScale}">`;
 
@@ -718,6 +728,6 @@ export const bindKeys = (
   });
 
 export const queryPreferences = (search: string) =>
-  loadPreferences(() => new URLSearchParams(search).get(PREFERENCES_QUERY) ?? '');
+  readPreferences(() => JSON.parse(new URLSearchParams(search).get(PREFERENCES_QUERY) ?? ''));
 
 export const queryStart = (search: string) => loadStartDraft(() => new URLSearchParams(search).get(START_QUERY) ?? '');

@@ -10,6 +10,7 @@ import {
   CAPTURE_STATUS,
   captureJourney,
   captureScreens,
+  isJourneyPhase,
   JOURNEY,
   JOURNEY_ENV,
   JOURNEY_ERROR,
@@ -52,7 +53,7 @@ const reportStatusAndQuit = () =>
       const window = BrowserWindow.fromWebContents(contents);
       const dir = process.env[CAPTURE_ENV];
       const phase = process.env[JOURNEY_ENV];
-      const journey = phase === 'first' || phase === 'reopen' ? JOURNEY[phase] : undefined;
+      const journey = isJourneyPhase(phase) ? JOURNEY[phase] : undefined;
       if (dir && window) {
         mkdirSync(dir, { recursive: true });
         try {

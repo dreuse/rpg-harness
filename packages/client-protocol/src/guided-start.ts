@@ -1,3 +1,4 @@
+import { type Catalog, createTranslator, DEFAULT_LOCALE, safeLocale } from './locale.ts';
 import {
   type CampaignPlan,
   type CreateCampaign,
@@ -10,7 +11,6 @@ import {
 } from './protocol.ts';
 
 export const START_DRAFT_FILE = 'guided-start.json';
-export const DEFAULT_ADVENTURE_NAME = 'My adventure';
 export const START_PATHS = ['describe', 'guide'] as const;
 export const GUIDE_STEPS = ['primer', 'genre', 'rules', 'character', 'features', 'summary'] as const;
 export const START_STEPS = { describe: ['describe', 'summary'], guide: GUIDE_STEPS } as const;
@@ -64,31 +64,125 @@ export type StartScreen = {
 
 export const INITIAL_DRAFT: StartDraft = Object.freeze({ path: null, step: 0, name: '', intent: '', choices: {} });
 
-export const PRIMER = [
-  'In a tabletop role-playing game, you play one character in a story you tell together.',
-  'The game master, or GM, describes the world, plays everyone else and decides what happens.',
-];
-export const IMPORT_RULEBOOK = 'Import your rulebook.';
-const IMPORT_HINT = `Want a system that is not listed? ${IMPORT_RULEBOOK} Run rpg import <file> first.`;
+export const START_CATALOG: Catalog = {
+  en: {
+    'name.default': 'My adventure',
+    'primer.title': 'What is a tabletop RPG?',
+    'primer.play': 'In a tabletop role-playing game, you play one character in a story you tell together.',
+    'primer.gm': 'The game master, or GM, describes the world, plays everyone else and decides what happens.',
+    'import.rulebook': 'Import your rulebook.',
+    'import.hint': 'Want a system that is not listed? {rulebook} Run rpg import <file> first.',
+    'import.error': '{rulebook} {message}',
+    'provenance.default': 'default',
+    'provenance.chosen': 'chosen',
+    'feature.diceVisualization': 'Dice animation',
+    'feature.diceVisualization.detail': 'Show each dice roll on screen.',
+    'feature.voiceOutput': 'Voice narration',
+    'feature.voiceOutput.detail': 'The narrator reads the story aloud.',
+    'feature.simulation': 'Living world',
+    'feature.simulation.detail': 'People and places act on their own while you play.',
+    'field.ruleset': 'Rules',
+    'field.genre': 'Genre',
+    'field.character': 'Character',
+    'field.dice': 'Dice',
+    'group.story': 'Your story',
+    'group.extras': 'Extras',
+    'character.title': 'Pick your character',
+    'character.noGenre': 'Pick a genre to see ready-made characters.',
+    'character.noReadyMade': 'Ready-made characters need a sheet on these rules. Describe your own.',
+    'character.pick': 'Pick a ready-made character, or describe your own.',
+    'character.sheet': 'Your rules track {fields}.',
+    'character.entry': 'Describe your character',
+    'summary.title': 'Ready to start',
+    'summary.line': '{label}: {value} ({provenance})',
+    'summary.entry': 'Adventure name',
+    'path.title': 'New adventure',
+    'path.question': 'How do you want to start?',
+    'path.describe': 'Describe it',
+    'path.describe.detail': 'Write one sentence about the game you want.',
+    'path.guide': 'Guide me',
+    'path.guide.detail': 'Answer a few short questions. You can skip any of them.',
+    'describe.title': 'Describe it',
+    'describe.prompt': 'Say what you want to play in one sentence.',
+    'describe.example': 'For example: a horror story using the Narrative rules.',
+    'describe.entry': 'Your adventure',
+    'genre.title': 'Pick a tone and genre',
+    'genre.text': 'This sets the mood of your story.',
+    'rules.title': 'Pick a rules system',
+    'rules.text': 'Light rules are best for your first game.',
+    'rules.recommended': '{name} (recommended for new players)',
+    'features.text': 'These stay off unless you turn them on.',
+  },
+  'pt-BR': {
+    'name.default': 'Minha aventura',
+    'primer.title': 'O que é um RPG de mesa?',
+    'primer.play': 'Num RPG de mesa, você interpreta um personagem numa história contada em conjunto.',
+    'primer.gm': 'O mestre do jogo descreve o mundo, interpreta todos os outros personagens e decide o que acontece.',
+    'import.rulebook': 'Importe seu livro de regras.',
+    'import.hint': 'Quer um sistema que não está na lista? {rulebook} Antes, rode rpg import <arquivo>.',
+    'import.error': '{rulebook} {message}',
+    'provenance.default': 'padrão',
+    'provenance.chosen': 'escolhido',
+    'feature.diceVisualization': 'Animação de dados',
+    'feature.diceVisualization.detail': 'Mostra cada rolagem de dados na tela.',
+    'feature.voiceOutput': 'Narração por voz',
+    'feature.voiceOutput.detail': 'O narrador lê a história em voz alta.',
+    'feature.simulation': 'Mundo vivo',
+    'feature.simulation.detail': 'Pessoas e lugares agem por conta própria enquanto você joga.',
+    'field.ruleset': 'Regras',
+    'field.genre': 'Gênero',
+    'field.character': 'Personagem',
+    'field.dice': 'Dados',
+    'group.story': 'Sua história',
+    'group.extras': 'Extras',
+    'character.title': 'Escolha seu personagem',
+    'character.noGenre': 'Escolha um gênero para ver personagens prontos.',
+    'character.noReadyMade': 'Personagens prontos precisam de uma ficha nestas regras. Descreva o seu.',
+    'character.pick': 'Escolha um personagem pronto ou descreva o seu.',
+    'character.sheet': 'Suas regras acompanham {fields}.',
+    'character.entry': 'Descreva seu personagem',
+    'summary.title': 'Pronto para começar',
+    'summary.line': '{label}: {value} ({provenance})',
+    'summary.entry': 'Nome da aventura',
+    'path.title': 'Nova aventura',
+    'path.question': 'Como você quer começar?',
+    'path.describe': 'Descrever',
+    'path.describe.detail': 'Escreva uma frase sobre o jogo que você quer.',
+    'path.guide': 'Me guie',
+    'path.guide.detail': 'Responda algumas perguntas rápidas. Você pode pular qualquer uma.',
+    'describe.title': 'Descreva sua aventura',
+    'describe.prompt': 'Diga em uma frase o que você quer jogar.',
+    'describe.example': 'Por exemplo: uma história de terror com as regras Narrative.',
+    'describe.entry': 'Sua aventura',
+    'genre.title': 'Escolha o tom e o gênero',
+    'genre.text': 'Isso define o clima da sua história.',
+    'rules.title': 'Escolha um sistema de regras',
+    'rules.text': 'Regras leves são as melhores para o seu primeiro jogo.',
+    'rules.recommended': '{name} (recomendado para iniciantes)',
+    'features.text': 'Estes ficam desligados, a não ser que você os ligue.',
+  },
+};
+const text = createTranslator(START_CATALOG);
+export const DEFAULT_ADVENTURE_NAME = text(DEFAULT_LOCALE, 'name.default');
 const UNKNOWN_EDITION = 'UnknownEdition';
 const DEFAULT_PROVENANCE = 'default';
 const CHOSEN = 'chosen';
+const LIST_STYLE = { type: 'unit', style: 'short' } as const;
 const FEATURE_ON: Readonly<Record<Feature, unknown>> = {
   diceVisualization: true,
   voiceOutput: true,
   simulation: 'balanced',
 };
-const FEATURE_COPY: Readonly<Record<Feature, { readonly label: string; readonly detail: string }>> = {
-  diceVisualization: { label: 'Dice animation', detail: 'Show each dice roll on screen.' },
-  voiceOutput: { label: 'Voice narration', detail: 'The narrator reads the story aloud.' },
-  simulation: { label: 'Living world', detail: 'People and places act on their own while you play.' },
+const LABEL_KEYS: Readonly<Record<string, string>> = {
+  ruleset: 'field.ruleset',
+  genre: 'field.genre',
+  character: 'field.character',
+  dice: 'field.dice',
+  ...Object.fromEntries(FEATURES.map((feature) => [feature, `feature.${feature}`])),
 };
-const FIELD_LABELS: Readonly<Record<string, string>> = {
-  ruleset: 'Rules',
-  genre: 'Genre',
-  character: 'Character',
-  dice: 'Dice',
-  ...Object.fromEntries(FEATURES.map((feature) => [feature, FEATURE_COPY[feature].label])),
+const fieldLabel = (locale: string, field: string) => {
+  const key = LABEL_KEYS[field];
+  return key === undefined ? field : text(locale, key);
 };
 const STEP_FIELDS: Partial<Record<StartStep, readonly string[]>> = {
   genre: ['genre'],
@@ -103,12 +197,9 @@ const FIELD_STEPS: Readonly<Record<string, StartStep>> = {
   character: 'character',
   ...Object.fromEntries(FEATURES.map((feature) => [feature, 'features'])),
 };
-const STORY_GROUP = 'Your story';
-const EXTRAS_GROUP = 'Extras';
 const FIRST_STEP = 0;
 const DRAFT_KEYS = ['path', 'step', 'name', 'intent', 'choices'];
 const NEXT = 1;
-const NO_READY_MADE = 'Ready-made characters need a sheet on these rules. Describe your own.';
 const EDITION_KEYS = ['id', 'edition'] as const;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -192,10 +283,10 @@ export const planCommand = (draft: StartDraft, client?: string): PlanCampaign =>
   ...planFields(draft, client),
 });
 
-export const createCommand = (draft: StartDraft, client?: string): CreateCampaign => ({
+export const createCommand = (draft: StartDraft, client?: string, locale = DEFAULT_LOCALE): CreateCampaign => ({
   version: PROTOCOL_VERSION,
   type: 'CreateCampaign',
-  name: draft.name || DEFAULT_ADVENTURE_NAME,
+  name: draft.name || text(locale, 'name.default'),
   ...planFields(draft, client),
 });
 
@@ -226,43 +317,47 @@ const choose = (field: string, value: unknown, label: string, detail: string, dr
   selected: JSON.stringify(draft.choices[field]) === JSON.stringify(value),
 });
 
-const errorText = ({ code, message }: { readonly code: string; readonly message: string }) =>
-  code === UNKNOWN_EDITION ? `${IMPORT_RULEBOOK} ${message}` : message;
+const errorText = (locale: string, { code, message }: { readonly code: string; readonly message: string }) =>
+  code === UNKNOWN_EDITION
+    ? text(locale, 'import.error', { rulebook: text(locale, 'import.rulebook'), message })
+    : message;
 
 type Page = Pick<StartScreen, 'title' | 'text' | 'options'> & Partial<StartScreen>;
 
-const characterPage = (draft: StartDraft, { genres, rulesets }: StartOptions): Page => {
+const characterPage = (draft: StartDraft, { genres, rulesets }: StartOptions, locale: string): Page => {
   const genre = genres.find(({ id }) => id === draft.choices.genre);
   const ruleset = rulesets.find(
     ({ id, edition }) =>
       isEdition(draft.choices.ruleset) && JSON.stringify({ id, edition }) === JSON.stringify(draft.choices.ruleset),
   );
   const sheet =
-    ruleset === undefined || ruleset.sheet.length === 0 ? [] : [`Your rules track ${ruleset.sheet.join(', ')}.`];
+    ruleset === undefined || ruleset.sheet.length === 0
+      ? []
+      : [
+          text(locale, 'character.sheet', {
+            fields: new Intl.ListFormat(safeLocale(locale), LIST_STYLE).format(ruleset.sheet),
+          }),
+        ];
   const value = typeof draft.choices.character === 'string' ? draft.choices.character : '';
   const hidden = ruleset?.readyMade === false;
   return {
-    title: 'Pick your character',
+    title: text(locale, 'character.title'),
     text: [
-      genre === undefined
-        ? 'Pick a genre to see ready-made characters.'
-        : hidden
-          ? NO_READY_MADE
-          : 'Pick a ready-made character, or describe your own.',
+      text(locale, genre === undefined ? 'character.noGenre' : hidden ? 'character.noReadyMade' : 'character.pick'),
       ...sheet,
     ],
     options: (hidden ? [] : (genre?.characters ?? [])).map(({ name, summary }) =>
       choose('character', name, name, `${summary}.`, draft),
     ),
-    entry: { label: 'Describe your character', value },
+    entry: { label: text(locale, 'character.entry'), value },
   };
 };
 
-const reviewOf = (draft: StartDraft, { entries }: CampaignPlan): readonly StartReviewGroup[] => {
+const reviewOf = (draft: StartDraft, { entries }: CampaignPlan, locale: string): readonly StartReviewGroup[] => {
   const items = entries.map(
     ({ field, value, provenance }): StartReviewItem => ({
       field,
-      label: FIELD_LABELS[field] ?? field,
+      label: fieldLabel(locale, field),
       value,
       chosen: provenance !== DEFAULT_PROVENANCE,
       step: Math.max(FIRST_STEP, stepsOf(draft.path).indexOf(FIELD_STEPS[field] ?? 'path')),
@@ -270,84 +365,88 @@ const reviewOf = (draft: StartDraft, { entries }: CampaignPlan): readonly StartR
   );
   const extra = ({ field }: StartReviewItem) => FEATURES.some((feature) => feature === field);
   return [
-    { title: STORY_GROUP, items: items.filter((item) => !extra(item)) },
-    { title: EXTRAS_GROUP, items: items.filter(extra) },
+    { title: text(locale, 'group.story'), items: items.filter((item) => !extra(item)) },
+    { title: text(locale, 'group.extras'), items: items.filter(extra) },
   ].filter((group) => group.items.length > 0);
 };
 
-const summaryPage = (draft: StartDraft, plan: Result<CampaignPlan> | undefined): Page => ({
-  title: 'Ready to start',
+const summaryPage = (draft: StartDraft, plan: Result<CampaignPlan> | undefined, locale: string): Page => ({
+  title: text(locale, 'summary.title'),
   text: plan?.ok
-    ? plan.value.entries.map(
-        ({ field, value, provenance }) =>
-          `${FIELD_LABELS[field] ?? field}: ${value} (${provenance === DEFAULT_PROVENANCE ? DEFAULT_PROVENANCE : CHOSEN})`,
+    ? plan.value.entries.map(({ field, value, provenance }) =>
+        text(locale, 'summary.line', {
+          label: fieldLabel(locale, field),
+          value,
+          provenance: text(locale, `provenance.${provenance === DEFAULT_PROVENANCE ? DEFAULT_PROVENANCE : CHOSEN}`),
+        }),
       )
     : [],
   options: [],
-  entry: { label: 'Adventure name', value: draft.name || DEFAULT_ADVENTURE_NAME },
-  ...(plan?.ok ? { review: reviewOf(draft, plan.value) } : {}),
-  ...(plan === undefined || plan.ok ? {} : { error: errorText(plan.error) }),
+  entry: { label: text(locale, 'summary.entry'), value: draft.name || text(locale, 'name.default') },
+  ...(plan?.ok ? { review: reviewOf(draft, plan.value, locale) } : {}),
+  ...(plan === undefined || plan.ok ? {} : { error: errorText(locale, plan.error) }),
   canStart: plan?.ok === true,
 });
 
 const PAGES: Readonly<
-  Record<StartStep, (draft: StartDraft, options: StartOptions, plan?: Result<CampaignPlan>) => Page>
+  Record<
+    StartStep,
+    (draft: StartDraft, options: StartOptions, plan: Result<CampaignPlan> | undefined, locale: string) => Page
+  >
 > = {
-  path: () => ({
-    title: 'New adventure',
-    text: ['How do you want to start?'],
-    options: [
-      {
-        label: 'Describe it',
-        detail: 'Write one sentence about the game you want.',
-        action: { kind: 'path', path: 'describe' },
-        selected: false,
-      },
-      {
-        label: 'Guide me',
-        detail: 'Answer a few short questions. You can skip any of them.',
-        action: { kind: 'path', path: 'guide' },
-        selected: false,
-      },
-    ],
+  path: (_draft, _options, _plan, locale) => ({
+    title: text(locale, 'path.title'),
+    text: [text(locale, 'path.question')],
+    options: START_PATHS.map((path) => ({
+      label: text(locale, `path.${path}`),
+      detail: text(locale, `path.${path}.detail`),
+      action: { kind: 'path', path },
+      selected: false,
+    })),
   }),
-  describe: (draft) => ({
-    title: 'Describe it',
-    text: ['Say what you want to play in one sentence.', 'For example: a horror story using the Narrative rules.'],
+  describe: (draft, _options, _plan, locale) => ({
+    title: text(locale, 'describe.title'),
+    text: [text(locale, 'describe.prompt'), text(locale, 'describe.example')],
     options: [],
-    entry: { label: 'Your adventure', value: draft.intent },
+    entry: { label: text(locale, 'describe.entry'), value: draft.intent },
   }),
-  primer: () => ({ title: 'What is a tabletop RPG?', text: PRIMER, options: [], canNext: true }),
-  genre: (draft, { genres }) => ({
-    title: 'Pick a tone and genre',
-    text: ['This sets the mood of your story.'],
+  primer: (_draft, _options, _plan, locale) => ({
+    title: text(locale, 'primer.title'),
+    text: [text(locale, 'primer.play'), text(locale, 'primer.gm')],
+    options: [],
+    canNext: true,
+  }),
+  genre: (draft, { genres }, _plan, locale) => ({
+    title: text(locale, 'genre.title'),
+    text: [text(locale, 'genre.text')],
     options: genres.map(({ id, name, blurb }) => choose('genre', id, name, blurb, draft)),
   }),
-  rules: (draft, { rulesets }) => ({
-    title: 'Pick a rules system',
-    text: ['Light rules are best for your first game.', IMPORT_HINT],
+  rules: (draft, { rulesets }, _plan, locale) => ({
+    title: text(locale, 'rules.title'),
+    text: [text(locale, 'rules.text'), text(locale, 'import.hint', { rulebook: text(locale, 'import.rulebook') })],
     options: rulesets.map(({ id, edition, blurb, recommended }) =>
       choose(
         'ruleset',
         { id, edition },
-        `${id} ${edition}${recommended ? ' (recommended for new players)' : ''}`,
+        recommended ? text(locale, 'rules.recommended', { name: `${id} ${edition}` }) : `${id} ${edition}`,
         blurb,
         draft,
       ),
     ),
   }),
-  character: characterPage,
-  features: (draft) => ({
-    title: EXTRAS_GROUP,
-    text: ['These stay off unless you turn them on.'],
+  character: (draft, options, _plan, locale) => characterPage(draft, options, locale),
+  features: (draft, _options, _plan, locale) => ({
+    title: text(locale, 'group.extras'),
+    text: [text(locale, 'features.text')],
     options: FEATURES.map((field) => ({
-      ...FEATURE_COPY[field],
+      label: text(locale, `feature.${field}`),
+      detail: text(locale, `feature.${field}.detail`),
       action: { kind: 'toggle', field },
       selected: Object.hasOwn(draft.choices, field),
     })),
     canNext: true,
   }),
-  summary: (draft, _options, plan) => summaryPage(draft, plan),
+  summary: (draft, _options, plan, locale) => summaryPage(draft, plan, locale),
 };
 
 const NO_OPTIONS: StartOptions = { genres: [], rulesets: [] };
@@ -356,10 +455,11 @@ export const startScreen = (
   draft: StartDraft,
   options: StartOptions | undefined,
   plan: Result<CampaignPlan> | undefined,
+  locale = DEFAULT_LOCALE,
 ): StartScreen => {
   const step = stepOf(draft);
   const steps = stepsOf(draft.path);
-  const page = PAGES[step](draft, options ?? NO_OPTIONS, plan);
+  const page = PAGES[step](draft, options ?? NO_OPTIONS, plan, locale);
   const ending = step === 'summary' || step === 'path';
   return {
     step,

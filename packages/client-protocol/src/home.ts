@@ -1,3 +1,4 @@
+import { safeLocale } from './locale.ts';
 import type { CampaignHealth, CampaignSummary } from './protocol.ts';
 
 export const SEARCH_AFTER = 5;
@@ -67,5 +68,5 @@ export const relativeTime = (iso: string | null, now: number, locale: string): s
   if (Number.isNaN(at)) return undefined;
   const elapsed = at - now;
   const [unit, size] = TIME_UNITS.find(([, ms]) => Math.abs(elapsed) >= ms) ?? SMALLEST_UNIT;
-  return new Intl.RelativeTimeFormat(locale, { numeric: 'auto' }).format(Math.round(elapsed / size), unit);
+  return new Intl.RelativeTimeFormat(safeLocale(locale), { numeric: 'auto' }).format(Math.round(elapsed / size), unit);
 };

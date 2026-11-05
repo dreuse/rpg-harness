@@ -129,3 +129,11 @@ test('UI15: the CSS roll and settle durations match the timers that settle them'
   assert.match(tokens, new RegExp(`--duration-roll: ${ROLL_MS}ms;`));
   assert.match(tokens, new RegExp(`--duration-settle: ${SETTLE_MS}ms;`));
 });
+
+test('rpg-42a.39 the outcome word follows the player locale and keeps the rules id for styling', () => {
+  const html = renderRoll(rollPlan(rollOf([die(20, 13)], { total: 14, outcome: 'check.success' }), 'off'), 'pt-BR');
+  assert.match(html, /<strong data-outcome="success" aria-hidden="true">sucesso<\/strong>/);
+  assert.match(html, /<figcaption>[^<]*sucesso/);
+  const unknown = renderRoll(rollPlan(rollOf([die(6, 2)], { outcome: 'hit' }), 'off'), 'es');
+  assert.match(unknown, /<strong data-outcome="hit" aria-hidden="true">hit<\/strong>/);
+});

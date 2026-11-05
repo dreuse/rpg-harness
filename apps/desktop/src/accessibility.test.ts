@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { missingKeys } from '../../../packages/client-protocol/src/locale.ts';
 import {
   actionForKey,
+  CATALOG,
   componentLabel,
   DEFAULT_PREFERENCES,
   KEY_BINDINGS,
@@ -9,8 +11,50 @@ import {
   MAX_FONT_SCALE,
   MIN_FONT_SCALE,
   parsePreferences,
+  persistedPreferences,
+  SUPPORTED_LOCALES,
   translate,
 } from './accessibility.ts';
+
+test('rpg-42a.39 every desktop locale has every catalog key', () => {
+  assert.ok(SUPPORTED_LOCALES.includes('pt-BR'));
+  assert.deepEqual(missingKeys(CATALOG), []);
+});
+
+test('rpg-42a.39 pt-BR reads naturally and formats numbers the Brazilian way', () => {
+  assert.equal(translate('pt-BR', 'start.first'), 'Comece sua primeira aventura');
+  assert.equal(translate('pt-BR', 'home.archived', { count: 2 }), 'Aventuras arquivadas (2)');
+  assert.equal(translate('pt-BR', 'voice.speed', { speed: 1.5 }), 'velocidade 1,5×');
+  assert.equal(translate('pt-BR', 'sheet.max', { max: 20 }), 'Digite 20 ou menos.');
+});
+
+test('rpg-42a.39 the saved locale wins over the system locale, which replaces the default', () => {
+  assert.equal(loadPreferences(() => '{}', 'pt-BR').locale, 'pt-BR');
+  assert.equal(loadPreferences(() => 'not json', 'pt-BR').locale, 'pt-BR');
+  assert.equal(loadPreferences(() => '{"language":"es"}', 'pt-BR').locale, 'es');
+});
+
+test('rpg-42a.39 a locale saved before the language control does not override the system locale', () => {
+  assert.equal(loadPreferences(() => '{"locale":"en"}', 'pt-BR').locale, 'pt-BR');
+});
+
+test('rpg-42a.39 only a language that differs from the system locale is saved', () => {
+  const chosen = { ...DEFAULT_PREFERENCES, locale: 'en' };
+  assert.equal(JSON.stringify(persistedPreferences(chosen, 'pt-BR')).includes('"language":"en"'), true);
+  assert.equal(Object.hasOwn(persistedPreferences(chosen, 'pt-BR'), 'locale'), false);
+  assert.equal(Object.hasOwn(persistedPreferences(chosen, 'en'), 'language'), false);
+  const saved = JSON.stringify(persistedPreferences(chosen, 'pt-BR'));
+  assert.equal(loadPreferences(() => saved, 'pt-BR').locale, 'en');
+});
+
+test('rpg-42a.39 preferences normalize the locale and drop an unknown one', () => {
+  const posix = parsePreferences({ locale: 'pt_BR' });
+  assert.equal(posix.ok && posix.value.locale, 'pt-BR');
+  const garbage = parsePreferences({ locale: 'not a locale!' }, { ...DEFAULT_PREFERENCES, locale: 'es' });
+  assert.equal(garbage.ok && garbage.value.locale, 'es');
+  assert.equal(loadPreferences(() => '{"language":"pt_BR"}').locale, 'pt-BR');
+  assert.equal(loadPreferences(() => '{"language":"not a locale!"}', 'es').locale, 'es');
+});
 
 test('UI10 preferences default, clamp font scale and reject invalid input', () => {
   assert.deepEqual(parsePreferences(undefined), { ok: true, value: DEFAULT_PREFERENCES });
@@ -84,7 +128,7 @@ test('rpg-cm63.7 saved speech settings default to full volume and reject invalid
 
 test('UI10 saved preferences load and fall back to defaults without throwing', () => {
   assert.deepEqual(
-    loadPreferences(() => '{"locale":"es"}'),
+    loadPreferences(() => '{"language":"es"}'),
     { ...DEFAULT_PREFERENCES, locale: 'es' },
   );
   assert.deepEqual(

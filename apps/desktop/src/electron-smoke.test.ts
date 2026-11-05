@@ -14,8 +14,9 @@ import {
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, sep } from 'node:path';
-import { test } from 'node:test';
+import { type TestContext, test } from 'node:test';
 import { promisify } from 'node:util';
+import { DEFAULT_LOCALE, LANGUAGE_ENV } from '../../../packages/client-protocol/src/locale.ts';
 import { CAMPAIGN_ENV } from '../../cli/src/desktop-daemon.ts';
 import { createEngineGateway } from '../../cli/src/engine-gateway.ts';
 import { FAKE_ROUTE, GM_ROUTE_ENV } from '../../cli/src/gm-api.ts';
@@ -52,6 +53,7 @@ const PNG_SIGNATURE = '89504e47';
 const SIGNATURE_BYTES = 4;
 const HEX = 'hex';
 const CAMPAIGN = 'Ember';
+const PORTUGUESE = 'pt-BR';
 const SEED_ACTION = 'I look around the docks.';
 const NO_CHARACTER = async () => undefined;
 const IGNORE = () => {};
@@ -88,6 +90,7 @@ const run = async (dataDir: string, extra: NodeJS.ProcessEnv, app = APP_DIR) => 
   const { stdout } = await promisify(execFile)(binary as string, [app], {
     env: {
       ...env,
+      [LANGUAGE_ENV]: DEFAULT_LOCALE,
       ...extra,
       [SMOKE_ENV]: ENABLED,
       [DATA_DIR_ENV]: dataDir,
@@ -181,15 +184,19 @@ const journeyShots = (dir: string, phase: keyof typeof JOURNEY) =>
     shot === undefined ? [] : CAPTURE_THEMES.map((theme) => join(dir, `${shot}-${theme.name}.png`)),
   );
 
-test('rpg-42a.17 desktop journey: first run, guided start, roll, sheet edit, quit, reopen and continue', {
-  skip,
-}, async (t) => {
+type Phase = keyof typeof JOURNEY;
+
+const captureJourneys = async (
+  t: TestContext,
+  phases: readonly Phase[],
+  extra: NodeJS.ProcessEnv = {},
+): Promise<string[]> => {
   const dataDir = mkdtempSync(join(tmpdir(), 'rpg-desktop-journey-'));
   const dir = process.env[CAPTURE_ENV] || mkdtempSync(join(tmpdir(), 'rpg-desktop-journey-screens-'));
   t.after(() => rmSync(dataDir, { recursive: true, force: true }));
   const files: string[] = [];
-  for (const phase of ['first', 'reopen'] as const) {
-    const stdout = await run(dataDir, { [CAPTURE_ENV]: dir, [JOURNEY_ENV]: phase });
+  for (const phase of phases) {
+    const stdout = await run(dataDir, { ...extra, [CAPTURE_ENV]: dir, [JOURNEY_ENV]: phase });
     assert.doesNotMatch(stdout, new RegExp(JOURNEY_ERROR));
     for (const file of journeyShots(dir, phase)) {
       assert.ok(stdout.includes(`${CAPTURE_STATUS}${file}`), file);
@@ -197,6 +204,10 @@ test('rpg-42a.17 desktop journey: first run, guided start, roll, sheet edit, qui
     }
   }
   t.diagnostic(`screenshots in ${dir}`);
+  return files;
+};
+
+const checkBaselines = (t: TestContext, files: readonly string[]) => {
   const update = process.env[UPDATE_BASELINES_ENV] === ENABLED;
   if (update) mkdirSync(BASELINE_DIR, { recursive: true });
   const compare = !update && existsSync(BASELINE_DIR);
@@ -222,4 +233,17 @@ test('rpg-42a.17 desktop journey: first run, guided start, roll, sheet edit, qui
       `${basename(file)} differs from its baseline in ${(ratio * 100).toFixed(2)}% of pixels`,
     );
   }
+};
+
+test('rpg-42a.17 desktop journey: first run, guided start, roll, sheet edit, quit, reopen and continue', {
+  skip,
+}, async (t) => {
+  checkBaselines(t, await captureJourneys(t, ['first', 'reopen']));
+});
+
+test('rpg-42a.39 desktop journey in Brazilian Portuguese: home, guided start and play', { skip }, async (t) => {
+  const files = await captureJourneys(t, ['portuguese'], { [LANGUAGE_ENV]: PORTUGUESE });
+  checkBaselines(t, files);
+  const { audit } = JSON.parse(readFileSync(files[0]?.replace(/\.png$/, SHOT_DATA_EXTENSION) ?? '', 'utf8'));
+  assert.equal(audit.lang, PORTUGUESE);
 });

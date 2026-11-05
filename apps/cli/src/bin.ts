@@ -2,6 +2,8 @@
 import { spawnSync } from 'node:child_process';
 import { on } from 'node:events';
 import { createInterface, emitKeypressEvents, type Key } from 'node:readline';
+import { localeOf } from '../../../packages/client-protocol/src/locale.ts';
+import { CLI_LOCALES } from './messages.ts';
 import { dataDirFromEnv, firstRunProblem } from './setup-check.ts';
 import { capabilitiesOf, motionOf } from './tui.ts';
 
@@ -67,6 +69,7 @@ if (problem !== undefined) {
   for (const message of startup.messages) process.stderr.write(`${printable(message)}\n`);
   const capabilities = capabilitiesOf(process.env, process.stdin, process.stdout);
   const { gm } = await gameMasterFor(process.env);
+  const locale = localeOf(process.env, CLI_LOCALES);
   process.exitCode = startup.restart
     ? (spawnSync(process.execPath, [...process.execArgv, ...process.argv.slice(1)], { stdio: 'inherit' }).status ??
       EXIT_SETUP_FAILURE)
@@ -76,12 +79,14 @@ if (problem !== undefined) {
           stdout,
           stderr: (text) => process.stderr.write(text),
           lines,
+          locale,
           terminal: {
             capabilities,
             motion: motionOf(process.env, capabilities),
             keys: { [Symbol.asyncIterator]: keypresses },
             lines,
             write: stdout,
+            locale,
           },
         },
         createEngineGateway(dataDir, gm),

@@ -126,10 +126,13 @@ export const SHOT_DATA_EXTENSION = '.json';
 const JOURNEY_TIMEOUT_MS = 15000;
 const WIDE_LAYOUT = 'wide';
 const JOURNEY_RULESET = 'd20-lite';
+const JOURNEY_GUIDE = 'Guide me';
 const JOURNEY_FEATURE = 'Dice animation';
+const PORTUGUESE_GUIDE = 'Me guie';
+const PORTUGUESE_FEATURE = 'Animação de dados';
 const JOURNEY_CHARACTER = 'A scout named Wren with might 6, agility 5, wits 7 and presence 4.';
 const RANDOM_REGIONS = '[data-rolls], [data-voice-progress], [data-voice-diagnostics]';
-const CONNECTED = `document.querySelector('[role=status]')?.textContent.startsWith('Connected')`;
+const CONNECTED = `document.querySelector('[role=status][data-connection="connected"]')`;
 const PLAY_READY = `document.querySelector('main[data-screen="play"] [data-region="conversation"] li:not([aria-busy])') && document.querySelector('[data-region="sheet"] h3')`;
 const GM_REPLIED = `((gm) => gm && gm.textContent.trim() !== gm.querySelector('[data-speaker-label]').textContent.trim())(document.querySelector('[data-region="conversation"] li:last-child [data-speaker="gm"]'))`;
 const LIVE_ROLL = '[data-roll-skip], [data-roll][data-animated="true"]';
@@ -157,48 +160,42 @@ const SHEET_VALUE = `document.querySelector('[data-stat="${JOURNEY_EDIT.fieldId}
 
 type JourneyStep = { readonly script: string; readonly shot?: string };
 
-export const JOURNEY: Readonly<Record<'first' | 'reopen', readonly JourneyStep[]>> = {
+const FIRST_HOME = until(`${CONNECTED} && document.querySelector('main[data-screen="home"] [data-start-open]')`);
+const OPEN_START = steps(
+  click('[data-start-open]'),
+  `await ${until(`document.querySelector('[data-start-title="path"]')`)};`,
+);
+const guide = (guideOption: string, feature: string) =>
+  steps(
+    clickOption(guideOption),
+    `await ${until(`document.querySelector('[data-start-title="primer"]')`)};`,
+    nextStep('genre'),
+    `${clickOption('fantasy')} await ${until(`document.querySelector('[data-start-title="rules"]')`)};`,
+    `${clickOption(JOURNEY_RULESET)} await ${until(`document.querySelector('[data-start-title="character"]')`)};`,
+    `document.querySelector('#start-entry').value = ${JSON.stringify(JOURNEY_CHARACTER)};`,
+    `document.querySelector('[data-start-form]').requestSubmit();`,
+    `await ${until(`document.querySelector('[data-start-title="features"]')`)};`,
+    `${clickOption(feature)} await ${until(`document.querySelector('[data-start-option][aria-pressed="true"]')`)};`,
+    nextStep('summary'),
+    `await ${until(`document.querySelector('[data-start-control="start"]:not([disabled])')`)};`,
+  );
+const FIRST_TURN = steps(
+  JOURNEY_LISTENER,
+  click('[data-start-control="start"]'),
+  `await ${until(`document.querySelector('#home-continue-0')`)};`,
+  click('#home-continue-0'),
+  `await ${until(PLAY_READY)};`,
+  `document.querySelector('#action-input').value = ${JSON.stringify(JOURNEY_ACTION)};`,
+  `document.querySelector('#action-form').requestSubmit();`,
+  `await ${until(`document.querySelector('[data-rolls] [data-roll]') && ${GM_REPLIED} && ${SETTLED}`)};`,
+);
+
+export const JOURNEY: Readonly<Record<'first' | 'reopen' | 'portuguese', readonly JourneyStep[]>> = {
   first: [
-    {
-      script: until(`${CONNECTED} && document.querySelector('main[data-screen="home"] [data-start-open]')`),
-      shot: 'first-run-home',
-    },
-    {
-      script: steps(
-        click('[data-start-open]'),
-        `await ${until(`document.querySelector('[data-start-title="path"]')`)};`,
-      ),
-      shot: 'guided-start',
-    },
-    {
-      script: steps(
-        clickOption('Guide me'),
-        `await ${until(`document.querySelector('[data-start-title="primer"]')`)};`,
-        nextStep('genre'),
-        `${clickOption('fantasy')} await ${until(`document.querySelector('[data-start-title="rules"]')`)};`,
-        `${clickOption(JOURNEY_RULESET)} await ${until(`document.querySelector('[data-start-title="character"]')`)};`,
-        `document.querySelector('#start-entry').value = ${JSON.stringify(JOURNEY_CHARACTER)};`,
-        `document.querySelector('[data-start-form]').requestSubmit();`,
-        `await ${until(`document.querySelector('[data-start-title="features"]')`)};`,
-        `${clickOption(JOURNEY_FEATURE)} await ${until(`document.querySelector('[data-start-option][aria-pressed="true"]')`)};`,
-        nextStep('summary'),
-        `await ${until(`document.querySelector('[data-start-control="start"]:not([disabled])')`)};`,
-      ),
-      shot: 'guided-summary',
-    },
-    {
-      script: steps(
-        JOURNEY_LISTENER,
-        click('[data-start-control="start"]'),
-        `await ${until(`document.querySelector('#home-continue-0')`)};`,
-        click('#home-continue-0'),
-        `await ${until(PLAY_READY)};`,
-        `document.querySelector('#action-input').value = ${JSON.stringify(JOURNEY_ACTION)};`,
-        `document.querySelector('#action-form').requestSubmit();`,
-        `await ${until(`document.querySelector('[data-rolls] [data-roll]') && ${GM_REPLIED} && ${SETTLED}`)};`,
-      ),
-      shot: 'first-roll',
-    },
+    { script: FIRST_HOME, shot: 'first-run-home' },
+    { script: OPEN_START, shot: 'guided-start' },
+    { script: guide(JOURNEY_GUIDE, JOURNEY_FEATURE), shot: 'guided-summary' },
+    { script: FIRST_TURN, shot: 'first-roll' },
     {
       script: steps(
         `await ${until('window.journeySnapshot?.turns.length > 1')};`,
@@ -264,7 +261,16 @@ export const JOURNEY: Readonly<Record<'first' | 'reopen', readonly JourneyStep[]
       shot: 'continue',
     },
   ],
+  portuguese: [
+    { script: FIRST_HOME, shot: 'pt-BR-first-run-home' },
+    { script: OPEN_START, shot: 'pt-BR-guided-start' },
+    { script: guide(PORTUGUESE_GUIDE, PORTUGUESE_FEATURE) },
+    { script: FIRST_TURN, shot: 'pt-BR-play' },
+  ],
 };
+
+export const isJourneyPhase = (phase: string | undefined): phase is keyof typeof JOURNEY =>
+  phase !== undefined && Object.hasOwn(JOURNEY, phase);
 
 const AUDIT_PROBE = `(() => {
   const numbers = (value) => (value.match(/[\\d.]+/g) ?? []).map(Number);

@@ -35,7 +35,7 @@ import { VISUALIZATION_EVENT, type VisualizationEvent } from '../../../packages/
 import type { Ready } from '../../../packages/client-protocol/src/wire.ts';
 import type { CampaignId } from '../../../packages/domain/src/campaign.ts';
 import type { GmSettings } from '../../../packages/domain/src/gm.ts';
-import { componentValue, DEFAULT_PREFERENCES, translate, type UiPreferences } from './accessibility.ts';
+import { componentValue, DEFAULT_LOCALE, DEFAULT_PREFERENCES, translate, type UiPreferences } from './accessibility.ts';
 import { effectiveMotion, parseVisualization, ROLL_HISTORY, rollPlan } from './dice.ts';
 
 export const COMPACT_MAX_WIDTH = 720;
@@ -272,7 +272,9 @@ export const viewModel = (
     panels: state.panels,
     rejected: state.rejected,
     gm: state.snapshot?.gm,
-    start: state.start.open ? startScreen(state.start.draft, state.start.options, state.start.plan) : undefined,
+    start: state.start.open
+      ? startScreen(state.start.draft, state.start.options, state.start.plan, preferences.locale)
+      : undefined,
     created: state.start.created,
   };
 };
@@ -336,11 +338,13 @@ export const createDesktopClient = ({
   newActionId,
   startDraft = INITIAL_DRAFT,
   saveStart = () => {},
+  locale = () => DEFAULT_LOCALE,
 }: {
   readonly transport: Transport;
   readonly newActionId: () => string;
   readonly startDraft?: StartDraft | undefined;
   readonly saveStart?: ((draft: StartDraft) => void) | undefined;
+  readonly locale?: (() => string) | undefined;
 }) => {
   let state: DesktopState = { ...initialState, start: { open: startDraft.path !== null, draft: startDraft } };
   let resendOnSnapshot = false;
@@ -686,7 +690,7 @@ export const createDesktopClient = ({
       if (!resendOnSnapshot) send(action);
       return { ok: true, value: action };
     },
-    startScreen: () => startScreen(state.start.draft, state.start.options, state.start.plan),
+    startScreen: () => startScreen(state.start.draft, state.start.options, state.start.plan, locale()),
     openStart: () => {
       update({ start: { ...state.start, open: true, created: undefined } });
       requestOptions();
@@ -695,7 +699,7 @@ export const createDesktopClient = ({
     startAction: (action: StartAction) => {
       const { draft, plan } = state.start;
       if (action.kind === 'start') {
-        if (plan?.ok) send(createCommand(draft, DESKTOP_CLIENT));
+        if (plan?.ok) send(createCommand(draft, DESKTOP_CLIENT, locale()));
         return;
       }
       const next = nextDraft(draft, action);

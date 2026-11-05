@@ -526,7 +526,7 @@ test('rpg-42a.22 the play view has a home button and a settings menu holding mot
   );
   assert.match(
     html,
-    /<details data-settings><summary id="settings-toggle">Settings<\/summary><div><fieldset data-motion-control><legend>Motion<\/legend>[\s\S]*<\/fieldset><p data-voice-summary>Voice off · English · normal speed<\/p><p>[^<]*set mic to push-to-talk[^<]*<\/p><form data-gm-form>[\s\S]*<\/form><\/div><\/details>/,
+    /<details data-settings><summary id="settings-toggle">Settings<\/summary><div><fieldset data-language-control><legend>Language<\/legend>[\s\S]*<\/fieldset><fieldset data-motion-control><legend>Motion<\/legend>[\s\S]*<\/fieldset><p data-voice-summary>Voice off · English · normal speed<\/p><p>[^<]*set mic to push-to-talk[^<]*<\/p><form data-gm-form>[\s\S]*<\/form><\/div><\/details>/,
   );
   assert.doesNotMatch(html, /data-region="voice"|data-region="campaigns"|data-start-open/);
   assert.ok(html.indexOf('data-settings') < html.indexOf('data-columns'));
@@ -684,6 +684,17 @@ test('UI15: the motion control offers full, reduced and off and marks the curren
   assert.match(html, /<button type="button" data-motion="full" aria-pressed="false">Full<\/button>/);
   assert.match(html, /<button type="button" data-motion="reduced" aria-pressed="true">Reduced<\/button>/);
   assert.match(html, /<button type="button" data-motion="off" aria-pressed="false">Off<\/button>/);
+});
+
+test('rpg-42a.39 the language control names each locale in its own language and marks the current one', () => {
+  const html = renderView(viewModel(state, WIDE_WIDTH, { ...DEFAULT_PREFERENCES, locale: 'pt-BR' }), 'pt-BR');
+  assert.match(html, /<fieldset data-language-control><legend>Idioma<\/legend>/);
+  assert.match(html, /<button type="button" data-locale="en" lang="en" aria-pressed="false">English<\/button>/);
+  assert.match(html, /<button type="button" data-locale="es" lang="es" aria-pressed="false">Español<\/button>/);
+  assert.match(
+    html,
+    /<button type="button" data-locale="pt-BR" lang="pt-BR" aria-pressed="true">Português \(Brasil\)<\/button>/,
+  );
 });
 
 const sheetState = (sheetErrors: DesktopState['sheetErrors'] = {}): DesktopState => ({

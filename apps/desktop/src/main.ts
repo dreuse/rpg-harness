@@ -5,6 +5,7 @@ import {
   parseStartDraft,
   START_DRAFT_FILE,
 } from '../../../packages/client-protocol/src/guided-start.ts';
+import { localeOf } from '../../../packages/client-protocol/src/locale.ts';
 import { type ClientCommand, failure } from '../../../packages/client-protocol/src/protocol.ts';
 import {
   DAEMON_ENTRY,
@@ -14,7 +15,7 @@ import {
   type SpawnEngine,
   startDaemon as startEngine,
 } from '../../cli/src/desktop-daemon.ts';
-import { loadPreferences, parsePreferences } from './accessibility.ts';
+import { loadPreferences, parsePreferences, persistedPreferences, SUPPORTED_LOCALES } from './accessibility.ts';
 import { CHANNELS, PREFERENCES_QUERY, START_QUERY } from './preload.ts';
 import type { Transport } from './renderer.ts';
 import type { VoiceHost } from './voice-host.ts';
@@ -183,6 +184,7 @@ export const startMain = ({
   voice,
 }: MainOptions) => {
   const preferencesPath = join(dataDir, PREFERENCES_FILE);
+  const systemLocale = localeOf(env, SUPPORTED_LOCALES);
   const startPath = join(dataDir, START_DRAFT_FILE);
   const window = new BrowserWindow({
     width: WINDOW_WIDTH,
@@ -228,7 +230,7 @@ export const startMain = ({
     CHANNELS.preferences,
     fromWindow((input) => {
       const parsed = parsePreferences(input);
-      if (parsed.ok) save(preferencesPath, parsed.value);
+      if (parsed.ok) save(preferencesPath, persistedPreferences(parsed.value, systemLocale));
     }),
   );
   ipcMain.on(
@@ -255,7 +257,7 @@ export const startMain = ({
     handle(CHANNELS.voicePreview, (request) => voice.preview(request));
     handle(CHANNELS.voiceClear, () => voice.clearCache());
   }
-  const preferences = loadPreferences(() => fs.readFileSync(preferencesPath, TEXT));
+  const preferences = loadPreferences(() => fs.readFileSync(preferencesPath, TEXT), systemLocale);
   const url = new URL(page);
   url.searchParams.set(PREFERENCES_QUERY, JSON.stringify(preferences));
   url.searchParams.set(START_QUERY, JSON.stringify(loadStartDraft(() => fs.readFileSync(startPath, TEXT))));

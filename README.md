@@ -115,4 +115,5 @@ Optional:
 RPG_DATA_DIR=  # default: OS data folder + /rpg, created on first run
 XDG_DATA_HOME=
 APPDATA=
+RPG_LANG=  # default: LC_ALL, LC_MESSAGES, LANG, then the OS locale; en or pt-BR
 ```

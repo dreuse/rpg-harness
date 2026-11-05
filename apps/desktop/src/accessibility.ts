@@ -1,3 +1,9 @@
+import {
+  type Catalog,
+  createTranslator,
+  DEFAULT_LOCALE,
+  matchLocale,
+} from '../../../packages/client-protocol/src/locale.ts';
 import type { Result, ViewComponent } from '../../../packages/client-protocol/src/protocol.ts';
 import { failure } from '../../../packages/client-protocol/src/view-registry.ts';
 import { MOTION_SETTINGS, type MotionSetting } from '../../../packages/client-protocol/src/visualization.ts';
@@ -17,7 +23,7 @@ import { DEFAULT_SPEECH, isSpeechPreferences, type SpeechPreferences, withoutFla
 
 export const MIN_FONT_SCALE = 0.75;
 export const MAX_FONT_SCALE = 2;
-export const DEFAULT_LOCALE = 'en';
+export { DEFAULT_LOCALE };
 
 export type SavedVoice = VoicePreferences & { readonly consent: VoiceConsent };
 
@@ -83,8 +89,8 @@ const isSavedVoice = (value: unknown): value is SavedVoice =>
 
 const clamp = (value: number) => Math.min(MAX_FONT_SCALE, Math.max(MIN_FONT_SCALE, value));
 
-export const parsePreferences = (input: unknown): Result<UiPreferences> => {
-  if (input === undefined) return { ok: true, value: DEFAULT_PREFERENCES };
+export const parsePreferences = (input: unknown, defaults = DEFAULT_PREFERENCES): Result<UiPreferences> => {
+  if (input === undefined) return { ok: true, value: defaults };
   if (!isRecord(input)) return failure('MalformedCommand', 'preferences must be an object');
   const {
     fontScale,
@@ -94,9 +100,9 @@ export const parsePreferences = (input: unknown): Result<UiPreferences> => {
     keyboard,
     voice: savedVoice,
     speech: savedSpeech,
-  } = { ...DEFAULT_PREFERENCES, ...input };
+  } = { ...defaults, ...input };
   const speech = withoutFlatNpcVoices(savedSpeech);
-  const voice = isRecord(savedVoice) ? { ...DEFAULT_PREFERENCES.voice, ...savedVoice } : savedVoice;
+  const voice = isRecord(savedVoice) ? { ...defaults.voice, ...savedVoice } : savedVoice;
   if (typeof fontScale !== 'number' || !Number.isFinite(fontScale))
     return failure('MalformedCommand', 'fontScale must be a finite number');
   if (typeof locale !== 'string' || locale.length === 0) return failure('MalformedCommand', 'locale must be text');
@@ -111,7 +117,7 @@ export const parsePreferences = (input: unknown): Result<UiPreferences> => {
     ok: true,
     value: {
       fontScale: clamp(fontScale),
-      locale,
+      locale: matchLocale(locale, SUPPORTED_LOCALES, defaults.locale),
       reducedMotion,
       motion,
       keyboard,
@@ -126,14 +132,26 @@ export const parsePreferences = (input: unknown): Result<UiPreferences> => {
   };
 };
 
-export const loadPreferences = (read: () => string): UiPreferences => {
+export const persistedPreferences = ({ locale, ...rest }: UiPreferences, system: string) =>
+  locale === system ? rest : { ...rest, language: locale };
+
+const chosenLanguage = (stored: unknown) => {
+  if (!isRecord(stored)) return stored;
+  const { locale: _unchosen, language, ...rest } = stored;
+  return language === undefined ? rest : { ...rest, locale: language };
+};
+
+export const readPreferences = (read: () => unknown, defaults = DEFAULT_PREFERENCES): UiPreferences => {
   try {
-    const parsed = parsePreferences(JSON.parse(read()));
-    return parsed.ok ? parsed.value : DEFAULT_PREFERENCES;
+    const parsed = parsePreferences(read(), defaults);
+    return parsed.ok ? parsed.value : defaults;
   } catch {
-    return DEFAULT_PREFERENCES;
+    return defaults;
   }
 };
+
+export const loadPreferences = (read: () => string, locale = DEFAULT_LOCALE): UiPreferences =>
+  readPreferences(() => chosenLanguage(JSON.parse(read())), { ...DEFAULT_PREFERENCES, locale });
 
 export type RendererAction =
   | 'submit'
@@ -159,7 +177,7 @@ export const KEY_BINDINGS: Readonly<Record<string, RendererAction>> = {
 export const actionForKey = (key: string, { keyboard }: UiPreferences): RendererAction | undefined =>
   keyboard && Object.hasOwn(KEY_BINDINGS, key) ? KEY_BINDINGS[key] : undefined;
 
-const CATALOG: Readonly<Record<string, Readonly<Record<string, string>>>> = {
+export const CATALOG: Catalog = {
   en: {
     'status.connecting': 'Connecting',
     'status.connected': 'Connected',
@@ -328,9 +346,19 @@ const CATALOG: Readonly<Record<string, Readonly<Record<string, string>>>> = {
     'motion.reduced': 'Reduced',
     'motion.off': 'Off',
     'roll.modifier': 'modifier {value}',
+    'outcome.success': 'success',
+    'outcome.failure': 'failure',
+    'outcome.critical': 'critical',
+    'outcome.fumble': 'fumble',
+    'outcome.mixed': 'mixed',
+    'outcome.complication': 'complication',
     'roll.total': 'total {value}',
     'roll.skip': 'Skip animation',
     'roll.history': 'Recent rolls',
+    'language.label': 'Language',
+    'action.label': 'Your action',
+    'action.placeholder': 'What do you do?',
+    'action.send': 'Send',
   },
   es: {
     'status.connecting': 'Conectando',
@@ -452,20 +480,256 @@ const CATALOG: Readonly<Record<string, Readonly<Record<string, string>>>> = {
     'motion.reduced': 'Reducido',
     'motion.off': 'Desactivado',
     'roll.modifier': 'modificador {value}',
+    'voice.on': 'Activar la voz',
+    'voice.turnOff': 'Desactivar la voz',
+    'voice.mode': 'Salida hablada',
+    'voice.narrator': 'Voz del narrador',
+    'voice.preview': 'Escuchar',
+    'voice.previewLabel': 'Escuchar la voz de {name}',
+    'voice.language': 'Idioma',
+    'voice.speedLabel': 'Velocidad',
+    'voice.volume': 'Volumen',
+    'voice.advanced': 'Ajustes avanzados de voz',
+    'voice.provider': 'Proveedor de voz',
+    'voice.npcs': 'Voces de personajes',
+    'voice.npcName': 'Nombre del personaje',
+    'voice.npcVoice': 'Voz del personaje',
+    'voice.npcAdd': 'Añadir voz de personaje',
+    'voice.npcRemove': 'Quitar',
+    'voice.npcRemoveLabel': 'Quitar la voz de {name}',
+    'voice.models': 'Modelos de voz instalados',
+    'voice.noModels': 'No hay modelos de voz instalados.',
+    'voice.size': '{size} MiB',
+    'voice.remove': 'Quitar',
+    'voice.cache': 'Caché de audio: {size} KiB',
+    'voice.clear': 'Vaciar caché',
+    'voice.diagnostics': 'Diagnóstico de voz',
+    'voice.diagnostics.firstAudio': 'Tiempo hasta el primer audio',
+    'voice.diagnostics.cacheHits': 'Tasa de aciertos de caché',
+    'voice.diagnostics.errors': 'Errores',
+    'voice.diagnostics.none': 'ninguno',
+    'voice.diagnostics.ms': '{value} ms',
+    'voice.diagnostics.percent': '{value} %',
+    'voice.stage.synthesis': 'Síntesis de voz',
+    'voice.stage.transfer': 'Transferencia',
+    'voice.stage.decode': 'Decodificación',
+    'voice.setup': 'Configuración de voz',
+    'region.voice-setup': 'Configuración de voz',
+    'voice.setup.checking': 'Buscando voces en este equipo…',
+    'voice.setup.consent':
+      '¿Usar la voz {provider} en este equipo? Necesita una descarga única de {size} MiB desde {source}.',
+    'voice.setup.accept': 'Descargar y continuar',
+    'voice.setup.decline': 'Ahora no',
+    'voice.setup.downloading': 'Descargando el modelo de voz',
+    'voice.setup.progress': '{done} de {total} MiB',
+    'voice.setup.previewing': 'Reproduciendo al narrador…',
+    'voice.setup.ready': 'La voz está activada. Escuchaste al narrador.',
+    'voice.setup.again': 'Reproducir de nuevo',
+    'voice.setup.done': 'Listo',
+    'voice.setup.unavailable': 'Todavía ninguna voz habla este idioma en este equipo. La historia sigue en texto.',
+    'voice.setup.failed': 'La voz no pudo iniciarse ({reason}). La historia sigue en texto.',
+    'voice.setup.retry': 'Intentar de nuevo',
+    'outcome.success': 'éxito',
+    'outcome.failure': 'fallo',
+    'outcome.critical': 'crítico',
+    'outcome.fumble': 'pifia',
+    'outcome.mixed': 'mixto',
+    'outcome.complication': 'complicación',
     'roll.total': 'total {value}',
     'roll.skip': 'Saltar animación',
     'roll.history': 'Tiradas recientes',
+    'language.label': 'Idioma',
+    'action.label': 'Tu acción',
+    'action.placeholder': '¿Qué haces?',
+    'action.send': 'Enviar',
+  },
+  'pt-BR': {
+    'status.connecting': 'Conectando',
+    'status.connected': 'Conectado',
+    'status.disconnected': 'Sem conexão',
+    'status.reconnecting': 'Reconectando (tentativa {attempts})',
+    'diagnostics.summary': 'Detalhes da conexão',
+    'diagnostics.pid': 'Processo do motor',
+    'diagnostics.gm': 'Provedor do mestre',
+    'diagnostics.error': 'Último erro',
+    'diagnostics.attempts': 'Tentativas de reconexão',
+    'gm.claude-code': 'Claude Code neste computador',
+    'gm.api': 'Claude com a sua chave de API',
+    'gm.fake': 'Narrador embutido. Instale o Claude Code ou defina ANTHROPIC_API_KEY para jogar com um mestre de IA.',
+    'app.name': 'RPG Harness',
+    'nav.home': 'Início',
+    'nav.homeLabel': 'Voltar ao início',
+    'settings.label': 'Configurações',
+    'gmModel.legend': 'Modelo do mestre nesta campanha',
+    'gmModel.defaultsLegend': 'Modelo padrão do mestre no app',
+    'gmModel.saveDefaults': 'Salvar padrão do app',
+    'gmModel.model': 'Modelo',
+    'gmModel.summaryModel': 'Modelo de resumo',
+    'gmModel.sessionBudgetTokens': 'Limite de tokens por sessão',
+    'gmModel.save': 'Salvar configurações do mestre',
+    'gmModel.help': 'Deixe um campo vazio para usar o padrão do app. O limite só avisa; o jogo nunca para.',
+    'gmModel.hint.default': 'o modelo de sempre da sua rota de mestre',
+    'gmModel.hint.cheap': 'mais barato e mais rápido',
+    'gmModel.hint.balanced': 'equilíbrio entre custo e detalhe',
+    'gmModel.hint.rich': 'narração mais rica, custa mais',
+    'gmModel.hint.custom': 'um id de modelo enviado como está',
+    'nav.panes': 'Painéis',
+    'speaker.player': 'Você',
+    'speaker.gm': 'Narrador',
+    'empty.campaigns': 'Você ainda não tem aventuras. Comece uma nova para jogar.',
+    'empty.conversation': 'Sua história começa aqui. Escreva o que seu personagem faz e clique em Enviar.',
+    'empty.sheet': 'Ainda não há ficha de personagem.',
+    'sheet.noStats': 'Nenhum atributo registrado ainda.',
+    'sheet.save': 'Salvar',
+    'sheet.edit': 'Editar ficha',
+    'sheet.cancel': 'Cancelar',
+    'sheet.number': 'Digite um número.',
+    'sheet.min': 'Digite {min} ou mais.',
+    'sheet.max': 'Digite {max} ou menos.',
+    'sheet.group.core': 'Básico',
+    'sheet.group.custom': 'Personalizado',
+    'sheet.group.computed': 'Calculado',
+    'empty.panels': 'Seu diário ainda está vazio.',
+    'label.yes': 'sim',
+    'label.no': 'não',
+    'label.noValue': 'sem valor',
+    'label.progressOf': 'de',
+    'region.campaigns': 'Suas aventuras',
+    'region.conversation': 'Conversa',
+    'region.sheet': 'Ficha do personagem',
+    'region.panels': 'Diário',
+    'region.rejected': 'Ações recusadas',
+    'action.retry': 'Reconectar',
+    'label.pending': 'aguardando',
+    'label.no-reply': 'Nenhuma resposta foi registrada neste turno.',
+    'region.voice': 'Voz',
+    'voice.off': 'Voz desligada',
+    'voice.microphone.off': 'Microfone desligado',
+    'voice.microphone.push-to-talk': 'Aperte para falar',
+    'voice.microphone.hands-free': 'Microfone em modo mãos livres',
+    'voice.output.off': 'Leitura em voz alta desligada',
+    'voice.output.narrator': 'O narrador lê em voz alta',
+    'voice.output.dialogue': 'Diálogos em voz alta',
+    'voice.output.full': 'Tudo em voz alta',
+    'voice.output.cinematic': 'Tudo em voz alta, com interpretação',
+    'voice.speed.normal': 'velocidade normal',
+    'voice.speed': 'velocidade {speed}×',
+    'voice.hint':
+      "Digite 'set mic to push-to-talk', 'set output to narrator', 'set output to cinematic' ou 'set speed to 1.5' para mudar a voz.",
+    'voice.fallback': 'Áudio indisponível ({reason}). Continue digitando.',
+    'voice.rejected': 'As configurações de voz não mudaram: {codes}',
+    'voice.consent': 'Permitir o uso do microfone nesta campanha?',
+    'voice.allow': 'Permitir microfone',
+    'voice.decline': 'Continuar digitando',
+    'region.start': 'Nova aventura',
+    'start.open': 'Nova aventura',
+    'start.first': 'Comece sua primeira aventura',
+    'start.created': 'Campanha {name} criada.',
+    'start.step': 'Passo {current} de {total}: {title}',
+    'start.chosen': 'Escolhido',
+    'start.default': 'Padrão',
+    'start.edit': 'Editar',
+    'start.editLabel': 'Editar {label}',
+    'start.back': 'Voltar',
+    'start.skip': 'Pular',
+    'start.next': 'Avançar',
+    'start.start': 'Começar',
+    'start.close': 'Fechar',
+    'home.search': 'Buscar aventuras',
+    'home.noMatch': 'Nenhuma aventura corresponde à sua busca.',
+    'home.continue': 'Continuar',
+    'home.continueLabel': 'Continuar {name}',
+    'home.archive': 'Arquivar',
+    'home.archiveLabel': 'Arquivar {name}',
+    'home.delete': 'Excluir',
+    'home.deleteLabel': 'Excluir {name}',
+    'home.unarchive': 'Restaurar',
+    'home.unarchiveLabel': 'Restaurar {name}',
+    'home.more': 'Mais',
+    'home.moreLabel': 'Mais ações para {name}',
+    'home.cancel': 'Cancelar',
+    'home.undo': 'Desfazer',
+    'home.ask.archive': 'Arquivar {name}? Dá para desfazer depois.',
+    'home.ask.delete': 'Excluir {name} de vez? Não dá para desfazer.',
+    'home.archivedNotice': 'Aventura {name} arquivada.',
+    'home.archived': 'Aventuras arquivadas ({count})',
+    'home.problem.needs-migration': 'Este jogo salvo precisa de uma versão mais nova do app.',
+    'home.problem.unreadable': 'Não foi possível ler este jogo salvo.',
+    'home.restoreHint': 'Restaure a partir de um backup com rpg restore <arquivo>.',
+    'region.rolls': 'Dados',
+    'motion.label': 'Animações',
+    'motion.full': 'Completas',
+    'motion.reduced': 'Reduzidas',
+    'motion.off': 'Desligadas',
+    'roll.modifier': 'modificador {value}',
+    'voice.on': 'Ativar voz',
+    'voice.turnOff': 'Desativar voz',
+    'voice.mode': 'Saída falada',
+    'voice.narrator': 'Voz do narrador',
+    'voice.preview': 'Ouvir',
+    'voice.previewLabel': 'Ouvir a voz de {name}',
+    'voice.language': 'Idioma',
+    'voice.speedLabel': 'Velocidade',
+    'voice.volume': 'Volume',
+    'voice.advanced': 'Configurações avançadas de voz',
+    'voice.provider': 'Provedor de voz',
+    'voice.npcs': 'Vozes dos personagens',
+    'voice.npcName': 'Nome do personagem',
+    'voice.npcVoice': 'Voz do personagem',
+    'voice.npcAdd': 'Adicionar voz de personagem',
+    'voice.npcRemove': 'Remover',
+    'voice.npcRemoveLabel': 'Remover a voz de {name}',
+    'voice.models': 'Modelos de voz instalados',
+    'voice.noModels': 'Nenhum modelo de voz instalado.',
+    'voice.size': '{size} MiB',
+    'voice.remove': 'Remover',
+    'voice.cache': 'Cache de áudio: {size} KiB',
+    'voice.clear': 'Limpar cache',
+    'voice.diagnostics': 'Diagnóstico de voz',
+    'voice.diagnostics.firstAudio': 'Tempo até o primeiro áudio',
+    'voice.diagnostics.cacheHits': 'Taxa de acertos do cache',
+    'voice.diagnostics.errors': 'Erros',
+    'voice.diagnostics.none': 'nenhum',
+    'voice.diagnostics.ms': '{value} ms',
+    'voice.diagnostics.percent': '{value}%',
+    'voice.stage.synthesis': 'Síntese de voz',
+    'voice.stage.transfer': 'Transferência',
+    'voice.stage.decode': 'Decodificação',
+    'voice.setup': 'Configuração de voz',
+    'region.voice-setup': 'Configuração de voz',
+    'voice.setup.checking': 'Procurando vozes neste computador…',
+    'voice.setup.consent':
+      'Usar a voz {provider} neste computador? Ela precisa de um download único de {size} MiB de {source}.',
+    'voice.setup.accept': 'Baixar e continuar',
+    'voice.setup.decline': 'Agora não',
+    'voice.setup.downloading': 'Baixando o modelo de voz',
+    'voice.setup.progress': '{done} de {total} MiB',
+    'voice.setup.previewing': 'Tocando o narrador…',
+    'voice.setup.ready': 'A voz está ativada. Você ouviu o narrador.',
+    'voice.setup.again': 'Tocar de novo',
+    'voice.setup.done': 'Concluir',
+    'voice.setup.unavailable': 'Nenhuma voz fala este idioma neste computador ainda. A história continua em texto.',
+    'voice.setup.failed': 'A voz não pôde começar ({reason}). A história continua em texto.',
+    'voice.setup.retry': 'Tentar de novo',
+    'outcome.success': 'sucesso',
+    'outcome.failure': 'falha',
+    'outcome.critical': 'crítico',
+    'outcome.fumble': 'desastre',
+    'outcome.mixed': 'misto',
+    'outcome.complication': 'complicação',
+    'roll.total': 'total {value}',
+    'roll.skip': 'Pular animação',
+    'roll.history': 'Rolagens recentes',
+    'language.label': 'Idioma',
+    'action.label': 'Sua ação',
+    'action.placeholder': 'O que você faz?',
+    'action.send': 'Enviar',
   },
 };
 
 export const SUPPORTED_LOCALES: readonly string[] = Object.keys(CATALOG);
 
-const PLACEHOLDER = /\{(\w+)\}/g;
-
-export const translate = (locale: string, key: string, params: Readonly<Record<string, unknown>> = {}): string =>
-  (CATALOG[locale]?.[key] ?? CATALOG[DEFAULT_LOCALE]?.[key] ?? key).replace(PLACEHOLDER, (placeholder, name) =>
-    Object.hasOwn(params, name) ? String(params[name]) : placeholder,
-  );
+export const translate = createTranslator(CATALOG);
 
 const VOICE_FIELD_SEPARATOR = ' · ';
 
@@ -475,6 +739,11 @@ const languageName = (locale: string, language: string) => {
   } catch {
     return language;
   }
+};
+
+export const endonym = (locale: string) => {
+  const name = languageName(locale, locale);
+  return `${name.charAt(0).toLocaleUpperCase(locale)}${name.slice(1)}`;
 };
 
 export const voiceLabel = (locale: string, { microphone, spokenOutput, locale: language, speed }: VoicePreferences) =>

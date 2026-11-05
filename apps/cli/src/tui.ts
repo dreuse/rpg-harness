@@ -13,12 +13,13 @@ import {
 import { SHEET_VIEW } from '../../../packages/client-protocol/src/view-registry.ts';
 import {
   type MechanicReveal,
-  outcomeLabel,
+  outcomeText,
   tumbleFaces,
   VISUALIZATION_EVENT,
   type VisualizationEvent,
 } from '../../../packages/client-protocol/src/visualization.ts';
 import { type CampaignId, OPENING_ACTION_ID } from '../../../packages/domain/src/campaign.ts';
+import { DEFAULT_LOCALE, safeLocale, say } from './messages.ts';
 import { type ColorDepth, colorDepthOf, FRAME_COLUMNS, frame, paint, supportsUnicode } from './theme.ts';
 import { printable } from './views.ts';
 
@@ -37,6 +38,7 @@ export type TuiData = {
   readonly mechanics: readonly VisualizationEvent[];
   readonly audio?: string;
   readonly changed?: readonly string[];
+  readonly locale?: string;
 };
 
 export type TuiState = {
@@ -63,20 +65,21 @@ export type Terminal = {
   readonly schedule?: (run: () => void, ms: number) => void;
   readonly lines: AsyncIterable<string>;
   readonly write: (text: string) => void;
+  readonly locale?: string;
 };
 
 type Stream = { readonly isTTY?: boolean; readonly columns?: number; readonly rows?: number };
 type PaneId = 'conversation' | 'sheet' | 'log' | 'mechanics';
 
-type Pane = { readonly id: PaneId; readonly key: string; readonly label: string };
+type Pane = { readonly id: PaneId; readonly key: string };
 type Shown = { readonly title: string; readonly rows: readonly string[]; readonly follow: boolean };
 
-const CONVERSATION: Pane = { id: 'conversation', key: '1', label: 'Conversation' };
+const CONVERSATION: Pane = { id: 'conversation', key: '1' };
 const PANES: readonly Pane[] = [
   CONVERSATION,
-  { id: 'sheet', key: '2', label: 'Sheet' },
-  { id: 'log', key: '3', label: 'Event log' },
-  { id: 'mechanics', key: '4', label: 'Mechanics' },
+  { id: 'sheet', key: '2' },
+  { id: 'log', key: '3' },
+  { id: 'mechanics', key: '4' },
 ];
 
 export const DEFAULT_WIDTH = 80;
@@ -108,40 +111,36 @@ const SPACE = ' ';
 const PROMPT = '> ';
 const NEWLINE = '\n';
 const CLEAR_SCREEN = '\x1b[2J\x1b[H';
-const HELP_LABEL = 'Help';
-const HELP_TITLE = `${HELP_LABEL}:`;
-const STATUS_HINT = 'Tab next pane, 1-4 pick pane, i type, ? help, q quit';
 const STATUS_SEPARATOR = ' | ';
-const AUDIO_HELP =
-  "Type 'set mic to push-to-talk', 'set output to narrator', 'set output to cinematic' or 'set speed to 1.5' to change voice.";
-const NO_SCENE = 'No scene to act in yet.';
 const EDIT_PATTERN = /^\/edit\s+(\S+)\s+(.+)$/i;
-const FLAG_WORDS: Readonly<Record<string, boolean>> = { yes: true, true: true, no: false, false: false };
-const NEEDS_FLAG = 'yes or no';
-const NEEDS_NUMBER = 'a number';
-const NO_REPLY = 'No reply was recorded for this turn.';
-const EMPTY: Readonly<Record<PaneId, string>> = {
-  conversation: 'No conversation yet.',
-  sheet: 'No sheet yet.',
-  log: 'No events yet.',
-  mechanics: 'No mechanics yet.',
+const FLAG_WORDS: Readonly<Record<string, boolean>> = {
+  yes: true,
+  true: true,
+  sim: true,
+  no: false,
+  false: false,
+  não: false,
+  nao: false,
 };
-const HELP_LINES = [
-  'Tab - Next pane. Shift+Tab - Previous pane.',
-  ...PANES.map(({ key, label }) => `${key} - Show ${label}.`),
-  `${TYPE_KEY} or Enter - Type an action. Enter sends it, Esc cancels.`,
-  '/edit <field> <value> - Change a sheet field.',
-  `${HELP_KEY} - Show or hide this help.`,
-  `${QUIT_KEY} - Quit.`,
-];
 
-const GM_SETTINGS_HELP = 'Run rpg settings <campaign> to change the GM model or the session budget.';
+const localeOf = (data: TuiData) => data.locale ?? DEFAULT_LOCALE;
+const labelOf = (locale: string, { id }: Pane) => say(locale, `pane.${id}`);
+const helpLabel = (locale: string) => say(locale, 'tui.help');
 
-const helpLines = ({ audio, snapshot: { gm } }: TuiData) => [
-  ...HELP_LINES,
-  ...(audio === undefined ? [] : [AUDIO_HELP]),
-  ...(gm === undefined ? [] : [...gmUsageLines(gm), GM_SETTINGS_HELP]),
-];
+const helpLines = (data: TuiData) => {
+  const locale = localeOf(data);
+  const { gm } = data.snapshot;
+  return [
+    say(locale, 'help.tab'),
+    ...PANES.map((pane) => say(locale, 'help.pane', { key: pane.key, label: labelOf(locale, pane) })),
+    say(locale, 'help.type', { key: TYPE_KEY }),
+    say(locale, 'help.edit'),
+    say(locale, 'help.toggle', { key: HELP_KEY }),
+    say(locale, 'help.quit', { key: QUIT_KEY }),
+    ...(data.audio === undefined ? [] : [say(locale, 'tui.audioHelp')]),
+    ...(gm === undefined ? [] : [...gmUsageLines(gm), say(locale, 'tui.gmSettings')]),
+  ];
+};
 
 const onceOverBudget = (data: () => TuiData) => {
   let warned = false;
@@ -151,7 +150,10 @@ const onceOverBudget = (data: () => TuiData) => {
     return warning;
   };
 };
-const hint = ({ audio }: TuiData) => (audio === undefined ? STATUS_HINT : `${STATUS_HINT}${STATUS_SEPARATOR}${audio}`);
+const hint = (data: TuiData) => {
+  const status = say(localeOf(data), 'tui.hint');
+  return data.audio === undefined ? status : `${status}${STATUS_SEPARATOR}${data.audio}`;
+};
 
 export const PLAIN_TERMINAL: Capabilities = {
   width: DEFAULT_WIDTH,
@@ -227,14 +229,22 @@ const wrap = (texts: readonly string[], width: number) =>
   texts.flatMap((text) => text.split(NEWLINE)).flatMap((line) => wrapLine(printable(line), width));
 
 const reveal = (shown: MechanicReveal) => (shown.kind === 'die' ? `d${shown.sides} -> ${shown.face}` : shown.label);
-const signed = (value: number) => (value < 0 ? String(value) : `+${value}`);
+const SIGNED = { signDisplay: 'always' } as const;
 
-const indicator = ({ mechanic, frames, final }: VisualizationEvent) =>
+const indicator = ({ mechanic, frames, final }: VisualizationEvent, locale = DEFAULT_LOCALE) =>
   [
     `${mechanic}: ${frames.map((frame) => reveal(frame.reveal)).join(', ')}`,
-    ...(final.modifier === undefined ? [] : [`modifier ${signed(final.modifier)}`]),
-    ...(final.total === undefined ? [] : [`total ${final.total}`]),
-    ...(final.outcome === undefined ? [] : [`outcome ${outcomeLabel(final.outcome)}`]),
+    ...(final.modifier === undefined
+      ? []
+      : [
+          say(locale, 'dice.modifier', {
+            value: new Intl.NumberFormat(safeLocale(locale), SIGNED).format(final.modifier),
+          }),
+        ]),
+    ...(final.total === undefined ? [] : [say(locale, 'dice.total', { value: final.total })]),
+    ...(final.outcome === undefined
+      ? []
+      : [say(locale, 'dice.outcome', { value: outcomeText(say, locale, final.outcome) })]),
   ].join('; ');
 
 const spinning = ({ mechanic, frames }: VisualizationEvent, step: number, tumbles: readonly number[][]) =>
@@ -244,9 +254,9 @@ const spinning = ({ mechanic, frames }: VisualizationEvent, step: number, tumble
     )
     .join(', ')}`;
 
-export const rollFrames = (event: VisualizationEvent, steps: number): string[] => {
+export const rollFrames = (event: VisualizationEvent, steps: number, locale = DEFAULT_LOCALE): string[] => {
   const tumbles = event.frames.map(({ reveal: shown }) => (shown.kind === 'die' ? tumbleFaces(shown, steps) : []));
-  return [...Array.from({ length: steps - 1 }, (_, step) => spinning(event, step, tumbles)), indicator(event)];
+  return [...Array.from({ length: steps - 1 }, (_, step) => spinning(event, step, tumbles)), indicator(event, locale)];
 };
 
 const sheetRow = ({ label, value }: ViewComponent) => (value === undefined ? label : `${label}: ${String(value)}`);
@@ -260,34 +270,39 @@ const sheetRows = (sheet: readonly ViewComponent[]) =>
     return [...heading, sheetRow(component)];
   });
 
-const conversation = ({ currentScene, characters, turns }: CampaignSnapshot) => {
+const conversation = ({ currentScene, characters, turns }: CampaignSnapshot, locale: string) => {
   const names = new Map(characters.map(({ id, name }) => [id, name]));
   const rows = turns.flatMap(({ actionId, actorId, input, narration }) => [
     ...(input.trim() === '' || actionId === OPENING_ACTION_ID ? [] : [`${names.get(actorId) ?? actorId}: ${input}`]),
-    narration.trim() === '' ? NO_REPLY : narration,
+    narration.trim() === '' ? say(locale, 'tui.noReply') : narration,
   ]);
-  return rows.length === 0 || currentScene === undefined ? rows : [`Scene: ${currentScene.title}`, ...rows];
+  return rows.length === 0 || currentScene === undefined
+    ? rows
+    : [say(locale, 'tui.scene', { title: currentScene.title }), ...rows];
 };
 
 const PANE_ROWS: Readonly<Record<PaneId, (data: TuiData) => readonly string[]>> = {
-  conversation: ({ snapshot }) => conversation(snapshot),
-  sheet: ({ snapshot, sheet }) => [...snapshot.characters.map(({ name }) => `Character: ${name}`), ...sheetRows(sheet)],
+  conversation: (data) => conversation(data.snapshot, localeOf(data)),
+  sheet: (data) => [
+    ...data.snapshot.characters.map(({ name }) => say(localeOf(data), 'tui.character', { name })),
+    ...sheetRows(data.sheet),
+  ],
   log: ({ events }) =>
     events.flatMap((event) => (event.type === EVENT_COMMITTED ? [`#${event.revision} ${event.event.type}`] : [])),
-  mechanics: ({ mechanics }) => mechanics.map(indicator),
+  mechanics: (data) => data.mechanics.map((event) => indicator(event, localeOf(data))),
 };
 
 const paneRows = (id: PaneId, data: TuiData) => {
   const rows = PANE_ROWS[id](data);
-  return rows.length === 0 ? [EMPTY[id]] : rows;
+  return rows.length === 0 ? [say(localeOf(data), `empty.${id}`)] : rows;
 };
 
 const paneAt = (index: number) => PANES[index] ?? CONVERSATION;
 
-const shown = ({ id, label }: Pane, data: TuiData): Shown => ({
-  title: label,
-  rows: paneRows(id, data),
-  follow: FOLLOWS_LATEST.has(id),
+const shown = (pane: Pane, data: TuiData): Shown => ({
+  title: labelOf(localeOf(data), pane),
+  rows: paneRows(pane.id, data),
+  follow: FOLLOWS_LATEST.has(pane.id),
 });
 
 const fit = (rows: readonly string[], height: number, follow: boolean) => {
@@ -297,7 +312,7 @@ const fit = (rows: readonly string[], height: number, follow: boolean) => {
 
 const columnsFor = (state: TuiState, data: TuiData, width: number) => {
   const focused = paneAt(state.pane);
-  const help: Shown = { title: HELP_LABEL, rows: helpLines(data), follow: false };
+  const help: Shown = { title: helpLabel(localeOf(data)), rows: helpLines(data), follow: false };
   if (width < SPLIT_MIN_WIDTH) return [{ pane: state.help ? help : shown(focused, data), width, focused: true }];
   const left = Math.round(width * SPLIT_SHARE);
   const partner = focused.id === CONVERSATION.id ? (PANES.find(({ id }) => id === SPLIT_PARTNER) ?? focused) : focused;
@@ -310,9 +325,10 @@ const columnsFor = (state: TuiState, data: TuiData, width: number) => {
 
 export const renderScreen = (state: TuiState, data: TuiData, capabilities: Capabilities): string[] => {
   const { width, height, colors } = capabilities;
+  const locale = localeOf(data);
   const focused = paneAt(state.pane);
-  const focusedTab = `[${focused.key} ${focused.label}]`;
-  const tabs = PANES.map(({ key, label }) => (key === focused.key ? focusedTab : `${key} ${label}`));
+  const focusedTab = `[${focused.key} ${labelOf(locale, focused)}]`;
+  const tabs = PANES.map((pane) => (pane.key === focused.key ? focusedTab : `${pane.key} ${labelOf(locale, pane)}`));
   const tabRows = wrap([tabs.join(SPACE)], width).map((row) =>
     row.replace(focusedTab, paint(colors, 'accent', focusedTab)),
   );
@@ -345,7 +361,7 @@ const section = (title: string, rows: readonly string[], { width, colors }: Capa
 };
 
 export const renderLinear = (data: TuiData, capabilities: Capabilities): string[] => [
-  ...PANES.flatMap(({ id, label }) => section(`${label}:`, paneRows(id, data), capabilities)),
+  ...PANES.flatMap((pane) => section(`${labelOf(localeOf(data), pane)}:`, paneRows(pane.id, data), capabilities)),
   ...(data.audio === undefined ? [] : wrap([data.audio], capabilities.width)),
 ];
 
@@ -356,6 +372,7 @@ const read = (
   campaignId: CampaignId,
   events: readonly ClientEvent[],
   audio: TuiAudio | undefined,
+  locale: string,
 ): TuiData => {
   const snapshot = session.getSnapshot({ version: PROTOCOL_VERSION, type: 'GetCampaignSnapshot', campaignId });
   if (!snapshot.ok) throw new Error(snapshot.error.message);
@@ -366,13 +383,15 @@ const read = (
     sheet: sheet.value.components,
     events,
     mechanics: events.filter(isMechanic),
+    locale,
     ...(audio === undefined ? {} : { audio: audio.status() }),
   };
 };
 
-const submit = (session: ClientSession, { snapshot }: TuiData, input: string): string | undefined => {
+const submit = (session: ClientSession, data: TuiData, input: string): string | undefined => {
+  const { snapshot } = data;
   const [actor] = snapshot.characters;
-  if (actor === undefined || snapshot.currentScene === undefined) return NO_SCENE;
+  if (actor === undefined || snapshot.currentScene === undefined) return say(localeOf(data), 'tui.noScene');
   const accepted = session.submitPlayerAction({
     version: PROTOCOL_VERSION,
     type: 'SubmitPlayerAction',
@@ -396,14 +415,19 @@ const editValue = (current: ViewValue | undefined, text: string) => {
 const named = (name: string) => (component: ViewComponent) =>
   [component.id, component.label].some((known) => known.toLowerCase() === name.toLowerCase());
 
-const editField = (session: ClientSession, { snapshot, sheet }: TuiData, name: string, text: string) => {
+const editField = (session: ClientSession, data: TuiData, name: string, text: string) => {
+  const { snapshot, sheet } = data;
+  const locale = localeOf(data);
   const [actor] = snapshot.characters;
   const field = sheet.find(named(name));
-  if (field === undefined || actor === undefined) return `No sheet field ${name}.`;
-  if (field.editable !== true) return `${field.label} cannot be edited.`;
+  if (field === undefined || actor === undefined) return say(locale, 'edit.unknown', { name });
+  if (field.editable !== true) return say(locale, 'edit.locked', { label: field.label });
   const value = editValue(field.value, text);
   if (value === undefined)
-    return `${field.label} needs ${typeof field.value === 'boolean' ? NEEDS_FLAG : NEEDS_NUMBER}.`;
+    return say(locale, 'edit.needs', {
+      label: field.label,
+      kind: say(locale, typeof field.value === 'boolean' ? 'edit.flag' : 'edit.number'),
+    });
   const accepted = session.editSheetField({
     version: PROTOCOL_VERSION,
     type: 'EditSheetField',
@@ -472,8 +496,8 @@ const interactive = async (
       : [];
     shownSheet = valuesOf(current.sheet);
     if (latest !== undefined && state.notice === undefined) {
-      if (motion) play(rollFrames(latest, ROLL_STEPS), generation);
-      else state = { ...state, notice: indicator(latest) };
+      if (motion) play(rollFrames(latest, ROLL_STEPS, localeOf(current)), generation);
+      else state = { ...state, notice: indicator(latest, localeOf(current)) };
     }
     if (changed.length > 0) schedule(settle, HIGHLIGHT_MS);
     paint();
@@ -490,7 +514,10 @@ const linear = async (
   const { capabilities } = terminal;
   const { width } = capabilities;
   const print = (rows: readonly string[]) => terminal.write(`${rows.join(NEWLINE)}${NEWLINE}`);
-  const show = ({ id, label }: Pane) => print(section(`${label}:`, paneRows(id, data()), capabilities));
+  const show = (pane: Pane) => {
+    const current = data();
+    print(section(`${labelOf(localeOf(current), pane)}:`, paneRows(pane.id, current), capabilities));
+  };
   const budget = onceOverBudget(data);
   print(renderLinear(data(), terminal.capabilities));
   if (notice !== undefined) print(wrap([notice], width));
@@ -499,8 +526,10 @@ const linear = async (
     const pane = PANES.find(({ key }) => key === text);
     if (text === QUIT_KEY) return;
     if (text === '') continue;
-    if (text === HELP_KEY) print(section(HELP_TITLE, helpLines(data()), capabilities));
-    else if (pane !== undefined) show(pane);
+    if (text === HELP_KEY) {
+      const current = data();
+      print(section(`${helpLabel(localeOf(current))}:`, helpLines(current), capabilities));
+    } else if (pane !== undefined) show(pane);
     else {
       const notice = act(text);
       await narrate();
@@ -525,7 +554,7 @@ export const runTui = async (
     (event) => events.push(event),
   );
   const audio = terminal.audio?.(session, campaignId);
-  const data = () => read(session, campaignId, events, audio);
+  const data = () => read(session, campaignId, events, audio, terminal.locale ?? DEFAULT_LOCALE);
   const send: Act = (input) => {
     const [, name, text] = EDIT_PATTERN.exec(input) ?? [];
     return name === undefined || text === undefined

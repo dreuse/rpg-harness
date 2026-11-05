@@ -22,6 +22,7 @@ const UNINSTALLED_INTENT = 'Play D&D 1.9 in a noir mystery';
 const GUIDED_NAME = 'Ashfall';
 const PLAYER_ACTION = 'I look around';
 const IGNORE = () => {};
+const PORTUGUESE = 'pt-BR';
 const DESCRIBE: readonly StartAction[] = [
   { kind: 'path', path: 'describe' },
   { kind: 'enter', text: HORROR_INTENT },
@@ -48,7 +49,7 @@ const envFor = (dataDir: string, campaign?: string) => {
   return campaign === undefined ? env : { ...env, [CAMPAIGN_ENV]: campaign };
 };
 
-const openDesktop = async (t: TestContext, env: NodeJS.ProcessEnv, startDraft?: StartDraft) => {
+const openDesktop = async (t: TestContext, env: NodeJS.ProcessEnv, startDraft?: StartDraft, locale?: string) => {
   const daemon = startDaemon({ env });
   t.after(() => daemon.stop());
   const inflight = new Set<Promise<unknown>>();
@@ -69,6 +70,7 @@ const openDesktop = async (t: TestContext, env: NodeJS.ProcessEnv, startDraft?: 
     newActionId: () => `desktop-${next++}`,
     startDraft,
     saveStart: (draft) => saved.push(draft),
+    ...(locale === undefined ? {} : { locale: () => locale }),
   });
   const settled = async () => {
     while (inflight.size > 0) await Promise.all(inflight);
@@ -152,4 +154,16 @@ test('rpg-42a.14 desktop reopening restores the saved wizard step', async (t) =>
   assert.equal(reopened.client.startScreen()?.step, 'rules');
   assert.ok((reopened.client.startScreen()?.options.length ?? 0) > 0);
   assert.ok(!existsSync(join(dataDir, `${DEFAULT_ADVENTURE_NAME}.sqlite`)));
+});
+
+test('rpg-42a.39 desktop guided start follows the player language and names the adventure in it', async (t) => {
+  const dataDir = tempDataDir(t);
+  const desktop = await openDesktop(t, envFor(dataDir), undefined, PORTUGUESE);
+  desktop.client.openStart();
+  await desktop.settled();
+  assert.equal(desktop.client.startScreen()?.title, 'Nova aventura');
+  const summary = await desktop.act(DESCRIBE);
+  assert.ok(summary?.text.includes('Gênero: horror (escolhido)'));
+  await desktop.act([{ kind: 'start' }]);
+  assert.ok(desktop.client.state().campaigns.some(({ name }) => name === 'Minha aventura'));
 });

@@ -2,7 +2,7 @@ import type { CampaignSnapshot } from '../../../packages/client-protocol/src/pro
 import { MOTION_SETTINGS } from '../../../packages/client-protocol/src/visualization.ts';
 import { createMicrophoneController } from '../../../packages/voice/src/microphone.ts';
 import { createSubtitleTranscript } from '../../../packages/voice/src/subtitles.ts';
-import { type RendererAction, SUPPORTED_LOCALES } from './accessibility.ts';
+import { type RendererAction, SUPPORTED_LOCALES, translate } from './accessibility.ts';
 import { SETTLE_MS } from './dice.ts';
 import { BRIDGE_KEY, type Bridge } from './preload.ts';
 import { createDesktopClient, type DesktopState, REGIONS, type Region, type Transport, viewModel } from './renderer.ts';
@@ -20,6 +20,7 @@ import {
   KEEP_DEFAULT,
   type KeyEventLike,
   type KeyTarget,
+  LOCALE_ATTRIBUTE,
   NAV_ATTRIBUTE,
   PANE_ATTRIBUTE,
   queryPreferences,
@@ -143,6 +144,7 @@ export type PageOptions = {
   readonly schedule?: (run: () => void, ms: number) => void;
   readonly prefersReducedMotion?: () => boolean;
   readonly audio?: AudioOut;
+  readonly localize?: (locale: string) => void;
 };
 
 const systemReducedMotion = () => globalThis.matchMedia?.(REDUCED_MOTION_QUERY).matches === true;
@@ -173,6 +175,7 @@ export const mountPage = ({
   schedule = setTimeout,
   prefersReducedMotion = systemReducedMotion,
   audio = browserAudio(() => new AudioContext()),
+  localize = () => {},
 }: PageOptions) => {
   let saved = queryPreferences(search);
   const withSystem = () => ({ ...saved, reducedMotion: saved.reducedMotion || prefersReducedMotion() });
@@ -182,6 +185,7 @@ export const mountPage = ({
     newActionId,
     startDraft: queryStart(search),
     saveStart: (draft) => bridge.saveStart?.(draft),
+    locale: () => preferences.locale,
   });
   const { consent, ...voicePreferences } = preferences.voice;
   const voice = createDesktopVoice({
@@ -237,6 +241,7 @@ export const mountPage = ({
     const opened = DISCLOSURE_SELECTORS.map(
       (selector) => root.querySelector<HTMLDetailsElement>(selector)?.open === true,
     );
+    localize(preferences.locale);
     const setupView = setup.view();
     root.innerHTML = renderView(model, preferences.locale, shownPane, voice.view(), setupView);
     root.style.setProperty(FONT_SCALE_PROPERTY, String(model.fontScale));
@@ -491,8 +496,12 @@ export const mountPage = ({
     const motion = MOTION_SETTINGS.find(
       (setting) => setting === target?.closest(`[${MOTION_ATTRIBUTE}]`)?.getAttribute(MOTION_ATTRIBUTE),
     );
-    if (motion !== undefined) {
-      saved = { ...saved, motion };
+    const locale = SUPPORTED_LOCALES.find(
+      (supported) => supported === target?.closest(`[${LOCALE_ATTRIBUTE}]`)?.getAttribute(LOCALE_ATTRIBUTE),
+    );
+    const chosen = motion === undefined ? (locale === undefined ? undefined : { locale }) : { motion };
+    if (chosen !== undefined) {
+      saved = { ...saved, ...chosen };
       bridge.savePreferences?.(saved);
       preferences = withSystem();
       return render();
@@ -539,6 +548,19 @@ export const mountPage = ({
   return { ...client, render };
 };
 
+const ACTION_LABEL_SELECTOR = `label[for="${INPUT_ID}"]`;
+const ACTION_SEND_SELECTOR = `#${FORM_ID} button[type="submit"]`;
+
+const localizeDocument = (locale: string) => {
+  document.documentElement.lang = locale;
+  const label = document.querySelector(ACTION_LABEL_SELECTOR);
+  const send = document.querySelector(ACTION_SEND_SELECTOR);
+  const input = document.getElementById(INPUT_ID) as HTMLInputElement | null;
+  if (label !== null) label.textContent = translate(locale, 'action.label');
+  if (send !== null) send.textContent = translate(locale, 'action.send');
+  if (input !== null) input.placeholder = translate(locale, 'action.placeholder');
+};
+
 const bridgeOf = (scope: object) => (scope as Record<string, PageOptions['bridge'] | undefined>)[BRIDGE_KEY];
 
 const boot = () => {
@@ -558,6 +580,7 @@ const boot = () => {
     newActionId: () => crypto.randomUUID(),
     openMicrophone: (settings) =>
       createMicrophoneController(browserMicrophone(navigator.mediaDevices, MediaRecorder), settings),
+    localize: localizeDocument,
   });
   window.addEventListener(RESIZE, page.render);
 };

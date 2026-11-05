@@ -13,6 +13,7 @@ import {
   stepOf,
 } from '../../../packages/client-protocol/src/guided-start.ts';
 import type { CampaignSummary, CreateCampaign } from '../../../packages/client-protocol/src/protocol.ts';
+import { DEFAULT_LOCALE, errorText, safeLocale, say } from './messages.ts';
 import { planResult, startOptions } from './quickstart.ts';
 
 const TUI_CLIENT = 'tui';
@@ -20,9 +21,7 @@ const TEXT = 'utf8';
 const KEYS: Readonly<Record<string, StartAction['kind']>> = { b: 'back', s: 'skip', y: 'start' };
 const QUIT = 'q';
 const FIRST_NUMBER = 1;
-const LIST = new Intl.ListFormat('en', { type: 'conjunction' });
-const SAVED = 'Saved your progress. Run rpg start to pick up where you left off.';
-const UNKNOWN_INPUT = 'Type one of the choices above.';
+const LIST_STYLE = { type: 'conjunction' } as const;
 
 const draftPath = (dataDir: string) => join(dataDir, START_DRAFT_FILE);
 
@@ -32,38 +31,36 @@ const saveDraft = (dataDir: string, draft: StartDraft) => {
 };
 
 const asking = (screen: StartScreen) => {
-  if (screen.step === 'summary')
-    return screen.canStart ? 'Type y to start, or type a new name.' : 'Go back and change your choices.';
-  if (screen.options.length > 0)
-    return screen.canNext ? 'Type a number to turn it on or off.' : 'Type a number to choose.';
-  if (screen.entry !== undefined) return 'Type your answer.';
-  return 'Press Enter to go on.';
+  if (screen.step === 'summary') return screen.canStart ? 'start.askStart' : 'start.goBack';
+  if (screen.options.length > 0) return screen.canNext ? 'start.toggle' : 'start.choose';
+  if (screen.entry !== undefined) return 'start.answer';
+  return 'start.continue';
 };
 
-const controls = (screen: StartScreen) => {
+const controls = (screen: StartScreen, locale: string) => {
   const keys = [
-    ...(screen.canNext && screen.options.length > 0 ? ['Enter to go on'] : []),
-    ...(screen.canBack ? ['b to go back'] : []),
-    ...(screen.canSkip ? ['s to skip'] : []),
-    'q to stop and come back later',
-  ];
-  return `Type ${LIST.format(keys)}.`;
+    ...(screen.canNext && screen.options.length > 0 ? ['start.key.next'] : []),
+    ...(screen.canBack ? ['start.key.back'] : []),
+    ...(screen.canSkip ? ['start.key.skip'] : []),
+    'start.key.quit',
+  ].map((key) => say(locale, key));
+  return say(locale, 'start.controls', { keys: new Intl.ListFormat(safeLocale(locale), LIST_STYLE).format(keys) });
 };
 
-const render = (screen: StartScreen) =>
+const render = (screen: StartScreen, locale: string) =>
   [
     screen.progress === undefined
       ? screen.title
-      : `Step ${screen.progress.current} of ${screen.progress.total}: ${screen.title}`,
+      : say(locale, 'start.step', { ...screen.progress, title: screen.title }),
     ...screen.text,
     ...screen.options.map(
       ({ label, detail, selected }, index) =>
-        `  ${index + FIRST_NUMBER}. ${label}${selected ? ' (on)' : ''} - ${detail}`,
+        `  ${index + FIRST_NUMBER}. ${label}${selected ? ` (${say(locale, 'start.on')})` : ''} - ${detail}`,
     ),
     ...(screen.entry === undefined ? [] : [`${screen.entry.label}: ${screen.entry.value}`]),
     ...(screen.error === undefined ? [] : [screen.error]),
-    asking(screen),
-    controls(screen),
+    say(locale, asking(screen)),
+    controls(screen, locale),
   ].join('\n');
 
 const actionFor = (screen: StartScreen, text: string): StartAction | undefined => {
@@ -81,6 +78,7 @@ export const guidedStart = async function* (
   dataDir: string,
   lines: AsyncIterable<string>,
   createCampaignFrom: (dataDir: string, command: CreateCampaign, client?: string) => CampaignSummary,
+  locale = DEFAULT_LOCALE,
 ): AsyncGenerator<string> {
   const options = startOptions();
   let draft = loadStartDraft(() => readFileSync(draftPath(dataDir), TEXT));
@@ -89,34 +87,35 @@ export const guidedStart = async function* (
       draft,
       options,
       stepOf(draft) === 'summary' ? planResult(planCommand(draft, TUI_CLIENT), TUI_CLIENT) : undefined,
+      locale,
     );
   let screen = screenOf();
-  yield render(screen);
+  yield render(screen, locale);
   for await (const line of lines) {
     const text = line.trim();
     if (text === QUIT) {
-      yield SAVED;
+      yield say(locale, 'start.saved');
       return;
     }
     const action = actionFor(screen, text);
     if (action === undefined) {
-      yield `${UNKNOWN_INPUT}\n${render(screen)}`;
+      yield `${say(locale, 'choice.unknown')}\n${render(screen, locale)}`;
       continue;
     }
     if (action.kind === 'start') {
       try {
-        const { name } = createCampaignFrom(dataDir, createCommand(draft, TUI_CLIENT), TUI_CLIENT);
+        const { name } = createCampaignFrom(dataDir, createCommand(draft, TUI_CLIENT, locale), TUI_CLIENT);
         rmSync(draftPath(dataDir), { force: true });
-        yield `Created campaign ${name}. Run rpg play ${JSON.stringify(name)} to begin.`;
+        yield say(locale, 'start.created', { name, quoted: JSON.stringify(name) });
         return;
       } catch (error) {
-        yield `${error instanceof Error ? error.message : String(error)}\n${render(screen)}`;
+        yield `${errorText(locale, error)}\n${render(screen, locale)}`;
         continue;
       }
     }
     draft = nextDraft(draft, action);
     saveDraft(dataDir, draft);
     screen = screenOf();
-    yield render(screen);
+    yield render(screen, locale);
   }
 };

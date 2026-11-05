@@ -67,8 +67,16 @@ const copyReveal = (reveal: MechanicReveal): MechanicReveal =>
     : { kind: reveal.kind, label: reveal.label };
 
 const OUTCOME_SEPARATOR = '.';
+const OUTCOME_KEY = 'outcome.';
 
 export const outcomeLabel = (outcome: string) => outcome.split(OUTCOME_SEPARATOR).at(-1) || outcome;
+
+export const outcomeText = (translate: (locale: string, key: string) => string, locale: string, outcome: string) => {
+  const label = outcomeLabel(outcome);
+  const key = `${OUTCOME_KEY}${label}`;
+  const text = translate(locale, key);
+  return text === key ? label : text;
+};
 
 const finalOf = ({ total, outcome, modifier }: MechanicResult): VisualizationFinal =>
   modifier === undefined ? { total, outcome } : { total, outcome, modifier };

@@ -9,6 +9,7 @@ import {
   nextDraft,
   parseStartDraft,
   planCommand,
+  START_CATALOG,
   START_STEPS,
   type StartAction,
   type StartDraft,
@@ -16,6 +17,7 @@ import {
   startScreen,
   stepOf,
 } from './guided-start.ts';
+import { missingKeys } from './locale.ts';
 import {
   type CampaignPlan,
   failure,
@@ -309,4 +311,36 @@ test('rpg-42a.14 guided start copy uses short plain sentences and a two-sentence
   for (const sentence of screens.flatMap(textOf).flatMap((text) => text.split(SENTENCE_END))) {
     assert.ok((sentence.match(WORD)?.length ?? 0) <= MAX_SENTENCE_WORDS, sentence);
   }
+});
+
+test('rpg-42a.39 every guided start locale has every catalog key', () => {
+  assert.deepEqual(Object.keys(START_CATALOG), ['en', 'pt-BR']);
+  assert.deepEqual(missingKeys(START_CATALOG), []);
+});
+
+test('rpg-42a.39 guided start reads in Brazilian Portuguese and names the default adventure in it', () => {
+  const path = startScreen(INITIAL_DRAFT, OPTIONS, undefined, 'pt-BR');
+  assert.equal(path.title, 'Nova aventura');
+  assert.deepEqual(
+    path.options.map(({ label }) => label),
+    ['Descrever', 'Me guie'],
+  );
+  const rules = startScreen(
+    run([{ kind: 'path', path: 'guide' }, { kind: 'next' }, { kind: 'skip' }]),
+    OPTIONS,
+    undefined,
+    'pt-BR',
+  );
+  assert.equal(rules.options[1]?.label, 'narrative original (recomendado para iniciantes)');
+  const summary = startScreen(skipAll, OPTIONS, PLAN, 'pt-BR');
+  assert.deepEqual(summary.text, ['Regras: narrative original (escolhido)', 'Gênero: none (padrão)']);
+  assert.equal(summary.entry?.value, 'Minha aventura');
+  assert.deepEqual(
+    summary.review?.map(({ title }) => title),
+    ['Sua história'],
+  );
+  const unknown = startScreen(skipAll, OPTIONS, failure('UnknownEdition', 'D&D 1.9'), 'pt-BR');
+  assert.equal(unknown.error, 'Importe seu livro de regras. D&D 1.9');
+  assert.equal(createCommand(skipAll, undefined, 'pt-BR').name, 'Minha aventura');
+  assert.equal(createCommand({ ...skipAll, name: 'Ashfall' }, undefined, 'pt-BR').name, 'Ashfall');
 });

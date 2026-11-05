@@ -2,6 +2,7 @@ import { parseArgs } from 'node:util';
 import { CLIENTS } from '../../../packages/intent/src/intent.ts';
 import type { Ask } from './character-creation.ts';
 import type { GmSettingsChanges } from './engine-gateway.ts';
+import { DEFAULT_LOCALE, errorText, say as phrase, safeLocale } from './messages.ts';
 import { PLAIN_TERMINAL, type Terminal } from './tui.ts';
 import type { UpdateRequest } from './update.ts';
 import { printable, VIEW_NAMES, type ViewName } from './views.ts';
@@ -10,7 +11,11 @@ export const EXIT_OK = 0;
 export const EXIT_FAILURE = 1;
 export const EXIT_USAGE = 2;
 
-const HELP_HINT = 'Run rpg help for usage.';
+const LIST_STYLE = { type: 'conjunction' } as const;
+const VOICE_OPTION = '--voice';
+const CLIENT_OPTION = '--client';
+const UPDATE_OPTIONS = ['--check', '--auto-check', '--pre-release'];
+const SETTINGS_OPTIONS = ['--model', '--summary-model', '--session-budget'];
 const VOICE_COMMAND = 'tui';
 const UPDATE_COMMAND = 'update';
 const CLIENT_COMMAND = 'new';
@@ -47,7 +52,7 @@ export type CampaignGateway = {
   restore: (file: string) => string;
   view: (campaign: string, view: ViewName) => string;
   tui: (campaign: string, terminal: Terminal) => Promise<void>;
-  start: (lines: AsyncIterable<string>) => AsyncIterable<string>;
+  start: (lines: AsyncIterable<string>, locale?: string) => AsyncIterable<string>;
   update: (request: UpdateRequest) => AsyncIterable<string>;
   settings: (campaign: string | undefined, changes: GmSettingsChanges) => string;
 };
@@ -57,78 +62,73 @@ export type Io = {
   stderr: (text: string) => void;
   lines: AsyncIterable<string>;
   terminal?: Terminal;
+  locale?: string;
 };
 
 const COMMANDS = [
   {
     name: 'launch',
     usage: 'launch',
-    description: 'Open your adventures to continue, start, archive or delete one. This is the default.',
   },
-  { name: 'start', usage: 'start', description: 'Start a new adventure with a few short questions you can skip.' },
+  { name: 'start', usage: 'start' },
   {
     name: 'new',
     usage: 'new <name> [intent] [--client cli|tui|desktop]',
-    description:
-      'Create a campaign from defaults or a one-sentence intent. --client picks where you play, so the intent can use its features, such as tui for dice animation.',
   },
-  { name: 'play', usage: 'play <campaign>', description: 'Start playing a campaign.' },
-  { name: 'resume', usage: 'resume <campaign>', description: 'Continue a campaign.' },
-  { name: 'list', usage: 'list', description: 'List active and archived campaigns.' },
-  { name: 'archive', usage: 'archive <campaign>', description: 'Hide a campaign and keep its saved state.' },
-  { name: 'delete', usage: 'delete <campaign>', description: 'Delete a campaign after you confirm its name.' },
-  { name: 'import', usage: 'import <file...>', description: 'Import rule files and choose what to activate.' },
+  { name: 'play', usage: 'play <campaign>' },
+  { name: 'resume', usage: 'resume <campaign>' },
+  { name: 'list', usage: 'list' },
+  { name: 'archive', usage: 'archive <campaign>' },
+  { name: 'delete', usage: 'delete <campaign>' },
+  { name: 'import', usage: 'import <file...>' },
   {
     name: 'export',
     usage: 'export <campaign> <file>',
-    description: 'Write a campaign and its rulepack pins to a portable archive file.',
   },
-  { name: 'backup', usage: 'backup <campaign>', description: 'Save a dated archive of a campaign in the data folder.' },
-  { name: 'restore', usage: 'restore <file>', description: 'Check an archive file and restore its campaign.' },
-  { name: 'sheet', usage: 'sheet <campaign>', description: 'Show your character sheet.' },
+  { name: 'backup', usage: 'backup <campaign>' },
+  { name: 'restore', usage: 'restore <file>' },
+  { name: 'sheet', usage: 'sheet <campaign>' },
   {
     name: 'sheet-export',
     usage: 'sheet-export <campaign>',
-    description: 'Print your character sheet as portable JSON with rulepack provenance.',
   },
-  { name: 'inventory', usage: 'inventory <campaign>', description: 'Show the items you carry.' },
-  { name: 'journal', usage: 'journal <campaign>', description: 'Show the important events so far.' },
-  { name: 'quests', usage: 'quests <campaign>', description: 'Show your quests and their objectives.' },
+  { name: 'inventory', usage: 'inventory <campaign>' },
+  { name: 'journal', usage: 'journal <campaign>' },
+  { name: 'quests', usage: 'quests <campaign>' },
   {
     name: 'encounter',
     usage: 'encounter <campaign>',
-    description: 'Show the current encounter, its rolls and outcome.',
   },
   {
     name: 'tui',
     usage: 'tui [campaign] [--voice]',
-    description:
-      'Play with keyboard panes for talk, sheet, log and mechanics. Opens your adventures without a campaign. --voice adds voice settings.',
   },
-  { name: 'recap', usage: 'recap <campaign>', description: 'Show the current scene and the latest event.' },
+  { name: 'recap', usage: 'recap <campaign>' },
   {
     name: 'update',
     usage: 'update [--check] [--no-auto-check] [--pre-release]',
-    description:
-      'Download a verified new version that installs the next time you start rpg. --check only shows the version and notes. --no-auto-check stops the daily check. --pre-release offers test versions.',
   },
   {
     name: SETTINGS_COMMAND,
     usage: 'settings [campaign] [--model <name>] [--summary-model <name>] [--session-budget <tokens>]',
-    description:
-      'Show or set the AI game master model, the cheaper summary model and a soft token budget per session. Without a campaign it sets the app default. Claude Code takes default, haiku, sonnet, opus or fable; the API takes a model id. Use unset to clear a value. The budget only warns. Also shows the tokens and cost used so far.',
   },
-  { name: 'help', usage: 'help', description: 'Show this help.' },
+  { name: 'help', usage: 'help' },
 ] as const;
 
 const isView = (command: string): command is ViewName => VIEW_NAMES.some((view) => view === command);
-const viewUsage = (view: ViewName) => COMMANDS.find(({ name }) => name === view)?.description ?? '';
+const localeOf = (io: Io) => io.locale ?? DEFAULT_LOCALE;
+const describe = (locale: string, command: string) => phrase(locale, `command.${command}`);
 
-const helpText = (): string =>
-  ['Usage: rpg [command]', 'Commands:', ...COMMANDS.map((c) => `  ${c.usage} - ${c.description}`), ''].join('\n');
+const helpText = (locale: string): string =>
+  [
+    phrase(locale, 'cli.usage'),
+    phrase(locale, 'cli.commands'),
+    ...COMMANDS.map(({ name, usage }) => `  ${usage} - ${describe(locale, name)}`),
+    '',
+  ].join('\n');
 
 const usageError = (io: Io, message: string): number => {
-  io.stderr(`${printable(message)}\n${HELP_HINT}\n`);
+  io.stderr(`${printable(message)}\n${phrase(localeOf(io), 'cli.helpHint')}\n`);
   return EXIT_USAGE;
 };
 
@@ -137,8 +137,7 @@ const say = (io: Io, text: string): number => {
   return EXIT_OK;
 };
 
-const reportError = (io: Io, error: unknown) =>
-  io.stderr(`${printable(error instanceof Error ? error.message : String(error))}\n`);
+const reportError = (io: Io, error: unknown) => io.stderr(`${printable(errorText(localeOf(io), error))}\n`);
 
 const fail = (io: Io, error: unknown): number => {
   reportError(io, error);
@@ -159,19 +158,18 @@ const withAsk = async function* (io: Io, create: (ask: Ask) => AsyncIterable<str
 };
 
 const CONTROL_PREFIX = '/';
-const sessionHelp = (views: readonly ViewName[]) =>
-  [
-    'Type what you do in plain text. Plain text is a normal action.',
-    'Controls:',
-    '  /help - Show this help.',
-    '  /history - Show your previous inputs.',
-    ...views.map((view) => `  ${CONTROL_PREFIX}${view} - ${viewUsage(view)}`),
-    '  /quit - End the session.',
-  ].join('\n');
 const QUIT_CONTROL = '/quit';
 const HELP_CONTROL = '/help';
 const HISTORY_CONTROL = '/history';
-const NO_HISTORY = 'No inputs yet.';
+const sessionHelp = (views: readonly ViewName[], locale: string) =>
+  [
+    phrase(locale, 'session.plain'),
+    phrase(locale, 'session.controls'),
+    `  ${HELP_CONTROL} - ${describe(locale, 'help')}`,
+    `  ${HISTORY_CONTROL} - ${phrase(locale, 'control.history')}`,
+    ...views.map((view) => `  ${CONTROL_PREFIX}${view} - ${describe(locale, view)}`),
+    `  ${QUIT_CONTROL} - ${phrase(locale, 'control.quit')}`,
+  ].join('\n');
 
 const withControls = async function* (io: Io, show?: (view: ViewName) => string): AsyncGenerator<string> {
   const history: string[] = [];
@@ -184,9 +182,14 @@ const withControls = async function* (io: Io, show?: (view: ViewName) => string)
     } else if (text === QUIT_CONTROL) {
       return;
     } else if (text === HELP_CONTROL) {
-      say(io, sessionHelp(show === undefined ? [] : VIEW_NAMES));
+      say(io, sessionHelp(show === undefined ? [] : VIEW_NAMES, localeOf(io)));
     } else if (text === HISTORY_CONTROL) {
-      say(io, history.length === 0 ? NO_HISTORY : history.map((entry, index) => `${index + 1}. ${entry}`).join('\n'));
+      say(
+        io,
+        history.length === 0
+          ? phrase(localeOf(io), 'session.noHistory')
+          : history.map((entry, index) => `${index + 1}. ${entry}`).join('\n'),
+      );
     } else if (show !== undefined && isView(control)) {
       try {
         say(io, show(control));
@@ -194,7 +197,7 @@ const withControls = async function* (io: Io, show?: (view: ViewName) => string)
         reportError(io, error);
       }
     } else {
-      io.stderr(`Unknown control ${printable(text)}. Type /help for help.\n`);
+      io.stderr(`${phrase(localeOf(io), 'session.unknown', { control: printable(text) })}\n`);
     }
   }
 };
@@ -212,51 +215,63 @@ const run = async (io: Io, outputs: () => Iterable<string> | AsyncIterable<strin
 };
 
 export const main = async (argv: readonly string[], io: Io, gateway: CampaignGateway): Promise<number> => {
+  const locale = localeOf(io);
+  const list = (items: readonly string[]) => new Intl.ListFormat(safeLocale(locale), LIST_STYLE).format(items);
+  const unexpectedArgument = (value: string | undefined) => usageError(io, phrase(locale, 'cli.unexpected', { value }));
+  const missingName = (command: string) => usageError(io, phrase(locale, 'cli.missingName', { command }));
+  const missingFile = (command: string) => usageError(io, phrase(locale, 'cli.missingFile', { command }));
   let parsed: ReturnType<typeof parseArgs<{ options: typeof OPTIONS; allowPositionals: true; allowNegative: true }>>;
   try {
     parsed = parseArgs({ args: [...argv], options: OPTIONS, allowPositionals: true, allowNegative: true });
   } catch (error) {
-    return usageError(io, error instanceof Error ? error.message : 'Invalid arguments.');
+    return usageError(io, error instanceof Error ? error.message : phrase(locale, 'cli.invalid'));
   }
   const [command = 'launch', ...rest] = parsed.positionals;
   const voice = parsed.values.voice === true;
-  if (voice && command !== VOICE_COMMAND) return usageError(io, `Option --voice works only with ${VOICE_COMMAND}.`);
+  if (voice && command !== VOICE_COMMAND)
+    return usageError(io, phrase(locale, 'cli.optionOnlyWith', { option: VOICE_OPTION, command: VOICE_COMMAND }));
   const { client } = parsed.values;
   if (client !== undefined && command !== CLIENT_COMMAND)
-    return usageError(io, `Option --client works only with ${CLIENT_COMMAND}.`);
+    return usageError(io, phrase(locale, 'cli.optionOnlyWith', { option: CLIENT_OPTION, command: CLIENT_COMMAND }));
   if (client !== undefined && !CLIENTS.some((known) => known === client))
-    return usageError(io, `Unknown client ${client}. Valid clients: ${CLIENTS.join(', ')}.`);
+    return usageError(io, phrase(locale, 'cli.unknownClient', { client, clients: CLIENTS.join(', ') }));
   const { check, 'auto-check': autoCheck, 'pre-release': preRelease } = parsed.values;
   const updateOption = [check, autoCheck, preRelease].some((value) => value !== undefined);
   if (updateOption && command !== UPDATE_COMMAND)
-    return usageError(io, `Options --check, --auto-check and --pre-release work only with ${UPDATE_COMMAND}.`);
+    return usageError(
+      io,
+      phrase(locale, 'cli.optionsOnlyWith', { options: list(UPDATE_OPTIONS), command: UPDATE_COMMAND }),
+    );
   const { model, 'summary-model': summaryModel, 'session-budget': sessionBudgetTokens } = parsed.values;
   const settingsOption = [model, summaryModel, sessionBudgetTokens].some((value) => value !== undefined);
   if (settingsOption && command !== SETTINGS_COMMAND)
-    return usageError(io, `Options --model, --summary-model and --session-budget work only with ${SETTINGS_COMMAND}.`);
+    return usageError(
+      io,
+      phrase(locale, 'cli.optionsOnlyWith', { options: list(SETTINGS_OPTIONS), command: SETTINGS_COMMAND }),
+    );
   const wantsHelp = parsed.values.help === true || command === 'help';
   if (wantsHelp) {
     const extra = parsed.values.help === true ? parsed.positionals : rest;
-    if (extra.length > 0) return usageError(io, `Unexpected argument: ${extra[0]}.`);
-    io.stdout(helpText());
+    if (extra.length > 0) return unexpectedArgument(extra[0]);
+    io.stdout(helpText(locale));
     return EXIT_OK;
   }
   if (command === 'list' || command === 'start') {
-    if (rest.length > 0) return usageError(io, `Unexpected argument: ${rest[0]}.`);
-    if (command === 'start') return run(io, () => gateway.start(io.lines));
+    if (rest.length > 0) return unexpectedArgument(rest[0]);
+    if (command === 'start') return run(io, () => gateway.start(io.lines, io.locale));
     return run(io, () => [gateway.list()]);
   }
   if (command === 'archive' || command === 'delete') {
     const [name, ...extra] = rest;
-    if (name === undefined || name.trim() === '') return usageError(io, `Missing campaign name for ${command}.`);
-    if (extra.length > 0) return usageError(io, `Unexpected argument: ${extra[0]}.`);
+    if (name === undefined || name.trim() === '') return missingName(command);
+    if (extra.length > 0) return unexpectedArgument(extra[0]);
     return run(io, () => (command === 'archive' ? [gateway.archive(name)] : gateway.remove(name, io.lines)));
   }
   if (command === 'new' || command === 'play' || command === 'resume') {
     const [name, ...extra] = rest;
-    if (name === undefined || name.trim() === '') return usageError(io, `Missing campaign name for ${command}.`);
+    if (name === undefined || name.trim() === '') return missingName(command);
     const [intent, ...unexpected] = command === 'new' ? extra : [undefined, ...extra];
-    if (unexpected.length > 0) return usageError(io, `Unexpected argument: ${unexpected[0]}.`);
+    if (unexpected.length > 0) return unexpectedArgument(unexpected[0]);
     return run(io, () =>
       command === 'new'
         ? withAsk(io, (ask) => gateway.create(name, intent, ask, client))
@@ -270,8 +285,8 @@ export const main = async (argv: readonly string[], io: Io, gateway: CampaignGat
   }
   if (command === 'tui' || command === 'launch') {
     const [name, ...extra] = command === 'launch' ? [undefined, ...rest] : rest;
-    if (name !== undefined && name.trim() === '') return usageError(io, 'Missing campaign name for tui.');
-    if (extra.length > 0) return usageError(io, `Unexpected argument: ${extra[0]}.`);
+    if (name !== undefined && name.trim() === '') return missingName('tui');
+    if (extra.length > 0) return unexpectedArgument(extra[0]);
     const base = io.terminal ?? { capabilities: PLAIN_TERMINAL, lines: io.lines, write: io.stdout };
     try {
       const terminal = voice ? { ...base, audio: await loadTuiAudio() } : base;
@@ -283,30 +298,30 @@ export const main = async (argv: readonly string[], io: Io, gateway: CampaignGat
   }
   if (isView(command)) {
     const [name, ...extra] = rest;
-    if (name === undefined || name.trim() === '') return usageError(io, `Missing campaign name for ${command}.`);
-    if (extra.length > 0) return usageError(io, `Unexpected argument: ${extra[0]}.`);
+    if (name === undefined || name.trim() === '') return missingName(command);
+    if (extra.length > 0) return unexpectedArgument(extra[0]);
     return run(io, () => [gateway.view(name, command)]);
   }
   if (command === 'import') {
-    if (rest.length === 0 || rest.some((file) => file.trim() === '')) return usageError(io, 'Missing file for import.');
+    if (rest.length === 0 || rest.some((file) => file.trim() === '')) return missingFile('import');
     return run(io, () => gateway.importRules(rest, withControls(io)));
   }
   if (command === 'export') {
     const [name, file, ...extra] = rest;
-    if (name === undefined || name.trim() === '') return usageError(io, 'Missing campaign name for export.');
-    if (file === undefined || file.trim() === '') return usageError(io, 'Missing file for export.');
-    if (extra.length > 0) return usageError(io, `Unexpected argument: ${extra[0]}.`);
+    if (name === undefined || name.trim() === '') return missingName('export');
+    if (file === undefined || file.trim() === '') return missingFile('export');
+    if (extra.length > 0) return unexpectedArgument(extra[0]);
     return run(io, () => [gateway.exportCampaign(name, file)]);
   }
   if (command === 'backup' || command === 'restore') {
     const [value, ...extra] = rest;
-    const missing = command === 'backup' ? 'campaign name' : 'file';
-    if (value === undefined || value.trim() === '') return usageError(io, `Missing ${missing} for ${command}.`);
-    if (extra.length > 0) return usageError(io, `Unexpected argument: ${extra[0]}.`);
+    if (value === undefined || value.trim() === '')
+      return command === 'backup' ? missingName(command) : missingFile(command);
+    if (extra.length > 0) return unexpectedArgument(extra[0]);
     return run(io, () => [command === 'backup' ? gateway.backup(value) : gateway.restore(value)]);
   }
   if (command === UPDATE_COMMAND) {
-    if (rest.length > 0) return usageError(io, `Unexpected argument: ${rest[0]}.`);
+    if (rest.length > 0) return unexpectedArgument(rest[0]);
     return run(io, () =>
       gateway.update({
         check: check === true,
@@ -317,12 +332,12 @@ export const main = async (argv: readonly string[], io: Io, gateway: CampaignGat
   }
   if (command === SETTINGS_COMMAND) {
     const [name, ...extra] = rest;
-    if (name !== undefined && name.trim() === '') return usageError(io, 'Missing campaign name for settings.');
-    if (extra.length > 0) return usageError(io, `Unexpected argument: ${extra[0]}.`);
+    if (name !== undefined && name.trim() === '') return missingName('settings');
+    if (extra.length > 0) return unexpectedArgument(extra[0]);
     const changes = Object.fromEntries(
       Object.entries({ model, summaryModel, sessionBudgetTokens }).filter(([, value]) => value !== undefined),
     );
     return run(io, () => [gateway.settings(name, changes)]);
   }
-  return usageError(io, `Unsupported command: ${command}.`);
+  return usageError(io, phrase(locale, 'cli.unsupported', { command }));
 };
