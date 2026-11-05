@@ -1001,3 +1001,52 @@ test('rpg-cm63.21: an unknown slash input is queued and narrated like an action'
   assert.equal(narrated, 2);
   assert.deepEqual(submitted, ['first', '/look around']);
 });
+
+const ROLL_OFFER = {
+  offerId: 'tam-attack',
+  ruleId: 'attack.melee',
+  target: 'Old Tam',
+  label: 'Attack Old Tam with your sword',
+};
+
+test('rpg-42a.74: the TUI conversation names an open roll offer and the /roll hint', () => {
+  const offered = { ...data, snapshot: { ...snapshot, rollOffer: ROLL_OFFER } };
+  assert.match(
+    renderLinear(offered, PLAIN_WIDE).join('\n'),
+    /Roll offered: Attack Old Tam with your sword\. Type \/roll/,
+  );
+  assert.doesNotMatch(renderLinear(data, PLAIN).join('\n'), /Roll offered/);
+  assert.match(screen(press([key('?')])), /\/roll - Roll the check the GM offered\./);
+});
+
+test('rpg-42a.74: /roll accepts the open offer by id and says so when none is open', async () => {
+  const { session, campaignId } = engineSession();
+  const sent: unknown[] = [];
+  const base = session.getSnapshot({ version: PROTOCOL_VERSION, type: 'GetCampaignSnapshot', campaignId });
+  assert.ok(base.ok);
+  let offer: typeof ROLL_OFFER | undefined;
+  const offering: ClientSession = {
+    ...session,
+    getSnapshot: (command) => {
+      const result = session.getSnapshot(command);
+      return result.ok
+        ? { ok: true, value: { ...result.value, ...(offer === undefined ? {} : { rollOffer: offer }) } }
+        : result;
+    },
+    submitPlayerAction: (command) => {
+      sent.push([command.input, command.rollOfferId]);
+      offer = undefined;
+      return { ok: true, value: { revision: 3 } };
+    },
+  };
+  const output: string[] = [];
+  const lines = (async function* () {
+    yield '/roll';
+    offer = ROLL_OFFER;
+    yield '/roll';
+    yield 'q';
+  })();
+  await runTui(offering, campaignId, { capabilities: PLAIN_WIDE, lines, write: (text) => output.push(text) });
+  assert.deepEqual(sent, [[ROLL_OFFER.label, ROLL_OFFER.offerId]]);
+  assert.match(output.join(''), /No roll is offered right now\./);
+});

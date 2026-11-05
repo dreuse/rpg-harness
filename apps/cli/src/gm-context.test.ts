@@ -18,7 +18,13 @@ import { createCampaignStore } from '../../../packages/persistence/src/campaign-
 import { openDatabase } from '../../../packages/persistence/src/database.ts';
 import { createEntityStore, createFactStore } from '../../../packages/persistence/src/entity-store.ts';
 import { createEventStore } from '../../../packages/persistence/src/event-store.ts';
-import { languageInstruction, RULES_RETRY_PROMPT, RULES_STRICTNESS_PROMPTS, SYSTEM_PROMPT } from './gm-api.ts';
+import {
+  checkRulesPrompt,
+  languageInstruction,
+  RULES_RETRY_PROMPT,
+  RULES_STRICTNESS_PROMPTS,
+  SYSTEM_PROMPT,
+} from './gm-api.ts';
 import {
   CHAPTER_SCENE_COUNT,
   contextPacketOf,
@@ -30,6 +36,7 @@ import {
   summarizeCampaign,
 } from './gm-context.ts';
 import { planCampaign } from './quickstart.ts';
+import { checkRulesFor } from './roll-visualization.ts';
 
 const IN_MEMORY = ':memory:';
 const PORTUGUESE = 'pt-BR';
@@ -391,12 +398,36 @@ it('rpg-42a.58 a campaign without a RulePack carries no style and no strictness 
   fixture.connection.close();
 });
 
+const d20CheckRulesLine = (fixture: ReturnType<typeof campaign>) => {
+  const state = fixture.store.load(CAMPAIGN.id);
+  assert.ok(state);
+  return checkRulesPrompt(checkRulesFor(state.events, 'as-written'));
+};
+
+it('rpg-42a.74 lists the check rules the GM may call only while the strictness allows rolls', () => {
+  const fixture = campaign(CREATED_EVENT.payload, D20_FANTASY());
+  const committed = play(fixture.store, 'turn-1');
+  assert.ok(d20CheckRulesLine(fixture).includes('attack.melee'));
+  assert.ok(instructionsOf(fixture, committed)?.includes(d20CheckRulesLine(fixture)));
+  chooseStrictness(fixture.store, 'off', 'off');
+  assert.equal(instructionsOf(fixture, committed)?.includes(d20CheckRulesLine(fixture)), false);
+  fixture.connection.close();
+});
+
 it('rpg-42a.58 tells the GM the strictness: as-written by default, then the saved choice', () => {
   const fixture = campaign(CREATED_EVENT.payload, D20_FANTASY());
   const committed = play(fixture.store, 'turn-1');
-  assert.deepEqual(instructionsOf(fixture, committed), [SYSTEM_PROMPT, RULES_STRICTNESS_PROMPTS['as-written']]);
+  assert.deepEqual(instructionsOf(fixture, committed), [
+    SYSTEM_PROMPT,
+    RULES_STRICTNESS_PROMPTS['as-written'],
+    d20CheckRulesLine(fixture),
+  ]);
   chooseStrictness(fixture.store, 'relaxed', 'relax');
-  assert.deepEqual(instructionsOf(fixture, committed), [SYSTEM_PROMPT, RULES_STRICTNESS_PROMPTS.relaxed]);
+  assert.deepEqual(instructionsOf(fixture, committed), [
+    SYSTEM_PROMPT,
+    RULES_STRICTNESS_PROMPTS.relaxed,
+    d20CheckRulesLine(fixture),
+  ]);
   chooseStrictness(fixture.store, 'off', 'off');
   assert.deepEqual(instructionsOf(fixture, committed), [SYSTEM_PROMPT, RULES_STRICTNESS_PROMPTS.off]);
   fixture.connection.close();
@@ -411,6 +442,7 @@ it('rpg-42a.58 a regeneration packet adds the retry line after the strictness li
   assert.deepEqual(retried.sections.find(({ name }) => name === 'instructions')?.items, [
     SYSTEM_PROMPT,
     RULES_STRICTNESS_PROMPTS['as-written'],
+    d20CheckRulesLine(fixture),
     RULES_RETRY_PROMPT,
   ]);
   fixture.connection.close();

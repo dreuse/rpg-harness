@@ -3,6 +3,7 @@ import {
   type CampaignState,
   type CampaignStore,
   CHARACTER_CREATED,
+  CHECK_OFFERED,
   type CharacterId,
   type CommittedTurn,
   type TurnVisibility,
@@ -42,6 +43,7 @@ const SHEET_EVENTS: readonly string[] = [
   CLAIM_CORRECTED,
   ENTITY_INTRODUCED,
   PENDING_OPENED,
+  CHECK_OFFERED,
 ];
 
 const ownerVisible = (rules: CreationRules, profile: CharacterProfile): CharacterProfile => {

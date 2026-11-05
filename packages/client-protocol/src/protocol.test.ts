@@ -255,6 +255,8 @@ test('UI01: clients cannot bypass the engine or trust unsolicited model state wr
   for (const type of ['WriteState', 'SetState', 'CommitEvent', '__proto__', 'toString']) {
     assert.equal(code(parseCommand({ ...envelope, type })), 'UnknownCommand');
   }
+  assert.ok(parseCommand({ ...ACTION, rollOfferId: 'tam-attack' }).ok);
+  assert.equal(code(parseCommand({ ...ACTION, rollOfferId: 7 })), 'MalformedCommand');
   assert.equal(code(parseCommand({ ...ACTION, state: { hp: 999 } })), 'UnexpectedField');
   assert.equal(code(parseCommand({ ...ACTION, revision: 99 })), 'UnexpectedField');
 

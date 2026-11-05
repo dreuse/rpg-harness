@@ -43,6 +43,7 @@ import {
 import type { CampaignEntity, Relationship, Visibility } from '../../../packages/domain/src/entity.ts';
 import { EMPTY_GM_USAGE_TOTALS, type GmSettings, ledgerTotals } from '../../../packages/domain/src/gm.ts';
 import { playTurns, SHEET_FIELD_EDITED } from '../../../packages/engine/src/character.ts';
+import { pendingCheckOffer } from '../../../packages/engine/src/check-offer.ts';
 import { currentEncounter } from '../../../packages/engine/src/encounter.ts';
 import { campaignLanguageOf, type Engine } from '../../../packages/engine/src/engine.ts';
 import { contextDroppedOften, gmSettingsOf } from '../../../packages/engine/src/gm-settings.ts';
@@ -55,7 +56,7 @@ import { type EventQuery, listScopedEvents } from '../../../packages/persistence
 import { rangeIssue } from '../../../packages/rules/src/character-builder.ts';
 import { creationRulesFor, usageFor } from './quickstart.ts';
 import {
-  checkFor,
+  checkForAction,
   emitVisualizations,
   resultsOf,
   rulesStrictnessFor,
@@ -306,6 +307,7 @@ export const createClientSessions = (
     const language = campaignLanguageOf(state.changes);
     const gm = gmSnapshotOf(state, defaults(), sessionId);
     const config = savedConfig(state.events);
+    const rollOffer = pendingCheckOffer(state.events);
     return deepFreeze(
       structuredClone({
         version: PROTOCOL_VERSION,
@@ -316,6 +318,7 @@ export const createClientSessions = (
         speakers: speakersOf(readWorld(campaignId, characters[0]?.id).entities, viewer),
         currentScene,
         turns: playTurns(state),
+        ...(rollOffer === undefined ? {} : { rollOffer }),
         ...(language === undefined ? {} : { language }),
         ...(voice === undefined ? {} : { voice }),
         ...(gm === undefined ? {} : { gm }),
@@ -418,13 +421,13 @@ export const createClientSessions = (
       submitPlayerAction: (command) => {
         const accepted = accept<typeof command>(command, 'SubmitPlayerAction');
         if (!accepted.ok) return accepted;
-        const { actionId, expectedRevision, sceneId, actorId, input } = accepted.value;
+        const { actionId, expectedRevision, sceneId, actorId, input, rollOfferId } = accepted.value;
         return attempt(() => {
           engine.submitAction(
             { campaignId, actionId, expectedRevision, sceneId, actorId, input, intent: input },
-            checkFor(
+            checkForAction(
               engine.getState(campaignId).events,
-              input,
+              { input, rollOfferId },
               actorId,
               readWorld(campaignId, actorId).entities,
               rulesStrictnessFor(engine.getState(campaignId), defaults()),

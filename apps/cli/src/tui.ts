@@ -124,6 +124,7 @@ const CLEAR_SCREEN = '\x1b[2J\x1b[H';
 const STATUS_SEPARATOR = ' | ';
 const EDIT_PATTERN = /^\/edit\s+(\S+)\s+(.+)$/i;
 const LANGUAGE_PATTERN = /^\/language\s+(\S+)$/i;
+const ROLL_PATTERN = /^\/roll$/i;
 const FLAG_WORDS: Readonly<Record<string, boolean>> = {
   yes: true,
   true: true,
@@ -149,6 +150,7 @@ const helpLines = (data: TuiData) => {
     say(locale, 'help.type', { key: TYPE_KEY }),
     say(locale, 'help.edit'),
     say(locale, 'help.language'),
+    say(locale, 'help.roll'),
     say(locale, 'help.toggle', { key: HELP_KEY }),
     say(locale, 'help.quit', { key: QUIT_KEY }),
     ...(data.audio === undefined ? [] : [say(locale, 'tui.audioHelp')]),
@@ -288,15 +290,16 @@ const sheetRows = (sheet: readonly ViewComponent[]) =>
     return [...heading, sheetRow(component)];
   });
 
-const conversation = ({ currentScene, characters, turns }: CampaignSnapshot, locale: string) => {
+const conversation = ({ currentScene, characters, turns, rollOffer }: CampaignSnapshot, locale: string) => {
   const names = new Map(characters.map(({ id, name }) => [id, name]));
   const rows = turns.flatMap(({ actionId, actorId, input, narration }) => [
     ...(input.trim() === '' || actionId === OPENING_ACTION_ID ? [] : [`${names.get(actorId) ?? actorId}: ${input}`]),
     narration.trim() === '' ? say(locale, 'tui.noReply') : narration,
   ]);
+  const offer = rollOffer === undefined ? [] : [say(locale, 'tui.rollOffer', { label: rollOffer.label })];
   return rows.length === 0 || currentScene === undefined
-    ? rows
-    : [say(locale, 'tui.scene', { title: currentScene.title }), ...rows];
+    ? [...rows, ...offer]
+    : [say(locale, 'tui.scene', { title: currentScene.title }), ...rows, ...offer];
 };
 
 const PANE_ROWS: Readonly<Record<PaneId, (data: TuiData) => readonly string[]>> = {
@@ -414,7 +417,7 @@ const read = (
   };
 };
 
-const submit = (session: ClientSession, data: TuiData, input: string): string | undefined => {
+const submit = (session: ClientSession, data: TuiData, input: string, rollOfferId?: string): string | undefined => {
   const { snapshot } = data;
   const [actor] = snapshot.characters;
   if (actor === undefined || snapshot.currentScene === undefined) return say(localeOf(data), 'tui.noScene');
@@ -427,8 +430,16 @@ const submit = (session: ClientSession, data: TuiData, input: string): string | 
     sceneId: snapshot.currentScene.id,
     actorId: actor.id,
     input,
+    ...(rollOfferId === undefined ? {} : { rollOfferId }),
   });
   return accepted.ok ? undefined : accepted.error.message;
+};
+
+const roll = (session: ClientSession, data: TuiData) => {
+  const { rollOffer } = data.snapshot;
+  return rollOffer === undefined
+    ? say(localeOf(data), 'tui.noRoll')
+    : submit(session, data, rollOffer.label, rollOffer.offerId);
 };
 
 const editValue = (current: ViewValue | undefined, text: string) => {
@@ -655,6 +666,7 @@ export const runTui = async (
   const send: Act = (input) => {
     const [, language] = LANGUAGE_PATTERN.exec(input.trim()) ?? [];
     if (language !== undefined) return setLanguage(session, data(), language);
+    if (ROLL_PATTERN.test(input.trim())) return roll(session, data());
     const [, name, text] = EDIT_PATTERN.exec(input) ?? [];
     return name === undefined || text === undefined
       ? submit(session, data(), input)

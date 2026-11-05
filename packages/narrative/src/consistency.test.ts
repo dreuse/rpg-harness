@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { CampaignEvent } from '../../domain/src/campaign.ts';
 import { type Fact, GM_VIEWER, PLAYER_VIEWER, type Viewer } from '../../memory/src/knowledge.ts';
-import { type ConsistencyInput, checkConsistency, claimsMechanicalResult, type NarrationClaim } from './consistency.ts';
+import { type ConsistencyInput, checkConsistency, type NarrationClaim } from './consistency.ts';
 
 const CAMPAIGN = 'campaign-1';
 const HERO = 'actor-hero';
@@ -172,74 +172,38 @@ test('never echoes secret statement text in violations', () => {
   assert.equal(output.includes(RIVAL_STATEMENT), false);
 });
 
-const HIT_NARRATION = 'Your blade hits the goblin for 5 damage.';
+const OUTCOME_CLAIM: NarrationClaim = { kind: 'outcome', ref: 'hit on the goblin' };
+const AS_WRITTEN_UNRESOLVED = { rulesStrictness: 'as-written', checkResolved: false } as const;
 
-test('rpg-42a.58: as-written rejects a claimed mechanical result with no resolved check', () => {
-  for (const narration of [
-    HIT_NARRATION,
-    'The arrow strikes the ogre.',
-    'Sua lâmina acerta o goblin.',
-    'It deals 3 damage.',
-  ]) {
-    const report = checkConsistency(input([], { narration, rulesStrictness: 'as-written', checkResolved: false }));
-    assert.deepEqual(
-      report.violations.map(({ kind }) => kind),
-      ['unresolved-outcome'],
-    );
-  }
+test('rpg-42a.74: as-written rejects a declared outcome with no resolved check', () => {
+  const report = checkConsistency(input([OUTCOME_CLAIM], AS_WRITTEN_UNRESOLVED));
+  assert.deepEqual(
+    report.violations.map(({ kind, ref }) => [kind, ref]),
+    [['unresolved-outcome', OUTCOME_CLAIM.ref]],
+  );
 });
 
-test('rpg-42a.58: as-written accepts the same narration after a resolved check or plain prose', () => {
+test('rpg-42a.74: as-written accepts a declared outcome after a resolved check', () => {
   assert.equal(
-    checkConsistency(input([], { narration: HIT_NARRATION, rulesStrictness: 'as-written', checkResolved: true })).ok,
-    true,
-  );
-  assert.equal(
-    checkConsistency(
-      input([], { narration: 'The goblin snarls and circles.', rulesStrictness: 'as-written', checkResolved: false }),
-    ).ok,
+    checkConsistency(input([OUTCOME_CLAIM], { rulesStrictness: 'as-written', checkResolved: true })).ok,
     true,
   );
 });
 
-test('rpg-42a.58: relaxed, off and an unset strictness skip the mechanical-claim check', () => {
+test('rpg-42a.74: relaxed, off and an unset strictness skip the outcome check', () => {
   for (const rulesStrictness of ['relaxed', 'off'] as const)
-    assert.equal(checkConsistency(input([], { narration: HIT_NARRATION, rulesStrictness })).ok, true);
-  assert.equal(checkConsistency(input([], { narration: HIT_NARRATION })).ok, true);
+    assert.equal(checkConsistency(input([OUTCOME_CLAIM], { rulesStrictness })).ok, true);
+  assert.equal(checkConsistency(input([OUTCOME_CLAIM])).ok, true);
 });
 
-const ORDINARY_PROSE = [
-  'Rain hits the roof.',
-  'The bell strikes the hour.',
-  'Torchlight hits the water.',
-  'The smell hits you first.',
-  'You missed the last boat.',
-  'A cold wind strikes the tower.',
-  'You strike a deal with the merchant.',
-  'A chuva atinge o telhado.',
-  'A chuva atinge você.',
-  'O sino bate a hora e você erra o caminho.',
-];
-
-test('rpg-42a.58: ordinary prose that uses hit, strike or miss words is not a mechanical claim', () => {
-  for (const narration of ORDINARY_PROSE) {
-    assert.equal(claimsMechanicalResult(narration), false, narration);
-    assert.equal(
-      checkConsistency(input([], { narration, rulesStrictness: 'as-written', checkResolved: false })).ok,
-      true,
-    );
-  }
-});
-
-test('rpg-42a.58: a combatant as subject or target, or a weapon as subject, is a mechanical claim', () => {
+test('rpg-42a.74: narration text alone never counts as an outcome, whatever the verbs', () => {
   for (const narration of [
-    'The goblin hits you.',
-    'You hit the nearest goblin.',
-    'Your arrow misses the snarling wolf.',
-    'O goblin acerta você.',
-    'Você erra o ogro.',
-    'Sua espada atinge o bandido.',
-    'Causa 7 pontos de dano.',
+    'You slash the goblin and it falls.',
+    'Your shot misses the ogre.',
+    'The club hits the wolf.',
+    'O guarda acerta você.',
+    'Rain hits the roof.',
+    'You missed the last boat.',
   ])
-    assert.equal(claimsMechanicalResult(narration), true, narration);
+    assert.equal(checkConsistency(input([], { narration, ...AS_WRITTEN_UNRESOLVED })).ok, true, narration);
 });

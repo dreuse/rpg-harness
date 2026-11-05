@@ -102,6 +102,7 @@ import {
   type EntityProposal,
   type GmProposal,
   MAX_FACT_LENGTH,
+  outcomeClaimsOf,
 } from './gm-proposals.ts';
 import { type GmSegment, narratorSegments } from './gm-segments.ts';
 
@@ -123,7 +124,7 @@ import {
   titleOf,
   UnknownEdition,
 } from './quickstart.ts';
-import { checkFor, enforcedStrictnessFor, rulesStrictnessFor } from './roll-visualization.ts';
+import { checkForAction, checkRulesFor, enforcedStrictnessFor, rulesStrictnessFor } from './roll-visualization.ts';
 import type { SoundRequest } from './sound-command.ts';
 import { SOUND_SETTINGS_FILE } from './sound-files.ts';
 import type { SoundRuntime } from './sound-runtime.ts';
@@ -434,7 +435,7 @@ const narrateLatest = async (
       segments = voiceNotice === undefined ? reply.segments : [{ text: voiceNotice }, ...reply.segments];
       proposals = reply.proposals ?? [];
       const narration = voiceNotice === undefined ? reply.narration : `${voiceNotice} ${reply.narration}`;
-      return { narration, claims: [] };
+      return { narration, claims: outcomeClaimsOf(proposals) };
     },
   };
   const facts = createFactStore(database).listFacts(campaignId);
@@ -453,7 +454,14 @@ const narrateLatest = async (
     store.recordNarration(campaignId, committed.turn.id, FAKE_GM_REPLY);
   } else {
     if ('narration' in outcome && reply !== undefined) voice?.settle(reply);
-    commitProposals(store, createEntityStore(database), createFactStore(database), committed, proposals);
+    commitProposals(
+      store,
+      createEntityStore(database),
+      createFactStore(database),
+      committed,
+      proposals,
+      checkRulesFor(state.events, rulesStrictnessFor(state, defaults)),
+    );
   }
   if (sent !== undefined)
     recordContextDiagnostics(store, {
@@ -921,9 +929,9 @@ const act = async (
         input,
         intent: input,
       },
-      checkFor(
+      checkForAction(
         state.events,
-        input,
+        { input },
         actor.id,
         worldOf(database)(campaignId, actor.id).entities,
         rulesStrictnessFor(state, session.gmDefaults()),

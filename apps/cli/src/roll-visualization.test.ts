@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { VISUALIZATION_EVENT } from '../../../packages/client-protocol/src/visualization.ts';
-import { CAMPAIGN_CONFIGURED, type CampaignEvent } from '../../../packages/domain/src/campaign.ts';
+import {
+  CAMPAIGN_CONFIGURED,
+  type CampaignEvent,
+  CHECK_OFFERED,
+  PLAYER_ACTION_SUBMITTED,
+} from '../../../packages/domain/src/campaign.ts';
 import { CHARACTER_CREATED, SHEET_FIELD_EDITED } from '../../../packages/engine/src/character.ts';
 import { GM_SETTINGS_SAVED } from '../../../packages/engine/src/gm-settings.ts';
 import { generateCampaignConfig } from '../../../packages/intent/src/config.ts';
@@ -19,10 +24,13 @@ import { DEFAULT_POOL_CONFIG, rollPool } from '../../../packages/rules/src/dice-
 import { BUILT_IN_PACKS } from './import-gateway.ts';
 import {
   checkFor,
+  checkForAction,
   checkResult,
+  checkRulesFor,
   DICE_MECHANIC,
   emitVisualizations,
   enforcedStrictnessFor,
+  offeredCheckFor,
   POOL_MECHANIC,
   poolResult,
   resultsOf,
@@ -341,4 +349,68 @@ test('rpg-42a.58: nouns that look like attack verbs do not call for a check', ()
   const campaign = [...configured(builtInConfig('d20-lite')), heroCreated(ATTRIBUTES)];
   for (const input of ['I light a fire', 'I strike a deal with the merchant', 'I warm my hands by the fire'])
     assert.equal(checkFor(campaign, input, HERO, undefined, 'as-written'), undefined, input);
+});
+
+const D20_SIDES = 20;
+const OFFER = { offerId: 'tam-attack', ruleId: 'attack.melee', target: 'Old Tam', label: 'Attack Old Tam' };
+
+test('rpg-42a.74: the d20 pack lists the check rules a GM may call, and off lists none', () => {
+  const campaign = [...configured(builtInConfig('d20-lite')), heroCreated(ATTRIBUTES)];
+  for (const strictness of ['as-written', 'relaxed'] as const) {
+    const rules = checkRulesFor(campaign, strictness);
+    assert.ok(rules.includes('attack.melee') && rules.includes('attack.ranged'), strictness);
+  }
+  assert.deepEqual(checkRulesFor(campaign, 'off'), []);
+  assert.deepEqual(checkRulesFor(configured(builtInConfig('d20-lite', 'off')), 'as-written'), []);
+  assert.deepEqual(checkRulesFor([], 'as-written'), []);
+});
+
+test('rpg-42a.74: an offered rule rolls a d20 whatever the player typed', () => {
+  const campaign = [...configured(builtInConfig('d20-lite')), heroCreated({ ...ATTRIBUTES, might: 8, agility: 3 })];
+  const melee = offeredCheckFor(campaign, OFFER, HERO)?.('a', createSeededRng(SEED));
+  assert.equal(melee?.rolls[0]?.pool.dice[0]?.sides, D20_SIDES);
+  assert.equal(melee?.bonus, MIGHT_MOD);
+  const ranged = offeredCheckFor(campaign, { ...OFFER, ruleId: 'attack.ranged' }, HERO)?.('a', createSeededRng(SEED));
+  assert.equal(ranged?.bonus, -2);
+});
+
+test('rpg-42a.74: an offered rule the pack does not define is refused', () => {
+  const campaign = [...configured(builtInConfig('d20-lite')), heroCreated(ATTRIBUTES)];
+  assert.equal(offeredCheckFor(campaign, { ...OFFER, ruleId: 'attack.vorpal' }, HERO), undefined);
+  assert.equal(offeredCheckFor([], OFFER, HERO), undefined);
+});
+
+const submitted = (input: string) =>
+  ({ type: PLAYER_ACTION_SUBMITTED, payload: { input } }) as unknown as CampaignEvent;
+const offered = (offer = { ...OFFER, ruleId: 'attack.ranged' }) =>
+  ({ type: CHECK_OFFERED, payload: { offer } }) as unknown as CampaignEvent;
+const RANGED_BONUS = -2;
+const LOCK = 'I try to pick the lock';
+
+test('rpg-42a.74: a text reply accepts the open offer only while no player action follows it', () => {
+  const base = [...configured(builtInConfig('d20-lite')), heroCreated({ ...ATTRIBUTES, might: 8, agility: 3 })];
+  const bonusOf = (events: readonly CampaignEvent[], input: string) =>
+    checkForAction(events, { input }, HERO, undefined, 'as-written')?.('a', createSeededRng(SEED)).bonus;
+  const open = [...base, submitted('I shoot at Tam'), offered()];
+  assert.equal(bonusOf(open, LOCK), RANGED_BONUS);
+  const proposalTurn = [...open, submitted('GM proposal entity stranger')];
+  assert.equal(bonusOf(proposalTurn, LOCK), RANGED_BONUS);
+  const moved = [...open, submitted('I look at the bar')];
+  assert.equal(bonusOf(moved, LOCK), MIGHT_MOD);
+});
+
+test('rpg-42a.74: an offer id is still accepted after later actions', () => {
+  const base = [...configured(builtInConfig('d20-lite')), heroCreated({ ...ATTRIBUTES, might: 8, agility: 3 })];
+  const events = [...base, offered(), submitted('I look at the bar')];
+  const check = checkForAction(events, { input: 'Yes', rollOfferId: OFFER.offerId }, HERO, undefined, 'as-written');
+  assert.equal(check?.('a', createSeededRng(SEED)).bonus, RANGED_BONUS);
+});
+
+test('rpg-42a.74: an offer id whose rule the pack no longer defines is closed, not a plain action', () => {
+  const base = [...configured(builtInConfig('d20-lite')), heroCreated(ATTRIBUTES)];
+  const events = [...base, offered({ ...OFFER, ruleId: 'attack.vorpal' })];
+  assert.throws(
+    () => checkForAction(events, { input: 'Yes', rollOfferId: OFFER.offerId }, HERO, undefined, 'as-written'),
+    /no longer open/,
+  );
 });

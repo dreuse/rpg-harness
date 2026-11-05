@@ -6,6 +6,7 @@ import {
   type EntityStore,
   type FactStore,
 } from '../../../packages/domain/src/entity.ts';
+import { GM_PROPOSAL_INPUT, offerCheck } from '../../../packages/engine/src/check-offer.ts';
 import { introduceEntity, openPending } from '../../../packages/engine/src/memory.ts';
 import {
   ActionIdConflictError,
@@ -14,6 +15,7 @@ import {
   type PlayerAction,
 } from '../../../packages/engine/src/turn.ts';
 import { PENDING_KINDS, type PendingKind } from '../../../packages/memory/src/graph.ts';
+import type { NarrationClaim } from '../../../packages/narrative/src/consistency.ts';
 import { isRecord } from '../../../packages/rules/src/rulepack.ts';
 
 export const MAX_PROPOSALS = 8;
@@ -23,18 +25,27 @@ export const MAX_FACT_LENGTH = 300;
 export const MAX_FACTS = 5;
 export const MAX_PENDING_TEXT_LENGTH = 300;
 export const MAX_PENDING_ENTITIES = 5;
+export const MAX_LABEL_LENGTH = 120;
+export const MAX_OUTCOME_LENGTH = 200;
 export const PROPOSAL_ENTITY_KINDS = ENTITY_KINDS.filter((kind) => kind !== 'character');
 export const PROPOSAL_VISIBILITIES = ['player', 'gm'] as const;
 export const ENTITY_PROPOSAL = 'entity';
 export const PENDING_PROPOSAL = 'pending';
+export const CHECK_PROPOSAL = 'check';
+export const OUTCOME_PROPOSAL = 'outcome';
 
 const ID_PATTERN = '^[a-z0-9][a-z0-9-]*$';
 const ID_REGEX = new RegExp(ID_PATTERN);
+const RULE_ID_PATTERN = '^[a-z0-9][a-z0-9.-]*$';
+const RULE_ID_REGEX = new RegExp(RULE_ID_PATTERN);
+const NO_RULES: readonly string[] = [];
 const DEFAULT_VISIBILITY = 'player';
 const FACT_LAYER = 'canon';
 const PROPOSAL_KEYS = {
   [ENTITY_PROPOSAL]: ['kind', 'id', 'entityKind', 'name', 'facts', 'visibility'],
   [PENDING_PROPOSAL]: ['kind', 'id', 'pendingKind', 'text', 'entityIds', 'visibility'],
+  [CHECK_PROPOSAL]: ['kind', 'id', 'ruleId', 'target', 'label'],
+  [OUTCOME_PROPOSAL]: ['kind', 'id', 'text'],
 } as const;
 
 type ProposalVisibility = (typeof PROPOSAL_VISIBILITIES)[number];
@@ -57,7 +68,21 @@ export type PendingProposal = {
   readonly visibility: ProposalVisibility;
 };
 
-export type GmProposal = EntityProposal | PendingProposal;
+export type CheckProposal = {
+  readonly kind: typeof CHECK_PROPOSAL;
+  readonly id: string;
+  readonly ruleId: string;
+  readonly target: string;
+  readonly label: string;
+};
+
+export type OutcomeProposal = {
+  readonly kind: typeof OUTCOME_PROPOSAL;
+  readonly id: string;
+  readonly text: string;
+};
+
+export type GmProposal = EntityProposal | PendingProposal | CheckProposal | OutcomeProposal;
 
 const idSchema = { type: 'string', maxLength: MAX_ID_LENGTH, pattern: ID_PATTERN } as const;
 const visibilitySchema = { type: 'string', enum: PROPOSAL_VISIBILITIES } as const;
@@ -91,6 +116,28 @@ export const PROPOSALS_SCHEMA = {
           visibility: visibilitySchema,
         },
         required: ['kind', 'id', 'pendingKind', 'text', 'entityIds'],
+        additionalProperties: false,
+      },
+      {
+        type: 'object',
+        properties: {
+          kind: { const: CHECK_PROPOSAL },
+          id: idSchema,
+          ruleId: { type: 'string', maxLength: MAX_ID_LENGTH, pattern: RULE_ID_PATTERN },
+          target: { type: 'string', maxLength: MAX_NAME_LENGTH },
+          label: { type: 'string', maxLength: MAX_LABEL_LENGTH },
+        },
+        required: ['kind', 'id', 'ruleId', 'target', 'label'],
+        additionalProperties: false,
+      },
+      {
+        type: 'object',
+        properties: {
+          kind: { const: OUTCOME_PROPOSAL },
+          id: idSchema,
+          text: { type: 'string', maxLength: MAX_OUTCOME_LENGTH },
+        },
+        required: ['kind', 'id', 'text'],
         additionalProperties: false,
       },
     ],
@@ -137,12 +184,34 @@ const pendingOf = (value: Record<string, unknown>): PendingProposal | undefined 
   return { kind: PENDING_PROPOSAL, id, pendingKind, text, entityIds, visibility };
 };
 
+const checkOf = (value: Record<string, unknown>): CheckProposal | undefined => {
+  const id = idOf(value.id);
+  const ruleId = typeof value.ruleId === 'string' && RULE_ID_REGEX.test(value.ruleId) ? value.ruleId : undefined;
+  const target = textOf(value.target, MAX_NAME_LENGTH);
+  const label = textOf(value.label, MAX_LABEL_LENGTH);
+  if (id === undefined || ruleId === undefined || target === undefined || label === undefined) return undefined;
+  return { kind: CHECK_PROPOSAL, id, ruleId, target, label };
+};
+
+const outcomeOf = (value: Record<string, unknown>): OutcomeProposal | undefined => {
+  const id = idOf(value.id);
+  const text = textOf(value.text, MAX_OUTCOME_LENGTH);
+  return id === undefined || text === undefined ? undefined : { kind: OUTCOME_PROPOSAL, id, text };
+};
+
+const PARSERS = {
+  [ENTITY_PROPOSAL]: entityOf,
+  [PENDING_PROPOSAL]: pendingOf,
+  [CHECK_PROPOSAL]: checkOf,
+  [OUTCOME_PROPOSAL]: outcomeOf,
+} as const;
+
 const proposalOf = (value: unknown): GmProposal | undefined => {
   if (!isRecord(value)) return undefined;
-  const kind = value.kind === ENTITY_PROPOSAL || value.kind === PENDING_PROPOSAL ? value.kind : undefined;
+  const kind = Object.keys(PARSERS).find((known): known is keyof typeof PARSERS => known === value.kind);
   if (kind === undefined || !Object.keys(value).every((key) => PROPOSAL_KEYS[kind].some((known) => known === key)))
     return undefined;
-  return kind === ENTITY_PROPOSAL ? entityOf(value) : pendingOf(value);
+  return PARSERS[kind](value);
 };
 
 export const proposalsOf = (value: unknown): readonly GmProposal[] | undefined => {
@@ -150,6 +219,11 @@ export const proposalsOf = (value: unknown): readonly GmProposal[] | undefined =
   const proposals = listOf(listed, MAX_PROPOSALS, proposalOf);
   return proposals === undefined || proposals.length === 0 ? undefined : proposals;
 };
+
+export const outcomeClaimsOf = (proposals: readonly GmProposal[]): NarrationClaim[] =>
+  proposals.flatMap((proposal) =>
+    proposal.kind === OUTCOME_PROPOSAL ? [{ kind: 'outcome' as const, ref: proposal.text }] : [],
+  );
 
 const REFUSALS = [InvalidActionError, ActionIdConflictError, StaleRevisionError];
 
@@ -159,7 +233,7 @@ const actionFor = (committed: CommittedTurn, { kind, id }: GmProposal, revision:
   expectedRevision: revision,
   sceneId: committed.turn.sceneId,
   actorId: committed.turn.actorId,
-  input: `GM proposal ${kind} ${id}`,
+  input: `${GM_PROPOSAL_INPUT}${kind} ${id}`,
   intent: `The GM records ${kind} ${id}.`,
 });
 
@@ -169,13 +243,21 @@ export const commitProposals = (
   facts: FactStore,
   committed: CommittedTurn,
   proposals: readonly GmProposal[],
+  checkRules: readonly string[] = NO_RULES,
 ): readonly CommittedTurn[] => {
   const { campaignId } = committed.turn;
   const results: CommittedTurn[] = [];
   for (const proposal of proposals) {
+    if (proposal.kind === OUTCOME_PROPOSAL) continue;
     const action = actionFor(committed, proposal, loadState(store, campaignId).revision);
-    const scope = { visibility: proposal.visibility, actorId: null };
     try {
+      if (proposal.kind === CHECK_PROPOSAL) {
+        const { id: offerId, ruleId, target, label } = proposal;
+        if (checkRules.includes(ruleId))
+          results.push(offerCheck(store, { ...action, offer: { offerId, ruleId, target, label } }));
+        continue;
+      }
+      const scope = { visibility: proposal.visibility, actorId: null };
       if (proposal.kind === ENTITY_PROPOSAL)
         results.push(
           introduceEntity(store, entities, facts, {

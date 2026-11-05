@@ -44,6 +44,15 @@ const DEBT = {
   entityIds: ['stranger'],
 };
 
+const ATTACK_CHECK = {
+  kind: 'check',
+  id: 'tam-attack',
+  ruleId: 'attack.melee',
+  target: 'Old Tam',
+  label: 'Attack Old Tam with your sword',
+};
+const HIT_OUTCOME = { kind: 'outcome', id: 'tam-hit', text: 'a hit on Old Tam' };
+
 const tempDataDir = (t: TestContext) => {
   const dataDir = mkdtempSync(join(tmpdir(), 'rpg-proposals-'));
   t.after(() => rmSync(dataDir, { recursive: true, force: true }));
@@ -104,7 +113,17 @@ describe('rpg-42a.43 GM proposals', () => {
     assert.equal(proposalsOf('proposals'), undefined);
   });
 
+  it('parses a check proposal and a declared outcome', () => {
+    assert.deepEqual(proposalsOf({ proposals: [ATTACK_CHECK, HIT_OUTCOME] }), [ATTACK_CHECK, HIT_OUTCOME]);
+  });
+
   const invalid: readonly [string, unknown][] = [
+    ['check without a rule', [{ ...ATTACK_CHECK, ruleId: undefined }]],
+    ['check with a spaced rule', [{ ...ATTACK_CHECK, ruleId: 'attack melee' }]],
+    ['check without a target', [{ ...ATTACK_CHECK, target: ' ' }]],
+    ['check with an unknown key', [{ ...ATTACK_CHECK, dc: 1 }]],
+    ['outcome without text', [{ ...HIT_OUTCOME, text: '' }]],
+    ['outcome with an unknown key', [{ ...HIT_OUTCOME, damage: 5 }]],
     ['not a list', 'oops'],
     ['unknown kind', [{ ...STRANGER, kind: 'tool_call' }]],
     ['unknown key', [{ ...STRANGER, run: 'rm -rf /' }]],

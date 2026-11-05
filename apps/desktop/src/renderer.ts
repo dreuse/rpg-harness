@@ -295,6 +295,7 @@ export const viewModel = (
         ? { ...turn, narration: state.streaming.text }
         : turn,
     ),
+    rollOffer: pending.length === 0 ? state.snapshot?.rollOffer : undefined,
     sheet: state.views[SHEET_VIEW],
     sheetGroups: sheetGroupsOf(state.views[SHEET_VIEW]?.components ?? [], state, preferences.locale),
     sheetEditing: state.sheetEditing,
@@ -673,6 +674,30 @@ export const createDesktopClient = ({
   transport.onClose(disconnect);
   transport.connect();
 
+  const submitAction = (input: string, rollOfferId?: string): Result<SubmitPlayerAction> => {
+    const { snapshot } = state;
+    const sceneId = snapshot?.currentScene?.id;
+    const actorId = snapshot?.characters[0]?.id;
+    if (snapshot === undefined || sceneId === undefined || actorId === undefined)
+      return failure('Rejected', 'no scene or character to act in yet');
+    const parsed = parseCommand({
+      version: PROTOCOL_VERSION,
+      type: 'SubmitPlayerAction',
+      campaignId: snapshot.campaignId,
+      actionId: newActionId(),
+      expectedRevision: snapshot.revision,
+      sceneId,
+      actorId,
+      input,
+      ...(rollOfferId === undefined ? {} : { rollOfferId }),
+    });
+    if (!parsed.ok) return parsed;
+    const action = parsed.value as SubmitPlayerAction;
+    update({ outbox: [...state.outbox, action], streaming: undefined });
+    if (!resendOnSnapshot) send(action);
+    return { ok: true, value: action };
+  };
+
   return {
     state: () => state,
     subscribe: (listener: (state: DesktopState) => void) => {
@@ -718,28 +743,13 @@ export const createDesktopClient = ({
     },
     unarchive: (name: string) => sendNamed('UnarchiveCampaign', name),
     search: (query: string) => update({ home: { ...state.home, query } }),
-    submit: (input: string): Result<SubmitPlayerAction> => {
-      const { snapshot } = state;
-      const sceneId = snapshot?.currentScene?.id;
-      const actorId = snapshot?.characters[0]?.id;
-      if (snapshot === undefined || sceneId === undefined || actorId === undefined)
-        return failure('Rejected', 'no scene or character to act in yet');
-      const parsed = parseCommand({
-        version: PROTOCOL_VERSION,
-        type: 'SubmitPlayerAction',
-        campaignId: snapshot.campaignId,
-        actionId: newActionId(),
-        expectedRevision: snapshot.revision,
-        sceneId,
-        actorId,
-        input,
-      });
-      if (!parsed.ok) return parsed;
-      const action = parsed.value as SubmitPlayerAction;
-      update({ outbox: [...state.outbox, action], streaming: undefined });
-      if (!resendOnSnapshot) send(action);
-      return { ok: true, value: action };
+    acceptRoll: (): Result<SubmitPlayerAction> => {
+      const offer = state.snapshot?.rollOffer;
+      return offer === undefined
+        ? failure('Rejected', 'no roll is offered right now')
+        : submitAction(offer.label, offer.offerId);
     },
+    submit: (input: string): Result<SubmitPlayerAction> => submitAction(input),
     startScreen: () => startScreen(state.start.draft, state.start.options, state.start.plan, locale()),
     openStart: () => {
       update({ start: { ...state.start, open: true, created: undefined } });

@@ -140,6 +140,12 @@ export const attackTable = (damageSides: number): RuleDsl[] => [
   rule('attack.miss', emit('attack.miss')),
 ];
 
+export const D20_LITE_CHECK_RULES: Readonly<Record<string, Attribute>> = {
+  'attack.melee': 'might',
+  'attack.ranged': 'agility',
+  ...Object.fromEntries(ATTRIBUTES.map((attribute) => [`check.${attribute}`, attribute])),
+};
+
 export const D20_LITE_RULES = {
   exert: {
     dslVersion: RULE_DSL_VERSION,

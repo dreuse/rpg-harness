@@ -36,6 +36,7 @@ import {
   RULES_RETRY_PROMPT,
 } from './gm-api.ts';
 import { SCENE_TURN_LIMIT, type Summarizer } from './gm-context.ts';
+import type { GmProposal } from './gm-proposals.ts';
 import { narrationOf } from './gm-segments.ts';
 import { hermeticGmEnv } from './gm-test-env.ts';
 
@@ -362,11 +363,18 @@ describe('rpg-42a.58 rules strictness in the GM path', () => {
     return dataDir;
   };
 
+  const OUTCOME: GmProposal = { kind: 'outcome', id: 'result', text: 'a mechanical result' };
+  const CLAIMING = new Set([HIT, 'Sua lâmina acerta o goblin.']);
+
   const scriptedGm = (replies: readonly string[], packets: ContextPacket[]): GameMaster => ({
     request: async (packet) => {
       packets.push(packet);
       const narration = replies[Math.min(packets.length, replies.length) - 1] ?? '';
-      return { narration, segments: [{ text: narration }] };
+      return {
+        narration,
+        segments: [{ text: narration }],
+        ...(CLAIMING.has(narration) ? { proposals: [OUTCOME] } : {}),
+      };
     },
     summarizer: FAKE_GAME_MASTER.summarizer,
   });

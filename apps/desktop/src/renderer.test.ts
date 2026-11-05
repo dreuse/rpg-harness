@@ -958,3 +958,40 @@ test('rpg-42a.67: the story language is sent at the snapshot revision as SetCamp
   });
   assert.equal(client.setStoryLanguage('not a locale!').ok, false);
 });
+
+const ROLL_OFFER = {
+  offerId: 'tam-attack',
+  ruleId: 'attack.melee',
+  target: 'Old Tam',
+  label: 'Attack Old Tam with your sword',
+};
+
+test('rpg-42a.74: an open roll offer is a button naming the check, and accepting it sends the offer id', () => {
+  const { wire, client } = connectedClient();
+  assert.equal(viewModel(client.state(), WIDE_WIDTH).rollOffer, undefined);
+  assert.doesNotMatch(renderView(viewModel(client.state(), WIDE_WIDTH), 'en'), /data-roll-offer/);
+  wire.receive({ type: 'Snapshot', snapshot: { ...snapshotAt(2, ['old']), rollOffer: ROLL_OFFER } });
+  assert.deepEqual(viewModel(client.state(), WIDE_WIDTH).rollOffer, ROLL_OFFER);
+  assert.match(
+    renderView(viewModel(client.state(), WIDE_WIDTH), 'en'),
+    /<button type="button" data-roll-offer="tam-attack"[^>]*>Roll: Attack Old Tam with your sword<\/button>/,
+  );
+  assert.equal(client.acceptRoll().ok, true);
+  assert.deepEqual(wire.sent.at(-1), {
+    version: PROTOCOL_VERSION,
+    type: 'SubmitPlayerAction',
+    campaignId: CAMPAIGN,
+    actionId: 'a0',
+    expectedRevision: 2,
+    sceneId: 's1',
+    actorId: 'hero',
+    input: ROLL_OFFER.label,
+    rollOfferId: ROLL_OFFER.offerId,
+  });
+  assert.equal(viewModel(client.state(), WIDE_WIDTH).rollOffer, undefined);
+});
+
+test('rpg-42a.74: accepting a roll with no open offer is rejected', () => {
+  const { client } = connectedClient();
+  assert.equal(client.acceptRoll().ok, false);
+});

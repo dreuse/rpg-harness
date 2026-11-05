@@ -18,6 +18,7 @@ export const CAMPAIGN_CONFIGURED = 'CampaignConfigured';
 export const PLAYER_ACTION_SUBMITTED = 'PlayerActionSubmitted';
 export const ACTION_VALIDATED = 'ActionValidated';
 export const CHECK_RESOLVED = 'CheckResolved';
+export const CHECK_OFFERED = 'CheckOffered';
 export const EVENT_BUCKETS = ['background', 'emerging', 'major', 'critical'] as const;
 export type EventBucket = (typeof EVENT_BUCKETS)[number];
 

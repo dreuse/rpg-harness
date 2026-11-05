@@ -540,6 +540,19 @@ const rollTray = ({ rolls: [latest, ...older] }: ViewModel, locale: string) =>
     ? ''
     : `<section data-rolls aria-label="${escapeHtml(translate(locale, 'region.rolls'))}">${renderRoll(latest, locale)}${rollHistory(older, locale)}</section>`;
 
+export const ROLL_OFFER_ATTRIBUTE = 'data-roll-offer';
+
+const rollOfferButton = ({ rollOffer }: ViewModel, locale: string) =>
+  rollOffer === undefined
+    ? ''
+    : button(
+        ROLL_OFFER_ATTRIBUTE,
+        rollOffer.offerId,
+        `${translate(locale, 'roll.offer')}${LABEL_SEPARATOR}${rollOffer.label}`,
+        false,
+        true,
+      );
+
 export const SHEET_FORM = 'data-sheet-form';
 export const SHEET_ACTION = 'data-sheet-action';
 export const SHEET_INPUT = 'sheet-field-';
@@ -607,7 +620,9 @@ const REGION_BODIES: Readonly<Record<Region, (model: ViewModel, locale: string) 
         ({ actionId, input, narration, pending }) =>
           `<li data-action-id="${escapeHtml(actionId)}"${pending ? ' aria-busy="true"' : ''}>${actionId === OPENING_ACTION_ID ? '' : speaker(locale, 'player', input)}${gmLine(locale, narration, pending)}</li>`,
       )
-      .join('')}</ol>${model.conversation.length === 0 ? empty(locale, 'conversation') : ''}${rollTray(model, locale)}`,
+      .join(
+        '',
+      )}</ol>${model.conversation.length === 0 ? empty(locale, 'conversation') : ''}${rollOfferButton(model, locale)}${rollTray(model, locale)}`,
   sheet: ({ sheetGroups, sheetEditing, character }, locale) => {
     const name = character === undefined ? '' : `<h3>${escapeHtml(character)}</h3>`;
     if (sheetGroups.length > 0) return sheetBody(sheetGroups, sheetEditing, name, locale);

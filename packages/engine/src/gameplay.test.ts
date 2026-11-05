@@ -15,6 +15,7 @@ import { createScriptedRng } from '../../testkit/src/fixtures.ts';
 import { actInEncounter, type EncounterMove, startEncounter } from './encounter.ts';
 import {
   type GameplayOutcome,
+  type NarratedTurn,
   type NarrationContext,
   type Narrator,
   narrateTurn,
@@ -415,16 +416,18 @@ test('rpg-42a.28 an async narrator narrates a committed turn through the same co
 });
 
 const HIT_NARRATION = 'Your blade hits the goblin for 5 damage.';
+const HIT_REPLY: NarratedTurn = { narration: HIT_NARRATION, claims: [{ kind: 'outcome', ref: 'hit on the goblin' }] };
 const MISS_FREE_NARRATION = 'The goblin snarls and waits for your move.';
+const MISS_FREE_REPLY: NarratedTurn = { narration: MISS_FREE_NARRATION, claims: [] };
 const AS_WRITTEN: NarrationContext = { ...CONTEXT, rulesStrictness: 'as-written' };
 const RESOLVED_CHECK = () => ({ rolls: [], events: [] });
 
-const scripted = (...replies: string[]) => {
+const scripted = (...replies: NarratedTurn[]) => {
   const retries: (readonly string[] | undefined)[] = [];
   const narrator = {
     narrate: async (_committed: CommittedTurn, retry?: readonly { readonly kind: string }[]) => {
       retries.push(retry?.map(({ kind }) => kind));
-      return { narration: replies[Math.min(retries.length, replies.length) - 1] ?? '', claims: [] };
+      return replies[Math.min(retries.length, replies.length) - 1] ?? { narration: '', claims: [] };
     },
   };
   return { narrator, retries };
@@ -434,7 +437,7 @@ test('rpg-42a.58: as-written rejects a hit with no resolved attack and regenerat
   const { store, close } = open();
   try {
     const committed = performAction(store, actionFor(store, 'swing'));
-    const { narrator, retries } = scripted(HIT_NARRATION, MISS_FREE_NARRATION);
+    const { narrator, retries } = scripted(HIT_REPLY, MISS_FREE_REPLY);
     const outcome = narrated(await narrateTurn(store, narrator, committed, AS_WRITTEN));
     assert.equal(outcome.narration, MISS_FREE_NARRATION);
     assert.deepEqual(retries, [undefined, ['unresolved-outcome']]);
@@ -447,7 +450,7 @@ test('rpg-42a.58: a second rejected narration is not regenerated again and falls
   const { store, close } = open();
   try {
     const committed = performAction(store, actionFor(store, 'swing'));
-    const { narrator, retries } = scripted(HIT_NARRATION, HIT_NARRATION, MISS_FREE_NARRATION);
+    const { narrator, retries } = scripted(HIT_REPLY, HIT_REPLY, MISS_FREE_REPLY);
     const outcome = await narrateTurn(store, narrator, committed, AS_WRITTEN);
     assert.ok('inconsistent' in outcome);
     assert.equal(retries.length, 2);
@@ -460,7 +463,7 @@ test('rpg-42a.58: a resolved check lets the narration claim its result without a
   const { store, close } = open();
   try {
     const committed = performAction(store, actionFor(store, 'swing'), RESOLVED_CHECK);
-    const { narrator, retries } = scripted(HIT_NARRATION);
+    const { narrator, retries } = scripted(HIT_REPLY);
     assert.equal(narrated(await narrateTurn(store, narrator, committed, AS_WRITTEN)).narration, HIT_NARRATION);
     assert.equal(retries.length, 1);
   } finally {
@@ -473,7 +476,7 @@ test('rpg-42a.58: relaxed and off skip the check and never regenerate', async ()
     const { store, close } = open();
     try {
       const committed = performAction(store, actionFor(store, 'swing'));
-      const { narrator, retries } = scripted(HIT_NARRATION);
+      const { narrator, retries } = scripted(HIT_REPLY);
       const context = { ...CONTEXT, rulesStrictness };
       assert.equal(narrated(await narrateTurn(store, narrator, committed, context)).narration, HIT_NARRATION);
       assert.equal(retries.length, 1);

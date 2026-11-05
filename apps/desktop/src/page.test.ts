@@ -1265,3 +1265,23 @@ test('rpg-cm63.39 page keeps the typed entry and its focus when the sound downlo
   assert.equal(page.fields[ENTRY], 'I open the door');
   assert.equal(page.focused.at(-1), ENTRY);
 });
+
+test('rpg-42a.74 page accepts the roll offer from its button', () => {
+  const page = fakePage();
+  mount(page);
+  page.receive(READY);
+  page.receive({ type: 'Campaigns', campaigns: [SNAPSHOT.campaign] });
+  continueHarbor(page);
+  page.receive({
+    type: 'Snapshot',
+    snapshot: {
+      ...SNAPSHOT,
+      rollOffer: { offerId: 'tam-attack', ruleId: 'attack.melee', target: 'Old Tam', label: 'Attack' },
+    },
+  });
+  assert.match(page.root.innerHTML, /data-roll-offer="tam-attack"/);
+  page.click({ 'data-roll-offer': 'tam-attack' });
+  const command = page.sent.findLast(({ type }) => type === 'SubmitPlayerAction');
+  assert.ok(command && 'rollOfferId' in command);
+  assert.equal(command.rollOfferId, 'tam-attack');
+});

@@ -54,6 +54,7 @@ import { createEntityStore, createFactStore } from '../../../packages/persistenc
 import { touchesOf, walkGraph } from '../../../packages/persistence/src/graph.ts';
 import { scopedEventsOf, scopeLookupOf, worldOf } from './client-session.ts';
 import {
+  checkRulesPrompt,
   languageInstruction,
   OPENING_PROMPT,
   RULES_RETRY_PROMPT,
@@ -62,7 +63,7 @@ import {
 } from './gm-api.ts';
 import { budgetOf } from './gm-limits.ts';
 import { describeConfig, styleLinesOf } from './quickstart.ts';
-import { enforcedStrictnessFor, rulesStrictnessFor } from './roll-visualization.ts';
+import { checkRulesFor, enforcedStrictnessFor, rulesStrictnessFor } from './roll-visualization.ts';
 import { panelsOf } from './views.ts';
 
 export const SCENE_TURN_LIMIT = 20;
@@ -134,7 +135,9 @@ const strictnessInstructions = (config: ReturnType<typeof configOf>, state: Camp
   if (config === undefined || config.rulepack === null) return [];
   const strictness = rulesStrictnessFor(state, defaults);
   const promptApplies = strictness !== 'as-written' || enforcedStrictnessFor(state, defaults) !== undefined;
-  return promptApplies ? [RULES_STRICTNESS_PROMPTS[strictness]] : [];
+  if (!promptApplies) return [];
+  const ruleIds = checkRulesFor(state.events, strictness);
+  return [RULES_STRICTNESS_PROMPTS[strictness], ...(ruleIds.length === NONE ? [] : [checkRulesPrompt(ruleIds)])];
 };
 
 export const contextPacketOf = (

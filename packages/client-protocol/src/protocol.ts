@@ -116,6 +116,7 @@ export type SubmitPlayerAction = Envelope<'SubmitPlayerAction'> & {
   readonly sceneId: SceneId;
   readonly actorId: CharacterId;
   readonly input: string;
+  readonly rollOfferId?: string;
 };
 export type SelectCapability = Envelope<'SelectCapability'> & {
   readonly capabilityId: string;
@@ -236,6 +237,13 @@ export type CampaignPlan = {
 
 export type SpeakingNpc = { readonly id: string; readonly name: string };
 
+export type RollOffer = {
+  readonly offerId: string;
+  readonly ruleId: string;
+  readonly target: string;
+  readonly label: string;
+};
+
 export type CampaignSnapshot = {
   readonly version: ProtocolVersion;
   readonly campaignId: CampaignId;
@@ -245,6 +253,7 @@ export type CampaignSnapshot = {
   readonly speakers?: readonly SpeakingNpc[];
   readonly currentScene: Scene | undefined;
   readonly turns: readonly Turn[];
+  readonly rollOffer?: RollOffer;
   readonly language?: string;
   readonly voice?: SavedVoiceSettings;
   readonly gm?: GmSnapshot;
@@ -394,6 +403,7 @@ const COMMAND_FIELDS: Record<CommandType, Readonly<Record<string, FieldSpec>>> =
     sceneId: ID,
     actorId: ID,
     input: { kind: 'text' },
+    rollOfferId: { kind: 'id', optional: true },
   },
   SelectCapability: { capabilityId: ID, enabled: { kind: 'flag' } },
   RequestView: { viewId: ID },

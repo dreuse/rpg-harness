@@ -32,6 +32,7 @@ import {
   PANE_ATTRIBUTE,
   queryPreferences,
   queryStart,
+  ROLL_OFFER_ATTRIBUTE,
   renderView,
   SETTINGS_PANEL,
   SETTINGS_TOGGLE,
@@ -632,6 +633,7 @@ export const mountPage = ({
     const control = target?.closest(`[${START_CONTROL}]`)?.getAttribute(START_CONTROL);
     if (isStartControl(control)) return startControl(control);
     if (target?.closest(SKIP_SELECTOR)) return client.settle();
+    if (target?.closest(`[${ROLL_OFFER_ATTRIBUTE}]`)) return void client.acceptRoll();
     const sheet = target?.closest(`[${SHEET_ACTION}]`);
     if (sheet) return sheetAction(sheet.getAttribute(SHEET_ACTION));
     const motion = MOTION_SETTINGS.find(

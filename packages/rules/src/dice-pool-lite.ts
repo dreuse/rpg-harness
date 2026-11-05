@@ -29,6 +29,8 @@ export const DICE_POOL_LITE_MANIFEST: RulePackManifest = {
   sourceRefs: [],
 };
 
+export const DICE_POOL_LITE_CHECK_RULES: readonly string[] = ['check.pool'];
+
 export const DICE_POOL_LITE_CREATION = creationRulesOf(DICE_POOL_LITE_MANIFEST);
 
 export type PoolConfig = {

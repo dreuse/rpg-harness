@@ -16,6 +16,11 @@ import {
   rulesStrictnessOf,
 } from '../../../packages/domain/src/rules-usage.ts';
 import { profileOf } from '../../../packages/engine/src/character.ts';
+import {
+  type CheckOffer,
+  offerFollowsPlayerAction,
+  pendingCheckOffer,
+} from '../../../packages/engine/src/check-offer.ts';
 import { gmSettingsOf } from '../../../packages/engine/src/gm-settings.ts';
 import { type Check, campaignConfigOf } from '../../../packages/engine/src/turn.ts';
 import { type CampaignConfig, parseCampaignConfig } from '../../../packages/intent/src/config.ts';
@@ -27,6 +32,7 @@ import {
   attemptCheck,
   checkBonus,
   createSheet,
+  D20_LITE_CHECK_RULES,
   D20_LITE_MANIFEST,
   DEFAULT_CHECK_ATTRIBUTE,
   DEFAULT_CHECK_DC,
@@ -34,6 +40,7 @@ import {
 import { type RollEvent, replayRoll } from '../../../packages/rules/src/dice.ts';
 import {
   DEFAULT_POOL_CONFIG,
+  DICE_POOL_LITE_CHECK_RULES,
   DICE_POOL_LITE_MANIFEST,
   type PoolRoll,
   rollPool,
@@ -128,6 +135,9 @@ const ATTRIBUTE_WORDS: ReadonlyMap<string, Attribute> = new Map(
   } as const),
 );
 const NO_ENTITIES: readonly CampaignEntity[] = [];
+const NO_RULES: readonly string[] = [];
+const CLOSED_OFFER = 'the roll offer is no longer open';
+const AS_WRITTEN: RulesStrictness = 'as-written';
 const ISSUE_SEPARATOR = '; ';
 
 const rolled = <T>(result: { ok: true; roll: T } | { ok: false; issues: ManifestIssue[] }): T => {
@@ -150,16 +160,18 @@ type CheckSource = (
   actorId: CharacterId,
   input: string,
   worldProfile: unknown,
+  ruleId?: string,
 ) => Check | undefined;
 
-const d20Check: CheckSource = (events, actorId, input, worldProfile) => {
+const d20Check: CheckSource = (events, actorId, input, worldProfile, ruleId) => {
   const parsed = parseCharacterProfile(profileOf(events, actorId, worldProfile));
   if (!parsed.ok) return undefined;
   const scores = new Map(parsed.profile.traits.map(({ id, value }) => [id, value]));
   const attributes = Object.fromEntries(ATTRIBUTES.map((id) => [id, scores.get(id)]));
   if (!ATTRIBUTES.every((id) => isScore(attributes[id]))) return undefined;
   const sheet = createSheet({ characterId: actorId, attributes: attributes as Record<Attribute, number> });
-  const attribute = attributeOf(input);
+  const attribute = ruleId === undefined ? attributeOf(input) : D20_LITE_CHECK_RULES[ruleId];
+  if (attribute === undefined) return undefined;
   return (actionId, rng) => {
     const check = attemptCheck({ actionId, sheet, attribute, dc: DEFAULT_CHECK_DC, rng });
     if (!check.ok) throw new RangeError(check.error.issues.map(({ message }) => message).join(ISSUE_SEPARATOR));
@@ -167,14 +179,15 @@ const d20Check: CheckSource = (events, actorId, input, worldProfile) => {
   };
 };
 
-const CHECKS: readonly (readonly [RulePackManifest, CheckSource])[] = [
-  [D20_LITE_MANIFEST, d20Check],
+const CHECKS: readonly (readonly [RulePackManifest, CheckSource, readonly string[]])[] = [
+  [D20_LITE_MANIFEST, d20Check, Object.keys(D20_LITE_CHECK_RULES)],
   [
     DICE_POOL_LITE_MANIFEST,
     () => (actionId, rng) => {
       const roll = rolled(rollPool({ actionId, dice: BASE_POOL_DICE, config: DEFAULT_POOL_CONFIG, rng }));
       return { rolls: roll.rolls, events: [{ event: roll.outcome }] };
     },
+    DICE_POOL_LITE_CHECK_RULES,
   ],
 ];
 
@@ -204,21 +217,67 @@ export const enforcedStrictnessFor = (
   return strictness === 'as-written' && saved.ok && rollsDice(saved.config) ? strictness : undefined;
 };
 
+const checkEntryOf = (events: readonly CampaignEvent[], strictness: RulesStrictness) => {
+  const saved = parseCampaignConfig(campaignConfigOf(events));
+  if (!saved.ok || strictness === 'off' || !rollsDice(saved.config)) return undefined;
+  const { rulepack } = saved.config;
+  return CHECKS.find(
+    ([pack]) => pack.id === rulepack?.id && pack.edition === rulepack.edition && pack.revision === rulepack.revision,
+  );
+};
+
+export const checkRulesFor = (
+  events: readonly CampaignEvent[],
+  strictness: RulesStrictness = DEFAULT_RULES_STRICTNESS,
+): readonly string[] => checkEntryOf(events, strictness)?.[2] ?? NO_RULES;
+
+const worldProfileOf = (entities: readonly CampaignEntity[], actorId: CharacterId) =>
+  entities.find(({ id, kind }) => id === actorId && kind === CHARACTER_KIND)?.data;
+
 export const checkFor = (
   events: readonly CampaignEvent[],
   input: string,
   actorId: CharacterId,
   entities = NO_ENTITIES,
   strictness: RulesStrictness = DEFAULT_RULES_STRICTNESS,
+): Check | undefined =>
+  callsForCheck(input, strictness)
+    ? checkEntryOf(events, strictness)?.[1](events, actorId, input, worldProfileOf(entities, actorId))
+    : undefined;
+
+export const offeredCheckFor = (
+  events: readonly CampaignEvent[],
+  { ruleId, label }: Pick<CheckOffer, 'ruleId' | 'label'>,
+  actorId: CharacterId,
+  entities = NO_ENTITIES,
 ): Check | undefined => {
-  const saved = parseCampaignConfig(campaignConfigOf(events));
-  if (!saved.ok || !callsForCheck(input, strictness)) return undefined;
-  const { rulepack } = saved.config;
-  if (!rollsDice(saved.config)) return undefined;
-  const entity = entities.find(({ id, kind }) => id === actorId && kind === CHARACTER_KIND);
-  return CHECKS.find(
-    ([pack]) => pack.id === rulepack?.id && pack.edition === rulepack.edition && pack.revision === rulepack.revision,
-  )?.[1](events, actorId, input, entity?.data);
+  const entry = checkEntryOf(events, AS_WRITTEN);
+  return entry?.[2].includes(ruleId)
+    ? entry[1](events, actorId, label, worldProfileOf(entities, actorId), ruleId)
+    : undefined;
+};
+
+const acceptsOffer = (input: string) => wordsOf(input).some((word) => ATTEMPT_WORDS.has(word));
+
+export const checkForAction = (
+  events: readonly CampaignEvent[],
+  { input, rollOfferId }: { readonly input: string; readonly rollOfferId?: string | undefined },
+  actorId: CharacterId,
+  entities = NO_ENTITIES,
+  strictness: RulesStrictness = DEFAULT_RULES_STRICTNESS,
+): Check | undefined => {
+  const offer = pendingCheckOffer(events);
+  if (rollOfferId !== undefined && offer?.offerId !== rollOfferId) throw new RangeError(CLOSED_OFFER);
+  if (offer !== undefined && rollOfferId !== undefined) {
+    const offered = offeredCheckFor(events, offer, actorId, entities);
+    if (offered === undefined) throw new RangeError(CLOSED_OFFER);
+    return offered;
+  }
+  const textAccepts = offer !== undefined && acceptsOffer(input) && !offerFollowsPlayerAction(events);
+  return (
+    (textAccepts ? offeredCheckFor(events, offer, actorId, entities) : undefined) ??
+    checkFor(events, input, actorId, entities, strictness)
+  );
 };
 
 const revealsOf = ({ pool, draws }: RollEvent): MechanicReveal[] =>
