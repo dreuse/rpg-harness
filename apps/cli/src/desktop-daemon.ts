@@ -109,9 +109,13 @@ const replyCampaigns = (id: number) => {
   }
 };
 
-const changeCampaign = (command: Lifecycle, served: string | undefined) => {
+const changeCampaign = (command: Lifecycle, served: string | undefined, serveCreated: (name: string) => void) => {
   const dataDir = dataDirFromEnv();
-  if (command.type === 'CreateCampaign') return createCampaignFrom(dataDir, command);
+  if (command.type === 'CreateCampaign') {
+    const created = createCampaignFrom(dataDir, command);
+    serveCreated(command.name);
+    return created;
+  }
   if (served !== undefined && isSameCampaignFile(dataDir, command.name, served))
     throw new Error(`Campaign ${command.name} is open in this engine.`);
   if (command.type === 'ArchiveCampaign') archiveCampaign(dataDir, command.name);
@@ -119,9 +123,14 @@ const changeCampaign = (command: Lifecycle, served: string | undefined) => {
   return { version: PROTOCOL_VERSION, name: command.name };
 };
 
-const replyChange = (id: number, command: Lifecycle, served: string | undefined) => {
+const replyChange = (
+  id: number,
+  command: Lifecycle,
+  served: string | undefined,
+  serveCreated: (name: string) => void,
+) => {
   try {
-    return send({ id, type: 'Result', result: { ok: true, value: changeCampaign(command, served) } });
+    return send({ id, type: 'Result', result: { ok: true, value: changeCampaign(command, served, serveCreated) } });
   } catch (error) {
     return send({ id, type: 'Result', result: failureOf(error) });
   }
@@ -130,13 +139,22 @@ const replyChange = (id: number, command: Lifecycle, served: string | undefined)
 const replier = ({ name, campaign, problem }: Served) => {
   const subscriptions = new Map<number, Unsubscribe>();
 
+  const serveCreated = (next: string) => {
+    const opened = openClientSession(dataDirFromEnv(), next);
+    for (const unsubscribe of subscriptions.values()) unsubscribe();
+    subscriptions.clear();
+    campaign?.close();
+    name = next;
+    campaign = opened;
+  };
+
   const execute = (id: number, input: unknown) => {
     const parsed = parseCommand(input);
     if (!parsed.ok) return send({ id, type: 'Error', message: parsed.error.message });
     const command = parsed.value;
     if (command.type === 'ListCampaigns') return replyCampaigns(id);
     if (command.type === 'PlanCampaign') return send({ id, type: 'Result', result: planResult(command) });
-    if (!('campaignId' in command)) return replyChange(id, command, name);
+    if (!('campaignId' in command)) return replyChange(id, command, name, serveCreated);
     if (campaign === undefined) return send({ id, type: 'Error', message: problem });
     const { session, campaignId } = campaign;
     if (command.campaignId !== campaignId)

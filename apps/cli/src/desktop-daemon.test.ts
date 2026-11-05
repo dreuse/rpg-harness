@@ -521,11 +521,17 @@ describe('serve client-protocol commands over the desktop engine daemon', () => 
     );
     assert.equal(rejectionOf(await daemon.command(lifecycle('ArchiveCampaign', { name: CAMPAIGN }))), 'Rejected');
 
-    acceptedValue(
-      await daemon.command(lifecycle('DeleteCampaign', { name: SECOND_CAMPAIGN, confirm: SECOND_CAMPAIGN })),
+    assert.equal(
+      rejectionOf(
+        await daemon.command(lifecycle('DeleteCampaign', { name: SECOND_CAMPAIGN, confirm: SECOND_CAMPAIGN })),
+      ),
+      'Rejected',
     );
     acceptedValue(await daemon.command(lifecycle('DeleteCampaign', { name: CAMPAIGN, confirm: CAMPAIGN })));
-    assert.deepEqual(await summariesOf(daemon), []);
+    assert.deepEqual(
+      (await summariesOf(daemon)).map(({ name }) => name),
+      [SECOND_CAMPAIGN],
+    );
     assert.ok(!existsSync(campaignFile(join(dataDir, ARCHIVE_DIR), CAMPAIGN)));
   });
 
@@ -582,6 +588,27 @@ describe('serve client-protocol commands over the desktop engine daemon', () => 
     const chosen = lifecycle('PlanCampaign', { choices: { ruleset: { id: 'd20-lite', edition: '5e' } } });
     assert.equal(rejectionOf(await daemon.command(chosen)), 'UnknownEdition');
     assert.deepEqual(await campaignNames(daemon), []);
+  });
+
+  it('rpg-42a.20: serves the campaign it just created and refuses to archive or delete it', async (t) => {
+    const { env, campaignId } = await campaignEnv(t);
+    const dataDir = String(env[DATA_DIR_ENV]);
+    const daemon = supervise(t, { env });
+    const created = acceptedValue<CampaignSummary>(
+      await daemon.command(lifecycle('CreateCampaign', { name: SECOND_CAMPAIGN, intent: FANTASY_INTENT })),
+    );
+    assert.ok(created.id !== null);
+    const before = await snapshotOf(daemon, created.id);
+    acceptedValue<Accepted>(await daemon.command(actionCommand(before, ACTION)));
+    assert.equal((await daemon.command(snapshotCommand(campaignId))).type, 'Error');
+    assert.equal(
+      rejectionOf(await daemon.command(lifecycle('ArchiveCampaign', { name: SECOND_CAMPAIGN }))),
+      'Rejected',
+    );
+    const remove = lifecycle('DeleteCampaign', { name: SECOND_CAMPAIGN, confirm: SECOND_CAMPAIGN });
+    assert.equal(rejectionOf(await daemon.command(remove)), 'Rejected');
+    assert.ok(existsSync(campaignFile(dataDir, SECOND_CAMPAIGN)));
+    acceptedValue(await daemon.command(lifecycle('ArchiveCampaign', { name: CAMPAIGN })));
   });
 
   it('rpg-42a.12: refuses to archive or delete the campaign the engine serves', async (t) => {

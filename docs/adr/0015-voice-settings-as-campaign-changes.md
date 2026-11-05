@@ -1,4 +1,4 @@
-# ADR 0013 — Voice settings are campaign changes saved through the engine
+# ADR 0015 — Voice settings are campaign changes saved through the engine
 
 **Status:** Accepted. **Decision:** `ClientSession` gets a `SaveVoiceSettings` command with `microphone`, `spokenOutput`, `locale`, `speed` and an optional `consentGrantedAt`. The engine command `saveVoiceSettings` validates the settings with `toSavedVoiceSettings`. It writes a `VoiceSettingsSaved` event through the new `CampaignStore.recordChange`. `recordChange` checks the revision, advances it, and appends a campaign event with no turn. `CampaignSnapshot.voice` returns the latest saved settings.
 
