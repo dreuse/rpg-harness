@@ -14,11 +14,12 @@ import { createCharacterStore } from '../../../packages/persistence/src/characte
 import { MIGRATIONS, openDatabase } from '../../../packages/persistence/src/database.ts';
 import { createEntityStore } from '../../../packages/persistence/src/entity-store.ts';
 import type { CreationRules } from '../../../packages/rules/src/character-builder.ts';
+import { D20_LITE_CREATION } from '../../../packages/rules/src/d20-lite.ts';
 import { SHEET_SCHEMA_VERSION } from '../../../packages/rules/src/sheet-schema.ts';
 import { importSheet, SHEET_EXPORT_FORMAT } from '../../../packages/rules/src/sheet-view.ts';
 import { createEngineGateway, openClientSession, readCampaignState } from './engine-gateway.ts';
 import { main } from './main.ts';
-import { printable, renderView } from './views.ts';
+import { editableSheet, printable, renderView } from './views.ts';
 
 const CAMPAIGN = 'Ember';
 const ACTION = 'I light the lantern';
@@ -322,6 +323,15 @@ test('the sheet shows the character created by the engine under its identity nam
     ]);
   }));
 
+test('the sheet shows RulePack display names instead of trait ids', () =>
+  withDataDir(async (dataDir) => {
+    await run(dataDir, ['new', CAMPAIGN]);
+    createHero(dataDir, 'Wren', D20_LITE_CREATION, { might: 6, agility: 5, wits: 7, presence: 4 });
+    const sheet = await run(dataDir, ['sheet', CAMPAIGN]);
+    assert.match(sheet, / {2}Might: 6/);
+    assert.doesNotMatch(sheet, /might: 6/);
+  }));
+
 test('views and turns show the character created by rpg new instead of the default hero', () =>
   withDataDir(async (dataDir) => {
     const created = await run(
@@ -552,4 +562,19 @@ test('a d20-lite campaign accepts sheet edits from the client session and rolls 
     assert.match(await run(dataDir, ['sheet', CAMPAIGN]), /might: 8/i);
     await run(dataDir, ['play', CAMPAIGN], ['I try to climb the wall']);
     assert.equal(readCampaignState(dataDir, CAMPAIGN).events.at(-1)?.type, CHECK_RESOLVED);
+  }));
+
+test('an editable d20-lite sheet labels fields from the creation schema', () =>
+  withDataDir(async (dataDir) => {
+    await run(
+      dataDir,
+      ['new', CAMPAIGN, 'A fantasy adventure using the D20-Lite rules'],
+      ['A scout named Wren with might 6, agility 5, wits 7 and presence 4.'],
+    );
+    const state = readCampaignState(dataDir, CAMPAIGN);
+    const sheet = editableSheet(
+      { state, entities: [], relationships: [], eventScopes: [] },
+      state.characters[0]?.id ?? '',
+    );
+    assert.equal(sheet?.schema.fields.find(({ id }) => id === 'might')?.label, 'Might');
   }));

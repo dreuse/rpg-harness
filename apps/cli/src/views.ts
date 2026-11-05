@@ -33,6 +33,7 @@ import {
   type SheetViewer,
   type SheetViewInput,
 } from '../../../packages/rules/src/sheet-view.ts';
+import { creationRulesFor } from './quickstart.ts';
 
 export const VIEW_NAMES = ['sheet', 'sheet-export', 'inventory', 'journal', 'quests', 'encounter', 'recap'] as const;
 export type ViewName = (typeof VIEW_NAMES)[number];
@@ -103,14 +104,28 @@ const fieldVisibility = (declared: Readonly<Record<string, unknown>> | undefined
   return VISIBILITIES.find((known) => known === visibility) ?? HIDDEN_FIELD;
 };
 
+const traitLabels = (rulepack: Parameters<typeof creationRulesFor>[0]) =>
+  new Map(
+    (creationRulesFor(rulepack)?.schema.fields ?? []).flatMap(({ id, label }) =>
+      label === undefined ? [] : [[id, label] as const],
+    ),
+  );
+
+const labelOf = (labels: ReadonlyMap<string, string>, id: string) => {
+  const label = labels.get(id);
+  return label === undefined ? {} : { label };
+};
+
 const sheetInput = (source: ViewSource, hero: Character, viewer: SheetViewer): SheetViewInput | undefined => {
   const stored = storedProfile(source, hero);
   const parsed = stored === undefined ? undefined : parseCharacterProfile(stored.data);
   if (stored === undefined || !parsed?.ok || !isProfileVisibility(stored.visibility)) return undefined;
   const { profile } = parsed;
   const rulepack = { ...profile.rulepack, sourceRefs: [] };
+  const labels = traitLabels(profile.rulepack);
   const fields: SheetField[] = profile.traits.map(({ id, value }) => ({
     id,
+    ...labelOf(labels, id),
     widget: WIDGET_BY_TYPE[typeof value] ?? 'text',
     custom: false,
     visibility: fieldVisibility(stored.traitVisibility, id),
@@ -151,10 +166,11 @@ export const editableSheet = (
   const stored = hero === undefined ? undefined : storedProfile(source, hero);
   const parsed = stored === undefined ? undefined : parseCharacterProfile(stored.data);
   if (stored === undefined || !parsed?.ok) return undefined;
+  const labels = traitLabels(parsed.profile.rulepack);
   const fields = parsed.profile.traits.flatMap(({ id, value }) => {
     const type = EDIT_TYPE_BY_VALUE[typeof value];
     const editable = EDITABLE_FIELDS.includes(fieldVisibility(stored.traitVisibility, id));
-    return type === undefined || !editable ? [] : [{ id, label: id, type, editable, value }];
+    return type === undefined || !editable ? [] : [{ id, label: labels.get(id) ?? id, type, editable, value }];
   });
   return {
     schema: { fields: fields.map(({ value: _, ...field }) => field) },
