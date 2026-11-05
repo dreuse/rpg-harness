@@ -245,7 +245,7 @@ const voiceStorage = ({ providers, cacheBytes }: VoiceSetupView, locale: string)
     ({ id, name }) =>
       `<button type="button" ${VOICE_REMOVE}="${escapeHtml(id)}" aria-label="${escapeHtml(translate(locale, 'voice.removeLabel', { pack: name }))}">${escapeHtml(translate(locale, 'voice.remove'))}</button>`,
   );
-  return `<h3>${escapeHtml(translate(locale, 'voice.models'))}</h3>${
+  return `<h4>${escapeHtml(translate(locale, 'voice.models'))}</h4>${
     installed.length === 0
       ? `<p>${escapeHtml(translate(locale, 'voice.noModels'))}</p>`
       : `<ul>${installed.map(({ name }) => `<li>${escapeHtml(name)}</li>`).join('')}</ul>`
@@ -294,28 +294,22 @@ const voiceDiagnostics = (
   return `<details data-voice-troubleshooting><summary>${escapeHtml(translate(locale, 'voice.troubleshooting'))}</summary><dl data-voice-diagnostics>${rows.map(([name, value]) => `<dt>${escapeHtml(name)}</dt><dd>${escapeHtml(value)}</dd>`).join('')}</dl></details>`;
 };
 
-const advancedVoice = (setup: VoiceSetupView, locale: string, off: boolean) => {
+const voiceProvider = (setup: VoiceSetupView, locale: string) => {
   const ids = setup.speaking.map(({ id }) => id);
-  return `<details data-voice-advanced><summary>${escapeHtml(translate(locale, 'voice.advanced'))}</summary><div>${
-    ids.length === 0
-      ? ''
-      : select(
-          'voice-provider',
-          'providerId',
-          translate(locale, 'voice.provider'),
-          options(ids, setup.provider?.id, (id) => providerName(locale, id, ids)),
-        )
-  }${npcVoices(setup, locale, off)}${voiceStorage(setup, locale)}${voiceDiagnostics(setup, locale)}</div></details>`;
+  return ids.length === 0
+    ? ''
+    : select(
+        'voice-provider',
+        'providerId',
+        translate(locale, 'voice.provider'),
+        options(ids, setup.provider?.id, (id) => providerName(locale, id, ids)),
+      );
 };
 
 const voiceSettings = (voice: DesktopVoiceView | undefined, setup: VoiceSetupView | undefined, locale: string) =>
   voice === undefined
     ? ''
-    : `<p data-voice-summary>${escapeHtml(voiceLabel(locale, voice.preferences))}</p><p>${escapeHtml(translate(locale, 'voice.hint'))}</p>${
-        setup === undefined
-          ? ''
-          : `${basicVoice(voice, setup, locale)}${advancedVoice(setup, locale, voice.preferences.spokenOutput === 'off')}`
-      }`;
+    : `<p data-voice-hint>${escapeHtml(translate(locale, 'voice.hint'))}</p>${setup === undefined ? '' : `${basicVoice(voice, setup, locale)}${voiceProvider(setup, locale)}`}`;
 
 export const SOUND_FIELD_TOGGLE = 'data-sound-toggle';
 export const SOUND_FIELD_VOLUME = 'data-sound-volume';
@@ -368,13 +362,44 @@ const gmSettings = (gm: GmSnapshot | undefined, locale: string) => {
   return `<form ${GM_FORM}><fieldset><legend>${escapeHtml(translate(locale, 'gmModel.legend'))}</legend>${gmInputs(locale, campaign, defaults)}${strictnessControl(locale, campaign.rulesStrictness)}<datalist id="${GM_MODELS_LIST}">${options}</datalist><p id="${GM_HELP_ID}">${escapeHtml(translate(locale, 'gmModel.help'))}</p><button type="submit">${escapeHtml(translate(locale, 'gmModel.save'))}</button></fieldset></form>${gmUsage(gm)}<form ${GM_DEFAULTS_FORM}><fieldset><legend>${escapeHtml(translate(locale, 'gmModel.defaultsLegend'))}</legend>${gmInputs(locale, defaults, {})}<button type="submit">${escapeHtml(translate(locale, 'gmModel.saveDefaults'))}</button></fieldset></form>`;
 };
 
+const SETTINGS_HEADING_ID = 'settings-heading';
+export const SETTINGS_PANEL = 'data-settings-panel';
+const SETTINGS_PANEL_ID = 'settings-panel';
+export const SETTINGS_TOGGLE = 'data-settings-toggle';
+
+const settingsSection = (key: string, heading: string, body: string) =>
+  body === ''
+    ? ''
+    : `<section data-settings-section="${key}" aria-labelledby="settings-${key}"><h3 id="settings-${key}">${escapeHtml(heading)}</h3>${body}</section>`;
+
 const settingsMenu = (
   model: ViewModel,
   locale: string,
   voice: DesktopVoiceView | undefined,
   setup: VoiceSetupView | undefined,
-) =>
-  `<details data-settings><summary id="settings-toggle">${escapeHtml(translate(locale, 'settings.label'))}</summary><div>${languageControl(locale)}${storyLanguageControl(model.storyLanguage, locale)}${model.uses.dice ? motionControl(model.motion, locale) : ''}${voiceSettings(voice, setup, locale)}${soundPanel(model.sound, locale)}${gmSettings(model.gm, locale)}</div></details>`;
+) => {
+  const off = voice?.preferences.spokenOutput === 'off';
+  const sections = [
+    settingsSection(
+      'general',
+      translate(locale, 'settings.section.general'),
+      `${languageControl(locale)}${storyLanguageControl(model.storyLanguage, locale)}${model.uses.dice ? motionControl(model.motion, locale) : ''}${soundPanel(model.sound, locale)}`,
+    ),
+    settingsSection('voice', translate(locale, 'region.voice'), voiceSettings(voice, setup, locale)),
+    settingsSection(
+      'characters',
+      translate(locale, 'voice.npcs'),
+      setup === undefined ? '' : npcVoices(setup, locale, off === true),
+    ),
+    settingsSection('gm', translate(locale, 'settings.section.gm'), gmSettings(model.gm, locale)),
+    settingsSection(
+      'storage',
+      translate(locale, 'settings.section.storage'),
+      setup === undefined ? '' : `${voiceStorage(setup, locale)}${voiceDiagnostics(setup, locale)}`,
+    ),
+  ];
+  return `<details data-settings><summary id="settings-toggle" ${SETTINGS_TOGGLE}>${escapeHtml(translate(locale, 'settings.label'))}</summary><div id="${SETTINGS_PANEL_ID}" ${SETTINGS_PANEL} tabindex="-1" role="group" aria-labelledby="${SETTINGS_HEADING_ID}"><h2 id="${SETTINGS_HEADING_ID}">${escapeHtml(translate(locale, 'settings.label'))}</h2>${sections.join('')}</div></details>`;
+};
 
 const setupBody = ({ step, provider, progress, error }: VoiceSetupView, locale: string): string => {
   const text = (key: string, values?: Record<string, string | number>) =>

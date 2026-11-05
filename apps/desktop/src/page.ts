@@ -30,6 +30,8 @@ import {
   queryPreferences,
   queryStart,
   renderView,
+  SETTINGS_PANEL,
+  SETTINGS_TOGGLE,
   SHEET_ACTION,
   SHEET_FORM,
   SHEET_INPUT,
@@ -80,6 +82,7 @@ export const FORM_ID = 'action-form';
 export const INPUT_ID = 'action-input';
 
 const CLICK = 'click';
+const TOGGLE = 'toggle';
 const SUBMIT = 'submit';
 const RESIZE = 'resize';
 const INPUT = 'input';
@@ -100,11 +103,13 @@ const FOCUSED_SELECTOR = ':focus';
 const STEP_INDEX = /^\d+$/;
 const ARCHIVED_SELECTOR = '[data-archived]';
 const SETTINGS_SELECTOR = '[data-settings]';
+const OPEN_SETTINGS_SELECTOR = 'details[data-settings][open]';
+const SETTINGS_TOGGLE_ATTRIBUTE = `[${SETTINGS_TOGGLE}]`;
+const SETTINGS_PANEL_SELECTOR = `[${SETTINGS_PANEL}]`;
 const DISCLOSURE_SELECTORS = [
   '[data-diagnostics]',
   ARCHIVED_SELECTOR,
   SETTINGS_SELECTOR,
-  '[data-voice-advanced]',
   '[data-voice-troubleshooting]',
 ];
 const HOME_REGION = '[data-region="campaigns"]';
@@ -408,8 +413,12 @@ export const mountPage = ({
     const index = (archived ? home.archived : home.cards).findIndex(({ name }) => name === asked.name);
     if (index >= 0) root.querySelector<HTMLElement>(`#${homeActionId('more', index, archived)}`)?.focus();
   };
+  let focusPanelOnToggle = false;
   const closeMenu = (target: ClickTarget | undefined) => {
-    const menu = target?.closest(OPEN_MENU_SELECTOR) as unknown as HTMLDetailsElement | null | undefined;
+    const menu = (target?.closest(OPEN_SETTINGS_SELECTOR) ?? target?.closest(OPEN_MENU_SELECTOR)) as unknown as
+      | HTMLDetailsElement
+      | null
+      | undefined;
     if (!menu) return KEEP_DEFAULT;
     menu.open = false;
     menu.querySelector<HTMLElement>(MENU_TOGGLE_SELECTOR)?.focus();
@@ -525,8 +534,19 @@ export const mountPage = ({
   client.subscribe(observeSpeech);
   client.subscribe(settleLater);
   client.subscribe(render);
+  root.addEventListener(
+    TOGGLE,
+    (event) => {
+      const settings = event.target as unknown as HTMLDetailsElement;
+      if (!focusPanelOnToggle || !settings.matches(SETTINGS_SELECTOR)) return;
+      focusPanelOnToggle = false;
+      if (settings.open) settings.querySelector<HTMLElement>(SETTINGS_PANEL_SELECTOR)?.focus();
+    },
+    true,
+  );
   root.addEventListener(CLICK, (event) => {
     const target = closestTarget(event);
+    if (target?.closest(SETTINGS_TOGGLE_ATTRIBUTE)) focusPanelOnToggle = true;
     const home = target?.closest(`[${HOME_ATTRIBUTE}]`);
     if (home)
       return homeAction(

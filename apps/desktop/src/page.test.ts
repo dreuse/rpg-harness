@@ -141,6 +141,11 @@ const fakePage = () => {
       listeners.get('keys:keydown')?.(event(attributes, key, keys)),
     submit: (attributes: Record<string, string>) => listeners.get('root:submit')?.(event(attributes)),
     type: () => listeners.get('root:input')?.(event({})),
+    toggle: (open: boolean) =>
+      listeners.get('root:toggle')?.({
+        target: { matches: () => true, open, querySelector: node },
+        preventDefault: () => {},
+      }),
     change: (attributes: Record<string, string>, value: string, checked?: boolean) =>
       listeners.get('root:change')?.({ ...event(attributes), target: { ...target(attributes), value, checked } }),
   };
@@ -253,14 +258,14 @@ test('A18 page renders voice and opens the mic at startup when saved settings en
   assert.match(page.root.innerHTML, /Audio unavailable \(permission-denied\); type instead/);
   assert.match(
     page.root.innerHTML,
-    /<p data-voice-summary>Push to talk · Spoken output off · English · normal speed<\/p>/,
+    /<section data-region="voice"[^>]*><p>Push to talk · Spoken output off · English · normal speed<\/p>/,
   );
   page.input.value = 'set mic to off. look around';
   page.press('Enter');
   await settle();
   assert.deepEqual(submitted(page), ['look around']);
   assert.equal(page.input.value, '');
-  assert.match(page.root.innerHTML, /<p data-voice-summary>Voice off · English · normal speed<\/p>/);
+  assert.doesNotMatch(page.root.innerHTML, /Push to talk/);
   assert.doesNotMatch(page.root.innerHTML, /Audio unavailable|data-region="voice"/);
 });
 
@@ -319,7 +324,7 @@ test('A21 page asks for microphone consent, saves the answer through the engine 
   assert.match(page.root.innerHTML, /role="alert"><li>voice settings: no/);
   page.receive({ type: 'Snapshot', snapshot: { ...saved } });
   await settle();
-  assert.match(page.root.innerHTML, /<p data-voice-summary>Voice off · /);
+  assert.doesNotMatch(page.root.innerHTML, /Push to talk/);
 });
 
 test('A21 page retries a voice save rejected as stale and keeps the mic off', async () => {
@@ -348,7 +353,7 @@ test('A21 page retries a voice save rejected as stale and keeps the mic off', as
   await settle();
   assert.deepEqual(opened, ['push-to-talk']);
   assert.doesNotMatch(page.root.innerHTML, /voice settings: stale/);
-  assert.match(page.root.innerHTML, /<p data-voice-summary>Voice off · /);
+  assert.doesNotMatch(page.root.innerHTML, /Push to talk/);
   const retry = saves(page).at(-1);
   assert.ok(retry?.type === 'SaveVoiceSettings' && retry !== first);
   assert.equal(retry.expectedRevision, SAVED_REVISION);
@@ -358,7 +363,7 @@ test('A21 page retries a voice save rejected as stale and keeps the mic off', as
   page.receive({ type: 'Snapshot', snapshot: { ...SNAPSHOT, revision: SAVED_REVISION + 1, voice: off } });
   await settle();
   assert.deepEqual(opened, ['push-to-talk']);
-  assert.match(page.root.innerHTML, /<p data-voice-summary>Voice off · /);
+  assert.doesNotMatch(page.root.innerHTML, /Push to talk/);
   assert.equal(saves(page).length, 2);
 });
 
@@ -538,6 +543,23 @@ test('rpg-42a.22 Escape closes the open menu and returns focus to its toggle', (
   assert.equal(page.focused.at(-1), 'summary');
 });
 
+test('rpg-42a.55 opening settings moves focus into the panel and Escape returns it to the toggle', () => {
+  const page = fakePage();
+  mount(page);
+  page.receive(READY);
+  continueHarbor(page);
+  page.receive({ type: 'Snapshot', snapshot: SNAPSHOT });
+  page.toggle(true);
+  assert.notEqual(page.focused.at(-1), '[data-settings-panel]');
+  page.click({ 'data-settings-toggle': '' });
+  page.toggle(true);
+  assert.equal(page.focused.at(-1), '[data-settings-panel]');
+  page.toggle(true);
+  assert.equal(page.focused.filter((selector) => selector === '[data-settings-panel]').length, 1);
+  page.press('Escape', { 'data-settings': '', open: '' });
+  assert.equal(page.focused.at(-1), 'summary');
+});
+
 const MANY_CAMPAIGNS = 6;
 const HOME_SEARCH = '#home-search';
 
@@ -664,7 +686,7 @@ test('rpg-42a.39 page saves the chosen language and re-renders in it', () => {
   continueHarbor(page);
   page.click({ 'data-locale': 'pt-BR' });
   assert.equal(saved.at(-1)?.locale, 'pt-BR');
-  assert.match(page.root.innerHTML, /<summary id="settings-toggle">Configurações<\/summary>/);
+  assert.match(page.root.innerHTML, /<summary id="settings-toggle" data-settings-toggle>Configurações<\/summary>/);
   page.click({ 'data-locale': 'xx' });
   assert.equal(saved.length, 1);
 });
@@ -973,15 +995,16 @@ test('rpg-cm63.7 page without a voice bridge keeps text play and reports voice u
 
 test('rpg-42a.40 desktop voice locale defaults to the campaign language when it has a voice', async () => {
   const page = fakePage();
-  mount(page, { voice: { ...DEFAULT_PREFERENCES.voice, consent: CONSENT } }, () => {
-    return { start: async () => DENIED, stop: () => {} };
+  const voice = installedVoiceBridge();
+  mount(page, { voice: { ...DEFAULT_PREFERENCES.voice, consent: CONSENT } }, deniedMicrophone, undefined, WIDE_WIDTH, {
+    bridge: { ...page.bridge, voice: voice.bridge },
   });
   page.receive(READY);
   page.receive({ type: 'Campaigns', campaigns: [SNAPSHOT.campaign] });
   continueHarbor(page);
   page.receive({ type: 'Snapshot', snapshot: { ...SNAPSHOT, language: 'pt-BR' } });
   await settle();
-  assert.match(page.root.innerHTML, /<p data-voice-summary>[^<]*(pt-BR|Portuguese)/);
+  assert.match(page.root.innerHTML, /<select id="voice-language"[^>]*>[\s\S]*?<option value="pt-BR" selected>/);
 });
 
 const installedVoiceBridge = () => {

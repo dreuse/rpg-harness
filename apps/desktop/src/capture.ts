@@ -183,8 +183,8 @@ const FINISH_VOICE_SETUP = steps(
   `document.querySelector('[data-voice-basic]').scrollIntoView({ block: 'start' });`,
 );
 const OPEN_ADVANCED_VOICE = steps(
-  `document.querySelector('[data-voice-advanced]').open = true;`,
-  `document.querySelector('[data-voice-advanced]').scrollIntoView({ block: 'start' });`,
+  `document.querySelector('[data-settings]').open = true;`,
+  `document.querySelector('[data-voice-npcs]').scrollIntoView({ block: 'start' });`,
 );
 const OPEN_SOUND = steps(
   `document.querySelector('[data-settings]').open = true;`,

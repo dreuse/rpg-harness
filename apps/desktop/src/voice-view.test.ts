@@ -91,7 +91,7 @@ test('rpg-cm63.7 basic voice settings: on/off, mode, narrator voice with preview
 
 test('rpg-cm63.7 advanced voice settings: provider, NPC voices, installed models, cache and diagnostics', () => {
   const page = html(ready);
-  assert.match(page, /<details data-voice-advanced><summary>Advanced voice settings<\/summary>/);
+  assert.doesNotMatch(page, /data-voice-advanced/);
   labelled(page, 'voice-provider', 'Voice provider');
   assert.match(page, /<option value="kokoro" selected>Built-in voice<\/option>/);
   assert.ok(page.includes('&lt;b&gt;Guard&lt;/b&gt;'));
@@ -312,4 +312,44 @@ test('rpg-cm63.22 engine speech rows are translated', () => {
   assert.match(rows, /<dt>Respostas faladas<\/dt><dd>3<\/dd>/);
   assert.match(rows, /<dt>Pico da fila de fala<\/dt><dd>4<\/dd>/);
   assert.match(rows, /<dt>Erros de fala<\/dt><dd>tempo esgotado: 2<\/dd>/);
+});
+
+const SECTION = /data-settings-section="(\w+)" aria-labelledby="([\w-]+)"><h3 id="\2">([^<]*)<\/h3>/g;
+
+test('rpg-42a.55 settings are a panel with section headings and troubleshooting under storage', () => {
+  const page = html(ready);
+  assert.match(
+    page,
+    /<div id="settings-panel" data-settings-panel tabindex="-1" role="group" aria-labelledby="settings-heading"><h2 id="settings-heading">Settings<\/h2>/,
+  );
+  assert.deepEqual(
+    [...page.matchAll(SECTION)].map(([, key, , heading]) => [key, heading]),
+    [
+      ['general', 'General'],
+      ['voice', 'Voice'],
+      ['characters', 'Character voices'],
+      ['gm', 'GM'],
+      ['storage', 'Storage'],
+    ],
+  );
+  const storage = page.slice(page.indexOf('data-settings-section="storage"'));
+  assert.match(storage, /data-voice-troubleshooting/);
+  assert.match(storage, /data-voice-clear="cache"/);
+  assert.match(
+    page.slice(page.indexOf('data-settings-section="characters"')),
+    /^[\s\S]*?data-voice-npcs[\s\S]*?data-settings-section="gm"/,
+  );
+});
+
+test('rpg-42a.55 the voice status line appears once and the typed hint is localized', () => {
+  const status = 'Dialogue read aloud · English · 1.2× speed';
+  assert.equal(html(ready).split(status).length, 2);
+  const portuguese = html(ready, voice.preferences, 'pt-BR');
+  assert.doesNotMatch(portuguese, /set mic|set output|set speed/);
+  assert.match(
+    portuguese,
+    /data-settings-section="general" aria-labelledby="settings-general"><h3 id="settings-general">Geral<\/h3>/,
+  );
+  assert.match(portuguese, />Armazenamento<\/h3>/);
+  assert.match(portuguese, />Mestre<\/h3>/);
 });

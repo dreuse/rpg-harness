@@ -426,8 +426,7 @@ main > nav button {
   color: var(--text-muted);
 }
 
-[data-menu] > div,
-[data-settings] > div {
+[data-menu] > div {
   position: absolute;
   z-index: 1;
   inset-block-start: calc(100% + var(--space-1));
@@ -443,77 +442,98 @@ main > nav button {
   box-shadow: var(--elevation-1);
 }
 
-[data-settings] > div {
-  inset-inline: auto 0;
+[data-settings][open] {
+  flex-basis: 100%;
+}
+
+[data-settings-panel] {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--settings-column-width)), 1fr));
   gap: var(--space-3);
-  width: min(var(--popover-width), calc(100vw - 2 * var(--space-4)));
-  min-width: 0;
+  margin-block-start: var(--space-2);
   padding: var(--space-3);
+  background: var(--surface-raised);
+  border: var(--border-width) solid var(--border-strong);
+  border-radius: var(--radius-2);
 }
 
-[data-settings] > div {
-  max-block-size: 80vh;
-  overflow-y: auto;
-}
-
-[data-settings] [data-voice-summary] + p {
-  color: var(--text-muted);
-  font-size: calc(var(--text-sm) * var(--font-scale, 1));
-}
-
-[data-motion-control] {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
+[data-settings-panel] > h2 {
+  grid-column: 1 / -1;
   margin: 0;
-  padding: 0;
-  border: 0;
 }
 
-[data-gm-form] fieldset {
+[data-settings-section] {
   display: grid;
   gap: var(--space-2);
+  align-content: start;
+  min-width: 0;
+}
+
+[data-settings-section] > h3,
+[data-settings-section] h4,
+[data-settings-section] :is(ul, p, dl) {
   margin: 0;
-  padding: 0;
-  border: 0;
 }
 
-[data-gm-form] label {
-  display: grid;
-  gap: var(--space-1);
+[data-settings-section] :is(select, input:not([type="checkbox"])) {
+  box-sizing: border-box;
+  max-inline-size: 100%;
 }
 
-[data-gm-form] button {
-  justify-self: start;
-}
-
-[data-gm-form] legend,
-[data-motion-control] legend {
-  margin-block-end: var(--space-1);
-  padding: 0;
-  font-weight: var(--weight-strong);
-}
-
-[data-voice-basic],
-[data-voice-npcs],
-[data-sound] {
+[data-settings-section] ul {
   display: grid;
   gap: var(--space-2);
+  padding: 0;
+  list-style: none;
+}
+
+[data-settings-section] fieldset {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-2);
+  min-width: 0;
   margin: 0;
   padding: var(--space-2);
   border: var(--border-width) solid var(--border-strong);
   border-radius: var(--radius-1);
 }
 
-[data-voice-basic] legend,
-[data-voice-npcs] legend,
-[data-sound] legend,
-[data-voice-advanced] > summary,
+[data-settings-section] :is([data-language-control], [data-story-language-control], [data-motion-control]) {
+  display: flex;
+  flex-wrap: wrap;
+}
+
+[data-voice-hint] {
+  color: var(--text-muted);
+  font-size: calc(var(--text-sm) * var(--font-scale, 1));
+}
+
+[data-gm-form] label,
+[data-gm-defaults-form] label {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-1);
+}
+
+[data-gm-form] button,
+[data-gm-defaults-form] button {
+  justify-self: start;
+}
+
+[data-settings-section] legend,
 [data-voice-troubleshooting] > summary,
-[data-voice-advanced] h3 {
+[data-settings-section] > h3 {
   padding: 0;
   font-size: inherit;
   font-weight: var(--weight-strong);
+}
+
+[data-settings-section] :is([data-voice-basic], [data-voice-npcs]) legend {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
 }
 
 [data-voice-row] {
@@ -552,23 +572,6 @@ main > nav button {
 button:disabled {
   color: var(--text-muted);
   cursor: not-allowed;
-}
-
-[data-voice-advanced] > div {
-  display: grid;
-  gap: var(--space-3);
-  margin-block-start: var(--space-2);
-}
-
-[data-voice-advanced] :is(ul, h3, p, dl) {
-  margin: 0;
-}
-
-[data-voice-advanced] ul {
-  display: grid;
-  gap: var(--space-2);
-  padding: 0;
-  list-style: none;
 }
 
 [data-voice-diagnostics] {
