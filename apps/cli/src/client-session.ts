@@ -2,8 +2,10 @@ import type { DatabaseSync } from 'node:sqlite';
 import { createEventLog } from '../../../packages/client-protocol/src/event-log.ts';
 import {
   type Accepted,
+  type CampaignCommand,
   type CampaignPanels,
   type CampaignSnapshot,
+  type CampaignSummary,
   type ClientCommand,
   type ClientEvent,
   type ClientSession,
@@ -38,12 +40,14 @@ import {
 import type { CampaignEntity, Relationship, Visibility } from '../../../packages/domain/src/entity.ts';
 import { currentEncounter } from '../../../packages/engine/src/encounter.ts';
 import type { Engine } from '../../../packages/engine/src/engine.ts';
+import { campaignConfigOf } from '../../../packages/engine/src/turn.ts';
 import { voiceSettingsOf } from '../../../packages/engine/src/voice-settings.ts';
+import { parseCampaignConfig } from '../../../packages/intent/src/config.ts';
 import { type Scoped, type Viewer, visibleTo } from '../../../packages/memory/src/knowledge.ts';
 import { createEntityStore } from '../../../packages/persistence/src/entity-store.ts';
 import { createEventStore } from '../../../packages/persistence/src/event-store.ts';
 import { checkFor, emitVisualizations, resultsOf, visualizationPreferenceOf } from './roll-visualization.ts';
-import { panelsOf, sheetFields, type ViewSource } from './views.ts';
+import { panelsOf, printable, sheetFields, type ViewSource } from './views.ts';
 
 export type ScopedEvent = DomainEvent & Scoped;
 export type EventSource = (campaignId: CampaignId) => readonly ScopedEvent[];
@@ -69,6 +73,8 @@ const PLAYER_SCOPE: ViewerScope = 'player';
 const VISUALIZING: readonly Viewer['scope'][] = [GM_SCOPE, PLAYER_SCOPE];
 const EMPTY_WORLD: World = { entities: [], relationships: [] };
 const NO_WORLD: WorldSource = () => EMPTY_WORLD;
+const NEWLINE = '\n';
+const UNKNOWN_PLAY_TIME = null;
 
 export const scopedEventsOf =
   (database: DatabaseSync): EventSource =>
@@ -87,6 +93,31 @@ export const worldOf =
     const relationships = heroId === undefined ? [] : store.listRelationships(campaignId, heroId);
     return { entities: store.listEntities(campaignId), relationships };
   };
+
+const savedConfig = (events: ViewSource['state']['events']) => {
+  const saved = parseCampaignConfig(campaignConfigOf(events));
+  return saved.ok ? saved.config : undefined;
+};
+
+export const campaignSummaryOf = (source: ViewSource, viewer: Viewer, lastPlayedAt: string | null): CampaignSummary => {
+  const { campaign, characters, turns, events } = source.state;
+  const { recap } = panelsOf(source, viewer);
+  const config = savedConfig(events);
+  const rulepack = config?.rulepack;
+  const genre = config?.genre;
+  return {
+    id: campaign.id,
+    name: campaign.name,
+    health: 'ok',
+    lastPlayedAt,
+    sceneTitle: recap.scene ?? null,
+    characters: characters.map(({ id, name }) => ({ id, name })),
+    ruleset: config && rulepack ? { ...rulepack, provenance: config.provenance.ruleset } : null,
+    genre: config && genre ? { ...genre, provenance: config.provenance.genre } : null,
+    lastNarration: recap.latest === undefined ? null : (printable(recap.latest).trim().split(NEWLINE).at(-1) ?? null),
+    turnCount: turns.length,
+  };
+};
 
 type TraitVisibilities = Readonly<Record<string, string>>;
 
@@ -213,7 +244,10 @@ export const createClientSessions = (
     return parsed as Result<T>;
   };
 
-  const accept = <T extends Exclude<ClientCommand, ListCampaigns>>(command: unknown, type: T['type']): Result<T> => {
+  const accept = <T extends Exclude<ClientCommand, ListCampaigns | CampaignCommand>>(
+    command: unknown,
+    type: T['type'],
+  ): Result<T> => {
     const parsed = parsedAs<T>(command, type);
     if (!parsed.ok) return parsed;
     if (parsed.value.campaignId !== campaignId)
@@ -245,7 +279,10 @@ export const createClientSessions = (
         const parsed = parsedAs(command, 'ListCampaigns');
         if (!parsed.ok) return parsed;
         return attempt(() =>
-          deepFreeze(structuredClone({ version: PROTOCOL_VERSION, campaigns: [engine.getCampaign(campaignId)] })),
+          deepFreeze({
+            version: PROTOCOL_VERSION,
+            campaigns: [campaignSummaryOf(viewSource(), viewer, UNKNOWN_PLAY_TIME)],
+          }),
         );
       },
       getSnapshot: (command) => {

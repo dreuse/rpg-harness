@@ -24,7 +24,7 @@ import { createCharacterStore } from '../../../packages/persistence/src/characte
 import { openDatabase } from '../../../packages/persistence/src/database.ts';
 import { createEntityStore } from '../../../packages/persistence/src/entity-store.ts';
 import { createRoller, createSeededRng } from '../../../packages/rules/src/dice.ts';
-import { createClientSessions, type SheetPort, scopedEventsOf, worldOf } from './client-session.ts';
+import { campaignSummaryOf, createClientSessions, type SheetPort, scopedEventsOf, worldOf } from './client-session.ts';
 import { BUILT_IN_PACKS } from './import-gateway.ts';
 
 const IN_MEMORY = ':memory:';
@@ -260,6 +260,22 @@ test('rpg-p5p5: ListCampaigns lists the campaign the session serves and validate
     ok: false,
     error: { code: 'UnknownCommand', message: 'expected ListCampaigns' },
   });
+});
+
+test('rpg-42a.12: campaign summary strips control characters from the last narration line', () => {
+  const campaign = { id: 'c1', name: 'Ashfall' };
+  const turn = {
+    id: 't1',
+    campaignId: campaign.id,
+    sceneId: 's1',
+    actionId: 'a1',
+    actorId: 'h1',
+    input: 'look',
+    narration: 'First line.\nThe \u001b[31mdoor\u0007 opens.\u202e',
+  };
+  const state = { campaign, revision: 1, characters: [], currentScene: undefined, turns: [turn], events: [] };
+  const source = { state, entities: [], relationships: [], eventScopes: [] };
+  assert.equal(campaignSummaryOf(source, PLAYER_VIEWER, null).lastNarration, 'The [31mdoor opens.');
 });
 
 test('UI04 display inventory, quest journal, rule citations and world recap with live updates', () => {

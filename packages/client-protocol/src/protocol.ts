@@ -29,10 +29,14 @@ export {
 
 export const PROTOCOL_VERSION = 1;
 export const MAX_INPUT_LENGTH = 4096;
+export const MAX_CAMPAIGN_NAME_LENGTH = 120;
 export type ProtocolVersion = typeof PROTOCOL_VERSION;
 
 export const COMMAND_TYPES = [
   'ListCampaigns',
+  'CreateCampaign',
+  'ArchiveCampaign',
+  'DeleteCampaign',
   'GetCampaignSnapshot',
   'GetCampaignPanels',
   'SubmitPlayerAction',
@@ -61,11 +65,21 @@ export const VIEW_COMPONENT_KINDS = [
 export type ViewComponentKind = (typeof VIEW_COMPONENT_KINDS)[number];
 
 export const EVENT_COMMITTED = 'EventCommitted';
+export const CAMPAIGN_HEALTHS = ['ok', 'needs-migration', 'unreadable'] as const;
+export type CampaignHealth = (typeof CAMPAIGN_HEALTHS)[number];
 
 type Header<T extends CommandType> = { readonly version: ProtocolVersion; readonly type: T };
 type Envelope<T extends CommandType> = Header<T> & { readonly campaignId: CampaignId };
 
 export type ListCampaigns = Header<'ListCampaigns'>;
+export type CreateCampaign = Header<'CreateCampaign'> & {
+  readonly name: string;
+  readonly intent?: string;
+  readonly choices?: Readonly<Record<string, unknown>>;
+};
+export type ArchiveCampaign = Header<'ArchiveCampaign'> & { readonly name: string };
+export type DeleteCampaign = Header<'DeleteCampaign'> & { readonly name: string; readonly confirm: string };
+export type CampaignCommand = CreateCampaign | ArchiveCampaign | DeleteCampaign;
 
 export type GetCampaignSnapshot = Envelope<'GetCampaignSnapshot'>;
 export type GetCampaignPanels = Envelope<'GetCampaignPanels'>;
@@ -97,6 +111,7 @@ export type SaveVoiceSettings = Envelope<'SaveVoiceSettings'> & {
 
 export type ClientCommand =
   | ListCampaigns
+  | CampaignCommand
   | GetCampaignSnapshot
   | GetCampaignPanels
   | SubmitPlayerAction
@@ -117,7 +132,24 @@ export type EventCommitted = {
 
 export type ClientEvent = EventCommitted | VisualizationEvent;
 
-export type CampaignList = { readonly version: ProtocolVersion; readonly campaigns: readonly Campaign[] };
+export type Provenanced<T> = T & { readonly provenance: string };
+
+export type CampaignSummary = {
+  readonly id: CampaignId | null;
+  readonly name: string;
+  readonly health: CampaignHealth;
+  readonly lastPlayedAt: string | null;
+  readonly sceneTitle: string | null;
+  readonly characters: readonly Pick<Character, 'id' | 'name'>[];
+  readonly ruleset: Provenanced<{ readonly id: string; readonly edition: string; readonly revision: string }> | null;
+  readonly genre: Provenanced<{ readonly id: string; readonly version: string }> | null;
+  readonly lastNarration: string | null;
+  readonly turnCount: number;
+};
+
+export type CampaignList = { readonly version: ProtocolVersion; readonly campaigns: readonly CampaignSummary[] };
+
+export type CampaignRemoved = { readonly version: ProtocolVersion; readonly name: string };
 
 export type CampaignSnapshot = {
   readonly version: ProtocolVersion;
@@ -197,16 +229,21 @@ export interface ClientSession {
   saveVoiceSettings(command: SaveVoiceSettings): Result<Accepted>;
 }
 
-type FieldKind = 'id' | 'text' | 'revision' | 'flag' | 'number' | 'primitive';
+type FieldKind = 'id' | 'name' | 'text' | 'revision' | 'flag' | 'number' | 'primitive' | 'record';
 type FieldSpec = { readonly kind: FieldKind; readonly optional?: true };
 
 const HEADER_FIELDS = ['version', 'type'];
 const ENVELOPE_FIELDS = [...HEADER_FIELDS, 'campaignId'];
-const UNSCOPED: readonly CommandType[] = ['ListCampaigns'];
+const UNSCOPED: readonly CommandType[] = ['ListCampaigns', 'CreateCampaign', 'ArchiveCampaign', 'DeleteCampaign'];
 const ID: FieldSpec = { kind: 'id' };
+const NAME: FieldSpec = { kind: 'name' };
+const EXCLUSIVE_FIELDS: Partial<Record<CommandType, readonly string[]>> = { CreateCampaign: ['intent', 'choices'] };
 
 const COMMAND_FIELDS: Record<CommandType, Readonly<Record<string, FieldSpec>>> = {
   ListCampaigns: {},
+  CreateCampaign: { name: NAME, intent: { kind: 'text', optional: true }, choices: { kind: 'record', optional: true } },
+  ArchiveCampaign: { name: NAME },
+  DeleteCampaign: { name: NAME, confirm: ID },
   GetCampaignSnapshot: {},
   GetCampaignPanels: {},
   SubmitPlayerAction: {
@@ -239,11 +276,13 @@ const COMMAND_FIELDS: Record<CommandType, Readonly<Record<string, FieldSpec>>> =
 
 const FIELD_CHECKS: Record<FieldKind, (value: unknown) => boolean> = {
   id: (value) => typeof value === 'string' && value.length > 0,
+  name: (value) => FIELD_CHECKS.id(value) && (value as string).length <= MAX_CAMPAIGN_NAME_LENGTH,
   text: (value) => typeof value === 'string' && value.length <= MAX_INPUT_LENGTH,
   revision: (value) => Number.isSafeInteger(value) && (value as number) >= 0,
   flag: (value) => typeof value === 'boolean',
   number: (value) => typeof value === 'number' && Number.isFinite(value),
   primitive: (value) => FIELD_CHECKS.text(value) || FIELD_CHECKS.flag(value) || FIELD_CHECKS.number(value),
+  record: (value) => isRecord(value),
 };
 
 export const failure = (code: ProtocolErrorCode, message: string): Result<never> => ({
@@ -290,6 +329,8 @@ export const parseCommand = (input: unknown): Result<ClientCommand> => {
     Object.hasOwn(own, key) ? !FIELD_CHECKS[spec.kind](own[key]) : spec.optional !== true,
   );
   if (invalid !== undefined) return failure('MalformedCommand', `${type}.${invalid[0]} is missing or invalid`);
+  const exclusive = EXCLUSIVE_FIELDS[type]?.filter((key) => Object.hasOwn(own, key)) ?? [];
+  if (exclusive.length > 1) return failure('MalformedCommand', `${type} takes only one of ${exclusive.join(', ')}`);
   const ordered = [...envelope, ...Object.keys(fields)].filter((key) => Object.hasOwn(own, key));
   return { ok: true, value: Object.freeze(Object.fromEntries(ordered.map((key) => [key, own[key]]))) as ClientCommand };
 };

@@ -10,6 +10,7 @@ import {
   COMMAND_TYPES,
   EVENT_COMMITTED,
   type EventCommitted,
+  MAX_CAMPAIGN_NAME_LENGTH,
   MAX_INPUT_LENGTH,
   PROTOCOL_VERSION,
   parseCommand,
@@ -69,9 +70,31 @@ const VOICE_SAVE = {
 };
 
 const LIST_CAMPAIGNS = { version: PROTOCOL_VERSION, type: 'ListCampaigns' } as const;
+const CREATE = { version: PROTOCOL_VERSION, type: 'CreateCampaign', name: 'Ashfall' } as const;
+const ARCHIVE = { version: PROTOCOL_VERSION, type: 'ArchiveCampaign', name: 'Ashfall' } as const;
+const DELETE = { version: PROTOCOL_VERSION, type: 'DeleteCampaign', name: 'Ashfall', confirm: 'Ashfall' } as const;
+const CAMPAIGN_COMMANDS = [CREATE, ARCHIVE, DELETE];
+const UNSCOPED_TYPES: readonly string[] = [LIST_CAMPAIGNS.type, ...CAMPAIGN_COMMANDS.map(({ type }) => type)];
+const SUMMARY = {
+  id: CAMPAIGN_ID,
+  name: 'Ashfall',
+  health: 'ok',
+  lastPlayedAt: null,
+  sceneTitle: null,
+  characters: [],
+  ruleset: null,
+  genre: null,
+  lastNarration: null,
+  turnCount: 0,
+} as const;
 
 const VALID_COMMANDS = [
   LIST_CAMPAIGNS,
+  CREATE,
+  { ...CREATE, intent: 'a grim fantasy heist' },
+  { ...CREATE, choices: { genre: 'fantasy', ruleset: { id: 'd20-lite', edition: null } } },
+  ARCHIVE,
+  DELETE,
   { ...envelope, type: 'GetCampaignSnapshot' },
   { ...envelope, type: 'GetCampaignPanels' },
   ACTION,
@@ -103,7 +126,7 @@ const inMemorySession = (): ClientSession & { commit(event: DomainEvent): void }
       revision = event.revision;
       log.publish(toClientEvent(event));
     },
-    listCampaigns: () => ({ ok: true, value: { version: PROTOCOL_VERSION, campaigns: [snapshot().campaign] } }),
+    listCampaigns: () => ({ ok: true, value: { version: PROTOCOL_VERSION, campaigns: [SUMMARY] } }),
     getSnapshot: () => ({ ok: true, value: snapshot() }),
     getPanels: () => ({
       ok: true,
@@ -181,6 +204,9 @@ test('UI01: rejects unknown version, unknown command and malformed payloads with
 test('UI01: clients cannot bypass the engine or trust unsolicited model state writes', () => {
   assert.deepEqual(COMMAND_TYPES, [
     'ListCampaigns',
+    'CreateCampaign',
+    'ArchiveCampaign',
+    'DeleteCampaign',
     'GetCampaignSnapshot',
     'GetCampaignPanels',
     'SubmitPlayerAction',
@@ -209,13 +235,37 @@ test('rpg-p5p5: ListCampaigns carries no campaign while every other command stil
   const session = inMemorySession();
   assert.deepEqual(session.listCampaigns(LIST_CAMPAIGNS), {
     ok: true,
-    value: { version: PROTOCOL_VERSION, campaigns: [{ id: CAMPAIGN_ID, name: 'Ashfall' }] },
+    value: { version: PROTOCOL_VERSION, campaigns: [SUMMARY] },
   });
   assert.equal(code(parseCommand({ ...LIST_CAMPAIGNS, campaignId: CAMPAIGN_ID })), 'UnexpectedField');
   assert.equal(code(parseCommand({ ...LIST_CAMPAIGNS, campaignId: '' })), 'UnexpectedField');
-  for (const type of COMMAND_TYPES.filter((type) => type !== LIST_CAMPAIGNS.type)) {
+  for (const type of COMMAND_TYPES.filter((type) => !UNSCOPED_TYPES.includes(type))) {
     assert.equal(code(parseCommand({ version: PROTOCOL_VERSION, type })), 'MalformedCommand');
   }
+});
+
+test('rpg-42a.12: campaign lifecycle commands reject malformed or unexpected fields', () => {
+  for (const command of CAMPAIGN_COMMANDS) {
+    assert.equal(code(parseCommand({ ...command, campaignId: CAMPAIGN_ID })), 'UnexpectedField');
+    assert.equal(code(parseCommand({ ...command, force: true })), 'UnexpectedField');
+    assert.equal(code(parseCommand({ ...command, name: '' })), 'MalformedCommand');
+    assert.equal(code(parseCommand({ ...command, name: 7 })), 'MalformedCommand');
+    const longest = 'x'.repeat(MAX_CAMPAIGN_NAME_LENGTH);
+    assert.equal(parseCommand({ ...command, name: longest }).ok, true);
+    assert.equal(code(parseCommand({ ...command, name: `${longest}x` })), 'MalformedCommand');
+    const { name: _, ...unnamed } = command;
+    assert.equal(code(parseCommand(unnamed)), 'MalformedCommand');
+  }
+  assert.equal(code(parseCommand({ ...CREATE, intent: 7 })), 'MalformedCommand');
+  assert.equal(code(parseCommand({ ...CREATE, intent: 'x'.repeat(MAX_INPUT_LENGTH + 1) })), 'MalformedCommand');
+  for (const choices of [[], 'fantasy', null, 3]) {
+    assert.equal(code(parseCommand({ ...CREATE, choices })), 'MalformedCommand');
+  }
+  assert.equal(code(parseCommand({ ...CREATE, intent: 'fantasy', choices: {} })), 'MalformedCommand');
+  assert.equal(code(parseCommand({ ...ARCHIVE, confirm: 'Ashfall' })), 'UnexpectedField');
+  const { confirm: _, ...unconfirmed } = DELETE;
+  assert.equal(code(parseCommand(unconfirmed)), 'MalformedCommand');
+  assert.equal(code(parseCommand({ ...DELETE, confirm: '' })), 'MalformedCommand');
 });
 
 test('UI01: rejects inherited envelope fields and symbol-keyed extra fields', () => {

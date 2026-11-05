@@ -4,7 +4,9 @@ import { createInterface } from 'node:readline';
 import { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
 import {
+  type CampaignCommand,
   type ClientEvent,
+  failure,
   PROTOCOL_VERSION,
   parseCommand,
   type Unsubscribe,
@@ -19,7 +21,14 @@ import {
   type Request,
   type RequestType,
 } from '../../../packages/client-protocol/src/wire.ts';
-import { listCampaignRecords, openClientSession } from './engine-gateway.ts';
+import {
+  archiveCampaign,
+  createCampaignFrom,
+  deleteCampaign,
+  isSameCampaignFile,
+  listCampaignSummaries,
+  openClientSession,
+} from './engine-gateway.ts';
 import { dataDirFromEnv } from './setup-check.ts';
 
 export const API_KEY_ENV = 'ANTHROPIC_API_KEY';
@@ -44,7 +53,7 @@ const ENABLED = '1';
 const ENGINE_STOPPED = 'The engine is not running.';
 
 type Campaign = ReturnType<typeof openClientSession>;
-type Served = { readonly campaign?: Campaign; readonly problem: string };
+type Served = { readonly name?: string; readonly campaign?: Campaign; readonly problem: string };
 export type DaemonOptions = {
   readonly env: NodeJS.ProcessEnv;
   readonly onCrash?: (pid: number) => void;
@@ -84,22 +93,40 @@ const serve = (env: NodeJS.ProcessEnv): Served => {
   const name = env[CAMPAIGN_ENV];
   if (!name) return { problem: NO_CAMPAIGN };
   try {
-    return { campaign: openClientSession(dataDirFromEnv(), name), problem: NO_CAMPAIGN };
+    return { name, campaign: openClientSession(dataDirFromEnv(), name), problem: NO_CAMPAIGN };
   } catch (error) {
-    return { problem: messageOf(error) };
+    return { name, problem: messageOf(error) };
   }
 };
 
 const replyCampaigns = (id: number) => {
   try {
-    const campaigns = listCampaignRecords(dataDirFromEnv());
+    const campaigns = listCampaignSummaries(dataDirFromEnv());
     return send({ id, type: 'Result', result: { ok: true, value: { version: PROTOCOL_VERSION, campaigns } } });
   } catch (error) {
     return send({ id, type: 'Error', message: messageOf(error) });
   }
 };
 
-const replier = ({ campaign, problem }: Served) => {
+const changeCampaign = (command: CampaignCommand, served: string | undefined) => {
+  const dataDir = dataDirFromEnv();
+  if (command.type === 'CreateCampaign') return createCampaignFrom(dataDir, command);
+  if (served !== undefined && isSameCampaignFile(dataDir, command.name, served))
+    throw new Error(`Campaign ${command.name} is open in this engine.`);
+  if (command.type === 'ArchiveCampaign') archiveCampaign(dataDir, command.name);
+  else deleteCampaign(dataDir, command.name, command.confirm);
+  return { version: PROTOCOL_VERSION, name: command.name };
+};
+
+const replyChange = (id: number, command: CampaignCommand, served: string | undefined) => {
+  try {
+    return send({ id, type: 'Result', result: { ok: true, value: changeCampaign(command, served) } });
+  } catch (error) {
+    return send({ id, type: 'Result', result: failure('Rejected', messageOf(error)) });
+  }
+};
+
+const replier = ({ name, campaign, problem }: Served) => {
   const subscriptions = new Map<number, Unsubscribe>();
 
   const execute = (id: number, input: unknown) => {
@@ -107,6 +134,7 @@ const replier = ({ campaign, problem }: Served) => {
     if (!parsed.ok) return send({ id, type: 'Error', message: parsed.error.message });
     const command = parsed.value;
     if (command.type === 'ListCampaigns') return replyCampaigns(id);
+    if (!('campaignId' in command)) return replyChange(id, command, name);
     if (campaign === undefined) return send({ id, type: 'Error', message: problem });
     const { session, campaignId } = campaign;
     if (command.campaignId !== campaignId)

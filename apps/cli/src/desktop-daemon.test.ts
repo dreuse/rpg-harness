@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -11,12 +12,16 @@ import {
   type CampaignList,
   type CampaignPanels,
   type CampaignSnapshot,
+  type CampaignSummary,
   type ClientEvent,
   PROTOCOL_VERSION,
   type ViewDescriptor,
 } from '../../../packages/client-protocol/src/protocol.ts';
 import { SHEET_VIEW } from '../../../packages/client-protocol/src/view-registry.ts';
 import type { Ready, Reply } from '../../../packages/client-protocol/src/wire.ts';
+import { createCharacterStore } from '../../../packages/persistence/src/character-store.ts';
+import { MIGRATIONS, openDatabase } from '../../../packages/persistence/src/database.ts';
+import { createEntityStore } from '../../../packages/persistence/src/entity-store.ts';
 import {
   API_KEY_ENV,
   CAMPAIGN_ENV,
@@ -55,6 +60,25 @@ const THIRD_ACTION = 'I check the door';
 const UNKNOWN_VIEW = 'atlas';
 const NO_CHARACTER = async () => undefined;
 const DATABASE_EXTENSION = '.sqlite';
+const NEWER_FILE = 'Future';
+const SERVED_ALIAS = 'Ember link';
+const SERVED_OTHER_CASE = 'ember';
+const OLDER_FILE = 'Ancient';
+const ARCHIVE_DIR = 'archive';
+const FANTASY_INTENT = 'a fantasy adventure';
+const UNINSTALLED_INTENT = 'D&D 1.9';
+const NARRATIVE_CHOICES = { ruleset: { id: 'narrative', edition: 'original' }, genre: 'fantasy' };
+const GM_SECRET = 'SECRET';
+const GM_VISIBILITY = 'gm';
+const SECRET_RULEPACK = { id: 'any-pack', edition: '1', revision: 'r1' };
+const INSERT_FACT = 'INSERT INTO fact (id, campaign_id, statement, layer, visibility) VALUES (?, ?, ?, ?, ?)';
+const INSERT_EVENT =
+  'INSERT INTO event_log (id, campaign_id, turn_id, type, payload, visibility, actor_id) VALUES (?, ?, ?, ?, ?, ?, ?)';
+const MARK_NEWER_SCHEMA = 'INSERT INTO schema_migrations (version, status) VALUES (?, ?)';
+const INSERT_OLD_CAMPAIGN = 'INSERT INTO campaign (id, name) VALUES (?, ?)';
+const FINISHED = 'finished';
+const KNOWN_SCHEMA_VERSION = Math.max(...MIGRATIONS.map(({ version }) => version));
+const FIRST_MIGRATION = 1;
 const SHOW_NEW_EVENTS_TO_PLAYER = `DROP TRIGGER event_log_no_update;
   CREATE TRIGGER show_to_player AFTER INSERT ON event_log
   BEGIN UPDATE event_log SET visibility = 'player' WHERE id = NEW.id; END;`;
@@ -102,6 +126,42 @@ const campaignNames = async (daemon: ReturnType<typeof startDaemon>) => {
   );
   assert.equal(version, PROTOCOL_VERSION);
   return campaigns.map(({ name }) => name);
+};
+
+const lifecycle = (type: string, fields: object) => ({ version: PROTOCOL_VERSION, type, ...fields });
+
+const summariesOf = async (daemon: ReturnType<typeof startDaemon>) =>
+  acceptedValue<CampaignList>(await daemon.command({ version: PROTOCOL_VERSION, type: 'ListCampaigns' })).campaigns;
+
+const healthOf = (summaries: readonly CampaignSummary[]) =>
+  Object.fromEntries(summaries.map(({ name, health }) => [name, health]));
+
+const campaignFile = (dataDir: string, name: string) => join(dataDir, `${name}${DATABASE_EXTENSION}`);
+
+const seedGmSecrets = (dataDir: string) => {
+  const state = readCampaignState(dataDir, CAMPAIGN);
+  const [hero] = state.characters;
+  const [opening] = state.turns;
+  assert.ok(hero !== undefined && opening !== undefined);
+  const connection = openDatabase(campaignFile(dataDir, CAMPAIGN));
+  try {
+    const { database } = connection;
+    const campaignId = state.campaign.id;
+    const profile = {
+      identity: { name: hero.name },
+      motivations: [],
+      background: `${GM_SECRET}_BACKGROUND`,
+      traits: [{ id: 'oath', value: `${GM_SECRET}_TRAIT` }],
+      conditions: [],
+      rulepack: SECRET_RULEPACK,
+    };
+    createCharacterStore(createEntityStore(database)).saveProfile(campaignId, hero.id, profile, GM_VISIBILITY);
+    database.prepare(INSERT_FACT).run(randomUUID(), campaignId, `${GM_SECRET}_NOTE`, 'canon', GM_VISIBILITY);
+    const note = JSON.stringify({ note: `${GM_SECRET}_EVENT` });
+    database.prepare(INSERT_EVENT).run(randomUUID(), campaignId, opening.id, 'GmNote', note, GM_VISIBILITY, null);
+  } finally {
+    connection.close();
+  }
 };
 
 const campaignEnv = async (t: TestContext) => {
@@ -333,8 +393,162 @@ describe('serve client-protocol commands over the desktop engine daemon', () => 
     const files = [CAMPAIGN, EMPTY_FILE, GARBAGE_FILE].map((name) => join(dataDir, `${name}${DATABASE_EXTENSION}`));
     const before = files.map(fileStamp);
     const daemon = supervise(t, { env: { ...baseEnv(), [DATA_DIR_ENV]: dataDir } });
-    assert.deepEqual(await campaignNames(daemon), [CAMPAIGN]);
+    assert.deepEqual(healthOf(await summariesOf(daemon)), {
+      [CAMPAIGN]: 'ok',
+      [EMPTY_FILE]: 'unreadable',
+      [GARBAGE_FILE]: 'unreadable',
+    });
     assert.deepEqual(files.map(fileStamp), before);
+  });
+
+  it('rpg-42a.12: lists corrupted, older and newer schema campaigns with their health', async (t) => {
+    const dataDir = tempDataDir(t);
+    await createCampaigns(dataDir, [CAMPAIGN, NEWER_FILE]);
+    writeFileSync(campaignFile(dataDir, GARBAGE_FILE), GARBAGE);
+    const newer = new DatabaseSync(campaignFile(dataDir, NEWER_FILE));
+    newer.prepare(MARK_NEWER_SCHEMA).run(KNOWN_SCHEMA_VERSION + 1, FINISHED);
+    newer.close();
+    const older = openDatabase(campaignFile(dataDir, OLDER_FILE), {
+      migrations: MIGRATIONS.filter(({ version }) => version === FIRST_MIGRATION),
+    });
+    older.database.prepare(INSERT_OLD_CAMPAIGN).run(randomUUID(), OLDER_FILE);
+    older.close();
+    const files = [CAMPAIGN, NEWER_FILE, OLDER_FILE, GARBAGE_FILE].map((name) => campaignFile(dataDir, name));
+    const before = files.map(fileStamp);
+    const daemon = supervise(t, { env: { ...baseEnv(), [DATA_DIR_ENV]: dataDir } });
+    const summaries = await summariesOf(daemon);
+    assert.deepEqual(healthOf(summaries), {
+      [OLDER_FILE]: 'needs-migration',
+      [CAMPAIGN]: 'ok',
+      [NEWER_FILE]: 'unreadable',
+      [GARBAGE_FILE]: 'unreadable',
+    });
+    const broken = summaries.find(({ name }) => name === GARBAGE_FILE);
+    assert.deepEqual(
+      { ...broken, lastPlayedAt: null },
+      {
+        id: null,
+        name: GARBAGE_FILE,
+        health: 'unreadable',
+        lastPlayedAt: null,
+        sceneTitle: null,
+        characters: [],
+        ruleset: null,
+        genre: null,
+        lastNarration: null,
+        turnCount: 0,
+      },
+    );
+    assert.deepEqual(files.map(fileStamp), before);
+  });
+
+  it('rpg-42a.12: summarizes a campaign for resume without GM-only traits, notes or events', async (t) => {
+    const dataDir = tempDataDir(t);
+    await createCampaigns(dataDir, [CAMPAIGN]);
+    seedGmSecrets(dataDir);
+    const daemon = supervise(t, { env: { ...baseEnv(), [DATA_DIR_ENV]: dataDir } });
+    const [summary] = await summariesOf(daemon);
+    assert.ok(summary !== undefined);
+    const state = readCampaignState(dataDir, CAMPAIGN);
+    assert.equal(summary.id, state.campaign.id);
+    assert.equal(summary.health, 'ok');
+    assert.equal(summary.sceneTitle, state.currentScene?.title);
+    assert.deepEqual(
+      summary.characters,
+      state.characters.map(({ id, name }) => ({ id, name })),
+    );
+    assert.equal(summary.turnCount, state.turns.length);
+    assert.ok(summary.lastNarration);
+    assert.equal(summary.ruleset, null);
+    assert.equal(summary.genre, null);
+    assert.ok(!Number.isNaN(Date.parse(String(summary.lastPlayedAt))));
+    assert.doesNotMatch(JSON.stringify(summary), new RegExp(GM_SECRET));
+  });
+
+  it('rpg-42a.12: creates, archives and deletes campaigns over json lines and lists each step', async (t) => {
+    const dataDir = tempDataDir(t);
+    const daemon = supervise(t, { env: { ...baseEnv(), [DATA_DIR_ENV]: dataDir } });
+    const created = acceptedValue<CampaignSummary>(
+      await daemon.command(lifecycle('CreateCampaign', { name: CAMPAIGN, intent: FANTASY_INTENT })),
+    );
+    assert.equal(created.name, CAMPAIGN);
+    assert.equal(created.health, 'ok');
+    assert.equal(created.genre?.id, 'fantasy');
+    assert.equal(created.genre?.provenance, 'derived');
+    const chosen = acceptedValue<CampaignSummary>(
+      await daemon.command(lifecycle('CreateCampaign', { name: SECOND_CAMPAIGN, choices: NARRATIVE_CHOICES })),
+    );
+    assert.deepEqual(
+      [chosen.ruleset?.id, chosen.ruleset?.edition, chosen.ruleset?.provenance],
+      ['narrative', 'original', 'explicit'],
+    );
+    assert.equal(chosen.genre?.provenance, 'explicit');
+    assert.equal(rejectionOf(await daemon.command(lifecycle('CreateCampaign', { name: CAMPAIGN }))), 'Rejected');
+    assert.deepEqual(
+      (await summariesOf(daemon)).map(({ name }) => name),
+      [CAMPAIGN, SECOND_CAMPAIGN],
+    );
+
+    acceptedValue(await daemon.command(lifecycle('ArchiveCampaign', { name: CAMPAIGN })));
+    assert.ok(existsSync(campaignFile(join(dataDir, ARCHIVE_DIR), CAMPAIGN)));
+    assert.deepEqual(
+      (await summariesOf(daemon)).map(({ name }) => name),
+      [SECOND_CAMPAIGN],
+    );
+    assert.equal(rejectionOf(await daemon.command(lifecycle('ArchiveCampaign', { name: CAMPAIGN }))), 'Rejected');
+
+    acceptedValue(
+      await daemon.command(lifecycle('DeleteCampaign', { name: SECOND_CAMPAIGN, confirm: SECOND_CAMPAIGN })),
+    );
+    acceptedValue(await daemon.command(lifecycle('DeleteCampaign', { name: CAMPAIGN, confirm: CAMPAIGN })));
+    assert.deepEqual(await summariesOf(daemon), []);
+    assert.ok(!existsSync(campaignFile(join(dataDir, ARCHIVE_DIR), CAMPAIGN)));
+  });
+
+  it('rpg-42a.12: refuses to delete without the confirm token or to substitute an uninstalled ruleset', async (t) => {
+    const dataDir = tempDataDir(t);
+    await createCampaigns(dataDir, [CAMPAIGN]);
+    const daemon = supervise(t, { env: { ...baseEnv(), [DATA_DIR_ENV]: dataDir } });
+    assert.equal((await daemon.command(lifecycle('DeleteCampaign', { name: CAMPAIGN }))).type, 'Error');
+    const wrong = await daemon.command(lifecycle('DeleteCampaign', { name: CAMPAIGN, confirm: SECOND_CAMPAIGN }));
+    assert.equal(rejectionOf(wrong), 'Rejected');
+    assert.ok(existsSync(campaignFile(dataDir, CAMPAIGN)));
+    const uninstalled = await daemon.command(
+      lifecycle('CreateCampaign', { name: SECOND_CAMPAIGN, intent: UNINSTALLED_INTENT }),
+    );
+    assert.equal(rejectionOf(uninstalled), 'Rejected');
+    assert.match(String(uninstalled.result?.ok === false && uninstalled.result.error.message), /not installed/);
+    const unknownChoice = await daemon.command(
+      lifecycle('CreateCampaign', { name: SECOND_CAMPAIGN, choices: { ruleset: { id: 'dnd', edition: '1.9' } } }),
+    );
+    assert.equal(rejectionOf(unknownChoice), 'Rejected');
+    assert.ok(!existsSync(campaignFile(dataDir, SECOND_CAMPAIGN)));
+  });
+
+  it('rpg-42a.12: refuses to archive or delete the campaign the engine serves', async (t) => {
+    const { env } = await campaignEnv(t);
+    const daemon = supervise(t, { env });
+    assert.equal(rejectionOf(await daemon.command(lifecycle('ArchiveCampaign', { name: CAMPAIGN }))), 'Rejected');
+    const remove = lifecycle('DeleteCampaign', { name: CAMPAIGN, confirm: CAMPAIGN });
+    assert.equal(rejectionOf(await daemon.command(remove)), 'Rejected');
+    assert.ok(existsSync(campaignFile(String(env[DATA_DIR_ENV]), CAMPAIGN)));
+  });
+
+  it('rpg-42a.12: refuses to archive or delete the served campaign through another name for its file', async (t) => {
+    const { env } = await campaignEnv(t);
+    const dataDir = String(env[DATA_DIR_ENV]);
+    symlinkSync(campaignFile(dataDir, CAMPAIGN), campaignFile(dataDir, SERVED_ALIAS));
+    const daemon = supervise(t, { env });
+    for (const name of [SERVED_ALIAS, SERVED_OTHER_CASE]) {
+      assert.equal(rejectionOf(await daemon.command(lifecycle('ArchiveCampaign', { name }))), 'Rejected');
+      const remove = lifecycle('DeleteCampaign', { name, confirm: name });
+      assert.equal(rejectionOf(await daemon.command(remove)), 'Rejected');
+    }
+    assert.ok(existsSync(campaignFile(dataDir, CAMPAIGN)));
+    assert.ok(existsSync(campaignFile(dataDir, SERVED_ALIAS)));
+    const missing = await daemon.command(lifecycle('ArchiveCampaign', { name: SECOND_CAMPAIGN }));
+    assert.equal(rejectionOf(missing), 'Rejected');
+    assert.match(String(missing.result?.ok === false && missing.result.error.message), /No campaign named/);
   });
 
   it('replies an error with the request id when the data dir is a file (rpg-7x3.1)', {

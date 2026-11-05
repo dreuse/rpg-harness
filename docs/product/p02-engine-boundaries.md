@@ -42,7 +42,7 @@ An arrow means "may import". No other imports are allowed.
 | `ActorPlanner` | world → engine | `world` | Returns proposals; the engine validates them |
 | `AudioInputProvider` | voice → client | `voice` | Yields transcripts; never commits |
 | `AudioOutputProvider` | client → voice | `voice` | Speaks committed utterances only |
-| `ClientSession` | client ↔ engine | `client-protocol` | `ListCampaigns`, `GetCampaignSnapshot`, `GetCampaignPanels`, `SubmitPlayerAction`, `SelectCapability`, `RequestView`, `SubscribeEvents`, `EditSheetField`, `SaveVoiceSettings` |
+| `ClientSession` | client ↔ engine | `client-protocol` | `ListCampaigns`, `CreateCampaign`, `ArchiveCampaign`, `DeleteCampaign`, `GetCampaignSnapshot`, `GetCampaignPanels`, `SubmitPlayerAction`, `SelectCapability`, `RequestView`, `SubscribeEvents`, `EditSheetField`, `SaveVoiceSettings` |
 
 ## Turn data flow
 

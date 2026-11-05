@@ -9,7 +9,14 @@ import {
 } from '../../../packages/content/src/packs.ts';
 import type { StoryKit } from '../../../packages/content/src/story.ts';
 import { type CampaignConfig, type ConfigIssue, generateCampaignConfig } from '../../../packages/intent/src/config.ts';
-import { type CampaignIntent, type CapabilityMode, createCampaignIntent } from '../../../packages/intent/src/intent.ts';
+import {
+  type CampaignIntent,
+  type CapabilityMode,
+  createCampaignIntent,
+  type IntentIssue,
+  type Provenance,
+  parseCampaignIntent,
+} from '../../../packages/intent/src/intent.ts';
 import { MAX_INTENT_TEXT_LENGTH, proposeCampaignIntent } from '../../../packages/intent/src/parser.ts';
 import { matchGenre, type Registry } from '../../../packages/intent/src/registry.ts';
 import {
@@ -43,6 +50,7 @@ const REGISTRY: Registry = {
 };
 const NONE = 'none';
 const IMPORT_HINT = 'Run rpg import <file> to add its rule files, or name an installed ruleset.';
+const CHOSEN: Provenance = 'explicit';
 const DICE_LABELS: Record<CapabilityMode, string> = { rulepack: 'as the ruleset decides', on: 'on', off: 'off' };
 
 const listed = (items: readonly string[]) => (items.length === 0 ? NONE : items.join(', '));
@@ -57,10 +65,12 @@ const rulesetError = (resolution: Exclude<RulesetResolution, { status: 'resolved
   return `Ruleset ${requested} is not installed. Installed rulesets: ${rulesets(resolution.available)}. ${IMPORT_HINT}`;
 };
 
-const issueText = (intent: CampaignIntent, { code, path }: ConfigIssue) =>
-  path === 'genre' && code === 'not_installed'
+const issueLine = ({ code, path }: ConfigIssue | IntentIssue) => `${path} ${code.replaceAll('_', ' ')}.`;
+
+const issueText = (intent: CampaignIntent, issue: ConfigIssue) =>
+  issue.path === 'genre' && issue.code === 'not_installed'
     ? `Genre ${intent.genre.value} is not installed. Installed genres: ${listed(REGISTRY.genres.map(({ id }) => id))}.`
-    : `${path} ${code.replaceAll('_', ' ')}.`;
+    : issueLine(issue);
 
 const canonicalGenre = (intent: CampaignIntent): CampaignIntent => {
   if (intent.genre.value === null) return intent;
@@ -74,7 +84,11 @@ const intentFrom = (text: string): CampaignIntent => {
   const { conflicts, input } = proposed.proposal;
   if (conflicts.length > 0)
     throw new Error(`Your intent gives conflicting choices for ${listed(conflicts.map(({ field }) => field))}.`);
-  const intent = canonicalGenre(createCampaignIntent(input));
+  return resolvedIntent(createCampaignIntent(input));
+};
+
+const resolvedIntent = (choices: CampaignIntent): CampaignIntent => {
+  const intent = canonicalGenre(choices);
   if (intent.ruleset.value === null) return intent;
   const resolution = resolveRuleset(REGISTRY, intent.ruleset.value);
   if (resolution.status !== 'resolved') throw new Error(rulesetError(resolution));
@@ -82,11 +96,20 @@ const intentFrom = (text: string): CampaignIntent => {
   return { ...intent, ruleset: { value: { id, edition }, provenance: intent.ruleset.provenance } };
 };
 
-export const planCampaign = (text?: string): CampaignConfig => {
-  const intent = text === undefined ? createCampaignIntent({}) : intentFrom(text);
+const configFor = (intent: CampaignIntent): CampaignConfig => {
   const result = generateCampaignConfig(intent, REGISTRY);
   if (!result.ok) throw new Error(result.issues.map((issue) => issueText(intent, issue)).join('\n'));
   return result.config;
+};
+
+export const planCampaign = (text?: string): CampaignConfig =>
+  configFor(text === undefined ? createCampaignIntent({}) : intentFrom(text));
+
+export const planCampaignFrom = (choices: Readonly<Record<string, unknown>>): CampaignConfig => {
+  const chosen = Object.entries(choices).map(([field, value]) => [field, { value, provenance: CHOSEN }]);
+  const parsed = parseCampaignIntent(Object.fromEntries(chosen));
+  if (!parsed.ok) throw new Error(parsed.issues.map(issueLine).join('\n'));
+  return configFor(resolvedIntent(parsed.intent));
 };
 
 export type Opening = { title: string; narration: string };

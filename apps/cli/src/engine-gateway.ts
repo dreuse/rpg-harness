@@ -1,9 +1,14 @@
 import { randomUUID } from 'node:crypto';
-import { closeSync, existsSync, linkSync, mkdirSync, openSync, readdirSync, rmSync } from 'node:fs';
+import { closeSync, existsSync, linkSync, mkdirSync, openSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { MAX_INPUT_LENGTH } from '../../../packages/client-protocol/src/protocol.ts';
-import type { Campaign, CampaignState, Turn } from '../../../packages/domain/src/campaign.ts';
+import {
+  type CampaignHealth,
+  type CampaignSummary,
+  type CreateCampaign,
+  MAX_INPUT_LENGTH,
+} from '../../../packages/client-protocol/src/protocol.ts';
+import type { CampaignId, CampaignState, Turn } from '../../../packages/domain/src/campaign.ts';
 import type { Visibility } from '../../../packages/domain/src/entity.ts';
 import { commitCharacter, editSheetField } from '../../../packages/engine/src/character.ts';
 import { createEngine, type Engine } from '../../../packages/engine/src/engine.ts';
@@ -12,29 +17,42 @@ import { type CampaignConfig, parseCampaignConfig } from '../../../packages/inte
 import { PLAYER_VIEWER } from '../../../packages/memory/src/knowledge.ts';
 import { createCampaignStore } from '../../../packages/persistence/src/campaign-store.ts';
 import { MIGRATIONS, openDatabase } from '../../../packages/persistence/src/database.ts';
-import { createEntityStore } from '../../../packages/persistence/src/entity-store.ts';
 import type { BuildInput, BuildResult } from '../../../packages/rules/src/character-builder.ts';
 import { D20_LITE_CREATION } from '../../../packages/rules/src/d20-lite.ts';
 import { DICE_POOL_LITE_CREATION } from '../../../packages/rules/src/dice-pool-lite.ts';
 import { NARRATIVE_CREATION } from '../../../packages/rules/src/narrative.ts';
 import { exportArchive, restoreArchive } from './campaign-archive.ts';
 import { type Ask, createCharacter } from './character-creation.ts';
-import { createClientSessions, type SheetPort, scopedEventsOf, type WorldSource, worldOf } from './client-session.ts';
+import {
+  campaignSummaryOf,
+  createClientSessions,
+  type SheetPort,
+  scopedEventsOf,
+  type WorldSource,
+  worldOf,
+} from './client-session.ts';
 import { importRules } from './import-gateway.ts';
 import type { CampaignGateway } from './main.ts';
-import { describeConfig, type Opening, openingFor, planCampaign } from './quickstart.ts';
+import { describeConfig, type Opening, openingFor, planCampaign, planCampaignFrom } from './quickstart.ts';
 import { checkFor } from './roll-visualization.ts';
 import { runTui, type Terminal } from './tui.ts';
 import { editableSheet, renderView, type ViewName } from './views.ts';
 
 const DATABASE_EXTENSION = '.sqlite';
 const SELECT_CAMPAIGN_ID = 'SELECT id FROM campaign LIMIT 1';
-const SELECT_CAMPAIGN_RECORD = 'SELECT id, name FROM campaign LIMIT 1';
 const SELECT_SCHEMA_VERSION = 'SELECT MAX(version) AS version FROM schema_migrations';
 const KNOWN_SCHEMA_VERSION = Math.max(...MIGRATIONS.map(({ version }) => version));
-const SQLITE_ERROR = 1;
-const SQLITE_NOTADB = 26;
-const NOT_CAMPAIGN_ERRORS = [SQLITE_ERROR, SQLITE_NOTADB];
+const UNREADABLE: CampaignHealth = 'unreadable';
+const NEEDS_MIGRATION: CampaignHealth = 'needs-migration';
+const UNREAD_SUMMARY = {
+  id: null,
+  sceneTitle: null,
+  characters: [],
+  ruleset: null,
+  genre: null,
+  lastNarration: null,
+  turnCount: 0,
+} as const;
 const SELECT_EVENT_SCOPES = 'SELECT id, visibility, actor_id FROM event_log WHERE campaign_id = ?';
 const RECAP_VIEW = 'recap';
 const CREATE_EXCLUSIVE = 'wx';
@@ -256,6 +274,19 @@ const savedSettings = (events: CampaignState['events']) => {
 const recapText = (name: string, { currentScene, characters, turns, events }: CampaignState) =>
   [...savedSettings(events), sceneText(currentScene?.title ?? name, recap(characters, turns.at(-1)))].join('\n');
 
+const viewSourceOf = (database: Session['database'], campaignId: CampaignId, state: CampaignState) => ({
+  state,
+  eventScopes: database
+    .prepare(SELECT_EVENT_SCOPES)
+    .all(campaignId)
+    .map((row) => ({
+      id: String(row.id),
+      visibility: String(row.visibility) as Visibility,
+      actorId: row.actor_id === null ? null : String(row.actor_id),
+    })),
+  ...worldOf(database)(campaignId, state.characters[0]?.id),
+});
+
 const readView = (dataDir: string, name: string, view: ViewName) =>
   withSession(
     dataDir,
@@ -263,22 +294,7 @@ const readView = (dataDir: string, name: string, view: ViewName) =>
     ({ engine, campaignId, database }) => {
       const state = engine.getState(campaignId);
       if (view === RECAP_VIEW) return recapText(name, state);
-      const entities = createEntityStore(database);
-      const [hero] = state.characters;
-      const eventScopes = database
-        .prepare(SELECT_EVENT_SCOPES)
-        .all(campaignId)
-        .map((row) => ({
-          id: String(row.id),
-          visibility: String(row.visibility) as Visibility,
-          actorId: row.actor_id === null ? null : String(row.actor_id),
-        }));
-      return renderView(view, {
-        state,
-        entities: entities.listEntities(campaignId),
-        relationships: hero === undefined ? [] : entities.listRelationships(campaignId, hero.id),
-        eventScopes,
-      });
+      return renderView(view, viewSourceOf(database, campaignId, state));
     },
     true,
   );
@@ -299,31 +315,35 @@ const savedCampaigns = (dataDir: string) =>
         .sort()
     : [];
 
-const readCampaignRecord = (path: string): Campaign[] => {
+const readSummary = (path: string, lastPlayedAt: string): CampaignSummary | CampaignHealth => {
   const database = new DatabaseSync(path, { readOnly: true });
   try {
-    if (database.prepare(SELECT_SCHEMA_VERSION).get()?.version !== KNOWN_SCHEMA_VERSION) return [];
-    const row = database.prepare(SELECT_CAMPAIGN_RECORD).get();
-    return row === undefined ? [] : [{ id: String(row.id), name: String(row.name) }];
+    const version = database.prepare(SELECT_SCHEMA_VERSION).get()?.version;
+    if (version !== KNOWN_SCHEMA_VERSION) return Number(version) < KNOWN_SCHEMA_VERSION ? NEEDS_MIGRATION : UNREADABLE;
+    const row = database.prepare(SELECT_CAMPAIGN_ID).get();
+    if (row === undefined) return UNREADABLE;
+    const campaignId = String(row.id);
+    const state = createEngine(createCampaignStore(database)).getState(campaignId);
+    return campaignSummaryOf(viewSourceOf(database, campaignId, state), PLAYER_VIEWER, lastPlayedAt);
   } finally {
     database.close();
   }
 };
 
-const isNotCampaign = (error: unknown) =>
-  error instanceof Error && 'errcode' in error && NOT_CAMPAIGN_ERRORS.includes(Number(error.errcode));
-
-const campaignRecordOf = (dataDir: string, name: string): Campaign[] => {
+const summaryOf = (dataDir: string, name: string): CampaignSummary => {
+  let lastPlayedAt: string | null = null;
   try {
-    return readCampaignRecord(databasePath(dataDir, name));
-  } catch (error) {
-    if (!isNotCampaign(error)) process.stderr.write(`Skipped campaign ${name}: ${String(error)}\n`);
-    return [];
+    const path = databasePath(dataDir, name);
+    lastPlayedAt = statSync(path).mtime.toISOString();
+    const read = readSummary(path, lastPlayedAt);
+    return typeof read === 'string' ? { ...UNREAD_SUMMARY, name, health: read, lastPlayedAt } : { ...read, name };
+  } catch {
+    return { ...UNREAD_SUMMARY, name, health: UNREADABLE, lastPlayedAt };
   }
 };
 
-export const listCampaignRecords = (dataDir: string): Campaign[] =>
-  savedCampaigns(dataDir).flatMap((name) => campaignRecordOf(dataDir, name));
+export const listCampaignSummaries = (dataDir: string): CampaignSummary[] =>
+  savedCampaigns(dataDir).map((name) => summaryOf(dataDir, name));
 
 const launch = (dataDir: string) => {
   const names = savedCampaigns(dataDir);
@@ -335,7 +355,7 @@ const listed = (names: readonly string[]) => (names.length === 0 ? NONE : names.
 const list = (dataDir: string) =>
   `Campaigns: ${listed(savedCampaigns(dataDir))}\nArchived: ${listed(savedCampaigns(join(dataDir, ARCHIVE_DIR)))}`;
 
-const archive = (dataDir: string, name: string) => {
+export const archiveCampaign = (dataDir: string, name: string) => {
   const from = databasePath(dataDir, name);
   const to = archivePath(dataDir, name);
   if (!existsSync(from)) throw missingCampaign(dataDir, name);
@@ -358,11 +378,38 @@ const deletionGuidance = (name: string, path: string, archived: boolean) =>
     `Type ${name} to delete it, or anything else to keep it.`,
   ].join('\n');
 
-const remove = async function* (dataDir: string, name: string, lines: AsyncIterable<string>) {
+const savedFile = (dataDir: string, name: string) => {
   const active = databasePath(dataDir, name);
   const archived = !existsSync(active);
   const path = archived ? archivePath(dataDir, name) : active;
   if (!existsSync(path)) throw missingCampaign(dataDir, name);
+  return { path, archived };
+};
+
+const fileIdentity = (dataDir: string, name: string) => {
+  const stats = statSync(databasePath(dataDir, name), { throwIfNoEntry: false });
+  return stats === undefined ? undefined : `${stats.dev}:${stats.ino}`;
+};
+
+export const isSameCampaignFile = (dataDir: string, name: string, other: string) => {
+  const identity = fileIdentity(dataDir, name);
+  return identity !== undefined && identity === fileIdentity(dataDir, other);
+};
+
+export const deleteCampaign = (dataDir: string, name: string, confirm: string) => {
+  const { path } = savedFile(dataDir, name);
+  if (confirm !== name) throw new Error(`Kept campaign ${name}: send its name as the confirm token to delete it.`);
+  rmSync(path);
+};
+
+export const createCampaignFrom = (dataDir: string, { name, intent, choices }: CreateCampaign): CampaignSummary => {
+  const config = choices === undefined ? planCampaign(intent) : planCampaignFrom(choices);
+  createCampaign(dataDir, name, openingFor(config, DEFAULT_OPENING), config);
+  return summaryOf(dataDir, name);
+};
+
+const remove = async function* (dataDir: string, name: string, lines: AsyncIterable<string>) {
+  const { path, archived } = savedFile(dataDir, name);
   yield deletionGuidance(name, path, archived);
   let answer: string | undefined;
   for await (const line of lines) {
@@ -402,7 +449,7 @@ const restore = (dataDir: string, file: string) => {
 export const createEngineGateway = (dataDir: string): CampaignGateway => ({
   launch: () => launch(dataDir),
   list: () => list(dataDir),
-  archive: (name) => archive(dataDir, name),
+  archive: (name) => archiveCampaign(dataDir, name),
   remove: (name, lines) => remove(dataDir, name, lines),
   exportCampaign: (name, file) => exportCampaign(dataDir, name, file),
   backup: (name) => backup(dataDir, name),
