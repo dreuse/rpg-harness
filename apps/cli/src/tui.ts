@@ -20,7 +20,7 @@ import {
 } from '../../../packages/client-protocol/src/visualization.ts';
 import { type CampaignId, OPENING_ACTION_ID } from '../../../packages/domain/src/campaign.ts';
 import { DEFAULT_RULES_USAGE, type RulesUsage, usesDice, usesSheet } from '../../../packages/domain/src/rules-usage.ts';
-import type { PlaybackControl } from '../../../packages/voice/src/playback-controls.ts';
+import type { PlaybackCommand, PlaybackControl } from '../../../packages/voice/src/playback-controls.ts';
 import type { VoiceDiagnosticsSummary } from '../../../packages/voice/src/voice-diagnostics.ts';
 import { DEFAULT_LOCALE, safeLocale, say } from './messages.ts';
 import { type ColorDepth, colorDepthOf, FRAME_COLUMNS, frame, paint, supportsUnicode } from './theme.ts';
@@ -58,6 +58,7 @@ export type TuiState = {
 };
 
 type Act = (input: string) => string | undefined;
+type Immediate = (input: string) => boolean;
 
 export type TuiAudio = {
   readonly status: () => string;
@@ -468,9 +469,42 @@ const valuesOf = (sheet: readonly ViewComponent[]) => new Map(sheet.map(({ id, v
 
 type Narrate = () => Promise<unknown>;
 
+const PLAYBACK_PREFIX = '/';
+const DIAGNOSTICS_COMMAND = 'voice';
+const PLAYBACK_COMMANDS: readonly string[] = ['pause', 'resume', 'skip', 'stop'] satisfies PlaybackCommand[];
+
+const serial = () => {
+  let pending: Promise<void> = Promise.resolve();
+  let failure: { error: unknown } | undefined;
+  const raise = () => {
+    if (failure !== undefined) throw failure.error;
+  };
+  const start = (task: () => Promise<unknown>) => {
+    pending = pending.then(() => {
+      if (failure !== undefined) return;
+      return task().then(
+        () => undefined,
+        (error: unknown) => {
+          failure = { error };
+        },
+      );
+    });
+  };
+  const guard = async (body: () => Promise<void>) => {
+    try {
+      await body();
+    } finally {
+      await pending;
+    }
+    raise();
+  };
+  return { start, raise, guard };
+};
+
 const interactive = async (
   data: () => TuiData,
   act: Act,
+  immediate: Immediate,
   narrate: Narrate,
   terminal: Terminal,
   keys: AsyncIterable<Key>,
@@ -501,16 +535,8 @@ const interactive = async (
     changed = [];
     paint();
   };
-  paint();
-  for await (const key of keys) {
-    state = nextStateIn(panesFor(data().snapshot.rules))(state, key);
-    generation += 1;
-    if (state.quit) return;
-    if (state.submitted !== undefined) {
-      state = { ...state, notice: act(state.submitted) };
-      await narrate();
-      state = { ...state, notice: state.notice ?? budget() };
-    }
+  const narration = serial();
+  const refresh = () => {
     const current = data();
     const latest = current.mechanics.slice(seen).at(-1);
     seen = current.mechanics.length;
@@ -524,12 +550,35 @@ const interactive = async (
     }
     if (changed.length > 0) schedule(settle, HIGHLIGHT_MS);
     paint();
-  }
+  };
+  paint();
+  await narration.guard(async () => {
+    for await (const key of keys) {
+      narration.raise();
+      state = nextStateIn(panesFor(data().snapshot.rules))(state, key);
+      generation += 1;
+      if (state.quit) return;
+      const { submitted } = state;
+      if (submitted !== undefined && !immediate(submitted))
+        narration.start(async () => {
+          state = { ...state, notice: act(submitted) };
+          await narrate();
+          if (state.quit) return;
+          state = { ...state, notice: state.notice ?? budget() };
+          refresh();
+        });
+      else {
+        if (submitted !== undefined) state = { ...state, notice: act(submitted) };
+        refresh();
+      }
+    }
+  });
 };
 
 const linear = async (
   data: () => TuiData,
   act: Act,
+  immediate: Immediate,
   narrate: Narrate,
   terminal: Terminal,
   notice: string | undefined,
@@ -544,24 +593,33 @@ const linear = async (
   const budget = onceOverBudget(data);
   print(renderLinear(data(), terminal.capabilities));
   if (notice !== undefined) print(wrap([notice], width));
-  for await (const line of terminal.lines) {
-    const text = line.trim();
-    const pane = panesFor(data().snapshot.rules).find(({ key }) => key === text);
-    if (text === QUIT_KEY) return;
-    if (text === '') continue;
-    if (text === HELP_KEY) {
-      const current = data();
-      print(section(`${helpLabel(localeOf(current))}:`, helpLines(current), capabilities));
-    } else if (pane !== undefined) show(pane);
-    else {
-      const notice = act(text);
-      await narrate();
-      if (notice === undefined) show(CONVERSATION);
-      else print(wrap([notice], width));
-      const warning = budget();
-      if (warning !== undefined) print(wrap([warning], width));
+  const narration = serial();
+  const respond = (notice: string | undefined) => {
+    if (notice === undefined) show(CONVERSATION);
+    else print(wrap([notice], width));
+  };
+  await narration.guard(async () => {
+    for await (const line of terminal.lines) {
+      narration.raise();
+      const text = line.trim();
+      const pane = panesFor(data().snapshot.rules).find(({ key }) => key === text);
+      if (text === QUIT_KEY) return;
+      if (text === '') continue;
+      if (text === HELP_KEY) {
+        const current = data();
+        print(section(`${helpLabel(localeOf(current))}:`, helpLines(current), capabilities));
+      } else if (pane !== undefined) show(pane);
+      else if (immediate(text)) respond(act(text));
+      else
+        narration.start(async () => {
+          const notice = act(text);
+          await narrate();
+          respond(notice);
+          const warning = budget();
+          if (warning !== undefined) print(wrap([warning], width));
+        });
     }
-  }
+  });
 };
 
 export const runTui = async (
@@ -586,10 +644,18 @@ export const runTui = async (
       : editField(session, data(), name, text);
   };
   const act: Act = audio === undefined ? send : (input) => audio.input(input, send);
+  const immediate: Immediate = (input) => {
+    const text = input.trim();
+    if (playback === undefined || !text.startsWith(PLAYBACK_PREFIX)) return false;
+    const command = text.slice(PLAYBACK_PREFIX.length);
+    return (
+      PLAYBACK_COMMANDS.includes(command) || (command === DIAGNOSTICS_COMMAND && playback.diagnostics !== undefined)
+    );
+  };
   try {
     if (terminal.capabilities.interactive && terminal.keys !== undefined)
-      await interactive(data, act, narrate, terminal, terminal.keys, notice);
-    else await linear(data, act, narrate, terminal, notice);
+      await interactive(data, act, immediate, narrate, terminal, terminal.keys, notice);
+    else await linear(data, act, immediate, narrate, terminal, notice);
   } finally {
     unsubscribe();
   }

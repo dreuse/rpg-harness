@@ -773,3 +773,206 @@ test('rpg-cm63.17: runTui hands the playback control to the audio and /pause rea
   );
   assert.deepEqual(calls, ['pause', 'skip', 'resume', 'stop']);
 });
+
+const NARRATION_TIMEOUT_MS = 3000;
+
+const pausedDuringNarration = async (interactive: boolean) => {
+  const { campaignId, session } = engineSession();
+  const calls: string[] = [];
+  const playback = {
+    pause: () => void calls.push('pause'),
+    resume: () => {},
+    skip: () => {},
+    stop: () => {},
+  };
+  let release = () => {};
+  const narration = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const seenWhileNarrating: string[][] = [];
+  const keys = async function* () {
+    yield key('i');
+    yield* typed(ACTION);
+    yield RETURN;
+    yield key('i');
+    yield* typed('/pause');
+    yield RETURN;
+    seenWhileNarrating.push([...calls]);
+    release();
+    yield key('q');
+  };
+  const lines = async function* () {
+    yield ACTION;
+    yield '/pause';
+    seenWhileNarrating.push([...calls]);
+    release();
+    yield 'q';
+  };
+  await runTui(
+    session,
+    campaignId,
+    {
+      capabilities: interactive ? { ...COLOR, width: LARGE_WIDTH, height: LARGE_HEIGHT } : PLAIN_WIDE,
+      audio: (_session, _campaignId, given) =>
+        createTuiAudio(
+          {
+            campaignId,
+            turn: 0,
+            pendingInput: [],
+            preferences: { microphone: 'off', spokenOutput: 'off', locale: 'en-US', speed: 1 },
+          },
+          ['en-US'],
+          () => undefined,
+          undefined,
+          given,
+        ),
+      ...(interactive ? { keys: keys(), lines: each([]) } : { lines: lines() }),
+      write: () => {},
+    },
+    () => narration,
+    undefined,
+    playback,
+  );
+  return seenWhileNarrating;
+};
+
+test('rpg-cm63.21: /pause typed while linear narration streams is handled before it ends', {
+  timeout: NARRATION_TIMEOUT_MS,
+}, async () => {
+  assert.deepEqual(await pausedDuringNarration(false), [['pause']]);
+});
+
+test('rpg-cm63.21: /pause typed while interactive narration streams is handled before it ends', {
+  timeout: NARRATION_TIMEOUT_MS,
+}, async () => {
+  assert.deepEqual(await pausedDuringNarration(true), [['pause']]);
+});
+
+const typedAhead = async (
+  inputs: readonly string[],
+  narrate: () => Promise<unknown>,
+  afterInputs: (submitted: readonly string[]) => void,
+) => {
+  const { campaignId, session } = engineSession();
+  const submitted: string[] = [];
+  const spying: ClientSession = {
+    ...session,
+    submitPlayerAction: (command) => {
+      submitted.push(command.input);
+      return session.submitPlayerAction(command);
+    },
+  };
+  const lines = async function* () {
+    yield* inputs;
+    await new Promise(setImmediate);
+    afterInputs(submitted);
+    yield 'q';
+  };
+  const audio = (_session: unknown, id: typeof campaignId, given?: Parameters<typeof createTuiAudio>[4]) =>
+    createTuiAudio(
+      {
+        campaignId: id,
+        turn: 0,
+        pendingInput: [],
+        preferences: { microphone: 'off', spokenOutput: 'off', locale: 'en-US', speed: 1 },
+      },
+      ['en-US'],
+      () => undefined,
+      undefined,
+      given,
+    );
+  const playback = { pause: () => {}, resume: () => {}, skip: () => {}, stop: () => {} };
+  await runTui(
+    spying,
+    campaignId,
+    { capabilities: PLAIN_WIDE, audio, lines: lines(), write: () => {} },
+    narrate,
+    undefined,
+    playback,
+  );
+  return submitted;
+};
+
+test('rpg-cm63.21: typed-ahead actions run in order behind the running narration', {
+  timeout: NARRATION_TIMEOUT_MS,
+}, async () => {
+  let release = () => {};
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const narrations: Promise<void>[] = [gate];
+  const seen: string[][] = [];
+  const submitted = await typedAhead(
+    ['first', 'second'],
+    () => narrations.shift() ?? Promise.resolve(),
+    (now) => {
+      seen.push([...now]);
+      release();
+    },
+  );
+  assert.deepEqual(seen, [['first']]);
+  assert.deepEqual(submitted, ['first', 'second']);
+});
+
+test('rpg-cm63.21: a playback command mid-stream starts no extra narration', {
+  timeout: NARRATION_TIMEOUT_MS,
+}, async () => {
+  let release = () => {};
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let narrations = 0;
+  const submitted = await typedAhead(
+    ['first', '/pause'],
+    () => {
+      narrations += 1;
+      return gate;
+    },
+    () => release(),
+  );
+  assert.equal(narrations, 1);
+  assert.deepEqual(submitted, ['first']);
+});
+
+test('rpg-cm63.21: a narration failure ends the run with its error', { timeout: NARRATION_TIMEOUT_MS }, async () => {
+  const failure = new Error('narration exploded');
+  let narrations = 0;
+  await assert.rejects(
+    typedAhead(
+      ['first', 'second', 'third'],
+      () => {
+        narrations += 1;
+        return Promise.reject(failure);
+      },
+      () => {},
+    ),
+    failure,
+  );
+  assert.equal(narrations, 1);
+});
+
+test('rpg-cm63.21: an unknown slash input is queued and narrated like an action', {
+  timeout: NARRATION_TIMEOUT_MS,
+}, async () => {
+  let release = () => {};
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const narrations: Promise<void>[] = [gate];
+  let narrated = 0;
+  const seen: string[][] = [];
+  const submitted = await typedAhead(
+    ['first', '/look around'],
+    () => {
+      narrated += 1;
+      return narrations.shift() ?? Promise.resolve();
+    },
+    (now) => {
+      seen.push([...now]);
+      release();
+    },
+  );
+  assert.deepEqual(seen, [['first']]);
+  assert.equal(narrated, 2);
+  assert.deepEqual(submitted, ['first', '/look around']);
+});
