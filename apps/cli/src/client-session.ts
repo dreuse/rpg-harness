@@ -45,7 +45,7 @@ import { EMPTY_GM_USAGE_TOTALS, type GmSettings, ledgerTotals } from '../../../p
 import { playTurns, SHEET_FIELD_EDITED } from '../../../packages/engine/src/character.ts';
 import { currentEncounter } from '../../../packages/engine/src/encounter.ts';
 import { campaignLanguageOf, type Engine } from '../../../packages/engine/src/engine.ts';
-import { gmSettingsOf } from '../../../packages/engine/src/gm-settings.ts';
+import { contextDroppedOften, gmSettingsOf } from '../../../packages/engine/src/gm-settings.ts';
 import { campaignConfigOf } from '../../../packages/engine/src/turn.ts';
 import { voiceSettingsOf } from '../../../packages/engine/src/voice-settings.ts';
 import { parseCampaignConfig } from '../../../packages/intent/src/config.ts';
@@ -193,7 +193,14 @@ export const gmSnapshotOf = (
   const campaign = ledgerTotals(gmUsage);
   if (Object.keys(settings).length === 0 && campaign.turns === 0) return undefined;
   const session = sessionId === undefined ? EMPTY_GM_USAGE_TOTALS : ledgerTotals(gmUsage, sessionId);
-  return { settings, campaignSettings, defaults, session, campaign };
+  return {
+    settings,
+    campaignSettings,
+    defaults,
+    session,
+    campaign,
+    ...(contextDroppedOften(changes) ? { contextTight: true } : {}),
+  };
 };
 
 export const createScopeLookup = (

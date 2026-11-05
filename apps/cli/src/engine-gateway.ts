@@ -21,7 +21,7 @@ import {
 } from '../../../packages/domain/src/campaign.ts';
 import { EMPTY_GM_USAGE_TOTALS, type GmSettings, type GmUsage, toGmSettings } from '../../../packages/domain/src/gm.ts';
 import { commitCharacter, editSheetField, playTurns } from '../../../packages/engine/src/character.ts';
-import { createEngine, type Engine } from '../../../packages/engine/src/engine.ts';
+import { campaignLanguageOf, createEngine, type Engine } from '../../../packages/engine/src/engine.ts';
 import {
   type GameplayOutcome,
   type NarrationContext,
@@ -29,7 +29,13 @@ import {
   narrateTurn,
   playGameplayTurn,
 } from '../../../packages/engine/src/gameplay.ts';
-import { gmSettingsOf, recordGmUsage } from '../../../packages/engine/src/gm-settings.ts';
+import {
+  contextRatioOf,
+  gmSettingsOf,
+  recordContextDiagnostics,
+  recordGmUsage,
+} from '../../../packages/engine/src/gm-settings.ts';
+import { contextBudgetOf } from '../../../packages/engine/src/memory.ts';
 import {
   campaignConfigOf,
   loadState,
@@ -87,6 +93,7 @@ import {
 import { requestClaudeStream } from './gm-claude-stream.ts';
 import { contextPacketOf, fakeSummarizer, type Summarizer, summarizeCampaign } from './gm-context.ts';
 import { readGmDefaults, writeGmDefaults } from './gm-defaults.ts';
+import { requestFitting } from './gm-limits.ts';
 import { commitProposals, type GmProposal } from './gm-proposals.ts';
 import { type GmSegment, narratorSegments } from './gm-segments.ts';
 
@@ -149,7 +156,11 @@ export const GM_NOTICES: Readonly<Record<GmRoute, string>> = {
   api: `The game master is Claude through your ${API_KEY_ENV}.`,
   fake: NO_KEY_NOTICE,
 };
-const NO_FACTS: NarrationContext = { facts: [], equipment: {}, viewer: PLAYER_VIEWER };
+const NO_FACTS: NarrationContext = {
+  facts: [],
+  equipment: {},
+  viewer: PLAYER_VIEWER,
+};
 const PENDING_NARRATION = '';
 const NO_SEGMENTS: readonly GmSegment[] = [];
 
@@ -231,9 +242,13 @@ type ModelSummarizer = (
 export type GameMaster = ({ readonly narrator: PacketNarrator } | { readonly request: PacketRequest }) & {
   readonly summarizer: ModelSummarizer;
   readonly notice?: string;
+  readonly calibratesContext?: boolean;
 };
 
-const narratorReply = (narration: string): GmTurnReply => ({ narration, segments: narratorSegments(narration) });
+const narratorReply = (narration: string): GmTurnReply => ({
+  narration,
+  segments: narratorSegments(narration),
+});
 
 export const FAKE_GAME_MASTER: GameMaster = {
   narrator: () => narratorReply(FAKE_GM_REPLY),
@@ -262,7 +277,7 @@ const providerGameMaster = (narrate: PacketRequest, summarize: ModelSummarizer):
       try {
         return await narrate(packet, call);
       } catch (error) {
-        if (!(error instanceof ProviderError)) throw error;
+        if (!(error instanceof ProviderError) || error.tooLong) throw error;
         failed = true;
         return narratorReply(
           withNotice(`The AI game master is unavailable: ${error.message} The built-in narrator takes over.`),
@@ -276,15 +291,17 @@ const providerGameMaster = (narrate: PacketRequest, summarize: ModelSummarizer):
 
 const chosen = (model: string | undefined) => (model === PROVIDER_DEFAULT_MODEL ? undefined : model);
 
-export const apiGameMaster = (route: ApiRoute, summaryRoute: ApiRoute = route): GameMaster =>
-  providerGameMaster(
+export const apiGameMaster = (route: ApiRoute, summaryRoute: ApiRoute = route): GameMaster => ({
+  ...providerGameMaster(
     (packet, { model, onSegment }) => {
       const routed = { ...route, model: chosen(model) ?? route.model };
       return onSegment === undefined ? requestNarration(routed, packet) : streamNarration(routed, packet, onSegment);
     },
     (level, texts, language, model) =>
       requestSummary({ ...summaryRoute, model: chosen(model) ?? summaryRoute.model }, level, texts, language),
-  );
+  ),
+  calibratesContext: true,
+});
 
 export const claudeCodeGameMaster = (route: ClaudeCodeRoute): GameMaster =>
   providerGameMaster(
@@ -302,12 +319,19 @@ const chosenGameMaster = async (env: NodeJS.ProcessEnv): Promise<{ gm: GameMaste
   const chosen = env[GM_ROUTE_ENV];
   if (chosen === FAKE_ROUTE) return { gm: FAKE_GAME_MASTER, route: FAKE_ROUTE };
   const bin = chosen === API_ROUTE ? undefined : claudeBinOf(env);
-  if (bin !== undefined) return { gm: claudeCodeGameMaster(claudeCodeRouteOf(bin, env)), route: CLAUDE_CODE_ROUTE };
+  if (bin !== undefined)
+    return {
+      gm: claudeCodeGameMaster(claudeCodeRouteOf(bin, env)),
+      route: CLAUDE_CODE_ROUTE,
+    };
   if (chosen === CLAUDE_CODE_ROUTE) return { gm: noKeyGameMaster(), route: FAKE_ROUTE };
   const key = apiKeyOf(env, await storedApiKey(gmSecrets(env)));
   if (key === undefined) return { gm: noKeyGameMaster(), route: FAKE_ROUTE };
   const route = apiRouteOf(key, env);
-  return { gm: apiGameMaster(route, summaryRouteOf(route, env)), route: API_ROUTE };
+  return {
+    gm: apiGameMaster(route, summaryRouteOf(route, env)),
+    route: API_ROUTE,
+  };
 };
 
 export const gameMasterFor = async (env: NodeJS.ProcessEnv) => {
@@ -329,22 +353,39 @@ const narrateLatest = async (
   request: (packet: ContextPacket, onSegment?: (segment: string) => void) => Promise<GmTurnReply>,
   sessionId: string,
   speak: SpeakTurn,
+  calibrates: boolean,
 ): Promise<readonly GmSegment[]> => {
   const state = engine.getState(campaignId);
   const latest = playTurns(state).at(-1);
   const committed = latest === undefined ? undefined : storedTurn(state, latest.actionId);
   if (committed === undefined || committed.turn.narration !== PENDING_NARRATION) return NO_SEGMENTS;
-  const packet = contextPacketOf(database, state, committed);
+  const preset = contextBudgetOf(state.changes);
+  const language = campaignLanguageOf(state.changes);
+  const ratio = contextRatioOf(state.changes, language);
+  let sent: ContextPacket | undefined;
   let usage: GmUsage | undefined;
   let segments: readonly GmSegment[] = NO_SEGMENTS;
   let proposals: readonly GmProposal[] = [];
   const voice = await speak(committed.turn.id);
   const narrator = {
     narrate: async () => {
-      const reply = await request(packet, voice?.streams ? voice.heard : undefined).catch((error: unknown) => {
-        voice?.abandon();
-        throw error;
+      const fitted = await requestFitting({
+        first: preset,
+        packetOf: (chosenPreset) => contextPacketOf(database, state, committed, PLAYER_VIEWER, chosenPreset, ratio),
+        send: (packet) => request(packet, voice?.streams ? voice.heard : undefined),
+        ratio,
+      }).catch((error: unknown) => {
+        if (!(error instanceof ProviderError)) {
+          voice?.abandon();
+          throw error;
+        }
+        return {
+          packet: undefined,
+          reply: narratorReply(withNotice(error.message)),
+        };
       });
+      const { reply } = fitted;
+      sent = fitted.packet;
       usage = reply.usage;
       segments = reply.segments;
       proposals = reply.proposals ?? [];
@@ -363,7 +404,22 @@ const narrateLatest = async (
     voice?.abandon();
     store.recordNarration(campaignId, committed.turn.id, FAKE_GM_REPLY);
   } else commitProposals(store, createEntityStore(database), createFactStore(database), committed, proposals);
-  if (usage !== undefined) recordGmUsage(store, { campaignId, turnId: committed.turn.id, sessionId, usage });
+  if (sent !== undefined)
+    recordContextDiagnostics(store, {
+      campaignId,
+      turnId: committed.turn.id,
+      events: state.changes,
+      language,
+      packet: sent,
+      reportedTokens: usage === undefined || !calibrates ? 0 : reportedInputOf(usage),
+    });
+  if (usage !== undefined)
+    recordGmUsage(store, {
+      campaignId,
+      turnId: committed.turn.id,
+      sessionId,
+      usage,
+    });
   return 'inconsistent' in outcome ? narratorSegments(FAKE_GM_REPLY) : segments;
 };
 
@@ -445,6 +501,7 @@ const openSession = (
                 gm.request(packet, { databasePath: path, model, ...(onSegment === undefined ? {} : { onSegment }) }),
               sessionId,
               speakTurn,
+              gm.calibratesContext === true,
             )
           : NO_SEGMENTS;
       summarized = summarizeInBackground(session, (level, texts, language) =>
@@ -471,7 +528,14 @@ const withSession = <T>(dataDir: string, name: string, run: (session: Session) =
 
 const sheetsOf = ({ engine, store }: Session, readWorld: WorldSource): SheetPort => ({
   read: (campaignId, actorId) =>
-    editableSheet({ state: engine.getState(campaignId), eventScopes: [], ...readWorld(campaignId, actorId) }, actorId),
+    editableSheet(
+      {
+        state: engine.getState(campaignId),
+        eventScopes: [],
+        ...readWorld(campaignId, actorId),
+      },
+      actorId,
+    ),
   commit: (edit) => {
     editSheetField(store, edit);
   },
@@ -657,7 +721,10 @@ const characterFor = async (dataDir: string, name: string, config: CampaignConfi
   return result.status === 'created' ? addCharacter(dataDir, name, build) : unfinishedText(result);
 };
 
-type Acted = { readonly narration: string; readonly warning: string | undefined };
+type Acted = {
+  readonly narration: string;
+  readonly warning: string | undefined;
+};
 
 const act = async (
   dataDir: string,
@@ -689,7 +756,10 @@ const act = async (
     await session.narrate();
     const narrated = engine.getState(campaignId).turns.find(({ id }) => id === committed.turn.id);
     const warning = budgetWarning(gmSnapshotFor(session, session.gmDefaults(), sessionId));
-    return { narration: narrate(actor.name, narrated ?? committed.turn), warning };
+    return {
+      narration: narrate(actor.name, narrated ?? committed.turn),
+      warning,
+    };
   } finally {
     void session.settle().finally(session.close);
   }
@@ -831,7 +901,9 @@ const savedFile = (dataDir: string, name: string) => {
 };
 
 const fileIdentity = (dataDir: string, name: string) => {
-  const stats = statSync(databasePath(dataDir, name), { throwIfNoEntry: false });
+  const stats = statSync(databasePath(dataDir, name), {
+    throwIfNoEntry: false,
+  });
   return stats === undefined ? undefined : `${stats.dev}:${stats.ino}`;
 };
 
@@ -891,8 +963,14 @@ const backup = (dataDir: string, name: string) => {
 };
 
 export const campaignDatabases = (dataDir: string): CampaignFile[] => [
-  ...savedCampaigns(dataDir).map((name) => ({ name, database: databasePath(dataDir, name) })),
-  ...savedCampaigns(join(dataDir, ARCHIVE_DIR)).map((name) => ({ name, database: archivePath(dataDir, name) })),
+  ...savedCampaigns(dataDir).map((name) => ({
+    name,
+    database: databasePath(dataDir, name),
+  })),
+  ...savedCampaigns(join(dataDir, ARCHIVE_DIR)).map((name) => ({
+    name,
+    database: archivePath(dataDir, name),
+  })),
 ];
 
 const newCampaignConfig = (intent: string | undefined, client: string | undefined) => {
@@ -900,7 +978,10 @@ const newCampaignConfig = (intent: string | undefined, client: string | undefine
     return planCampaign(intent, client === undefined ? {} : { client });
   } catch (error) {
     if (!(error instanceof ClientUnsupported)) throw error;
-    throw new LocalizedError('campaign.addClient', { message: error.message, client: error.client });
+    throw new LocalizedError('campaign.addClient', {
+      message: error.message,
+      client: error.client,
+    });
   }
 };
 
@@ -1019,3 +1100,6 @@ export const createEngineGateway = (
   },
   settings: (name, changes) => gmSettingsCommand(dataDir, name, changes),
 });
+
+const reportedInputOf = ({ inputTokens, cacheReadTokens, cacheWriteTokens }: GmUsage) =>
+  inputTokens + cacheReadTokens + cacheWriteTokens;

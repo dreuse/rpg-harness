@@ -9,7 +9,18 @@ import { createCampaignStore } from '../../persistence/src/campaign-store.ts';
 import { openDatabase } from '../../persistence/src/database.ts';
 import { createEventStore } from '../../persistence/src/event-store.ts';
 import { createEngine } from './engine.ts';
-import { GM_USAGE_RECORDED, gmSettingsOf, gmUsageOf, recordGmUsage } from './gm-settings.ts';
+import {
+  contextDroppedOften,
+  contextRatioOf,
+  GM_CONTEXT_RECORDED,
+  GM_USAGE_RECORDED,
+  gmSettingsOf,
+  gmUsageOf,
+  NON_ENGLISH_RATIO,
+  REQUEST_OVERHEAD_TOKENS,
+  recordContextDiagnostics,
+  recordGmUsage,
+} from './gm-settings.ts';
 import { InvalidActionError } from './turn.ts';
 
 const TEMP_PREFIX = 'rpg-gm-settings-';
@@ -23,7 +34,11 @@ const CREATED_EVENT = {
   type: 'CampaignCreated',
   payload: { name: CAMPAIGN.name },
 };
-const SETTINGS = { model: 'haiku', summaryModel: 'haiku', sessionBudgetTokens: 20_000 };
+const SETTINGS = {
+  model: 'haiku',
+  summaryModel: 'haiku',
+  sessionBudgetTokens: 20_000,
+};
 const USAGE = {
   model: 'haiku',
   inputTokens: 1000,
@@ -55,7 +70,12 @@ const open = (path: string) => {
   const connection = openDatabase(path);
   const store = createCampaignStore(connection.database);
   const events = () => createEventStore(connection.database).list(CAMPAIGN.id, MAIN_BRANCH);
-  return { store, events, engine: createEngine(store), close: () => connection.close() };
+  return {
+    store,
+    events,
+    engine: createEngine(store),
+    close: () => connection.close(),
+  };
 };
 
 const saveFor = (store: CampaignStore, actionId: string, settings: unknown) => ({
@@ -80,7 +100,12 @@ test('rpg-42a.37: per-campaign GM settings are saved through the engine and the 
     assert.deepEqual(gmSettingsOf(events()), SETTINGS);
     assert.equal(JSON.stringify(events()).includes('sk-live'), false);
     assert.throws(
-      () => engine.saveGmSettings(saveFor(store, 'bad', { model: '--permission-mode=bypassPermissions' })),
+      () =>
+        engine.saveGmSettings(
+          saveFor(store, 'bad', {
+            model: '--permission-mode=bypassPermissions',
+          }),
+        ),
       InvalidActionError,
     );
   }));
@@ -114,4 +139,80 @@ test('rpg-42a.37: malformed usage never throws, writes nothing, and an odd model
     assert.equal(gmUsageOf(events()).turns, 0);
     assert.equal(recordGmUsage(store, usageFor('session-1', { ...USAGE, model: 'bad model!' }))?.model, 'default');
     assert.equal(gmUsageOf(events()).turns, 1);
+  }));
+
+const PACKET = {
+  usedTokens: 1000,
+  budget: 2000,
+  truncated: 0,
+  requiredExceedsBudget: false,
+};
+const diagnosticsFor = (events: ReturnType<typeof open>['events'], truncated = 0, reportedTokens = 0) => ({
+  campaignId: CAMPAIGN.id,
+  turnId: 'turn-1',
+  events: events(),
+  language: undefined,
+  packet: { ...PACKET, truncated },
+  reportedTokens,
+});
+
+test('rpg-42a.44: the token ratio comes from reported input tokens and defaults higher for non-English', () =>
+  withStore(({ store, events }) => {
+    assert.equal(contextRatioOf(events(), 'en'), 1);
+    assert.equal(contextRatioOf(events(), undefined), 1);
+    assert.equal(contextRatioOf(events(), 'pt-BR'), NON_ENGLISH_RATIO);
+    recordContextDiagnostics(store, diagnosticsFor(events, 0, 1300 + REQUEST_OVERHEAD_TOKENS));
+    assert.equal(contextRatioOf(events(), 'pt-BR'), 1.3);
+    recordContextDiagnostics(store, diagnosticsFor(events, 0, 1500 + REQUEST_OVERHEAD_TOKENS));
+    assert.equal(contextRatioOf(events(), 'pt-BR'), 1.4);
+    recordContextDiagnostics(store, diagnosticsFor(events, 0, 100 + REQUEST_OVERHEAD_TOKENS));
+    assert.equal(contextRatioOf(events(), 'en'), 1.2);
+    recordContextDiagnostics(store, diagnosticsFor(events, 0, 900_000 + REQUEST_OVERHEAD_TOKENS));
+    assert.ok(contextRatioOf(events(), 'en') <= 4);
+  }));
+
+const SMALL_PACKET = { ...PACKET, usedTokens: 2000 };
+
+test('rpg-42a.44: fixed request overhead on a small packet never drives the ratio to the maximum', () =>
+  withStore(({ store, events }) => {
+    recordContextDiagnostics(store, {
+      ...diagnosticsFor(events),
+      packet: SMALL_PACKET,
+      reportedTokens: 0,
+    });
+    assert.equal(contextRatioOf(events(), 'en'), 1);
+    recordContextDiagnostics(store, {
+      ...diagnosticsFor(events),
+      packet: SMALL_PACKET,
+      reportedTokens: SMALL_PACKET.usedTokens + REQUEST_OVERHEAD_TOKENS,
+    });
+    assert.equal(contextRatioOf(events(), 'en'), 1);
+    recordContextDiagnostics(store, {
+      ...diagnosticsFor(events),
+      packet: SMALL_PACKET,
+      reportedTokens: REQUEST_OVERHEAD_TOKENS - 1,
+    });
+    assert.equal(contextRatioOf(events(), 'en'), 1);
+  }));
+
+test('rpg-42a.44: diagnostics hold counts only, never move the revision and flag frequent drops', () =>
+  withStore(({ store, events }) => {
+    const before = store.load(CAMPAIGN.id)?.revision;
+    recordContextDiagnostics(store, diagnosticsFor(events, 2));
+    recordContextDiagnostics(store, diagnosticsFor(events, 0));
+    assert.equal(contextDroppedOften(events()), false);
+    recordContextDiagnostics(store, diagnosticsFor(events, 5));
+    recordContextDiagnostics(store, diagnosticsFor(events, 1));
+    assert.equal(contextDroppedOften(events()), true);
+    assert.equal(store.load(CAMPAIGN.id)?.revision, before);
+    const last = events().findLast(({ type }) => type === GM_CONTEXT_RECORDED)?.payload;
+    assert.deepEqual(Object.keys(last ?? {}).sort(), [
+      'budget',
+      'dropped',
+      'ratio',
+      'recent',
+      'requiredExceedsBudget',
+      'tokensUsed',
+      'turnId',
+    ]);
   }));

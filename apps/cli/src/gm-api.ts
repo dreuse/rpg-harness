@@ -68,6 +68,9 @@ const RETRY_DELAY_MS = 500;
 const RETRY_BACKOFF = 2;
 const TOO_MANY_REQUESTS = 429;
 const SERVER_ERROR = 500;
+const BAD_REQUEST = 400;
+const PAYLOAD_TOO_LARGE = 413;
+const TOO_LONG_PATTERN = /too long|exceeds?.{0,40}(context|maximum)/i;
 const TIMEOUT_ERROR = 'TimeoutError';
 const TEXT_BLOCK = 'text';
 const TOOL_USE_BLOCK = 'tool_use';
@@ -85,10 +88,12 @@ export type ApiRoute = {
 
 export class ProviderError extends Error {
   readonly status: number | undefined;
-  constructor(message: string, status?: number) {
+  readonly tooLong: boolean;
+  constructor(message: string, status?: number, tooLong = false) {
     super(message);
     this.name = 'ProviderError';
     this.status = status;
+    this.tooLong = tooLong;
   }
 }
 
@@ -208,7 +213,9 @@ const isRetryable = (status: number) => status === TOO_MANY_REQUESTS || status >
 
 type Prompt = { readonly system: string; readonly content: unknown; readonly tools?: typeof NARRATE_TOOLS };
 
-type Attempt<T> = { readonly ok: true; readonly value: T } | { readonly ok: false; readonly status: number };
+type Attempt<T> =
+  | { readonly ok: true; readonly value: T }
+  | { readonly ok: false; readonly status: number; readonly tooLong?: boolean };
 
 const open = async (
   { key, model, url, timeoutMs }: ApiRoute,
@@ -230,8 +237,9 @@ const open = async (
       signal: AbortSignal.timeout(timeoutMs),
     });
     if (response.ok) return { ok: true, value: response };
-    await response.body?.cancel();
-    return { ok: false, status: response.status };
+    const detail = await response.text().catch(() => '');
+    const sized = response.status === BAD_REQUEST || response.status === PAYLOAD_TOO_LARGE;
+    return { ok: false, status: response.status, tooLong: sized && TOO_LONG_PATTERN.test(detail) };
   } catch (error) {
     if (error instanceof Error && error.name === TIMEOUT_ERROR)
       throw new ProviderError(`The provider timed out after ${timeoutMs} ms.`);
@@ -243,8 +251,9 @@ const retried = async <T>(route: ApiRoute, run: () => Promise<Attempt<T>>): Prom
   for (let attempt = 0; ; attempt += 1) {
     const result = await run();
     if (result.ok) return result.value;
-    const { status } = result;
-    if (!isRetryable(status)) throw new ProviderError(`The provider refused the request (HTTP ${status}).`, status);
+    const { status, tooLong } = result;
+    if (!isRetryable(status))
+      throw new ProviderError(`The provider refused the request (HTTP ${status}).`, status, tooLong);
     if (attempt === MAX_RETRIES) throw new ProviderError(`The provider is unavailable (HTTP ${status}).`, status);
     await delay(route.retryDelayMs * RETRY_BACKOFF ** attempt);
   }

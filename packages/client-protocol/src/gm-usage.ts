@@ -20,7 +20,8 @@ const HINT_PATTERNS: readonly (readonly [RegExp, GmModelHint])[] = [
   [/opus|fable/i, 'rich'],
 ];
 const COST_DIGITS = 4;
-type GmUsageView = Pick<GmSnapshot, 'settings' | 'session' | 'campaign'>;
+export const CONTEXT_HINT = 'Story facts were often left out of the GM context. Consider the rich memory setting.';
+type GmUsageView = Pick<GmSnapshot, 'settings' | 'session' | 'campaign' | 'contextTight'>;
 
 export const modelHintOf = (model: string | undefined): GmModelHint =>
   model === undefined || model === DEFAULT_MODEL_CHOICE
@@ -63,5 +64,6 @@ export const gmUsageLines = (gm: GmUsageView): string[] => {
     usageText('This session', gm.session),
     usageText('This campaign', gm.campaign),
     ...(budget === undefined ? [] : [budgetWarning(gm) ?? budgetLine(budget)]),
+    ...(gm.contextTight ? [CONTEXT_HINT] : []),
   ];
 };

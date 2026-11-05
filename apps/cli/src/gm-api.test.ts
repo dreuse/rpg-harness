@@ -41,6 +41,7 @@ import {
 import { narrationOf, SEGMENTS_SCHEMA } from './gm-segments.ts';
 
 const LOCALHOST = '127.0.0.1';
+const BAD_REQUEST = 400;
 const UNAUTHORIZED = 401;
 const TOO_MANY_REQUESTS = 429;
 const BAD_GATEWAY = 502;
@@ -264,6 +265,17 @@ describe('rpg-42a.28 Anthropic Messages API narrator', () => {
     assert.equal(error.status, UNAUTHORIZED);
     assert.equal(received.length, 1);
     assertRedacted(error);
+  });
+
+  it('flags a prompt-too-long rejection without echoing the provider text', async (t) => {
+    const body = JSON.stringify({ error: { message: `prompt is too long: 250000 tokens ${KEY}` } });
+    const { received, route } = await startProvider(t, [{ status: BAD_REQUEST, body }]);
+    const error = await failureOf(requestNarration(route, packet()));
+    assert.equal(error.tooLong, true);
+    assert.equal(received.length, 1);
+    assertRedacted(error);
+    const other = await startProvider(t, [{ status: BAD_REQUEST, body: 'nope' }]);
+    assert.equal((await failureOf(requestNarration(other.route, packet()))).tooLong, false);
   });
 
   it('retries a 429 and then returns the narration', async (t) => {

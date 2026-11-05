@@ -8,6 +8,7 @@ import {
   type PacketInput,
   packetParts,
   packetText,
+  REQUIRED_SECTION_CAPS,
   STABLE_SECTIONS,
   VARIABLE_SECTIONS,
 } from './packet.ts';
@@ -134,4 +135,52 @@ test('rpg-42a.42 ledger facts are never trimmed, even when the budget is already
   const tiny = buildContextPacket({ ...longCampaign(), ledger: facts }, estimateTokens(INSTRUCTIONS));
   assert.equal(tiny.requiredExceedsBudget, true);
   assert.equal(tiny.sections.find(({ name }) => name === 'ledger')?.items.length, facts.length);
+});
+
+const OPTIONAL = ['campaignSummary', 'chapterSummaries', 'sceneSummaries', 'context', 'recentTurns'] as const;
+
+const itemsOf = (packet: ReturnType<typeof buildContextPacket>, wanted: string) =>
+  packet.sections.find(({ name }) => name === wanted)?.items ?? [];
+
+test('rpg-42a.44 a huge imported ruleset is capped, keeping its leading rules', () => {
+  const rules = Array.from({ length: 5000 }, (_, index) => `rule ${index}: ${'roll and add '.repeat(10)}`);
+  const packet = buildContextPacket({ ...emptyInput(), ruleset: rules }, CONTEXT_BUDGETS.rich);
+  const kept = itemsOf(packet, 'ruleset');
+  assert.ok(kept.length > 0 && kept.length < rules.length);
+  assert.deepEqual(kept, rules.slice(0, kept.length));
+  assert.ok(estimateTokens(kept.join(',')) <= REQUIRED_SECTION_CAPS.ruleset);
+  assert.ok(packet.truncated > 0);
+  assert.equal(packet.requiredExceedsBudget, false);
+});
+
+test('rpg-42a.44 a huge single setting text is shortened under its cap', () => {
+  const setting = `A vast world. ${'Long lore about the old empire. '.repeat(5000)}`;
+  const packet = buildContextPacket({ ...emptyInput(), setting: [setting] }, CONTEXT_BUDGETS.rich);
+  const [kept] = itemsOf(packet, 'setting');
+  assert.ok(kept?.startsWith('A vast world.'));
+  assert.ok(estimateTokens(JSON.stringify(kept)) <= REQUIRED_SECTION_CAPS.setting);
+  assert.ok(packet.truncated > 0);
+});
+
+test('rpg-42a.44 pt-BR rulebook text stays under the cap even with escapes', () => {
+  const rules = [`"Ação" — regra número um: role d20 e some o modificador.\n`.repeat(2000)];
+  const packet = buildContextPacket({ ...emptyInput(), ruleset: rules }, CONTEXT_BUDGETS.rich);
+  assert.ok(estimateTokens(JSON.stringify(itemsOf(packet, 'ruleset'))) <= REQUIRED_SECTION_CAPS.ruleset);
+});
+
+test('rpg-42a.44 drop order: summaries and history go first, ledger facts are never dropped', () => {
+  const ledger = ['Mira owes 50 gold', 'The gate is locked'];
+  const input = { ...longCampaign(), ledger };
+  const optionalKept = (budget: number) => {
+    const packet = buildContextPacket(input, budget);
+    assert.deepEqual(itemsOf(packet, 'ledger'), ledger, `ledger at ${budget}`);
+    return OPTIONAL.reduce((sum, name) => sum + itemsOf(packet, name).length, 0);
+  };
+  const kept = [CONTEXT_BUDGETS.rich, CONTEXT_BUDGETS.standard, CONTEXT_BUDGETS.compact, 600, 0].map(optionalKept);
+  assert.deepEqual(
+    kept.slice(0, -1),
+    [...kept.slice(0, -1)].sort((a, b) => b - a),
+  );
+  assert.ok(new Set(kept).size > 3, kept.join());
+  assert.equal(kept.at(-1), 0);
 });

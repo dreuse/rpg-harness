@@ -35,7 +35,7 @@ import { PLAYER_VIEWER, type Viewer, visibleTo } from '../../../packages/memory/
 import { buildLedger, ledgerAllowance, ledgerLines } from '../../../packages/memory/src/ledger.ts';
 import {
   buildContextPacket,
-  CONTEXT_BUDGETS,
+  type ContextBudgetPreset,
   type ContextPacket,
   RECENT_TURN_LIMIT,
 } from '../../../packages/memory/src/packet.ts';
@@ -43,6 +43,7 @@ import { createEntityStore, createFactStore } from '../../../packages/persistenc
 import { touchesOf, walkGraph } from '../../../packages/persistence/src/graph.ts';
 import { scopedEventsOf, scopeLookupOf, worldOf } from './client-session.ts';
 import { languageInstruction, SYSTEM_PROMPT } from './gm-api.ts';
+import { budgetOf } from './gm-limits.ts';
 import { describeConfig } from './quickstart.ts';
 import { panelsOf } from './views.ts';
 
@@ -97,6 +98,8 @@ export const contextPacketOf = (
   state: CampaignState,
   committed: CommittedTurn,
   viewer: Viewer = PLAYER_VIEWER,
+  preset: ContextBudgetPreset = contextBudgetOf(state.changes),
+  ratio = 1,
 ): ContextPacket => {
   const campaignId = state.campaign.id;
   const scoped = eventsOfTypes(database, campaignId, MEMORY_EVENT_TYPES);
@@ -144,7 +147,7 @@ export const contextPacketOf = (
   const known = scopeLookupOf(database, campaignId)(state.events.map(({ id }) => id));
   const eventScopes = [...known].map(([id, scope]) => ({ id, ...scope }));
   const { inventory, quests } = panelsOf({ state, eventScopes, ...world }, viewer);
-  const budget = CONTEXT_BUDGETS[contextBudgetOf(state.changes)];
+  const budget = budgetOf(preset, ratio);
   return buildContextPacket(
     {
       instructions: [SYSTEM_PROMPT, ...(language === undefined ? [] : [languageInstruction(language)])],

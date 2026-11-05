@@ -7,8 +7,9 @@ import { describe, it, type TestContext } from 'node:test';
 import { setTimeout } from 'node:timers/promises';
 import { PROTOCOL_VERSION } from '../../../packages/client-protocol/src/protocol.ts';
 import type { CampaignStore, CommittedTurn } from '../../../packages/domain/src/campaign.ts';
+import { GM_CONTEXT_RECORDED } from '../../../packages/engine/src/gm-settings.ts';
 import { GameMasterInterruptedError } from '../../../packages/engine/src/scripted-session.ts';
-import { type ContextPacket, packetParts } from '../../../packages/memory/src/packet.ts';
+import { CONTEXT_BUDGETS, type ContextPacket, packetParts } from '../../../packages/memory/src/packet.ts';
 import { openDatabase } from '../../../packages/persistence/src/database.ts';
 import { type ProviderReply, startProviderServer, textReply } from '../../../packages/testkit/src/provider-server.ts';
 import {
@@ -38,6 +39,7 @@ const GM_SECRET = 'SECRET_THE_STRANGER_IS_THE_KING';
 const PLAYER_FACT = 'The inn is called the Crossroads.';
 const INSERT_FACT = 'INSERT INTO fact (id, campaign_id, statement, layer, visibility) VALUES (?, ?, ?, ?, ?)';
 const CANON = 'canon';
+const BAD_REQUEST = 400;
 const UNAUTHORIZED = 401;
 const NO_DELAY_MS = 0;
 const NO_CHARACTER = async () => undefined;
@@ -124,6 +126,27 @@ describe('rpg-42a.28 API game master wiring', () => {
     const { gm } = await providerGm(t, [textReply(`${NARRATION} ${GM_SECRET}`)]);
     await play(dataDir, gm, [ACTION]);
     assert.equal(lastNarration(dataDir), FAKE_GM_REPLY);
+  });
+
+  it('rpg-42a.44 retries a too-long rejection once with a smaller preset and records counts only', async (t) => {
+    const dataDir = await seededCampaign(t);
+    const tooLong = { status: BAD_REQUEST, body: 'prompt is too long: 300000 tokens' };
+    const { received, gm } = await providerGm(t, [tooLong, textReply(NARRATION)]);
+    await play(dataDir, gm, [ACTION]);
+    assert.equal(received.length, 2);
+    assert.equal(lastNarration(dataDir), NARRATION);
+    const recorded = readCampaignState(dataDir, CAMPAIGN).changes.find(({ type }) => type === GM_CONTEXT_RECORDED);
+    assert.equal(recorded?.payload.budget, CONTEXT_BUDGETS.compact);
+    assert.ok(!JSON.stringify(recorded).includes(ACTION));
+  });
+
+  it('rpg-42a.44 shows a plain error when the retry is rejected too and stops there', async (t) => {
+    const dataDir = await seededCampaign(t);
+    const tooLong = { status: BAD_REQUEST, body: 'prompt is too long: 300000 tokens' };
+    const { received, gm } = await providerGm(t, [tooLong]);
+    const [output] = await play(dataDir, gm, [ACTION]);
+    assert.equal(received.length, 2);
+    assert.match(output ?? '', /too long for the AI game master/);
   });
 
   it('tells the player once about a provider error and continues on the fake route', async (t) => {

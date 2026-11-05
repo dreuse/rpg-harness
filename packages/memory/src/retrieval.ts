@@ -48,7 +48,7 @@ export type RetrievedContext = {
   readonly truncated: readonly { readonly kind: ContextKind; readonly id: string }[];
 };
 
-const CHARS_PER_TOKEN = 4;
+export const CHARS_PER_TOKEN = 4;
 const ACTIVE = 'active';
 const CANON = 'canon';
 const INVALIDATED = 'invalidated';

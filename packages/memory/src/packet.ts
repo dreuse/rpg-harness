@@ -1,9 +1,10 @@
-import { estimateTokens } from './retrieval.ts';
+import { CHARS_PER_TOKEN, estimateTokens } from './retrieval.ts';
 
 export const CONTEXT_BUDGETS = { compact: 2_000, standard: 6_000, rich: 16_000 } as const;
 export type ContextBudgetPreset = keyof typeof CONTEXT_BUDGETS;
 export const DEFAULT_CONTEXT_BUDGET: ContextBudgetPreset = 'standard';
 export const RECENT_TURN_LIMIT = 6;
+export const REQUIRED_SECTION_CAPS = { ruleset: 1_200, setting: 800 } as const;
 
 export const STABLE_SECTIONS = ['instructions', 'ruleset', 'setting', 'campaignSummary', 'chapterSummaries'] as const;
 export const VARIABLE_SECTIONS = [
@@ -45,6 +46,7 @@ const VARIABLE_FILL: readonly SectionName[] = ['recentTurns', 'threads', 'entiti
 const STABLE_SUMMARY_SHARE = 0.3;
 const NEWEST_FIRST: readonly SectionName[] = ['campaignSummary', 'recentTurns', 'sceneSummaries', 'chapterSummaries'];
 const STABLE: readonly SectionName[] = STABLE_SECTIONS;
+const CAP_SHRINK = 0.9;
 const SECTION_LIMITS: Partial<Record<SectionName, number>> = { campaignSummary: 1, recentTurns: RECENT_TURN_LIMIT };
 
 const encoded = (data: unknown) => JSON.stringify(data).replace(ANGLE_BRACKET, ESCAPED_ANGLE_BRACKET);
@@ -79,6 +81,27 @@ const costOf = (name: SectionName, item: string) =>
     ? estimateTokens(`${item}${INSTRUCTION_SEPARATOR}`)
     : estimateTokens(`${encoded(item)}${ITEM_SEPARATOR}`);
 
+const shortened = (name: SectionName, item: string, cap: number) => {
+  let text = item.slice(NO_TOKENS, cap * CHARS_PER_TOKEN);
+  while (text !== '' && costOf(name, text) > cap) text = text.slice(NO_TOKENS, Math.floor(text.length * CAP_SHRINK));
+  return text;
+};
+
+const capped = (name: SectionName, items: readonly string[], cap: number) => {
+  const kept: string[] = [];
+  let cost = NO_TOKENS;
+  for (const item of items) {
+    const itemCost = costOf(name, item);
+    if (cost + itemCost <= cap) kept.push(item);
+    else {
+      if (kept.length === NO_TOKENS) kept.push(shortened(name, item, cap));
+      break;
+    }
+    cost += itemCost;
+  }
+  return kept;
+};
+
 const select = (name: SectionName, items: readonly string[], allowance: number) => {
   const indexed = items.map((item, index) => ({ item, index }));
   const newestFirst = NEWEST_FIRST.includes(name);
@@ -97,7 +120,13 @@ const select = (name: SectionName, items: readonly string[], allowance: number) 
   return { kept, cost };
 };
 
-export const buildContextPacket = (input: PacketInput, budget: number): ContextPacket => {
+export const buildContextPacket = (whole: PacketInput, budget: number): ContextPacket => {
+  const input: { -readonly [Name in SectionName]: readonly string[] } = { ...whole };
+  let capTruncated = NO_TOKENS;
+  for (const [name, cap] of Object.entries(REQUIRED_SECTION_CAPS) as [SectionName, number][]) {
+    input[name] = capped(name, whole[name], cap);
+    capTruncated += whole[name].length - input[name].length + Number(whole[name][0] !== input[name][0]);
+  }
   if (!Number.isInteger(budget) || budget < NO_TOKENS) throw new RangeError(`invalid token budget ${budget}`);
   const kept = new Map<SectionName, Set<number>>(ORDER.map((name) => [name, new Set()]));
   let usedTokens = OVERHEAD;
@@ -110,7 +139,7 @@ export const buildContextPacket = (input: PacketInput, budget: number): ContextP
   const requiredExceedsBudget = usedTokens > budget;
   const room = () => Math.max(budget - usedTokens, NO_TOKENS);
   let stableRoom = Math.min(Math.floor(budget * STABLE_SUMMARY_SHARE), room());
-  let truncated = NO_TOKENS;
+  let truncated = capTruncated;
   const fill = (name: SectionName, allowance: number) => {
     const selected = select(name, input[name], allowance);
     kept.set(name, selected.kept);

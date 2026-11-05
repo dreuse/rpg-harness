@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { EMPTY_GM_USAGE_TOTALS } from '../../domain/src/gm.ts';
-import { budgetWarning, gmUsageLines, modelHintOf, tokensOf } from './gm-usage.ts';
+import { budgetWarning, CONTEXT_HINT, gmUsageLines, modelHintOf, tokensOf } from './gm-usage.ts';
 
 const SESSION = {
   turns: 2,
@@ -39,4 +39,12 @@ test('rpg-42a.37: usage reads in plain words and the soft budget only warns', ()
     campaign: { ...SESSION, pricedTurns: 0 },
   });
   assert.match(unpriced.join('\n'), /cost not reported/);
+});
+
+test('rpg-42a.44: the memory hint shows only when facts are dropped often', () => {
+  const gm = { settings: {}, session: SESSION, campaign: SESSION };
+  assert.equal(gmUsageLines(gm).includes(CONTEXT_HINT), false);
+  assert.equal(gmUsageLines({ ...gm, contextTight: false }).includes(CONTEXT_HINT), false);
+  assert.equal(gmUsageLines({ ...gm, contextTight: true }).includes(CONTEXT_HINT), true);
+  assert.match(CONTEXT_HINT, /consider the rich memory setting/i);
 });

@@ -246,6 +246,7 @@ export type GmSnapshot = {
   readonly defaults: GmSettings;
   readonly session: GmUsageTotals;
   readonly campaign: GmUsageTotals;
+  readonly contextTight?: boolean;
 };
 
 export type InventoryEntry = { readonly id: string; readonly name: string };
