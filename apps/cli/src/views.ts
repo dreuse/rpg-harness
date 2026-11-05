@@ -1,6 +1,13 @@
 import type { CampaignPanels, CitationEntry } from '../../../packages/client-protocol/src/protocol.ts';
 import type { SheetSchema, SheetValueType } from '../../../packages/client-protocol/src/sheet-widgets.ts';
-import type { CampaignEvent, CampaignState, Character, EventId, Turn } from '../../../packages/domain/src/campaign.ts';
+import {
+  type CampaignEvent,
+  type CampaignState,
+  type Character,
+  type EventId,
+  OPENING_ACTION_ID,
+  type Turn,
+} from '../../../packages/domain/src/campaign.ts';
 import {
   CHARACTER_KIND,
   isProfileVisibility,
@@ -58,6 +65,7 @@ const NO_EVENTS = 'No events yet.';
 const NO_ENCOUNTER = 'No encounter yet.';
 const DONE = '[x]';
 const LIST_SEPARATOR = ', ';
+const REPLY_SEPARATOR = ' - ';
 const JSON_INDENT = 2;
 const OPEN = '[ ]';
 const RULEPACK_KEYS = ['id', 'edition', 'revision'] as const;
@@ -223,8 +231,11 @@ const encounter = (source: ViewSource) => {
   return [`Encounter (${current.status}, round ${current.round}):`, ...rows, ...outcome].join('\n');
 };
 
-const turnText = (names: ReadonlyMap<string, string>, { actorId, input, narration }: Turn) =>
-  narration.trim() === '' ? `${names.get(actorId) ?? actorId}: ${input}` : narration;
+const turnText = (names: ReadonlyMap<string, string>, { actionId, actorId, input, narration }: Turn) => {
+  if (actionId === OPENING_ACTION_ID) return narration;
+  const said = `${names.get(actorId) ?? actorId}: ${input}`;
+  return narration.trim() === '' ? said : `${said}${REPLY_SEPARATOR}${narration}`;
+};
 
 const namesOf = ({ characters }: CampaignState) => new Map(characters.map(({ id, name }) => [id, name]));
 

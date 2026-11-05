@@ -8,7 +8,7 @@ import { type TestContext, test } from 'node:test';
 import { stripVTControlCharacters } from 'node:util';
 import { DEFAULT_ADVENTURE_NAME } from '../../../packages/client-protocol/src/guided-start.ts';
 import { PROTOCOL_VERSION } from '../../../packages/client-protocol/src/protocol.ts';
-import { createEngineGateway, openClientSession } from './engine-gateway.ts';
+import { createEngineGateway, FAKE_GM_REPLY, openClientSession } from './engine-gateway.ts';
 
 const SIZES = [
   [80, 24],
@@ -116,6 +116,7 @@ test('rpg-42a.17 TUI journey: first run, guided start, roll, sheet edit, quit, r
     assert.match(first.transcript[0] ?? '', /^No adventures yet/);
     assert.ok(first.transcript.some((row) => row.startsWith('Created campaign')));
     assert.match(played?.join('\n') ?? '', new RegExp(ACTION));
+    assert.match(played?.join('\n') ?? '', new RegExp(FAKE_GM_REPLY));
     assert.match(mechanics?.join('\n') ?? '', /d20 -> \d+/);
     assert.match(sheet?.join('\n') ?? '', /Wren/);
     assert.match(reopen.transcript.join('\n'), new RegExp(`1\\. ${DEFAULT_ADVENTURE_NAME}`));

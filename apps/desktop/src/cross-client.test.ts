@@ -9,11 +9,11 @@ import {
   PROTOCOL_VERSION,
 } from '../../../packages/client-protocol/src/protocol.ts';
 import { API_KEY_ENV, CAMPAIGN_ENV, startDaemon } from '../../cli/src/desktop-daemon.ts';
-import { createEngineGateway, openClientSession } from '../../cli/src/engine-gateway.ts';
+import { createEngineGateway, FAKE_GM_REPLY, openClientSession } from '../../cli/src/engine-gateway.ts';
 import { DATA_DIR_ENV } from '../../cli/src/setup-check.ts';
 import { PLAIN_TERMINAL, runTui } from '../../cli/src/tui.ts';
-import { daemonTransport } from './main.ts';
-import { createDesktopClient, type Transport } from './renderer.ts';
+import { daemonTransport, WINDOW_WIDTH } from './main.ts';
+import { createDesktopClient, type Transport, viewModel } from './renderer.ts';
 
 const CAMPAIGN = 'Ember';
 const TEMP_PREFIX = 'rpg-cross-client-';
@@ -263,5 +263,20 @@ describe('UI12: cross-client end-to-end gameplay', () => {
     assert.equal(resumed.revision, played.revision);
     assert.deepEqual(resumed.turns.at(-1), played.turns.at(-1));
     assert.equal(await daemon.stop(), 0);
+  });
+
+  it('rpg-42a.24 a submitted action gets a GM reply in the desktop and in the tui', async (t) => {
+    const { dataDir, env } = await campaignDir(t);
+    const desktop = await openDesktop(t, env);
+    await desktop.play(DESKTOP_ACTIONS[0] as string);
+    const reply = viewModel(desktop.client.state(), WINDOW_WIDTH).conversation.at(-1);
+    assert.equal(reply?.pending, false);
+    assert.match(reply?.narration ?? '', new RegExp(FAKE_GM_REPLY));
+    assert.equal(await desktop.daemon.stop(), 0);
+
+    const screen = await playTui(dataDir, [TUI_ACTION, QUIT]);
+    const afterAction = screen.slice(screen.lastIndexOf(TUI_ACTION));
+    assert.match(afterAction, new RegExp(FAKE_GM_REPLY));
+    assert.match(tuiSnapshot(dataDir).turns.at(-1)?.narration ?? '', new RegExp(FAKE_GM_REPLY));
   });
 });

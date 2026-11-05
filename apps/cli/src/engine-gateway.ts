@@ -8,10 +8,23 @@ import {
   type CreateCampaign,
   MAX_INPUT_LENGTH,
 } from '../../../packages/client-protocol/src/protocol.ts';
-import type { CampaignId, CampaignState, Turn } from '../../../packages/domain/src/campaign.ts';
+import {
+  type CampaignId,
+  type CampaignState,
+  type CampaignStore,
+  type CommittedTurn,
+  OPENING_ACTION_ID,
+  type Turn,
+} from '../../../packages/domain/src/campaign.ts';
 import type { Visibility } from '../../../packages/domain/src/entity.ts';
 import { commitCharacter, editSheetField } from '../../../packages/engine/src/character.ts';
 import { createEngine, type Engine } from '../../../packages/engine/src/engine.ts';
+import {
+  type GameplayOutcome,
+  type NarrationContext,
+  type Narrator,
+  playGameplayTurn,
+} from '../../../packages/engine/src/gameplay.ts';
 import { campaignConfigOf, openScene, performAction } from '../../../packages/engine/src/turn.ts';
 import { type CampaignConfig, parseCampaignConfig } from '../../../packages/intent/src/config.ts';
 import { PLAYER_VIEWER } from '../../../packages/memory/src/knowledge.ts';
@@ -75,6 +88,8 @@ const NONE = 'none';
 const SAVED_SETTINGS = 'Saved settings:';
 const CHARACTER_PROMPT = `Describe your character, or press Enter to play as ${HERO_NAME}.`;
 const CREATE_CHARACTER_INTENT = 'create character';
+export const FAKE_GM_REPLY = 'The world shifts in answer.';
+const NO_FACTS: NarrationContext = { facts: [], equipment: {}, viewer: PLAYER_VIEWER };
 
 const databasePath = (dataDir: string, name: string) =>
   join(dataDir, `${encodeURIComponent(name)}${DATABASE_EXTENSION}`);
@@ -85,6 +100,21 @@ const missingCampaign = (dataDir: string, name: string) =>
   existsSync(archivePath(dataDir, name))
     ? new Error(`Campaign ${name} is archived.`)
     : new Error(`No campaign named ${name}. Run rpg new ${name} first.`);
+
+const FAKE_GM: Narrator = { narrate: () => ({ narration: FAKE_GM_REPLY, claims: [] }) };
+
+const narratedTurn = (outcome: GameplayOutcome): CommittedTurn =>
+  'narration' in outcome
+    ? { ...outcome.committed, turn: { ...outcome.committed.turn, narration: outcome.narration } }
+    : outcome.committed;
+
+const narratingEngine = (store: CampaignStore): Engine => ({
+  ...createEngine(store),
+  submitAction: (action, check) =>
+    narratedTurn(
+      playGameplayTurn(store, FAKE_GM, (target, played) => performAction(target, played, check), action, NO_FACTS),
+    ),
+});
 
 type Session = {
   engine: Engine;
@@ -104,7 +134,7 @@ const openSession = (dataDir: string, name: string, readOnly = false): Session &
     const row = database.prepare(SELECT_CAMPAIGN_ID).get();
     if (row === undefined) throw new Error(`Campaign ${name} has no saved state.`);
     const close = () => connection.close();
-    return { engine: createEngine(store), store, campaignId: String(row.id), database, close };
+    return { engine: narratingEngine(store), store, campaignId: String(row.id), database, close };
   } catch (error) {
     connection.close();
     throw error;
@@ -161,7 +191,8 @@ export const readCampaignState = (dataDir: string, name: string): CampaignState 
 
 const sceneText = (title: string, narration: string) => `${title}\n${narration}`;
 
-const narrate = (actor: string, turn: Turn) => `${actor}: ${turn.input}\nThe world shifts in answer.`;
+const narrate = (actor: string, turn: Turn) =>
+  `${actor}: ${turn.input}\n${turn.narration.trim() === '' ? FAKE_GM_REPLY : turn.narration}`;
 
 const isFileExists = (error: unknown) => error instanceof Error && 'code' in error && error.code === FILE_EXISTS;
 
@@ -235,13 +266,12 @@ const characterFor = async (dataDir: string, name: string, config: CampaignConfi
 };
 
 const act = (dataDir: string, name: string, input: string): string =>
-  withSession(dataDir, name, ({ engine, store, campaignId }) => {
+  withSession(dataDir, name, ({ engine, campaignId }) => {
     const state = engine.getState(campaignId);
     const [actor] = state.characters;
     const scene = state.currentScene;
     if (actor === undefined || scene === undefined) throw new Error(`Campaign ${name} has no opening scene.`);
-    const committed = performAction(
-      store,
+    const committed = engine.submitAction(
       {
         campaignId,
         actionId: randomUUID(),
@@ -259,7 +289,7 @@ const act = (dataDir: string, name: string, input: string): string =>
 const recap = (characters: CampaignState['characters'], last: Turn | undefined) => {
   const actor = characters.find(({ id }) => id === last?.actorId);
   if (last === undefined || actor === undefined) return DEFAULT_OPENING.narration;
-  return last.narration.trim() === '' ? narrate(actor.name, last) : last.narration;
+  return last.actionId === OPENING_ACTION_ID ? last.narration : narrate(actor.name, last);
 };
 
 const savedSettings = (events: CampaignState['events']) => {
