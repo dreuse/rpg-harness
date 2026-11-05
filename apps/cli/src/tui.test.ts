@@ -626,3 +626,17 @@ test('rpg-42a.21: the TUI groups the sheet and edits a field with /edit, showing
   assert.match(printed, /No sheet field luck\./);
   assert.match(printed, /might must be at most 20/);
 });
+
+test('rpg-42a.27 the TUI conversation shows a no-reply line for a blank narration', () => {
+  const blank = {
+    id: 't1',
+    campaignId: 'c1',
+    sceneId: 's1',
+    actionId: 'a1',
+    actorId: 'h1',
+    input: 'wait',
+    narration: '',
+  };
+  const shown = renderScreen(INITIAL_STATE, { ...data, snapshot: { ...snapshot, turns: [blank] } }, COLOR).join('\n');
+  assert.match(shown, /No reply was recorded for this turn\./);
+});

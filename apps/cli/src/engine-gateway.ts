@@ -122,15 +122,26 @@ const missingCampaign = (dataDir: string, name: string) =>
 
 const FAKE_GM: Narrator = { narrate: () => ({ narration: FAKE_GM_REPLY, claims: [] }) };
 
-const narratedTurn = (outcome: GameplayOutcome): CommittedTurn =>
-  'narration' in outcome
-    ? { ...outcome.committed, turn: { ...outcome.committed.turn, narration: outcome.narration } }
-    : outcome.committed;
+const withNarration = ({ turn, ...rest }: CommittedTurn, narration: string): CommittedTurn => ({
+  ...rest,
+  turn: { ...turn, narration },
+});
+
+export const narratedTurn = (store: CampaignStore, outcome: GameplayOutcome): CommittedTurn => {
+  const { committed } = outcome;
+  if ('narration' in outcome) return withNarration(committed, outcome.narration);
+  if ('inconsistent' in outcome) {
+    store.recordNarration(committed.turn.campaignId, committed.turn.id, FAKE_GM_REPLY);
+    return withNarration(committed, FAKE_GM_REPLY);
+  }
+  return committed;
+};
 
 const narratingEngine = (store: CampaignStore, narrator: Narrator): Engine => ({
   ...createEngine(store),
   submitAction: (action, check) =>
     narratedTurn(
+      store,
       playGameplayTurn(store, narrator, (target, played) => performAction(target, played, check), action, NO_FACTS),
     ),
 });

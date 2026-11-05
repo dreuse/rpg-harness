@@ -624,3 +624,10 @@ test('rpg-42a.21: cssEscape makes any id safe inside a CSS selector', () => {
   assert.equal(cssEscape('a b"]'), 'a\\20 b\\22 \\5d ');
   assert.equal(cssEscape('1st'), '\\31 st');
 });
+
+test('rpg-42a.27 a committed turn with blank narration shows a no-reply line', () => {
+  const blank = [{ actionId: 'a1', input: 'wait', narration: '', pending: false }];
+  const model = { ...viewModel(state, WIDE_WIDTH), conversation: blank };
+  assert.match(renderView(model, 'en'), /<p data-speaker="system">No reply was recorded for this turn\.<\/p>/);
+  assert.match(renderView(model, 'es'), /<p data-speaker="system">No se registró respuesta para este turno\.<\/p>/);
+});

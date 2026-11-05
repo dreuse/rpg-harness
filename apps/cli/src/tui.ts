@@ -117,6 +117,7 @@ const EDIT_PATTERN = /^\/edit\s+(\S+)\s+(.+)$/i;
 const FLAG_WORDS: Readonly<Record<string, boolean>> = { yes: true, true: true, no: false, false: false };
 const NEEDS_FLAG = 'yes or no';
 const NEEDS_NUMBER = 'a number';
+const NO_REPLY = 'No reply was recorded for this turn.';
 const EMPTY: Readonly<Record<PaneId, string>> = {
   conversation: 'No conversation yet.',
   sheet: 'No sheet yet.',
@@ -246,7 +247,7 @@ const conversation = ({ currentScene, characters, turns }: CampaignSnapshot) => 
   const names = new Map(characters.map(({ id, name }) => [id, name]));
   const rows = turns.flatMap(({ actionId, actorId, input, narration }) => [
     ...(input.trim() === '' || actionId === OPENING_ACTION_ID ? [] : [`${names.get(actorId) ?? actorId}: ${input}`]),
-    ...(narration.trim() === '' ? [] : [narration]),
+    narration.trim() === '' ? NO_REPLY : narration,
   ]);
   return rows.length === 0 || currentScene === undefined ? rows : [`Scene: ${currentScene.title}`, ...rows];
 };

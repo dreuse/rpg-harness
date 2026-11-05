@@ -5,6 +5,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it, type TestContext } from 'node:test';
 import { PROTOCOL_VERSION } from '../../../packages/client-protocol/src/protocol.ts';
+import type { CampaignStore, CommittedTurn } from '../../../packages/domain/src/campaign.ts';
+import { GameMasterInterruptedError } from '../../../packages/engine/src/scripted-session.ts';
 import { openDatabase } from '../../../packages/persistence/src/database.ts';
 import { type ProviderReply, startProviderServer, textReply } from '../../../packages/testkit/src/provider-server.ts';
 import {
@@ -14,6 +16,7 @@ import {
   type GameMaster,
   gameMasterFor,
   NO_KEY_NOTICE,
+  narratedTurn,
   noKeyGameMaster,
   openClientSession,
   readCampaignState,
@@ -148,5 +151,30 @@ describe('rpg-42a.28 API game master wiring', () => {
     assert.equal(missing.route, 'fake');
     assert.ok((await play(dataDir, missing.gm, [ACTION]))[0]?.includes(NO_KEY_NOTICE));
     assert.equal((await gameMasterFor({ ...hermeticGmEnv(), [API_KEY_ENV]: KEY })).route, 'api');
+  });
+});
+
+describe('rpg-42a.27 narrated turn outcomes', () => {
+  const committed = { turn: { id: 't1', campaignId: 'c1', narration: '' } } as unknown as CommittedTurn;
+  const recordingStore = () => {
+    const recorded: string[] = [];
+    const store = {
+      recordNarration: (_c: string, _t: string, text: string) => recorded.push(text),
+    } as unknown as CampaignStore;
+    return { recorded, store };
+  };
+
+  it('records and shows the fallback reply when narration is inconsistent', () => {
+    const { recorded, store } = recordingStore();
+    const turn = narratedTurn(store, { committed, inconsistent: { ok: false, violations: [] } });
+    assert.equal(turn.turn.narration, FAKE_GM_REPLY);
+    assert.deepEqual(recorded, [FAKE_GM_REPLY]);
+  });
+
+  it('keeps an interrupted turn pending without recording', () => {
+    const { recorded, store } = recordingStore();
+    const turn = narratedTurn(store, { committed, interrupted: new GameMasterInterruptedError(0) });
+    assert.equal(turn.turn.narration, '');
+    assert.deepEqual(recorded, []);
   });
 });

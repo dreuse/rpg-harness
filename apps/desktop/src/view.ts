@@ -77,6 +77,10 @@ const orEmpty = (items: readonly string[], locale: string, region: Region) =>
 const speaker = (locale: string, who: 'player' | 'gm', text: string) =>
   `<p data-speaker="${who}"><span data-speaker-label>${escapeHtml(translate(locale, `speaker.${who}`))}</span>${escapeHtml(text)}</p>`;
 const systemLine = (text: string) => `<p data-speaker="system">${escapeHtml(text)}</p>`;
+const gmLine = (locale: string, narration: string, pending: boolean) => {
+  if (pending) return systemLine(translate(locale, 'label.pending'));
+  return narration.trim() === '' ? systemLine(translate(locale, 'label.no-reply')) : speaker(locale, 'gm', narration);
+};
 
 const diagnostics = ({ diagnostics: { pid, gm, error, attempts } }: ViewModel, locale: string) =>
   `<details data-diagnostics><summary>${escapeHtml(translate(locale, 'diagnostics.summary'))}</summary><dl>${Object.entries(
@@ -235,7 +239,7 @@ const REGION_BODIES: Readonly<Record<Region, (model: ViewModel, locale: string) 
     `<ol aria-live="polite">${model.conversation
       .map(
         ({ actionId, input, narration, pending }) =>
-          `<li data-action-id="${escapeHtml(actionId)}"${pending ? ' aria-busy="true"' : ''}>${actionId === OPENING_ACTION_ID ? '' : speaker(locale, 'player', input)}${pending ? systemLine(translate(locale, 'label.pending')) : speaker(locale, 'gm', narration)}</li>`,
+          `<li data-action-id="${escapeHtml(actionId)}"${pending ? ' aria-busy="true"' : ''}>${actionId === OPENING_ACTION_ID ? '' : speaker(locale, 'player', input)}${gmLine(locale, narration, pending)}</li>`,
       )
       .join('')}</ol>${model.conversation.length === 0 ? empty(locale, 'conversation') : ''}${rollTray(model, locale)}`,
   sheet: ({ sheetGroups, character }, locale) => {
