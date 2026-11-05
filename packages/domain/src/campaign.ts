@@ -22,6 +22,8 @@ export type Character = { readonly id: CharacterId; readonly campaignId: Campaig
 
 export type Scene = { readonly id: SceneId; readonly campaignId: CampaignId; readonly title: string };
 
+export const OPENING_ACTION_ID = 'opening';
+
 export type Turn = {
   readonly id: TurnId;
   readonly campaignId: CampaignId;

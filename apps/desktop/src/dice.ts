@@ -3,6 +3,7 @@ import {
   dieShapeOf,
   GENERIC_DIE,
   type MotionSetting,
+  outcomeLabel,
   tumbleFaces,
   VISUALIZATION_EVENT,
   type VisualizationEvent,
@@ -78,7 +79,7 @@ export const rollSummary = ({ groups, tokens, final }: RollPlan, locale: string)
     ...tokens,
     ...(final.modifier === undefined ? [] : [translate(locale, 'roll.modifier', { value: signed(final.modifier) })]),
     ...(final.total === undefined ? [] : [translate(locale, 'roll.total', { value: final.total })]),
-    ...(final.outcome === undefined ? [] : [final.outcome]),
+    ...(final.outcome === undefined ? [] : [outcomeLabel(final.outcome)]),
   ].join(PART_SEPARATOR);
 
 const dieHtml = (shape: string, sides: number) => (faces: readonly number[]) =>

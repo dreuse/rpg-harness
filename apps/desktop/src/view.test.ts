@@ -307,6 +307,16 @@ test('rpg-42a.14 guided start is a labelled region with a focusable step heading
   assert.match(summary, /data-start-control="start" disabled>Start</);
 });
 
+test('rpg-42a.17 the open wizard hides the first adventure button and play hides the created notice', () => {
+  assert.doesNotMatch(startHtml(INITIAL_DRAFT), /Start your first adventure/);
+  assert.match(renderView(viewModel(initialState, WIDE_WIDTH), 'en'), /Start your first adventure/);
+  const playing = renderView(
+    viewModel({ ...state, start: { ...initialState.start, created: CAMPAIGN } }, WIDE_WIDTH),
+    'en',
+  );
+  assert.doesNotMatch(playing, /Created campaign/);
+});
+
 test('rpg-42a.14 bindKeys keeps the browser default when the action asks for it', () => {
   let listener = (_event: ReturnType<typeof keydown>['event']) => {};
   bindKeys(

@@ -11,6 +11,7 @@ import {
   type CharacterId,
   type CommittedTurn,
   type EventId,
+  OPENING_ACTION_ID,
   SCENE_OPENED,
   type SceneId,
   StaleRevisionError,
@@ -64,7 +65,6 @@ export type OpeningScene = {
 const PENDING_NARRATION = '';
 const SUBMITTED = 'PlayerActionSubmitted';
 const VALIDATED = 'ActionValidated';
-const OPENING_ACTION = 'opening';
 const OPENING_INPUT = 'Begin.';
 const PLAYER_VISIBLE: TurnVisibility = 'player';
 
@@ -197,17 +197,17 @@ export const performAction = (
 export const openScene = (store: CampaignStore, opening: OpeningScene): CommittedTurn => {
   const { campaignId, actorName, sceneTitle, narration } = opening;
   const state = loadState(store, campaignId);
-  requireValid(OPENING_ACTION, state.currentScene === undefined, `campaign ${campaignId} already has a scene`);
-  requireValid(OPENING_ACTION, actorName.trim() !== '', 'actor name is blank');
-  requireValid(OPENING_ACTION, sceneTitle.trim() !== '', 'scene title is blank');
-  requireValid(OPENING_ACTION, narration.trim() !== '', 'narration is blank');
+  requireValid(OPENING_ACTION_ID, state.currentScene === undefined, `campaign ${campaignId} already has a scene`);
+  requireValid(OPENING_ACTION_ID, actorName.trim() !== '', 'actor name is blank');
+  requireValid(OPENING_ACTION_ID, sceneTitle.trim() !== '', 'scene title is blank');
+  requireValid(OPENING_ACTION_ID, narration.trim() !== '', 'narration is blank');
   const character = { id: randomUUID(), campaignId, name: actorName };
   const scene = { id: randomUUID(), campaignId, title: sceneTitle };
   const turn: Turn = {
     id: randomUUID(),
     campaignId,
     sceneId: scene.id,
-    actionId: OPENING_ACTION,
+    actionId: OPENING_ACTION_ID,
     actorId: character.id,
     input: OPENING_INPUT,
     narration,

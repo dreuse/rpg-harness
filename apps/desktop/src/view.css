@@ -643,3 +643,23 @@ body:has(main[data-screen="home"]) #action-form {
     color: var(--surface);
   }
 }
+
+section[data-region="start"] > button {
+  margin-inline-end: var(--space-2);
+}
+
+section[data-region="start"] form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+  margin-block: var(--space-3);
+}
+
+#start-entry {
+  flex: 1;
+  min-width: 0;
+  min-height: var(--target-min);
+  padding: var(--space-2) var(--space-3);
+  font: inherit;
+}

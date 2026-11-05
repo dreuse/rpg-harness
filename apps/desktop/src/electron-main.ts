@@ -5,7 +5,15 @@ import { app, BrowserWindow, dialog, ipcMain, protocol, shell, utilityProcess } 
 import { DEFAULT_RELEASES_URL, RELEASE_PUBLIC_KEY, RELEASES_URL_ENV } from '../../../packages/updater/src/release.ts';
 import { startDaemon } from '../../cli/src/desktop-daemon.ts';
 import { dataDirFromEnv } from '../../cli/src/setup-check.ts';
-import { CAPTURE_ENV, CAPTURE_STATUS, captureScreens } from './capture.ts';
+import {
+  CAPTURE_ENV,
+  CAPTURE_STATUS,
+  captureJourney,
+  captureScreens,
+  JOURNEY,
+  JOURNEY_ENV,
+  JOURNEY_ERROR,
+} from './capture.ts';
 import { SMOKE_ENV, SMOKE_STATUS, startMain, utilityEngine } from './main.ts';
 import { PLATFORMS } from './packaging.ts';
 import { APP_ROOT, APP_SCHEME, bundlePreload, PAGE_URL, PRELOAD_SOURCE, serveAsset } from './serve.ts';
@@ -42,10 +50,18 @@ const reportStatusAndQuit = () =>
       process.stdout.write(`${SMOKE_STATUS}${status}${NEWLINE}`);
       const window = BrowserWindow.fromWebContents(contents);
       const dir = process.env[CAPTURE_ENV];
+      const phase = process.env[JOURNEY_ENV];
+      const journey = phase === 'first' || phase === 'reopen' ? JOURNEY[phase] : undefined;
       if (dir && window) {
         mkdirSync(dir, { recursive: true });
-        for (const file of await captureScreens(window, dir, writeFileSync))
-          process.stdout.write(`${CAPTURE_STATUS}${file}${NEWLINE}`);
+        try {
+          const files = await (journey === undefined
+            ? captureScreens(window, dir, writeFileSync)
+            : captureJourney(window, dir, writeFileSync, journey));
+          for (const file of files) process.stdout.write(`${CAPTURE_STATUS}${file}${NEWLINE}`);
+        } catch (error) {
+          process.stdout.write(`${JOURNEY_ERROR}${error instanceof Error ? error.message : String(error)}${NEWLINE}`);
+        }
       }
       app.quit();
     }),
@@ -87,6 +103,11 @@ const offerUpdate = async (dataDir: string) => {
   if (result.status === 'rejected')
     await dialog.showMessageBox({ message: 'The update was rejected and deleted.', detail: result.reason });
 };
+
+const SCALE_SWITCH = 'force-device-scale-factor';
+const CAPTURE_SCALE = '1';
+
+if (process.env[CAPTURE_ENV] || process.env[JOURNEY_ENV]) app.commandLine.appendSwitch(SCALE_SWITCH, CAPTURE_SCALE);
 
 app.on('window-all-closed', () => app.quit());
 

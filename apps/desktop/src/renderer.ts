@@ -108,7 +108,7 @@ export const REGIONS = ['campaigns', 'status', 'conversation', 'sheet', 'panels'
 export type Region = (typeof REGIONS)[number];
 export const PLAY_REGIONS = ['conversation', 'sheet', 'panels'] as const satisfies readonly Region[];
 export type Layout = { readonly name: 'compact' | 'medium' | 'wide'; readonly columns: readonly (readonly Region[])[] };
-export const OPENING_ACTION_ID = 'opening';
+export { OPENING_ACTION_ID } from '../../../packages/domain/src/campaign.ts';
 
 const SIDE_BY_SIDE: Layout['columns'] = [['conversation'], ['sheet', 'panels']];
 

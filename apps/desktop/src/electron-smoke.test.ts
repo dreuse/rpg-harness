@@ -1,6 +1,16 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { existsSync, globSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import {
+  copyFileSync,
+  existsSync,
+  globSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, sep } from 'node:path';
@@ -9,8 +19,18 @@ import { promisify } from 'node:util';
 import { CAMPAIGN_ENV } from '../../cli/src/desktop-daemon.ts';
 import { createEngineGateway } from '../../cli/src/engine-gateway.ts';
 import { DATA_DIR_ENV } from '../../cli/src/setup-check.ts';
-import { CAPTURE_ENV, CAPTURE_LAYOUTS, CAPTURE_STATUS, CAPTURE_THEMES } from './capture.ts';
-import { SMOKE_ENV, SMOKE_STATUS } from './main.ts';
+import {
+  CAPTURE_ENV,
+  CAPTURE_LAYOUTS,
+  CAPTURE_STATUS,
+  CAPTURE_THEMES,
+  JOURNEY,
+  JOURNEY_ENV,
+  JOURNEY_ERROR,
+  SHOT_DATA_EXTENSION,
+} from './capture.ts';
+import { SMOKE_ENV, SMOKE_STATUS, WINDOW_HEIGHT, WINDOW_WIDTH } from './main.ts';
+import { auditPage, BLOCKING_IMPACTS, decodePng, pixelDiffRatio } from './ux-check.ts';
 
 const APP_DIR = join(import.meta.dirname, '..');
 const REPO_ROOT = join(APP_DIR, '..', '..');
@@ -61,16 +81,20 @@ const skip =
       ? 'no display for Electron (run under xvfb-run)'
       : false;
 
+const run = async (dataDir: string, extra: NodeJS.ProcessEnv, app = APP_DIR) => {
+  const env = Object.fromEntries(KEPT_ENV.flatMap((key) => (process.env[key] ? [[key, process.env[key]]] : [])));
+  const { stdout } = await promisify(execFile)(binary as string, [app], {
+    env: { ...env, ...extra, [SMOKE_ENV]: ENABLED, [DATA_DIR_ENV]: dataDir },
+    timeout: LAUNCH_TIMEOUT_MS,
+  });
+  return stdout;
+};
+
 const launch = async (extra: NodeJS.ProcessEnv = {}, seed = async (_dataDir: string) => {}, app = APP_DIR) => {
   const dataDir = mkdtempSync(join(tmpdir(), 'rpg-desktop-smoke-'));
   try {
     await seed(dataDir);
-    const env = Object.fromEntries(KEPT_ENV.flatMap((key) => (process.env[key] ? [[key, process.env[key]]] : [])));
-    const { stdout } = await promisify(execFile)(binary as string, [app], {
-      env: { ...env, ...extra, [SMOKE_ENV]: ENABLED, [DATA_DIR_ENV]: dataDir },
-      timeout: LAUNCH_TIMEOUT_MS,
-    });
-    return stdout;
+    return await run(dataDir, extra, app);
   } finally {
     rmSync(dataDir, { recursive: true, force: true });
   }
@@ -137,4 +161,56 @@ test('rpg-42a.11 Electron captures a screenshot of each desktop view in each the
         assert.equal(readFileSync(file).subarray(0, SIGNATURE_BYTES).toString(HEX), PNG_SIGNATURE, file);
       }
   t.diagnostic(`screenshots in ${dir}`);
+});
+
+const BASELINE_DIR = join(APP_DIR, 'visual-baselines', process.platform);
+const UPDATE_BASELINES_ENV = 'RPG_DESKTOP_UPDATE_BASELINES';
+const MAX_DIFF_RATIO = 0.002;
+
+const journeyShots = (dir: string, phase: keyof typeof JOURNEY) =>
+  JOURNEY[phase].flatMap(({ shot }) =>
+    shot === undefined ? [] : CAPTURE_THEMES.map((theme) => join(dir, `${shot}-${theme.name}.png`)),
+  );
+
+test('rpg-42a.17 desktop journey: first run, guided start, roll, sheet edit, quit, reopen and continue', {
+  skip,
+}, async (t) => {
+  const dataDir = mkdtempSync(join(tmpdir(), 'rpg-desktop-journey-'));
+  const dir = process.env[CAPTURE_ENV] || mkdtempSync(join(tmpdir(), 'rpg-desktop-journey-screens-'));
+  t.after(() => rmSync(dataDir, { recursive: true, force: true }));
+  const files: string[] = [];
+  for (const phase of ['first', 'reopen'] as const) {
+    const stdout = await run(dataDir, { [CAPTURE_ENV]: dir, [JOURNEY_ENV]: phase });
+    assert.doesNotMatch(stdout, new RegExp(JOURNEY_ERROR));
+    for (const file of journeyShots(dir, phase)) {
+      assert.ok(stdout.includes(`${CAPTURE_STATUS}${file}`), file);
+      files.push(file);
+    }
+  }
+  t.diagnostic(`screenshots in ${dir}`);
+  const update = process.env[UPDATE_BASELINES_ENV] === ENABLED;
+  if (update) mkdirSync(BASELINE_DIR, { recursive: true });
+  const compare = !update && existsSync(BASELINE_DIR);
+  if (!compare && !update) t.diagnostic(`no visual baselines for ${process.platform}; comparison skipped`);
+  for (const file of files) {
+    const { size, audit, masks } = JSON.parse(readFileSync(file.replace(/\.png$/, SHOT_DATA_EXTENSION), 'utf8'));
+    assert.deepEqual(
+      size,
+      { width: WINDOW_WIDTH, height: WINDOW_HEIGHT },
+      `${basename(file)} was not captured at scale 1`,
+    );
+    const blocking = auditPage(audit).filter(({ impact }) => BLOCKING_IMPACTS.includes(impact));
+    assert.deepEqual(blocking, [], basename(file));
+    const baseline = join(BASELINE_DIR, basename(file));
+    if (update) copyFileSync(file, baseline);
+    if (!compare) continue;
+    const expected = decodePng(readFileSync(baseline));
+    const sizeOf = ({ width, height }: { width: number; height: number }) => `${width}x${height}`;
+    assert.equal(sizeOf(size), sizeOf(expected), `${basename(file)} size differs from its baseline`);
+    const ratio = pixelDiffRatio(expected, decodePng(readFileSync(file)), masks);
+    assert.ok(
+      ratio <= MAX_DIFF_RATIO,
+      `${basename(file)} differs from its baseline in ${(ratio * 100).toFixed(2)}% of pixels`,
+    );
+  }
 });

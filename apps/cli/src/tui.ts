@@ -11,11 +11,12 @@ import {
 import { SHEET_VIEW } from '../../../packages/client-protocol/src/view-registry.ts';
 import {
   type MechanicReveal,
+  outcomeLabel,
   tumbleFaces,
   VISUALIZATION_EVENT,
   type VisualizationEvent,
 } from '../../../packages/client-protocol/src/visualization.ts';
-import type { CampaignId } from '../../../packages/domain/src/campaign.ts';
+import { type CampaignId, OPENING_ACTION_ID } from '../../../packages/domain/src/campaign.ts';
 import { type ColorDepth, colorDepthOf, FRAME_COLUMNS, frame, paint, supportsUnicode } from './theme.ts';
 import { printable } from './views.ts';
 
@@ -209,7 +210,7 @@ const indicator = ({ mechanic, frames, final }: VisualizationEvent) =>
     `${mechanic}: ${frames.map((frame) => reveal(frame.reveal)).join(', ')}`,
     ...(final.modifier === undefined ? [] : [`modifier ${signed(final.modifier)}`]),
     ...(final.total === undefined ? [] : [`total ${final.total}`]),
-    ...(final.outcome === undefined ? [] : [`outcome ${final.outcome}`]),
+    ...(final.outcome === undefined ? [] : [`outcome ${outcomeLabel(final.outcome)}`]),
   ].join('; ');
 
 const spinning = ({ mechanic, frames }: VisualizationEvent, step: number, tumbles: readonly number[][]) =>
@@ -228,8 +229,8 @@ const sheetRow = ({ label, value }: ViewComponent) => (value === undefined ? lab
 
 const conversation = ({ currentScene, characters, turns }: CampaignSnapshot) => {
   const names = new Map(characters.map(({ id, name }) => [id, name]));
-  const rows = turns.flatMap(({ actorId, input, narration }) => [
-    ...(input.trim() === '' ? [] : [`${names.get(actorId) ?? actorId}: ${input}`]),
+  const rows = turns.flatMap(({ actionId, actorId, input, narration }) => [
+    ...(input.trim() === '' || actionId === OPENING_ACTION_ID ? [] : [`${names.get(actorId) ?? actorId}: ${input}`]),
     ...(narration.trim() === '' ? [] : [narration]),
   ]);
   return rows.length === 0 || currentScene === undefined ? rows : [`Scene: ${currentScene.title}`, ...rows];

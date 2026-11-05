@@ -98,6 +98,11 @@ test('UI15: multi-die rolls are grouped by die type with a breakdown of modifier
   assert.match(html, /&lt;Ace&gt;/);
 });
 
+test('rpg-42a.17 a rules outcome id reads as a plain word in the roll caption', () => {
+  const html = renderRoll(rollPlan(rollOf([die(20, 13)], { total: 14, outcome: 'check.success' }), 'off'), LOCALE);
+  assert.match(html, /<figcaption>d20 13, total 14, success<\/figcaption>/);
+});
+
 test('UI15: malformed visualization messages are ignored', () => {
   assert.equal(parseVisualization({ type: VISUALIZATION_EVENT }), undefined);
   assert.equal(

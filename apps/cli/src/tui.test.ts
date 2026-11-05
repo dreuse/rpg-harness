@@ -444,6 +444,27 @@ test('UI15: TUI roll frames always land on the engine result', () => {
   }
 });
 
+test('rpg-42a.17 a rules outcome id reads as a plain word in the TUI roll line', () => {
+  const event = data.mechanics[0] as VisualizationEvent;
+  const checked = { ...event, final: { ...event.final, outcome: 'check.success' } };
+  assert.match(rollFrames(checked, ROLL_STEPS).at(-1) ?? '', /; outcome success$/);
+});
+
+test('rpg-42a.17 the TUI conversation hides the engine opening seed and keeps its narration', () => {
+  const opening = {
+    id: 't0',
+    campaignId: 'c1',
+    sceneId: 's1',
+    actionId: 'opening',
+    actorId: 'h1',
+    input: 'Begin.',
+    narration: 'A bell tolls.',
+  };
+  const shown = renderScreen(INITIAL_STATE, { ...data, snapshot: { ...snapshot, turns: [opening] } }, COLOR).join('\n');
+  assert.doesNotMatch(shown, /Begin\./);
+  assert.match(shown, /A bell tolls\./);
+});
+
 test('UI15: changed sheet values are highlighted on colour terminals only', () => {
   const changed = { ...data, changed: ['grit'] };
   const wide = { ...COLOR, width: LARGE_WIDTH, height: LARGE_HEIGHT };

@@ -152,9 +152,9 @@ const homeNotices = ({ error, undo, confirm }: HomeModel, locale: string) =>
       : `<div role="alertdialog" aria-labelledby="home-confirm-text"><p id="home-confirm-text">${escapeHtml(translate(locale, `home.ask.${confirm.kind}`, { name: confirm.name }))}</p><button type="button" id="home-confirm" ${HOME_ATTRIBUTE}="confirm">${escapeHtml(translate(locale, `home.${confirm.kind}`))}</button>${homeButton('cancel', locale, { id: 'home-cancel' })}</div>`,
   ].join('');
 
-const homeList = (home: HomeModel, locale: string) => {
+const homeList = (home: HomeModel, starting: boolean, locale: string) => {
   if (home.total === 0)
-    return `${empty(locale, 'campaigns')}${button(START_OPEN, 'home', translate(locale, 'start.first'), false, true)}`;
+    return `${empty(locale, 'campaigns')}${starting ? '' : button(START_OPEN, 'home', translate(locale, 'start.first'), false, true)}`;
   const search = home.search
     ? `<label for="${HOME_SEARCH}">${escapeHtml(translate(locale, 'home.search'))}</label><input id="${HOME_SEARCH}" type="search" value="${escapeHtml(home.query)}">`
     : '';
@@ -181,7 +181,8 @@ const rollTray = ({ rolls: [latest, ...older] }: ViewModel, locale: string) =>
     : `<section data-rolls aria-label="${escapeHtml(translate(locale, 'region.rolls'))}">${renderRoll(latest, locale)}${rollHistory(older, locale)}</section>`;
 
 const REGION_BODIES: Readonly<Record<Region, (model: ViewModel, locale: string) => string>> = {
-  campaigns: ({ home }, locale) => homeNotices(home, locale) + homeList(home, locale) + archivedList(home, locale),
+  campaigns: ({ home, start }, locale) =>
+    homeNotices(home, locale) + homeList(home, start !== undefined, locale) + archivedList(home, locale),
   status: (model, locale) => `${pageHeading(translate(locale, 'app.name'))}${connection(model, locale)}`,
   conversation: (model, locale) =>
     `<ol aria-live="polite">${model.conversation
@@ -298,7 +299,7 @@ const startControl = (screen: StartScreen, locale: string) => (control: StartCon
 
 const startBody = ({ start, created, playing, home }: ViewModel, locale: string) =>
   start === undefined
-    ? `${playing || home.total === 0 ? '' : button(START_OPEN, 'open', translate(locale, 'start.open'), false, true)}${created === undefined ? '' : `<p role="status">${escapeHtml(translate(locale, 'start.created', { name: created }))}</p>`}`
+    ? `${playing || home.total === 0 ? '' : button(START_OPEN, 'open', translate(locale, 'start.open'), false, true)}${created === undefined || playing ? '' : `<p role="status">${escapeHtml(translate(locale, 'start.created', { name: created }))}</p>`}`
     : [
         `<h2 tabindex="-1" ${START_TITLE}="${start.step}">${escapeHtml(startTitle(start, locale))}</h2>`,
         ...start.text.map((line) => `<p>${escapeHtml(line)}</p>`),

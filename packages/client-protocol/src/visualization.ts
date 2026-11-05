@@ -65,6 +65,10 @@ const copyReveal = (reveal: MechanicReveal): MechanicReveal =>
     ? { kind: reveal.kind, sides: reveal.sides, face: reveal.face }
     : { kind: reveal.kind, label: reveal.label };
 
+const OUTCOME_SEPARATOR = '.';
+
+export const outcomeLabel = (outcome: string) => outcome.split(OUTCOME_SEPARATOR).at(-1) || outcome;
+
 const finalOf = ({ total, outcome, modifier }: MechanicResult): VisualizationFinal =>
   modifier === undefined ? { total, outcome } : { total, outcome, modifier };
 
