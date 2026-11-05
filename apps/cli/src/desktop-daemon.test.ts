@@ -424,6 +424,15 @@ describe('serve client-protocol commands over the desktop engine daemon', () => 
     assert.deepEqual((await snapshotOf(daemon, campaignId)).gm?.settings, { model: 'opus' });
   });
 
+  it('rpg-42a.67: changes the campaign language and shows it in the next snapshot', async (t) => {
+    const { env, campaignId } = await campaignEnv(t);
+    const daemon = supervise(t, { env });
+    const { revision } = await snapshotOf(daemon, campaignId);
+    const set = { ...snapshotCommand(campaignId), type: 'SetCampaignLanguage', actionId: 'lang', language: 'pt-BR' };
+    acceptedValue<Accepted>(await daemon.command({ ...set, expectedRevision: revision }));
+    assert.equal((await snapshotOf(daemon, campaignId)).language, 'pt-BR');
+  });
+
   it('rpg-42a.37: saves the app-default GM model without touching the campaign', async (t) => {
     const { env, campaignId } = await campaignEnv(t);
     const daemon = supervise(t, { env });

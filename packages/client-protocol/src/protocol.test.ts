@@ -163,6 +163,7 @@ const inMemorySession = (): ClientSession & { commit(event: DomainEvent): void }
     editSheetField: () => ({ ok: true, value: { revision } }),
     saveVoiceSettings: () => ({ ok: true, value: { revision } }),
     saveGmSettings: () => ({ ok: true, value: { revision } }),
+    setCampaignLanguage: () => ({ ok: true, value: { revision } }),
   };
 };
 
@@ -234,6 +235,7 @@ test('UI01: clients cannot bypass the engine or trust unsolicited model state wr
     'SaveVoiceSettings',
     'SaveGmSettings',
     'SaveGmDefaults',
+    'SetCampaignLanguage',
     'GetStoryMemory',
     'CorrectStoryFact',
   ]);

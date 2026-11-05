@@ -197,6 +197,13 @@ const OPEN_GM_SETTINGS = steps(
   `document.querySelector('[data-settings]').open = true;`,
   `document.querySelector('[data-gm-form]').scrollIntoView({ block: 'start' });`,
 );
+const CHOOSE_STORY_LANGUAGE = steps(
+  `document.querySelector('[data-settings]').open = true;`,
+  click('[data-story-language="es"]'),
+  `await ${until(`document.querySelector('[data-story-language="es"][aria-pressed="true"]')`)};`,
+  `document.querySelector('[data-settings]').open = true;`,
+  `document.querySelector('[data-language-control]').scrollIntoView({ block: 'start' });`,
+);
 const SET_UP_VOICE = steps(
   `document.querySelector('[data-settings]').open = true;`,
   click('[data-voice-setup="on"]'),
@@ -347,6 +354,7 @@ export const JOURNEY: Readonly<Record<'first' | 'reopen' | 'portuguese' | 'dicel
     { script: FINISH_VOICE_SETUP, shot: 'pt-BR-voice-basic' },
     { script: OPEN_ADVANCED_VOICE, shot: 'pt-BR-voice-settings' },
     { script: OPEN_GM_SETTINGS, shot: 'pt-BR-gm-settings' },
+    { script: CHOOSE_STORY_LANGUAGE, shot: 'pt-BR-story-language' },
   ],
 };
 

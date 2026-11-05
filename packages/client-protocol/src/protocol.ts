@@ -54,6 +54,7 @@ export const COMMAND_TYPES = [
   'SaveVoiceSettings',
   'SaveGmSettings',
   'SaveGmDefaults',
+  'SetCampaignLanguage',
   'GetStoryMemory',
   'CorrectStoryFact',
 ] as const;
@@ -142,6 +143,12 @@ export type SaveGmSettings = Envelope<'SaveGmSettings'> & {
 
 export type SaveGmDefaults = Envelope<'SaveGmDefaults'> & { readonly actionId: string } & GmSettings;
 
+export type SetCampaignLanguage = Envelope<'SetCampaignLanguage'> & {
+  readonly actionId: string;
+  readonly expectedRevision: number;
+  readonly language: string;
+};
+
 export type GetStoryMemory = Envelope<'GetStoryMemory'>;
 export type CorrectStoryFact = Envelope<'CorrectStoryFact'> & {
   readonly actionId: string;
@@ -166,6 +173,7 @@ export type ClientCommand =
   | SaveVoiceSettings
   | SaveGmSettings
   | SaveGmDefaults
+  | SetCampaignLanguage
   | GetStoryMemory
   | CorrectStoryFact;
 
@@ -331,6 +339,7 @@ export interface ClientSession {
   editSheetField(command: EditSheetField): Result<Accepted>;
   saveVoiceSettings(command: SaveVoiceSettings): Result<Accepted>;
   saveGmSettings(command: SaveGmSettings): Result<Accepted>;
+  setCampaignLanguage(command: SetCampaignLanguage): Result<Accepted>;
 }
 
 type FieldKind =
@@ -421,6 +430,7 @@ const COMMAND_FIELDS: Record<CommandType, Readonly<Record<string, FieldSpec>>> =
     sessionBudgetTokens: { kind: 'number', optional: true },
     rulesStrictness: { kind: 'id', optional: true },
   },
+  SetCampaignLanguage: { actionId: ID, expectedRevision: { kind: 'revision' }, language: { kind: 'locale' } },
   GetStoryMemory: {},
   CorrectStoryFact: {
     actionId: ID,

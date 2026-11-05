@@ -1111,3 +1111,13 @@ test('rpg-cm63.22 page refreshes the engine speech metrics in troubleshooting wh
   assert.match(page.root.innerHTML, /<dt>Spoken replies<\/dt><dd>2<\/dd>/);
   assert.match(page.root.innerHTML, /<dt>Peak speech queue<\/dt><dd>3<\/dd>/);
 });
+
+test('rpg-42a.67 page sends SetCampaignLanguage when a story language is chosen and ignores unknown ones', () => {
+  const page = playingSheet();
+  page.click({ 'data-story-language': 'es' });
+  page.click({ 'data-story-language': 'xx' });
+  const sets = page.sent.filter(({ type }) => type === 'SetCampaignLanguage');
+  assert.equal(sets.length, 1);
+  assert.ok(sets[0]?.type === 'SetCampaignLanguage');
+  assert.equal(sets[0].language, 'es');
+});

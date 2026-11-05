@@ -73,3 +73,19 @@ test('rpg-42a.40 a campaign keeps the language chosen at creation and old campai
   assert.throws(() => engine.createCampaign('Bad', 'not a locale!'), RangeError);
   connection.close();
 });
+
+test('rpg-42a.67: CampaignLanguageChanged updates the language, the latest wins and an invalid locale is rejected', () => {
+  const { connection, engine } = openEngine();
+  const { id } = engine.createCampaign(FIRST_NAME, 'en');
+  const eventsOf = () => listScopedEvents(connection.database, id);
+  const save = (language: string, actionId: string) =>
+    engine.setCampaignLanguage({ campaignId: id, actionId, expectedRevision: engine.getState(id).revision, language });
+  assert.equal(save(PORTUGUESE, 'lang-1'), PORTUGUESE);
+  assert.equal(campaignLanguageOf(eventsOf()), PORTUGUESE);
+  save('es', 'lang-2');
+  assert.equal(campaignLanguageOf(eventsOf()), 'es');
+  assert.equal(campaignLanguageOf(engine.getState(id).changes), 'es');
+  assert.throws(() => save('not a locale!', 'lang-3'), RangeError);
+  assert.equal(campaignLanguageOf(eventsOf()), 'es');
+  connection.close();
+});

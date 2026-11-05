@@ -119,6 +119,7 @@ const ACTIONS: ReadonlySet<string> = new Set([
   'SaveVoiceSettings',
   'SaveGmSettings',
   'SaveGmDefaults',
+  'SetCampaignLanguage',
   'EditSheetField',
 ]);
 

@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import {
   CAMPAIGN_CREATED,
+  CAMPAIGN_LANGUAGE_CHANGED,
   CAMPAIGN_RENAMED,
   type Campaign,
   type CampaignChange,
@@ -19,15 +20,25 @@ import { type GmSettingsSave, saveGmSettings } from './gm-settings.ts';
 import { type Check, type PlayerAction, performAction } from './turn.ts';
 import { saveVoiceSettings, type VoiceSettingsSave } from './voice-settings.ts';
 
+export type CampaignLanguageSave = {
+  readonly campaignId: CampaignId;
+  readonly actionId: string;
+  readonly expectedRevision: number;
+  readonly language: string;
+};
+
 export type Engine = {
   createCampaign(name: string, language?: string): Campaign;
   getCampaign(id: CampaignId): Campaign;
   getState(id: CampaignId): CampaignState;
   renameCampaign(id: CampaignId, name: string): Campaign;
   submitAction(action: PlayerAction, check?: Check): CommittedTurn;
+  setCampaignLanguage(save: CampaignLanguageSave): string;
   saveVoiceSettings(save: VoiceSettingsSave): SavedVoiceSettings;
   saveGmSettings(save: GmSettingsSave): GmSettings;
 };
+
+const LANGUAGE_EVENTS: ReadonlySet<string> = new Set([CAMPAIGN_CREATED, CAMPAIGN_LANGUAGE_CHANGED]);
 
 const change = ({ id, name }: Campaign, type: string, language?: string): CampaignChange => ({
   id: randomUUID(),
@@ -39,7 +50,7 @@ const change = ({ id, name }: Campaign, type: string, language?: string): Campai
 });
 
 export const campaignLanguageOf = (events: readonly Pick<CampaignEvent, 'type' | 'payload'>[]): string | undefined => {
-  const language = events.find(({ type }) => type === CAMPAIGN_CREATED)?.payload.language;
+  const language = events.findLast(({ type }) => LANGUAGE_EVENTS.has(type))?.payload.language;
   return isLocale(language) ? language : undefined;
 };
 
@@ -63,6 +74,22 @@ export const createEngine = (store: CampaignStore, rng: Rng = Math.random): Engi
     const campaign = { id, name };
     store.renameCampaign({ expectedRevision: revision, campaign, event: change(campaign, CAMPAIGN_RENAMED) });
     return campaign;
+  },
+  setCampaignLanguage: ({ campaignId, actionId, expectedRevision, language }) => {
+    if (!isLocale(language)) throw new RangeError(`invalid campaign language ${language}`);
+    loadState(store, campaignId);
+    store.recordChange({
+      expectedRevision,
+      event: {
+        id: randomUUID(),
+        campaignId,
+        branchId: MAIN_BRANCH,
+        actionId,
+        type: CAMPAIGN_LANGUAGE_CHANGED,
+        payload: { language },
+      },
+    });
+    return language;
   },
   submitAction: (action, check) => performAction(store, action, check, rng),
   saveVoiceSettings: (save) => saveVoiceSettings(store, save),

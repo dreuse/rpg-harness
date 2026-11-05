@@ -495,6 +495,16 @@ export const createClientSessions = (
           return { revision: engine.getState(campaignId).revision };
         });
       },
+      setCampaignLanguage: (command) => {
+        const accepted = accept<typeof command>(command, 'SetCampaignLanguage');
+        if (!accepted.ok) return accepted;
+        const { actionId, expectedRevision, language } = accepted.value;
+        return attempt(() => {
+          engine.setCampaignLanguage({ campaignId, actionId, expectedRevision, language });
+          sync();
+          return { revision: engine.getState(campaignId).revision };
+        });
+      },
     };
   };
 

@@ -43,6 +43,7 @@ import {
   START_OPEN,
   START_OPTION,
   START_TITLE,
+  STORY_LANGUAGE_ATTRIBUTE,
   type StartControl,
   VOICE_ATTRIBUTE,
   VOICE_CLEAR,
@@ -559,6 +560,11 @@ export const mountPage = ({
     const locale = SUPPORTED_LOCALES.find(
       (supported) => supported === target?.closest(`[${LOCALE_ATTRIBUTE}]`)?.getAttribute(LOCALE_ATTRIBUTE),
     );
+    const storyLanguage = SUPPORTED_LOCALES.find(
+      (supported) =>
+        supported === target?.closest(`[${STORY_LANGUAGE_ATTRIBUTE}]`)?.getAttribute(STORY_LANGUAGE_ATTRIBUTE),
+    );
+    if (storyLanguage !== undefined) return void client.setStoryLanguage(storyLanguage);
     const chosen = motion === undefined ? (locale === undefined ? undefined : { locale }) : { motion };
     if (chosen !== undefined) {
       saved = { ...saved, ...chosen };

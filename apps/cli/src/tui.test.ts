@@ -629,6 +629,31 @@ test('rpg-42a.21: the TUI groups the sheet and edits a field with /edit, showing
   assert.match(printed, /might must be at most 20/);
 });
 
+test('rpg-42a.67: /language <locale> sets the story language, shows the result and is listed in the help', async () => {
+  assert.match(screen(press([key('?')])), /\/language <locale>/);
+  const { session, campaignId } = engineSession();
+  const sent: unknown[] = [];
+  const switching: ClientSession = {
+    ...session,
+    setCampaignLanguage: ({ language }) => {
+      sent.push(language);
+      return language === 'es'
+        ? { ok: true, value: { revision: 3 } }
+        : { ok: false, error: { code: 'Rejected', message: 'language is not a locale' } };
+    },
+  };
+  const output: string[] = [];
+  await runTui(switching, campaignId, {
+    capabilities: PLAIN_WIDE,
+    lines: each(['/language es', '/language bad!', 'q']),
+    write: (text) => output.push(text),
+  });
+  const printed = output.join('');
+  assert.deepEqual(sent, ['es', 'bad!']);
+  assert.match(printed, /Story language set to es\./);
+  assert.match(printed, /language is not a locale/);
+});
+
 test('rpg-42a.27 the TUI conversation shows a no-reply line for a blank narration', () => {
   const blank = {
     id: 't1',

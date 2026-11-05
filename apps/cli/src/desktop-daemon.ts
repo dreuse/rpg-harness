@@ -266,6 +266,8 @@ const replier = ({ name, campaign, problem }: Served, gm: GameMaster) => {
     if (command.type === 'SaveVoiceSettings')
       return send({ id, type: 'Result', result: session.saveVoiceSettings(command) });
     if (command.type === 'SaveGmSettings') return send({ id, type: 'Result', result: session.saveGmSettings(command) });
+    if (command.type === 'SetCampaignLanguage')
+      return send({ id, type: 'Result', result: session.setCampaignLanguage(command) });
     if (command.type === 'SaveGmDefaults') return send({ id, type: 'Result', result: saveGmDefaults(command) });
     if (command.type === 'GetStoryMemory' || command.type === 'CorrectStoryFact')
       return send({ id, type: 'Result', result: failure('Rejected', UNSUPPORTED_STORY_MEMORY) });

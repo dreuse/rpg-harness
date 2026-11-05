@@ -306,6 +306,7 @@ export const viewModel = (
     panels: state.panels,
     rejected: state.rejected,
     gm: state.snapshot?.gm,
+    storyLanguage: state.snapshot?.language,
     start: state.start.open
       ? startScreen(state.start.draft, state.start.options, state.start.plan, preferences.locale)
       : undefined,
@@ -802,6 +803,12 @@ export const createDesktopClient = ({
     },
     saveGm: (settings: GmSettings) =>
       saveGmCommand((snapshot) => ({ type: 'SaveGmSettings', expectedRevision: snapshot.revision, ...settings })),
+    setStoryLanguage: (language: string) =>
+      saveGmCommand((snapshot) => ({
+        type: 'SetCampaignLanguage',
+        expectedRevision: snapshot.revision,
+        language,
+      })),
     saveGmDefaults: (settings: GmSettings) => saveGmCommand(() => ({ type: 'SaveGmDefaults', ...settings })),
     retry: () => {
       if (state.connection.status !== 'disconnected') return;

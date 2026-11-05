@@ -1115,3 +1115,25 @@ test('rpg-42a.41: a client without a revision gets only the recent window', () =
   playActions(session, envelope, turn);
   assert.equal(ids(collect(session, envelope)).length, LOG_WINDOW);
 });
+
+test('rpg-42a.67: SetCampaignLanguage changes the snapshot language, rejects a bad locale and a stale revision', () => {
+  const { database, engine, campaignId, envelope } = setup();
+  const session = createClientSessions(engine, campaignId, scopedEventsOf(database), worldOf(database))(PLAYER_VIEWER);
+  const set = { ...envelope, type: 'SetCampaignLanguage', actionId: 'lang-1', language: 'es' } as const;
+  assert.deepEqual(session.setCampaignLanguage({ ...set, expectedRevision: OPENING_REVISION }), {
+    ok: true,
+    value: { revision: OPENING_REVISION + 1 },
+  });
+  const snapshot = session.getSnapshot({ ...envelope, type: 'GetCampaignSnapshot' });
+  assert.ok(snapshot.ok);
+  assert.equal(snapshot.value.language, 'es');
+  const bad = session.setCampaignLanguage({
+    ...set,
+    actionId: 'lang-2',
+    language: 'not a locale!',
+    expectedRevision: OPENING_REVISION + 1,
+  });
+  assert.equal(bad.ok, false);
+  const stale = session.setCampaignLanguage({ ...set, actionId: 'lang-3', expectedRevision: OPENING_REVISION });
+  assert.equal(stale.ok ? undefined : stale.error.code, 'StaleRevision');
+});

@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it, type TestContext } from 'node:test';
 import { PROTOCOL_VERSION, type SavedVoiceSettings } from '../../../packages/client-protocol/src/protocol.ts';
+import { type ContextPacket, packetParts } from '../../../packages/memory/src/packet.ts';
 import { startProviderServer } from '../../../packages/testkit/src/provider-server.ts';
 import type { SpeechChunk, TtsProvider } from '../../../packages/voice/src/tts.ts';
 import {
@@ -17,7 +18,7 @@ import {
   playbackFor,
   readCampaignState,
 } from './engine-gateway.ts';
-import { apiRouteOf, GM_API_URL_ENV, ProviderError } from './gm-api.ts';
+import { apiRouteOf, GM_API_URL_ENV, languageInstruction, ProviderError } from './gm-api.ts';
 import type { GmSegment } from './gm-segments.ts';
 import { createSpeechRuntime } from './speech-runtime.ts';
 import type { Capabilities } from './tui.ts';
@@ -178,6 +179,58 @@ describe('rpg-cm63.17 streaming speech in the GM turn flow', () => {
     await opened.narrate();
     await runtime.speech.idle();
     assert.deepEqual(english, []);
+    assert.deepEqual(portuguese, [FIRST]);
+  });
+
+  it('rpg-42a.67: the turn after SetCampaignLanguage is narrated and spoken in the new language', async (t) => {
+    const english: string[] = [];
+    const portuguese: string[] = [];
+    const { dataDir, runtime } = await setup(t, [kokoro(english), kokoro(portuguese, 'kokoro-mlx')], 'en');
+    const instructions: string[] = [];
+    const gm: GameMaster = {
+      request: async (packet: ContextPacket, { onSegment }) => {
+        instructions.push(packetParts(packet).instructions);
+        onSegment?.(FIRST);
+        return reply(FIRST);
+      },
+      summarizer: FAKE_GAME_MASTER.summarizer,
+    };
+    const opened = openWith(dataDir, gm, runtime);
+    t.after(() => opened.close());
+    submit(opened, { locale: 'en' });
+    await opened.narrate();
+    await runtime.speech.idle();
+    const { session, campaignId } = opened;
+    const before = session.getSnapshot({ version: PROTOCOL_VERSION, type: 'GetCampaignSnapshot', campaignId });
+    assert.ok(before.ok);
+    const changed = session.setCampaignLanguage({
+      version: PROTOCOL_VERSION,
+      type: 'SetCampaignLanguage',
+      campaignId,
+      actionId: 'language-1',
+      expectedRevision: before.value.revision,
+      language: 'pt-BR',
+    });
+    assert.ok(changed.ok);
+    const after = session.getSnapshot({ version: PROTOCOL_VERSION, type: 'GetCampaignSnapshot', campaignId });
+    assert.ok(after.ok);
+    assert.equal(after.value.language, 'pt-BR');
+    const action = session.submitPlayerAction({
+      version: PROTOCOL_VERSION,
+      type: 'SubmitPlayerAction',
+      campaignId,
+      actionId: 'typed-2',
+      expectedRevision: after.value.revision,
+      sceneId: after.value.currentScene?.id ?? '',
+      actorId: after.value.characters[0]?.id ?? '',
+      input: 'I look again',
+    });
+    assert.ok(action.ok);
+    await opened.narrate();
+    await runtime.speech.idle();
+    assert.ok(instructions[0]?.endsWith(languageInstruction('en')));
+    assert.ok(instructions[1]?.endsWith(languageInstruction('pt-BR')));
+    assert.deepEqual(english, [FIRST]);
     assert.deepEqual(portuguese, [FIRST]);
   });
 

@@ -123,6 +123,7 @@ const NEWLINE = '\n';
 const CLEAR_SCREEN = '\x1b[2J\x1b[H';
 const STATUS_SEPARATOR = ' | ';
 const EDIT_PATTERN = /^\/edit\s+(\S+)\s+(.+)$/i;
+const LANGUAGE_PATTERN = /^\/language\s+(\S+)$/i;
 const FLAG_WORDS: Readonly<Record<string, boolean>> = {
   yes: true,
   true: true,
@@ -147,6 +148,7 @@ const helpLines = (data: TuiData) => {
     ),
     say(locale, 'help.type', { key: TYPE_KEY }),
     say(locale, 'help.edit'),
+    say(locale, 'help.language'),
     say(locale, 'help.toggle', { key: HELP_KEY }),
     say(locale, 'help.quit', { key: QUIT_KEY }),
     ...(data.audio === undefined ? [] : [say(locale, 'tui.audioHelp')]),
@@ -439,6 +441,19 @@ const editValue = (current: ViewValue | undefined, text: string) => {
 const named = (name: string) => (component: ViewComponent) =>
   [component.id, component.label].some((known) => known.toLowerCase() === name.toLowerCase());
 
+const setLanguage = (session: ClientSession, data: TuiData, language: string) => {
+  const { snapshot } = data;
+  const accepted = session.setCampaignLanguage({
+    version: PROTOCOL_VERSION,
+    type: 'SetCampaignLanguage',
+    campaignId: snapshot.campaignId,
+    actionId: randomUUID(),
+    expectedRevision: snapshot.revision,
+    language,
+  });
+  return accepted.ok ? say(localeOf(data), 'language.set', { language }) : accepted.error.message;
+};
+
 const editField = (session: ClientSession, data: TuiData, name: string, text: string) => {
   const { snapshot, sheet } = data;
   const locale = localeOf(data);
@@ -638,6 +653,8 @@ export const runTui = async (
   const audio = terminal.audio?.(session, campaignId, playback);
   const data = () => read(session, campaignId, events, audio, terminal.locale ?? DEFAULT_LOCALE);
   const send: Act = (input) => {
+    const [, language] = LANGUAGE_PATTERN.exec(input.trim()) ?? [];
+    if (language !== undefined) return setLanguage(session, data(), language);
     const [, name, text] = EDIT_PATTERN.exec(input) ?? [];
     return name === undefined || text === undefined
       ? submit(session, data(), input)

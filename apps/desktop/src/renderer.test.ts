@@ -944,3 +944,17 @@ test('rpg-cm63.22 the page shows streamed narration in place of the pending labe
   );
   assert.doesNotMatch(html, /<b>Wind/);
 });
+
+test('rpg-42a.67: the story language is sent at the snapshot revision as SetCampaignLanguage', () => {
+  const { wire, client } = connectedClient();
+  assert.equal(client.setStoryLanguage('pt-BR').ok, true);
+  assert.deepEqual(wire.sent.at(-1), {
+    version: PROTOCOL_VERSION,
+    type: 'SetCampaignLanguage',
+    campaignId: CAMPAIGN,
+    actionId: 'a0',
+    expectedRevision: 1,
+    language: 'pt-BR',
+  });
+  assert.equal(client.setStoryLanguage('not a locale!').ok, false);
+});

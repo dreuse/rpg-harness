@@ -980,3 +980,17 @@ test('rpg-42a.54 the rules and summary steps show player names, a Recommended ba
   assert.match(rules, /Classic d20/);
   assert.match(rules, /Dice pool/);
 });
+
+test('rpg-42a.67 settings hold a story language control beside the app language, marking the campaign language', () => {
+  const snapshot = state.snapshot as NonNullable<DesktopState['snapshot']>;
+  const html = renderView(viewModel({ ...state, snapshot: { ...snapshot, language: 'es' } }, WIDE_WIDTH), 'en');
+  assert.match(
+    html,
+    /<fieldset data-language-control>[\s\S]*<\/fieldset><fieldset data-story-language-control><legend>Story language<\/legend>/,
+  );
+  assert.match(html, /<button type="button" data-story-language="en" lang="en" aria-pressed="false">English<\/button>/);
+  assert.match(html, /<button type="button" data-story-language="es" lang="es" aria-pressed="true">Español<\/button>/);
+  assert.match(html, /data-story-language="pt-BR"/);
+  const spanish = renderView(viewModel(state, WIDE_WIDTH, { ...DEFAULT_PREFERENCES, locale: 'es' }), 'es');
+  assert.match(spanish, /<fieldset data-story-language-control><legend>Idioma de la historia<\/legend>/);
+});

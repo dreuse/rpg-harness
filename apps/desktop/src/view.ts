@@ -374,7 +374,7 @@ const settingsMenu = (
   voice: DesktopVoiceView | undefined,
   setup: VoiceSetupView | undefined,
 ) =>
-  `<details data-settings><summary id="settings-toggle">${escapeHtml(translate(locale, 'settings.label'))}</summary><div>${languageControl(locale)}${model.uses.dice ? motionControl(model.motion, locale) : ''}${voiceSettings(voice, setup, locale)}${soundPanel(model.sound, locale)}${gmSettings(model.gm, locale)}</div></details>`;
+  `<details data-settings><summary id="settings-toggle">${escapeHtml(translate(locale, 'settings.label'))}</summary><div>${languageControl(locale)}${storyLanguageControl(model.storyLanguage, locale)}${model.uses.dice ? motionControl(model.motion, locale) : ''}${voiceSettings(voice, setup, locale)}${soundPanel(model.sound, locale)}${gmSettings(model.gm, locale)}</div></details>`;
 
 const setupBody = ({ step, provider, progress, error }: VoiceSetupView, locale: string): string => {
   const text = (key: string, values?: Record<string, string | number>) =>
@@ -736,11 +736,18 @@ const motionControl = (current: string, locale: string): string =>
   ).join('')}</fieldset>`;
 
 export const LOCALE_ATTRIBUTE = 'data-locale';
+export const STORY_LANGUAGE_ATTRIBUTE = 'data-story-language';
 
 const languageControl = (current: string): string =>
   `<fieldset data-language-control><legend>${escapeHtml(translate(current, 'language.label'))}</legend>${SUPPORTED_LOCALES.map(
     (locale) =>
       `<button type="button" ${LOCALE_ATTRIBUTE}="${locale}" lang="${locale}" aria-pressed="${locale === current}">${escapeHtml(endonym(locale))}</button>`,
+  ).join('')}</fieldset>`;
+
+const storyLanguageControl = (current: string | undefined, locale: string): string =>
+  `<fieldset data-story-language-control><legend>${escapeHtml(translate(locale, 'storyLanguage.label'))}</legend>${SUPPORTED_LOCALES.map(
+    (language) =>
+      `<button type="button" ${STORY_LANGUAGE_ATTRIBUTE}="${language}" lang="${language}" aria-pressed="${language === current}">${escapeHtml(endonym(language))}</button>`,
   ).join('')}</fieldset>`;
 
 const mainOpen = (model: ViewModel, screen: 'home' | 'play') =>
