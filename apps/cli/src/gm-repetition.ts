@@ -6,7 +6,7 @@ export const MIN_OVERLAP_TOKENS = 4;
 export const COMPARED_NARRATIONS = 2;
 const NONE = 0;
 
-const sentencesOf = (text: string) =>
+export const sentencesOf = (text: string) =>
   text
     .split(SENTENCE_BOUNDARY)
     .map((sentence) => sentence.trim())
