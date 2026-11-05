@@ -34,6 +34,7 @@ export type CampaignGateway = {
   restore: (file: string) => string;
   view: (campaign: string, view: ViewName) => string;
   tui: (campaign: string, terminal: Terminal) => Promise<void>;
+  start: (lines: AsyncIterable<string>) => AsyncIterable<string>;
 };
 
 export type Io = {
@@ -45,6 +46,7 @@ export type Io = {
 
 const COMMANDS = [
   { name: 'launch', usage: 'launch', description: 'Open the launcher. This is the default.' },
+  { name: 'start', usage: 'start', description: 'Start a new adventure with a few short questions you can skip.' },
   {
     name: 'new',
     usage: 'new <name> [intent]',
@@ -193,8 +195,9 @@ export const main = async (argv: readonly string[], io: Io, gateway: CampaignGat
     io.stdout(helpText());
     return EXIT_OK;
   }
-  if (command === 'launch' || command === 'list') {
+  if (command === 'launch' || command === 'list' || command === 'start') {
     if (rest.length > 0) return usageError(io, `Unexpected argument: ${rest[0]}.`);
+    if (command === 'start') return run(io, () => gateway.start(io.lines));
     return run(io, () => [command === 'launch' ? gateway.launch() : gateway.list()]);
   }
   if (command === 'archive' || command === 'delete') {

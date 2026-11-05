@@ -73,8 +73,13 @@ const LIST_CAMPAIGNS = { version: PROTOCOL_VERSION, type: 'ListCampaigns' } as c
 const CREATE = { version: PROTOCOL_VERSION, type: 'CreateCampaign', name: 'Ashfall' } as const;
 const ARCHIVE = { version: PROTOCOL_VERSION, type: 'ArchiveCampaign', name: 'Ashfall' } as const;
 const DELETE = { version: PROTOCOL_VERSION, type: 'DeleteCampaign', name: 'Ashfall', confirm: 'Ashfall' } as const;
+const PLAN = { version: PROTOCOL_VERSION, type: 'PlanCampaign' } as const;
 const CAMPAIGN_COMMANDS = [CREATE, ARCHIVE, DELETE];
-const UNSCOPED_TYPES: readonly string[] = [LIST_CAMPAIGNS.type, ...CAMPAIGN_COMMANDS.map(({ type }) => type)];
+const UNSCOPED_TYPES: readonly string[] = [
+  LIST_CAMPAIGNS.type,
+  PLAN.type,
+  ...CAMPAIGN_COMMANDS.map(({ type }) => type),
+];
 const SUMMARY = {
   id: CAMPAIGN_ID,
   name: 'Ashfall',
@@ -95,6 +100,9 @@ const VALID_COMMANDS = [
   { ...CREATE, choices: { genre: 'fantasy', ruleset: { id: 'd20-lite', edition: null } } },
   ARCHIVE,
   DELETE,
+  PLAN,
+  { ...PLAN, intent: 'D&D 1.9' },
+  { ...PLAN, choices: { genre: 'fantasy' } },
   { ...envelope, type: 'GetCampaignSnapshot' },
   { ...envelope, type: 'GetCampaignPanels' },
   ACTION,
@@ -207,6 +215,7 @@ test('UI01: clients cannot bypass the engine or trust unsolicited model state wr
     'CreateCampaign',
     'ArchiveCampaign',
     'DeleteCampaign',
+    'PlanCampaign',
     'GetCampaignSnapshot',
     'GetCampaignPanels',
     'SubmitPlayerAction',
@@ -262,6 +271,9 @@ test('rpg-42a.12: campaign lifecycle commands reject malformed or unexpected fie
     assert.equal(code(parseCommand({ ...CREATE, choices })), 'MalformedCommand');
   }
   assert.equal(code(parseCommand({ ...CREATE, intent: 'fantasy', choices: {} })), 'MalformedCommand');
+  assert.equal(code(parseCommand({ ...PLAN, intent: 'fantasy', choices: {} })), 'MalformedCommand');
+  assert.equal(code(parseCommand({ ...PLAN, name: 'Ashfall' })), 'UnexpectedField');
+  assert.equal(code(parseCommand({ ...PLAN, campaignId: CAMPAIGN_ID })), 'UnexpectedField');
   assert.equal(code(parseCommand({ ...ARCHIVE, confirm: 'Ashfall' })), 'UnexpectedField');
   const { confirm: _, ...unconfirmed } = DELETE;
   assert.equal(code(parseCommand(unconfirmed)), 'MalformedCommand');

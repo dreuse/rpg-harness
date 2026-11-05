@@ -102,7 +102,14 @@ export const loadPreferences = (read: () => string): UiPreferences => {
   }
 };
 
-export type RendererAction = 'submit' | 'retry' | 'focusConversation' | 'focusSheet' | 'focusPanels' | 'nextCampaign';
+export type RendererAction =
+  | 'submit'
+  | 'retry'
+  | 'focusConversation'
+  | 'focusSheet'
+  | 'focusPanels'
+  | 'nextCampaign'
+  | 'newAdventure';
 
 export const KEY_BINDINGS: Readonly<Record<string, RendererAction>> = {
   Enter: 'submit',
@@ -111,6 +118,7 @@ export const KEY_BINDINGS: Readonly<Record<string, RendererAction>> = {
   'Alt+2': 'focusSheet',
   'Alt+3': 'focusPanels',
   'Alt+ArrowDown': 'nextCampaign',
+  'Alt+N': 'newAdventure',
 };
 
 export const actionForKey = (key: string, { keyboard }: UiPreferences): RendererAction | undefined =>
@@ -143,6 +151,16 @@ const CATALOG: Readonly<Record<string, Readonly<Record<string, string>>>> = {
     'voice.consent': 'Allow microphone capture for this campaign?',
     'voice.allow': 'Allow microphone',
     'voice.decline': 'Keep typing',
+    'region.start': 'New adventure',
+    'start.open': 'New adventure',
+    'start.created': 'Created campaign {name}.',
+    'start.step': 'Step {current} of {total}: {title}',
+    'start.save': 'Save',
+    'start.back': 'Back',
+    'start.skip': 'Skip',
+    'start.next': 'Next',
+    'start.start': 'Start',
+    'start.close': 'Close',
   },
   es: {
     'status.connecting': 'Conectando con el motor',
@@ -170,6 +188,16 @@ const CATALOG: Readonly<Record<string, Readonly<Record<string, string>>>> = {
     'voice.consent': '¿Permitir la captura del micrófono en esta campaña?',
     'voice.allow': 'Permitir micrófono',
     'voice.decline': 'Seguir escribiendo',
+    'region.start': 'Nueva aventura',
+    'start.open': 'Nueva aventura',
+    'start.created': 'Campaña {name} creada.',
+    'start.step': 'Paso {current} de {total}: {title}',
+    'start.save': 'Guardar',
+    'start.back': 'Atrás',
+    'start.skip': 'Omitir',
+    'start.next': 'Siguiente',
+    'start.start': 'Empezar',
+    'start.close': 'Cerrar',
   },
 };
 

@@ -13,6 +13,7 @@ export type Ask = (question: string) => Promise<string | undefined>;
 
 const NAME_QUESTION = 'Name?';
 const NAME_PATTERN = /\b(?:named|called)\s+([\p{L}\p{N}'-]+)/iu;
+const NAME_END = /[,.;]/;
 const NUMBER_AFTER = String.raw`(?:\s*(?:of|=|:))?\s*(-?\d+(?:\.\d+)?)\b`;
 const REGEX_SPECIALS = /[.*+?^${}()|[\]\\]/g;
 const TRUE_ANSWERS = ['yes', 'y', 'true'];
@@ -68,6 +69,15 @@ const answerFor = ({ widget, options }: ChoiceQuestion, answer: string): Profile
 };
 
 export type Creation = { build: BuildInput; result: BuildResult };
+
+export const describedBuild = (rules: CreationRules, description: string): BuildInput => ({
+  rules,
+  backstory: description,
+  proposal: {
+    name: description.match(NAME_PATTERN)?.[1] ?? description.split(NAME_END, 1)[0]?.trim() ?? '',
+    ...proposalFrom(rules, description),
+  },
+});
 
 export const createCharacter = async (rules: CreationRules, description: string, ask: Ask): Promise<Creation> => {
   const name = description.match(NAME_PATTERN)?.[1] ?? (await ask(NAME_QUESTION))?.trim() ?? '';

@@ -1,3 +1,12 @@
+import {
+  type CampaignPlan,
+  failure,
+  type PlanCampaign,
+  type PlanEntry,
+  PROTOCOL_VERSION,
+  type Result,
+  type StartOptions,
+} from '../../../packages/client-protocol/src/protocol.ts';
 import type { GenrePack } from '../../../packages/content/src/genrepack.ts';
 import {
   BLANK_WORLD_PACK,
@@ -24,16 +33,18 @@ import {
   type RulesetResolution,
   resolveRuleset,
 } from '../../../packages/intent/src/resolver.ts';
+import { type BuildInput, buildCharacter } from '../../../packages/rules/src/character-builder.ts';
+import { D20_LITE_CREATION } from '../../../packages/rules/src/d20-lite.ts';
+import { DICE_POOL_LITE_CREATION } from '../../../packages/rules/src/dice-pool-lite.ts';
+import { NARRATIVE_CREATION } from '../../../packages/rules/src/narrative.ts';
+import { describedBuild } from './character-creation.ts';
 import { BUILT_IN_PACKS } from './import-gateway.ts';
 
-const GENRE_PACKS: readonly { genre: Pick<GenrePack, 'id' | 'version' | 'name'>; story?: StoryKit }[] = [
-  FANTASY_PACK,
-  SCIENCE_FICTION_PACK,
-  HORROR_PACK,
-  MYSTERY_PACK,
-  MODERN_ADVENTURE_PACK,
-  BLANK_WORLD_PACK,
-];
+export const CREATION_RULES = [D20_LITE_CREATION, DICE_POOL_LITE_CREATION, NARRATIVE_CREATION];
+const GENRE_PACKS: readonly {
+  genre: Pick<GenrePack, 'id' | 'version' | 'name' | 'examples' | 'archetypes'>;
+  story?: StoryKit;
+}[] = [FANTASY_PACK, SCIENCE_FICTION_PACK, HORROR_PACK, MYSTERY_PACK, MODERN_ADVENTURE_PACK, BLANK_WORLD_PACK];
 const GENRE_ALIASES: Readonly<Record<string, readonly string[]>> = {
   [MYSTERY_PACK.genre.id]: ['mystery'],
   [MODERN_ADVENTURE_PACK.genre.id]: ['modern'],
@@ -51,7 +62,22 @@ const REGISTRY: Registry = {
 const NONE = 'none';
 const IMPORT_HINT = 'Run rpg import <file> to add its rule files, or name an installed ruleset.';
 const CHOSEN: Provenance = 'explicit';
+const DEFAULT: Provenance = 'default';
 const DICE_LABELS: Record<CapabilityMode, string> = { rulepack: 'as the ruleset decides', on: 'on', off: 'off' };
+const SWITCH_LABELS = { true: 'on', false: 'off' } as const;
+const PLAN_FIELDS = [
+  'ruleset',
+  'genre',
+  'character',
+  'dice',
+  'diceVisualization',
+  'voiceOutput',
+  'simulation',
+] as const;
+const LIGHT_RULES = 'Light rules. The GM decides what happens from your story.';
+const LIST = new Intl.ListFormat('en', { type: 'conjunction' });
+
+export class UnknownEdition extends Error {}
 
 const listed = (items: readonly string[]) => (items.length === 0 ? NONE : items.join(', '));
 const rulesets = (candidates: readonly RulesetCandidate[]) =>
@@ -91,7 +117,7 @@ const resolvedIntent = (choices: CampaignIntent): CampaignIntent => {
   const intent = canonicalGenre(choices);
   if (intent.ruleset.value === null) return intent;
   const resolution = resolveRuleset(REGISTRY, intent.ruleset.value);
-  if (resolution.status !== 'resolved') throw new Error(rulesetError(resolution));
+  if (resolution.status !== 'resolved') throw new UnknownEdition(rulesetError(resolution));
   const { id, edition } = resolution.rulepack;
   return { ...intent, ruleset: { value: { id, edition }, provenance: intent.ruleset.provenance } };
 };
@@ -126,3 +152,94 @@ export const describeConfig = ({ rulepack, genre, values, provenance }: Campaign
     `Genre: ${genre === null ? NONE : `${genre.id} ${genre.version}`} (${provenance.genre})`,
     `Dice: ${DICE_LABELS[values.dice]} (${provenance.dice})`,
   ].join('\n');
+
+const featuresOf = ({ capabilities }: (typeof BUILT_IN_PACKS)[number]) =>
+  Object.entries(capabilities)
+    .filter(([, mode]) => mode === true)
+    .map(([feature]) => feature);
+
+const sheetOf = ({ id, edition }: (typeof BUILT_IN_PACKS)[number]) =>
+  (
+    CREATION_RULES.find(({ schema: { rulepack } }) => rulepack.id === id && rulepack.edition === edition)?.schema
+      .fields ?? []
+  )
+    .filter(({ derived }) => derived === undefined)
+    .map(({ id: field, label }) => label ?? field);
+
+export const startOptions = (): StartOptions => {
+  const lightest = Math.min(...BUILT_IN_PACKS.map((pack) => featuresOf(pack).length));
+  return {
+    genres: GENRE_PACKS.map(({ genre }) => ({
+      id: genre.id,
+      name: genre.name,
+      blurb: genre.examples[0] ?? genre.name,
+      characters: genre.archetypes.map(({ name, summary }) => ({ name, summary })),
+    })),
+    rulesets: BUILT_IN_PACKS.map((pack) => {
+      const features = featuresOf(pack);
+      return {
+        id: pack.id,
+        edition: pack.edition,
+        blurb: features.length === 0 ? LIGHT_RULES : `Rules for ${LIST.format(features)}.`,
+        recommended: features.length === lightest,
+        sheet: sheetOf(pack),
+      };
+    }),
+  };
+};
+
+const planValue = ({ rulepack, genre, values }: CampaignConfig, field: (typeof PLAN_FIELDS)[number]) => {
+  if (field === 'ruleset') return rulepack === null ? NONE : `${rulepack.id} ${rulepack.edition}`;
+  if (field === 'genre') return genre?.id ?? NONE;
+  if (field === 'dice') return DICE_LABELS[values.dice];
+  const value = values[field];
+  return typeof value === 'boolean' ? SWITCH_LABELS[`${value}`] : (value ?? NONE);
+};
+
+export const creationRulesFor = (rulepack: CampaignConfig['rulepack']) =>
+  CREATION_RULES.find(
+    ({ schema: { rulepack: pack } }) =>
+      pack.id === rulepack?.id && pack.edition === rulepack.edition && pack.revision === rulepack.revision,
+  );
+
+export const startingCharacter = ({ rulepack, values: { character } }: CampaignConfig): BuildInput | undefined => {
+  const rules = creationRulesFor(rulepack);
+  if (typeof character !== 'string' || rules === undefined) return undefined;
+  const build = describedBuild(rules, character);
+  const result = buildCharacter(build);
+  if (result.status === 'created') return build;
+  if (result.status === 'pending')
+    throw new Error(
+      `Your character needs ${LIST.format(result.questions.map(({ label, fieldId }) => label ?? fieldId))}. Add them to your description, or skip this step.`,
+    );
+  throw new Error(`Your character does not fit the rules: ${result.issues.map(({ message }) => message).join('; ')}.`);
+};
+
+export const planStart = ({ intent, choices }: PlanCampaign): CampaignPlan => {
+  const config = choices === undefined ? planCampaign(intent) : planCampaignFrom(choices);
+  const character = startingCharacter(config);
+  const entries: PlanEntry[] = PLAN_FIELDS.map((field) =>
+    field === 'character'
+      ? {
+          field,
+          value: character?.proposal.name ?? NONE,
+          provenance: character === undefined ? DEFAULT : config.provenance.character,
+        }
+      : { field, value: planValue(config, field), provenance: config.provenance[field] },
+  );
+  return { version: PROTOCOL_VERSION, options: startOptions(), entries };
+};
+
+export const failureOf = (error: unknown) =>
+  failure(
+    error instanceof UnknownEdition ? 'UnknownEdition' : 'Rejected',
+    error instanceof Error ? error.message : String(error),
+  );
+
+export const planResult = (command: PlanCampaign): Result<CampaignPlan> => {
+  try {
+    return { ok: true, value: planStart(command) };
+  } catch (error) {
+    return failureOf(error);
+  }
+};

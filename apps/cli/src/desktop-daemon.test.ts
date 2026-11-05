@@ -8,9 +8,17 @@ import { DatabaseSync } from 'node:sqlite';
 import { describe, it, type TestContext } from 'node:test';
 import { setImmediate } from 'node:timers/promises';
 import {
+  createCommand,
+  INITIAL_DRAFT,
+  nextDraft,
+  planCommand,
+  type StartAction,
+} from '../../../packages/client-protocol/src/guided-start.ts';
+import {
   type Accepted,
   type CampaignList,
   type CampaignPanels,
+  type CampaignPlan,
   type CampaignSnapshot,
   type CampaignSummary,
   type ClientEvent,
@@ -68,6 +76,22 @@ const ARCHIVE_DIR = 'archive';
 const FANTASY_INTENT = 'a fantasy adventure';
 const UNINSTALLED_INTENT = 'D&D 1.9';
 const NARRATIVE_CHOICES = { ruleset: { id: 'narrative', edition: 'original' }, genre: 'fantasy' };
+const GUIDED_CAMPAIGN = 'Ashfall';
+const DESKTOP_CLIENT = 'desktop';
+const DESCRIBE_ACTIONS: readonly StartAction[] = [
+  { kind: 'path', path: 'describe' },
+  { kind: 'enter', text: FANTASY_INTENT },
+];
+const GUIDE_ACTIONS: readonly StartAction[] = [
+  { kind: 'path', path: 'guide' },
+  { kind: 'next' },
+  { kind: 'choose', field: 'genre', value: 'horror' },
+  { kind: 'choose', field: 'ruleset', value: { id: 'narrative', edition: 'original' } },
+  { kind: 'enter', text: 'Ash, a tired knight' },
+  { kind: 'toggle', field: 'voiceOutput' },
+  { kind: 'next' },
+  { kind: 'enter', text: GUIDED_CAMPAIGN },
+];
 const GM_SECRET = 'SECRET';
 const GM_VISIBILITY = 'gm';
 const SECRET_RULEPACK = { id: 'any-pack', edition: '1', revision: 'r1' };
@@ -516,13 +540,48 @@ describe('serve client-protocol commands over the desktop engine daemon', () => 
     const uninstalled = await daemon.command(
       lifecycle('CreateCampaign', { name: SECOND_CAMPAIGN, intent: UNINSTALLED_INTENT }),
     );
-    assert.equal(rejectionOf(uninstalled), 'Rejected');
+    assert.equal(rejectionOf(uninstalled), 'UnknownEdition');
     assert.match(String(uninstalled.result?.ok === false && uninstalled.result.error.message), /not installed/);
     const unknownChoice = await daemon.command(
       lifecycle('CreateCampaign', { name: SECOND_CAMPAIGN, choices: { ruleset: { id: 'dnd', edition: '1.9' } } }),
     );
-    assert.equal(rejectionOf(unknownChoice), 'Rejected');
+    assert.equal(rejectionOf(unknownChoice), 'UnknownEdition');
     assert.ok(!existsSync(campaignFile(dataDir, SECOND_CAMPAIGN)));
+  });
+
+  it('rpg-42a.14: plans and creates a playable campaign through each guided start path', async (t) => {
+    const dataDir = tempDataDir(t);
+    const daemon = supervise(t, { env: { ...baseEnv(), [DATA_DIR_ENV]: dataDir } });
+    const described = DESCRIBE_ACTIONS.reduce(nextDraft, { ...INITIAL_DRAFT, name: CAMPAIGN });
+    const guided = GUIDE_ACTIONS.reduce(nextDraft, INITIAL_DRAFT);
+    const plan = acceptedValue<CampaignPlan>(await daemon.command(planCommand(described)));
+    assert.deepEqual(plan.entries[1], { field: 'genre', value: 'fantasy', provenance: 'derived' });
+    assert.ok(plan.options.rulesets.some(({ recommended }) => recommended));
+    const guidedPlan = acceptedValue<CampaignPlan>(await daemon.command(planCommand(guided, DESKTOP_CLIENT)));
+    assert.deepEqual(
+      guidedPlan.entries.filter(({ provenance }) => provenance === 'explicit').map(({ field }) => field),
+      ['ruleset', 'genre', 'character', 'voiceOutput'],
+    );
+    acceptedValue(await daemon.command(createCommand(described)));
+    acceptedValue(await daemon.command(createCommand(guided, DESKTOP_CLIENT)));
+    assert.equal(readCampaignState(dataDir, GUIDED_CAMPAIGN).characters[0]?.name, 'Ash');
+    for (const name of [CAMPAIGN, GUIDED_CAMPAIGN]) {
+      const campaignId = readCampaignState(dataDir, name).campaign.id;
+      const served = supervise(t, { env: { ...baseEnv(), [DATA_DIR_ENV]: dataDir, [CAMPAIGN_ENV]: name } });
+      const before = await snapshotOf(served, campaignId);
+      acceptedValue<Accepted>(await served.command(actionCommand(before, ACTION)));
+    }
+  });
+
+  it('rpg-42a.14: plans an uninstalled edition as unknown and never substitutes another', async (t) => {
+    const dataDir = tempDataDir(t);
+    const daemon = supervise(t, { env: { ...baseEnv(), [DATA_DIR_ENV]: dataDir } });
+    const unknown = await daemon.command(lifecycle('PlanCampaign', { intent: UNINSTALLED_INTENT }));
+    assert.equal(rejectionOf(unknown), 'UnknownEdition');
+    assert.match(String(unknown.result?.ok === false && unknown.result.error.message), /D&D 1\.9 is not installed/);
+    const chosen = lifecycle('PlanCampaign', { choices: { ruleset: { id: 'd20-lite', edition: '5e' } } });
+    assert.equal(rejectionOf(await daemon.command(chosen)), 'UnknownEdition');
+    assert.deepEqual(await campaignNames(daemon), []);
   });
 
   it('rpg-42a.12: refuses to archive or delete the campaign the engine serves', async (t) => {

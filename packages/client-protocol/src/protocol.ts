@@ -37,6 +37,7 @@ export const COMMAND_TYPES = [
   'CreateCampaign',
   'ArchiveCampaign',
   'DeleteCampaign',
+  'PlanCampaign',
   'GetCampaignSnapshot',
   'GetCampaignPanels',
   'SubmitPlayerAction',
@@ -79,7 +80,8 @@ export type CreateCampaign = Header<'CreateCampaign'> & {
 };
 export type ArchiveCampaign = Header<'ArchiveCampaign'> & { readonly name: string };
 export type DeleteCampaign = Header<'DeleteCampaign'> & { readonly name: string; readonly confirm: string };
-export type CampaignCommand = CreateCampaign | ArchiveCampaign | DeleteCampaign;
+export type PlanCampaign = Header<'PlanCampaign'> & Omit<CreateCampaign, keyof Header<'CreateCampaign'> | 'name'>;
+export type CampaignCommand = CreateCampaign | ArchiveCampaign | DeleteCampaign | PlanCampaign;
 
 export type GetCampaignSnapshot = Envelope<'GetCampaignSnapshot'>;
 export type GetCampaignPanels = Envelope<'GetCampaignPanels'>;
@@ -151,6 +153,27 @@ export type CampaignList = { readonly version: ProtocolVersion; readonly campaig
 
 export type CampaignRemoved = { readonly version: ProtocolVersion; readonly name: string };
 
+export type StartGenre = {
+  readonly id: string;
+  readonly name: string;
+  readonly blurb: string;
+  readonly characters: readonly { readonly name: string; readonly summary: string }[];
+};
+export type StartRuleset = {
+  readonly id: string;
+  readonly edition: string;
+  readonly blurb: string;
+  readonly recommended: boolean;
+  readonly sheet: readonly string[];
+};
+export type StartOptions = { readonly genres: readonly StartGenre[]; readonly rulesets: readonly StartRuleset[] };
+export type PlanEntry = { readonly field: string; readonly value: string; readonly provenance: string };
+export type CampaignPlan = {
+  readonly version: ProtocolVersion;
+  readonly options: StartOptions;
+  readonly entries: readonly PlanEntry[];
+};
+
 export type CampaignSnapshot = {
   readonly version: ProtocolVersion;
   readonly campaignId: CampaignId;
@@ -206,6 +229,7 @@ export const PROTOCOL_ERROR_CODES = [
   'UnexpectedField',
   'Rejected',
   'StaleRevision',
+  'UnknownEdition',
 ] as const;
 export type ProtocolErrorCode = (typeof PROTOCOL_ERROR_CODES)[number];
 
@@ -234,16 +258,31 @@ type FieldSpec = { readonly kind: FieldKind; readonly optional?: true };
 
 const HEADER_FIELDS = ['version', 'type'];
 const ENVELOPE_FIELDS = [...HEADER_FIELDS, 'campaignId'];
-const UNSCOPED: readonly CommandType[] = ['ListCampaigns', 'CreateCampaign', 'ArchiveCampaign', 'DeleteCampaign'];
+const UNSCOPED: readonly CommandType[] = [
+  'ListCampaigns',
+  'CreateCampaign',
+  'ArchiveCampaign',
+  'DeleteCampaign',
+  'PlanCampaign',
+];
 const ID: FieldSpec = { kind: 'id' };
 const NAME: FieldSpec = { kind: 'name' };
-const EXCLUSIVE_FIELDS: Partial<Record<CommandType, readonly string[]>> = { CreateCampaign: ['intent', 'choices'] };
+const PLAN_FIELDS = ['intent', 'choices'];
+const EXCLUSIVE_FIELDS: Partial<Record<CommandType, readonly string[]>> = {
+  CreateCampaign: PLAN_FIELDS,
+  PlanCampaign: PLAN_FIELDS,
+};
+const PLAN_SPECS: Readonly<Record<string, FieldSpec>> = {
+  intent: { kind: 'text', optional: true },
+  choices: { kind: 'record', optional: true },
+};
 
 const COMMAND_FIELDS: Record<CommandType, Readonly<Record<string, FieldSpec>>> = {
   ListCampaigns: {},
-  CreateCampaign: { name: NAME, intent: { kind: 'text', optional: true }, choices: { kind: 'record', optional: true } },
+  CreateCampaign: { name: NAME, ...PLAN_SPECS },
   ArchiveCampaign: { name: NAME },
   DeleteCampaign: { name: NAME, confirm: ID },
+  PlanCampaign: PLAN_SPECS,
   GetCampaignSnapshot: {},
   GetCampaignPanels: {},
   SubmitPlayerAction: {

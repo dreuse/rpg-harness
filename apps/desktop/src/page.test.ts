@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { GUIDE_STEPS, INITIAL_DRAFT, type StartDraft } from '../../../packages/client-protocol/src/guided-start.ts';
 import { type ClientCommand, PROTOCOL_VERSION } from '../../../packages/client-protocol/src/protocol.ts';
 import type { MicrophoneState } from '../../../packages/voice/src/microphone.ts';
 import { DEFAULT_PREFERENCES, MAX_FONT_SCALE, type UiPreferences } from './accessibility.ts';
 import { FONT_SCALE_PROPERTY, mountPage, type PageElements, type PageOptions } from './page.ts';
-import { PREFERENCES_QUERY } from './preload.ts';
-import type { Transport } from './renderer.ts';
+import { PREFERENCES_QUERY, START_QUERY } from './preload.ts';
+import type { KeyEventLike } from './view.ts';
 
 const CAMPAIGN = 'c1';
 const WIDE_WIDTH = 1600;
@@ -19,6 +20,9 @@ const SNAPSHOT = {
   currentScene: { id: 's1', campaignId: CAMPAIGN, title: 'Docks' },
   turns: [],
 };
+
+const FOCUSED = ':focus';
+const ALT_N = { key: '˜', code: 'KeyN', altKey: true } as const;
 
 type Listener = (event: { target: unknown; key?: string; preventDefault(): void }) => void;
 
@@ -34,8 +38,11 @@ const fakePage = () => {
   const style: Record<string, string> = {};
   const focused: string[] = [];
   const sent: ClientCommand[] = [];
+  const saved: StartDraft[] = [];
+  const fields: Record<string, string> = {};
+  let prevented = 0;
   let onLine = (_line: string) => {};
-  const bridge: Transport = {
+  const bridge: PageOptions['bridge'] = {
     connect: () => {},
     send: (line) => {
       sent.push(JSON.parse(line) as ClientCommand);
@@ -44,26 +51,58 @@ const fakePage = () => {
       onLine = listener;
     },
     onClose: () => {},
+    saveStart: (draft: StartDraft) => {
+      saved.push(draft);
+    },
+  };
+  let html = '';
+  let active: ReturnType<typeof node> | null = null;
+  const node = (selector: string) => {
+    const [, id = ''] = /^#(.+)$/.exec(selector) ?? [];
+    const [, name, value = ''] = /^\[([a-z-]+)(?:="(.*)")?\]$/.exec(selector) ?? [];
+    const element = {
+      id,
+      setAttribute: () => {},
+      hasAttribute: (attribute: string) => attribute === name,
+      getAttribute: (attribute: string) => (attribute === name ? value : null),
+      focus: () => {
+        focused.push(selector);
+        active = element;
+      },
+      get value() {
+        return fields[selector];
+      },
+      set value(typed: string | undefined) {
+        if (typed !== undefined) fields[selector] = typed;
+      },
+    };
+    return element;
   };
   const on = (prefix: string) => (type: string, listener: Listener) => listeners.set(prefix + type, listener);
   const elements = {
     root: {
-      innerHTML: '',
+      get innerHTML() {
+        return html;
+      },
+      set innerHTML(next: string) {
+        html = next;
+        active = null;
+        for (const key of Object.keys(fields)) delete fields[key];
+      },
       style: { setProperty: (name: string, value: string) => (style[name] = value) },
       addEventListener: on('root:'),
-      querySelector: (selector: string) => ({
-        setAttribute: () => {},
-        focus: () => focused.push(selector),
-      }),
+      querySelector: (selector: string) => (selector === FOCUSED ? active : node(selector)),
     },
     form: { addEventListener: on('form:'), requestSubmit: () => listeners.get('form:submit')?.(event({})) },
     input: { value: '' },
     keys: { addEventListener: on('keys:') },
   };
-  const event = (attributes: Record<string, string>, key?: string) => ({
+  const event = (attributes: Record<string, string>, key?: string, keys: Partial<KeyEventLike> = {}) => ({
     target: target(attributes),
-    preventDefault: () => {},
-    ...(key === undefined ? {} : { key, altKey: false, ctrlKey: false, metaKey: false, shiftKey: false }),
+    preventDefault: () => {
+      prevented++;
+    },
+    ...(key === undefined ? {} : { key, altKey: false, ctrlKey: false, metaKey: false, shiftKey: false, ...keys }),
   });
   return {
     elements: elements as unknown as PageElements,
@@ -73,9 +112,14 @@ const fakePage = () => {
     sent,
     style,
     focused,
+    saved,
+    fields,
+    prevented: () => prevented,
     receive: (message: object) => onLine(JSON.stringify(message)),
     click: (attributes: Record<string, string>) => listeners.get('root:click')?.(event(attributes)),
-    press: (key: string) => listeners.get('keys:keydown')?.(event({}, key)),
+    press: (key: string, attributes: Record<string, string> = {}, keys: Partial<KeyEventLike> = {}) =>
+      listeners.get('keys:keydown')?.(event(attributes, key, keys)),
+    submit: (attributes: Record<string, string>) => listeners.get('root:submit')?.(event(attributes)),
   };
 };
 
@@ -96,13 +140,17 @@ const mount = (
   page: ReturnType<typeof fakePage>,
   saved: Partial<UiPreferences> = {},
   openMicrophone = deniedMicrophone,
+  startDraft?: StartDraft,
 ) => {
   const preferences = { ...DEFAULT_PREFERENCES, fontScale: MAX_FONT_SCALE, ...saved };
   let actions = 0;
   return mountPage({
     elements: page.elements,
     bridge: page.bridge,
-    search: `?${new URLSearchParams({ [PREFERENCES_QUERY]: JSON.stringify(preferences) })}`,
+    search: `?${new URLSearchParams({
+      [PREFERENCES_QUERY]: JSON.stringify(preferences),
+      ...(startDraft === undefined ? {} : { [START_QUERY]: JSON.stringify(startDraft) }),
+    })}`,
     width: () => WIDE_WIDTH,
     newActionId: () => `a${actions++}`,
     openMicrophone,
@@ -274,4 +322,98 @@ test('A21 page retries a voice save rejected as stale and keeps the mic off', as
   assert.deepEqual(opened, ['push-to-talk']);
   assert.match(page.root.innerHTML, /Settings: microphone off/);
   assert.equal(saves(page).length, 2);
+});
+
+const TITLE = '[data-start-title]';
+const ENTRY = '#start-entry';
+const GUIDED_NAME = 'Ashfall';
+const AT_SUMMARY: StartDraft = { ...INITIAL_DRAFT, path: 'guide', step: GUIDE_STEPS.length - 1 };
+const OPTIONS = { genres: [], rulesets: [] };
+const sentOf = (page: ReturnType<typeof fakePage>, type: string) =>
+  page.sent.filter((command) => command.type === type);
+
+test('rpg-42a.14 page opens the guided start from the keyboard and moves focus to each new step', () => {
+  const page = fakePage();
+  mount(page);
+  page.receive(READY);
+  assert.deepEqual(sentOf(page, 'PlanCampaign'), []);
+  page.press(ALT_N.key, {}, ALT_N);
+  assert.match(page.root.innerHTML, /data-start-title="path"/);
+  assert.deepEqual(page.focused, [TITLE]);
+  page.receive({ type: 'Campaigns', campaigns: [] });
+  assert.deepEqual(page.focused, [TITLE, '[data-start-title=""]']);
+  page.focused.length = 0;
+  assert.equal(sentOf(page, 'PlanCampaign').length, 1);
+  page.click({ 'data-start-option': '1' });
+  assert.match(page.root.innerHTML, /Step 1 of 6: What is a tabletop RPG\?/);
+  assert.deepEqual(page.focused, [TITLE]);
+  assert.equal(page.saved.at(-1)?.path, 'guide');
+  page.click({ 'data-start-control': 'back' });
+  assert.match(page.root.innerHTML, /data-start-title="path"/);
+  page.click({ 'data-start-control': 'close' });
+  assert.doesNotMatch(page.root.innerHTML, /data-start-title/);
+});
+
+test('rpg-42a.14 page keeps Enter for the wizard and never sends it as a player action', async () => {
+  const page = fakePage();
+  mount(page);
+  page.receive(READY);
+  page.press(ALT_N.key, {}, ALT_N);
+  page.click({ 'data-start-option': '0' });
+  page.input.value = 'look around';
+  const before = page.prevented();
+  page.press('Enter', { 'data-region': 'start' });
+  await settle();
+  assert.equal(page.prevented(), before);
+  assert.deepEqual(submitted(page), []);
+  page.fields[ENTRY] = 'A horror story';
+  page.submit({ 'data-start-form': '' });
+  assert.equal(page.saved.at(-1)?.intent, 'A horror story');
+  assert.match(page.root.innerHTML, /data-start-title="summary"/);
+});
+
+test('rpg-42a.14 page restores the saved step and starts with a renamed adventure', () => {
+  const page = fakePage();
+  mount(page, {}, deniedMicrophone, AT_SUMMARY);
+  assert.match(page.root.innerHTML, /data-start-title="summary"/);
+  page.receive(READY);
+  const plan = sentOf(page, 'PlanCampaign').at(-1);
+  page.receive({
+    type: 'Planned',
+    command: plan,
+    result: { ok: true, value: { version: PROTOCOL_VERSION, options: OPTIONS, entries: [] } },
+  });
+  page.fields[ENTRY] = GUIDED_NAME;
+  page.click({ 'data-start-control': 'start' });
+  const created = sentOf(page, 'CreateCampaign');
+  assert.equal(created.length, 1);
+  assert.ok(created[0]?.type === 'CreateCampaign');
+  assert.equal(created[0].name, GUIDED_NAME);
+});
+
+test('rpg-42a.14 page keeps focus on a toggled option and announces it as pressed', () => {
+  const page = fakePage();
+  mount(page, {}, deniedMicrophone, { ...AT_SUMMARY, step: GUIDE_STEPS.indexOf('features') });
+  page.click({ 'data-start-option': '0' });
+  assert.equal(page.focused.at(-1), '[data-start-option="0"]');
+  assert.match(page.root.innerHTML, /data-start-option="0" aria-pressed="true"/);
+  assert.equal(page.saved.at(-1)?.choices.diceVisualization, true);
+});
+
+test('rpg-42a.14 page keeps focus and the typed name when an engine reply redraws the wizard', () => {
+  const page = fakePage();
+  mount(page, {}, deniedMicrophone, AT_SUMMARY);
+  page.receive(READY);
+  const entry = page.root.querySelector(ENTRY);
+  assert.ok(entry);
+  entry.focus();
+  entry.value = GUIDED_NAME;
+  const plan = sentOf(page, 'PlanCampaign').at(-1);
+  page.receive({
+    type: 'Planned',
+    command: plan,
+    result: { ok: true, value: { version: PROTOCOL_VERSION, options: OPTIONS, entries: [] } },
+  });
+  assert.equal(page.focused.at(-1), ENTRY);
+  assert.equal(page.fields[ENTRY], GUIDED_NAME);
 });

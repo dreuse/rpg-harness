@@ -18,9 +18,6 @@ import { PLAYER_VIEWER } from '../../../packages/memory/src/knowledge.ts';
 import { createCampaignStore } from '../../../packages/persistence/src/campaign-store.ts';
 import { MIGRATIONS, openDatabase } from '../../../packages/persistence/src/database.ts';
 import type { BuildInput, BuildResult } from '../../../packages/rules/src/character-builder.ts';
-import { D20_LITE_CREATION } from '../../../packages/rules/src/d20-lite.ts';
-import { DICE_POOL_LITE_CREATION } from '../../../packages/rules/src/dice-pool-lite.ts';
-import { NARRATIVE_CREATION } from '../../../packages/rules/src/narrative.ts';
 import { exportArchive, restoreArchive } from './campaign-archive.ts';
 import { type Ask, createCharacter } from './character-creation.ts';
 import {
@@ -33,9 +30,18 @@ import {
 } from './client-session.ts';
 import { importRules } from './import-gateway.ts';
 import type { CampaignGateway } from './main.ts';
-import { describeConfig, type Opening, openingFor, planCampaign, planCampaignFrom } from './quickstart.ts';
+import {
+  creationRulesFor,
+  describeConfig,
+  type Opening,
+  openingFor,
+  planCampaign,
+  planCampaignFrom,
+  startingCharacter,
+} from './quickstart.ts';
 import { checkFor } from './roll-visualization.ts';
 import { runTui, type Terminal } from './tui.ts';
+import { guidedStart } from './tui-start.ts';
 import { editableSheet, renderView, type ViewName } from './views.ts';
 
 const DATABASE_EXTENSION = '.sqlite';
@@ -69,7 +75,6 @@ const TIME_SEPARATOR = /:/g;
 const SAFE_TIME_SEPARATOR = '-';
 const NONE = 'none';
 const SAVED_SETTINGS = 'Saved settings:';
-const CREATION_RULES = [D20_LITE_CREATION, DICE_POOL_LITE_CREATION, NARRATIVE_CREATION];
 const CHARACTER_PROMPT = `Describe your character, or press Enter to play as ${HERO_NAME}.`;
 const CREATE_CHARACTER_INTENT = 'create character';
 const LAUNCH_TEXT = 'Run rpg new <name> "<one sentence>" to start a campaign, or rpg resume <name> to continue one.';
@@ -196,12 +201,6 @@ const createCampaign = (dataDir: string, name: string, opening: Opening, config:
   }
   return sceneText(opening.title, opening.narration);
 };
-
-const creationRulesFor = (rulepack: CampaignConfig['rulepack']) =>
-  CREATION_RULES.find(
-    ({ schema: { rulepack: pack } }) =>
-      pack.id === rulepack?.id && pack.edition === rulepack.edition && pack.revision === rulepack.revision,
-  );
 
 const unfinishedText = (result: Exclude<BuildResult, { status: 'created' }>) =>
   `Character not created, you play as ${HERO_NAME}: ${
@@ -404,7 +403,14 @@ export const deleteCampaign = (dataDir: string, name: string, confirm: string) =
 
 export const createCampaignFrom = (dataDir: string, { name, intent, choices }: CreateCampaign): CampaignSummary => {
   const config = choices === undefined ? planCampaign(intent) : planCampaignFrom(choices);
+  const character = startingCharacter(config);
   createCampaign(dataDir, name, openingFor(config, DEFAULT_OPENING), config);
+  try {
+    if (character !== undefined) addCharacter(dataDir, name, character);
+  } catch (error) {
+    rmSync(databasePath(dataDir, name), { force: true });
+    throw error;
+  }
   return summaryOf(dataDir, name);
 };
 
@@ -463,6 +469,7 @@ export const createEngineGateway = (dataDir: string): CampaignGateway => ({
   },
   view: (name, view) => readView(dataDir, name, view),
   tui: (name, terminal) => playTui(dataDir, name, terminal),
+  start: (lines) => guidedStart(dataDir, lines, createCampaignFrom),
   importRules: (files, lines) => importRules(process.cwd(), files, lines),
   open: async function* (name, _mode, lines, onTurnError) {
     yield readView(dataDir, name, RECAP_VIEW);

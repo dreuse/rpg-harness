@@ -1,5 +1,6 @@
+import { loadStartDraft, type StartScreen } from '../../../packages/client-protocol/src/guided-start.ts';
 import { actionForKey, loadPreferences, type RendererAction, translate, type UiPreferences } from './accessibility.ts';
-import { PREFERENCES_QUERY } from './preload.ts';
+import { PREFERENCES_QUERY, START_QUERY } from './preload.ts';
 import type { Region, viewModel } from './renderer.ts';
 import type { DesktopVoiceView } from './voice.ts';
 
@@ -10,6 +11,8 @@ export type KeyEventLike = {
   readonly ctrlKey: boolean;
   readonly metaKey: boolean;
   readonly shiftKey: boolean;
+  readonly code?: string;
+  readonly target?: unknown;
 };
 export type KeyTarget = {
   addEventListener(type: typeof KEYDOWN, listener: (event: KeyEventLike & { preventDefault(): void }) => void): void;
@@ -17,6 +20,7 @@ export type KeyTarget = {
 
 const KEYDOWN = 'keydown';
 const KEY_SEPARATOR = '+';
+const PHYSICAL_KEY = /^(?:Key|Digit)(.)$/;
 const LABEL_SEPARATOR = ': ';
 const MARKUP = /[&<>"']/g;
 const ENTITIES: Readonly<Record<string, string>> = {
@@ -103,8 +107,60 @@ export const renderVoice = (
     ].join(''),
   );
 
+export const START_OPEN = 'data-start-open';
+export const START_OPTION = 'data-start-option';
+export const START_CONTROL = 'data-start-control';
+export const START_FORM = 'data-start-form';
+export const START_TITLE = 'data-start-title';
+export const START_ENTRY = 'start-entry';
+export const START_CONTROLS = ['back', 'skip', 'next', 'start', 'close'] as const;
+export type StartControl = (typeof START_CONTROLS)[number];
+const DETAIL_SEPARATOR = ' - ';
+
+const startTitle = ({ title, progress }: StartScreen, locale: string) =>
+  progress === undefined ? title : translate(locale, 'start.step', { ...progress, title });
+
+const startOption =
+  (step: StartScreen['step']) =>
+  ({ label, detail, selected }: StartScreen['options'][number], index: number) =>
+    `<li><button type="button" ${START_OPTION}="${index}"${step === 'path' ? '' : ` aria-pressed="${selected}"`}>${escapeHtml(label)}${DETAIL_SEPARATOR}${escapeHtml(detail)}</button></li>`;
+
+const startEntry = ({ entry }: StartScreen, locale: string) =>
+  entry === undefined
+    ? ''
+    : `<form ${START_FORM}="${START_ENTRY}"><label for="${START_ENTRY}">${escapeHtml(entry.label)}</label><input id="${START_ENTRY}" name="${START_ENTRY}" value="${escapeHtml(entry.value)}"><button type="submit">${escapeHtml(translate(locale, 'start.save'))}</button></form>`;
+
+const shownControls = (screen: StartScreen): readonly StartControl[] =>
+  START_CONTROLS.filter(
+    (control) =>
+      control === 'close' ||
+      (control === 'back' && screen.canBack) ||
+      (control === 'skip' && screen.canSkip) ||
+      (control === 'next' && screen.canNext) ||
+      (control === 'start' && screen.step === 'summary'),
+  );
+
+const startControl = (screen: StartScreen, locale: string) => (control: StartControl) =>
+  `<button type="button" ${START_CONTROL}="${control}"${control === 'start' && !screen.canStart ? ' disabled' : ''}>${escapeHtml(translate(locale, `start.${control}`))}</button>`;
+
+const renderStart = ({ start, created }: ViewModel, locale: string) =>
+  section(
+    'start',
+    locale,
+    start === undefined
+      ? `${button(START_OPEN, 'open', translate(locale, 'start.open'))}${created === undefined ? '' : `<p role="status">${escapeHtml(translate(locale, 'start.created', { name: created }))}</p>`}`
+      : [
+          `<h2 tabindex="-1" ${START_TITLE}="${start.step}">${escapeHtml(startTitle(start, locale))}</h2>`,
+          ...start.text.map((line) => `<p>${escapeHtml(line)}</p>`),
+          start.options.length === 0 ? '' : `<ul>${start.options.map(startOption(start.step)).join('')}</ul>`,
+          startEntry(start, locale),
+          start.error === undefined ? '' : alert(start.error),
+          shownControls(start).map(startControl(start, locale)).join(''),
+        ].join(''),
+  );
+
 export const renderView = (model: ViewModel, locale: string): string =>
-  `<main data-layout="${model.layout.name}" data-animate="${model.animate}" style="--font-scale: ${model.fontScale}">${model.layout.columns
+  `<main data-layout="${model.layout.name}" data-animate="${model.animate}" style="--font-scale: ${model.fontScale}">${renderStart(model, locale)}${model.layout.columns
     .map(
       (column) =>
         `<div>${column.map((region) => section(region, locale, REGIONS[region](model, locale))).join('')}</div>`,
@@ -112,15 +168,25 @@ export const renderView = (model: ViewModel, locale: string): string =>
     .join('')}${rejectedAlert(model, locale)}</main>`;
 
 export const keyName = (event: KeyEventLike) =>
-  [...MODIFIERS.filter(([flag]) => event[flag]).map(([, name]) => name), event.key].join(KEY_SEPARATOR);
+  [
+    ...MODIFIERS.filter(([flag]) => event[flag]).map(([, name]) => name),
+    PHYSICAL_KEY.exec(event.code ?? '')?.[1] ?? event.key,
+  ].join(KEY_SEPARATOR);
 
-export const bindKeys = (target: KeyTarget, preferences: () => UiPreferences, run: (action: RendererAction) => void) =>
+export const KEEP_DEFAULT = Symbol('keep default');
+
+export const bindKeys = (
+  target: KeyTarget,
+  preferences: () => UiPreferences,
+  run: (action: RendererAction, event: KeyEventLike) => unknown,
+) =>
   target.addEventListener(KEYDOWN, (event) => {
     const action = actionForKey(keyName(event), preferences());
     if (action === undefined) return;
-    event.preventDefault();
-    run(action);
+    if (run(action, event) !== KEEP_DEFAULT) event.preventDefault();
   });
 
 export const queryPreferences = (search: string) =>
   loadPreferences(() => new URLSearchParams(search).get(PREFERENCES_QUERY) ?? '');
+
+export const queryStart = (search: string) => loadStartDraft(() => new URLSearchParams(search).get(START_QUERY) ?? '');

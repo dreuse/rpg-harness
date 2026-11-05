@@ -63,6 +63,10 @@ const setup = (input: readonly string[] = PLAYER_LINES) => {
     tui: async (name) => {
       calls.push(`tui:${name}`);
     },
+    start: async function* (input) {
+      calls.push('start');
+      for await (const line of input) yield `answer:${line}`;
+    },
   };
   const out: string[] = [];
   const err: string[] = [];
@@ -98,12 +102,22 @@ test('help lists every command with a one-line description in plain text', async
       'quests',
       'encounter',
       'recap',
+      'start',
       'help',
     ]) {
       assert.match(text, new RegExp(`^  ${command}\\b.* - .+$`, 'm'));
     }
     assert.deepEqual(err, []);
   }
+});
+
+test('rpg-42a.14 start runs the guided start with the input lines and takes no arguments', async () => {
+  const { calls, gateway, io, out, err } = setup(['2']);
+  assert.equal(await main(['start'], io, gateway), 0);
+  assert.deepEqual(calls, ['start']);
+  assert.deepEqual(out, ['answer:2\n']);
+  assert.deepEqual(err, []);
+  assert.equal(await main(['start', 'Ember'], setup().io, gateway), EXIT_USAGE);
 });
 
 test('new asks questions on stdout and reads each answer from the input lines', async () => {
@@ -257,6 +271,10 @@ test('gateway failures exit 1 and report the error on stderr', async () => {
     restore: broken,
     view: broken,
     tui: async () => broken(),
+    start: async function* () {
+      yield 'New adventure';
+      broken();
+    },
   };
   for (const argv of [
     [],
@@ -272,6 +290,7 @@ test('gateway failures exit 1 and report the error on stderr', async () => {
     ['restore', 'ember.json'],
     ['sheet', 'Ember'],
     ['tui', 'Ember'],
+    ['start'],
   ]) {
     const { io, err } = setup();
     assert.equal(await main(argv, io, failing), EXIT_FAILURE, argv.join(' '));

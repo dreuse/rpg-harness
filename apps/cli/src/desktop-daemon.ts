@@ -6,7 +6,6 @@ import { fileURLToPath } from 'node:url';
 import {
   type CampaignCommand,
   type ClientEvent,
-  failure,
   PROTOCOL_VERSION,
   parseCommand,
   type Unsubscribe,
@@ -29,6 +28,7 @@ import {
   listCampaignSummaries,
   openClientSession,
 } from './engine-gateway.ts';
+import { failureOf, planResult } from './quickstart.ts';
 import { dataDirFromEnv } from './setup-check.ts';
 
 export const API_KEY_ENV = 'ANTHROPIC_API_KEY';
@@ -60,6 +60,7 @@ export type DaemonOptions = {
   readonly maxRestarts?: number;
 };
 
+type Lifecycle = Exclude<CampaignCommand, { readonly type: 'PlanCampaign' }>;
 type Versions = Readonly<Record<string, string | undefined>>;
 
 const isConsumerKey = (key: string) => {
@@ -108,7 +109,7 @@ const replyCampaigns = (id: number) => {
   }
 };
 
-const changeCampaign = (command: CampaignCommand, served: string | undefined) => {
+const changeCampaign = (command: Lifecycle, served: string | undefined) => {
   const dataDir = dataDirFromEnv();
   if (command.type === 'CreateCampaign') return createCampaignFrom(dataDir, command);
   if (served !== undefined && isSameCampaignFile(dataDir, command.name, served))
@@ -118,11 +119,11 @@ const changeCampaign = (command: CampaignCommand, served: string | undefined) =>
   return { version: PROTOCOL_VERSION, name: command.name };
 };
 
-const replyChange = (id: number, command: CampaignCommand, served: string | undefined) => {
+const replyChange = (id: number, command: Lifecycle, served: string | undefined) => {
   try {
     return send({ id, type: 'Result', result: { ok: true, value: changeCampaign(command, served) } });
   } catch (error) {
-    return send({ id, type: 'Result', result: failure('Rejected', messageOf(error)) });
+    return send({ id, type: 'Result', result: failureOf(error) });
   }
 };
 
@@ -134,6 +135,7 @@ const replier = ({ name, campaign, problem }: Served) => {
     if (!parsed.ok) return send({ id, type: 'Error', message: parsed.error.message });
     const command = parsed.value;
     if (command.type === 'ListCampaigns') return replyCampaigns(id);
+    if (command.type === 'PlanCampaign') return send({ id, type: 'Result', result: planResult(command) });
     if (!('campaignId' in command)) return replyChange(id, command, name);
     if (campaign === undefined) return send({ id, type: 'Error', message: problem });
     const { session, campaignId } = campaign;

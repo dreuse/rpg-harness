@@ -1,5 +1,17 @@
 import {
+  createCommand,
+  DEFAULT_ADVENTURE_NAME,
+  INITIAL_DRAFT,
+  nextDraft,
+  planCommand,
+  type StartAction,
+  type StartDraft,
+  startScreen,
+  stepOf,
+} from '../../../packages/client-protocol/src/guided-start.ts';
+import {
   type CampaignPanels,
+  type CampaignPlan,
   type CampaignSnapshot,
   type ClientCommand,
   EVENT_COMMITTED,
@@ -9,6 +21,7 @@ import {
   type Result,
   type SavedVoiceSettings,
   type SaveVoiceSettings,
+  type StartOptions,
   type SubmitPlayerAction,
   type ViewDescriptor,
 } from '../../../packages/client-protocol/src/protocol.ts';
@@ -30,6 +43,10 @@ const PANELS = 'Panels';
 const VIEW = 'View';
 const ACCEPTED = 'Accepted';
 const REJECTED = 'Rejected';
+const PLANNED = 'Planned';
+const CREATED = 'Created';
+const DESKTOP_CLIENT = 'desktop';
+const OPTIONS_REQUEST = planCommand(INITIAL_DRAFT);
 const NO_REVISION = -1;
 const VOICE_SAVE_INPUT = 'voice settings';
 const STALE_REVISION = 'StaleRevision';
@@ -43,6 +60,13 @@ export type Connection = {
   readonly engine?: Pick<Ready, 'pid' | 'gm'>;
 };
 export type RejectedAction = { readonly actionId: string; readonly input: string; readonly message: string };
+export type StartState = {
+  readonly open: boolean;
+  readonly draft: StartDraft;
+  readonly options?: StartOptions | undefined;
+  readonly plan?: Result<CampaignPlan> | undefined;
+  readonly created?: string | undefined;
+};
 export type DesktopState = {
   readonly connection: Connection;
   readonly campaigns: readonly Campaign[];
@@ -52,6 +76,7 @@ export type DesktopState = {
   readonly views: Readonly<Record<string, ViewDescriptor>>;
   readonly outbox: readonly SubmitPlayerAction[];
   readonly rejected: readonly RejectedAction[];
+  readonly start: StartState;
 };
 
 export type Transport = {
@@ -84,6 +109,7 @@ export const initialState: DesktopState = {
   views: {},
   outbox: [],
   rejected: [],
+  start: { open: false, draft: INITIAL_DRAFT },
 };
 
 const statusLabel = ({ status, attempts, lastError, engine }: Connection, locale: string) =>
@@ -117,11 +143,16 @@ export const viewModel = (state: DesktopState, width: number, preferences: UiPre
     animate: !preferences.reducedMotion,
     panels: state.panels,
     rejected: state.rejected,
+    start: state.start.open ? startScreen(state.start.draft, state.start.options, state.start.plan) : undefined,
+    created: state.start.created,
   };
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
+
+const isResult = (value: unknown): value is Result<unknown> => isRecord(value) && typeof value.ok === 'boolean';
+const sameCommand = (left: unknown, right: unknown) => JSON.stringify(left) === JSON.stringify(right);
 
 const isCampaign = (value: unknown): value is Campaign =>
   isRecord(value) && typeof value.id === 'string' && typeof value.name === 'string';
@@ -138,11 +169,15 @@ const parseLine = (line: string): Record<string, unknown> | undefined => {
 export const createDesktopClient = ({
   transport,
   newActionId,
+  startDraft = INITIAL_DRAFT,
+  saveStart = () => {},
 }: {
   readonly transport: Transport;
   readonly newActionId: () => string;
+  readonly startDraft?: StartDraft | undefined;
+  readonly saveStart?: ((draft: StartDraft) => void) | undefined;
 }) => {
-  let state = initialState;
+  let state: DesktopState = { ...initialState, start: { open: startDraft.path !== null, draft: startDraft } };
   let resendOnSnapshot = false;
   const voiceSaves = new Map<unknown, SaveVoiceSettings>();
   const retried = new Set<unknown>();
@@ -222,7 +257,34 @@ export const createDesktopClient = ({
     update({ connection: { status: 'connected', attempts: 0, engine: { pid, gm } } });
     resendOnSnapshot = true;
     send(LIST_CAMPAIGNS);
+    if (state.start.open) {
+      send(OPTIONS_REQUEST);
+      planSummary();
+    }
     follow();
+  };
+
+  const planSummary = () => {
+    if (stepOf(state.start.draft) === 'summary') send(planCommand(state.start.draft, DESKTOP_CLIENT));
+  };
+
+  const requestOptions = () => {
+    if (state.start.options === undefined) send(OPTIONS_REQUEST);
+  };
+
+  const onPlanned = (command: unknown, result: Result<unknown>) => {
+    const options = result.ok ? (result.value as CampaignPlan).options : state.start.options;
+    const current =
+      stepOf(state.start.draft) === 'summary' && sameCommand(command, planCommand(state.start.draft, DESKTOP_CLIENT));
+    update({ start: { ...state.start, options, ...(current ? { plan: result as Result<CampaignPlan> } : {}) } });
+  };
+
+  const onCreated = (result: Result<unknown>) => {
+    if (!result.ok) return update({ start: { ...state.start, plan: result } });
+    saveStart(INITIAL_DRAFT);
+    const name = isRecord(result.value) ? String(result.value.name) : DEFAULT_ADVENTURE_NAME;
+    update({ start: { open: false, draft: INITIAL_DRAFT, options: state.start.options, created: name } });
+    send(LIST_CAMPAIGNS);
   };
 
   const onSnapshot = (snapshot: CampaignSnapshot) => {
@@ -261,6 +323,8 @@ export const createDesktopClient = ({
       if (view.ok) update({ views: { ...state.views, [view.value.viewId]: view.value } });
       return;
     }
+    if (message.type === PLANNED && isResult(message.result)) return onPlanned(message.command, message.result);
+    if (message.type === CREATED && isResult(message.result)) return onCreated(message.result);
     if (message.type === ACCEPTED) return settle(message.actionId);
     if (message.type === REJECTED) {
       const error = isRecord(message.error) ? String(message.error.message) : String(message.error);
@@ -313,6 +377,28 @@ export const createDesktopClient = ({
       update({ outbox: [...state.outbox, action] });
       if (!resendOnSnapshot) send(action);
       return { ok: true, value: action };
+    },
+    startScreen: () => startScreen(state.start.draft, state.start.options, state.start.plan),
+    openStart: () => {
+      update({ start: { ...state.start, open: true, created: undefined } });
+      requestOptions();
+    },
+    closeStart: () => update({ start: { ...state.start, open: false } }),
+    startAction: (action: StartAction) => {
+      const { draft, plan } = state.start;
+      if (action.kind === 'start') {
+        if (plan?.ok) send(createCommand(draft, DESKTOP_CLIENT));
+        return;
+      }
+      const next = nextDraft(draft, action);
+      const replan =
+        plan?.ok !== true || !sameCommand(planCommand(next, DESKTOP_CLIENT), planCommand(draft, DESKTOP_CLIENT));
+      update({
+        start: { ...state.start, open: true, draft: next, plan: replan ? undefined : plan, created: undefined },
+      });
+      saveStart(next);
+      requestOptions();
+      if (replan) planSummary();
     },
     voicePending: () => voiceSaves.size > 0,
     saveVoice: (settings: SavedVoiceSettings): Result<SaveVoiceSettings> => {

@@ -4,9 +4,11 @@ import { mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
+import { PROTOCOL_VERSION } from '../../../packages/client-protocol/src/protocol.ts';
 import { FANTASY_PACK, HORROR_PACK } from '../../../packages/content/src/packs.ts';
 import { readCampaignState } from './engine-gateway.ts';
-import { planCampaign } from './quickstart.ts';
+import { BUILT_IN_PACKS } from './import-gateway.ts';
+import { planCampaign, planResult, planStart, startOptions, UnknownEdition } from './quickstart.ts';
 
 const BIN = join(import.meta.dirname, 'bin.ts');
 const EXIT_OK = 0;
@@ -129,4 +131,74 @@ test('plain-English genre names resolve to installed genre ids', () => {
   ] as const;
   for (const [text, id] of cases) assert.equal(planCampaign(text).genre?.id, id, text);
   assert.throws(() => planCampaign('a western story'), /not installed/);
+});
+
+const PLAN = { version: PROTOCOL_VERSION, type: 'PlanCampaign' } as const;
+const DOCUMENTED_DEFAULTS = [
+  { field: 'ruleset', value: 'none', provenance: 'default' },
+  { field: 'genre', value: 'none', provenance: 'default' },
+  { field: 'character', value: 'none', provenance: 'default' },
+  { field: 'dice', value: 'as the ruleset decides', provenance: 'default' },
+  { field: 'diceVisualization', value: 'off', provenance: 'default' },
+  { field: 'voiceOutput', value: 'off', provenance: 'default' },
+  { field: 'simulation', value: 'off', provenance: 'default' },
+];
+
+test('rpg-42a.14 start options list only installed rulesets, recommend the lightest and offer genre characters', () => {
+  const { genres, rulesets } = startOptions();
+  assert.deepEqual(
+    rulesets.map(({ id, edition }) => ({ id, edition })),
+    BUILT_IN_PACKS.map(({ id, edition }) => ({ id, edition })),
+  );
+  assert.deepEqual(
+    rulesets.filter(({ recommended }) => recommended).map(({ id }) => id),
+    ['narrative'],
+  );
+  assert.ok(rulesets.find(({ id }) => id === 'd20-lite')?.sheet.includes('Might'));
+  const fantasy = genres.find(({ id }) => id === FANTASY_PACK.genre.id);
+  assert.equal(fantasy?.blurb, FANTASY_PACK.genre.examples[0]);
+  assert.deepEqual(
+    fantasy?.characters,
+    FANTASY_PACK.genre.archetypes.map(({ name, summary }) => ({ name, summary })),
+  );
+});
+
+test('rpg-42a.14 skipping every step plans the documented defaults with default provenance', () => {
+  assert.deepEqual(planStart({ ...PLAN, choices: {} }).entries, DOCUMENTED_DEFAULTS);
+  assert.deepEqual(planStart(PLAN).entries, DOCUMENTED_DEFAULTS);
+  const chosen = planStart({ ...PLAN, choices: { genre: 'fantasy', voiceOutput: true, client: 'desktop' } }).entries;
+  assert.deepEqual(chosen[1], { field: 'genre', value: 'fantasy', provenance: 'explicit' });
+  assert.deepEqual(chosen[5], { field: 'voiceOutput', value: 'on', provenance: 'explicit' });
+});
+
+test('rpg-42a.14 an uninstalled or invalid edition is reported as unknown and never substituted', () => {
+  assert.throws(() => planStart({ ...PLAN, intent: 'D&D 1.9' }), UnknownEdition);
+  assert.throws(() => planStart({ ...PLAN, choices: { ruleset: { id: 'd20-lite', edition: '5e' } } }), UnknownEdition);
+  assert.throws(() => planCampaign('Play D&D 1.9'), /D&D 1\.9 is not installed/);
+});
+
+const TYPED_CHARACTER = 'Ash, a tired knight';
+const STATTED_CHARACTER = `${TYPED_CHARACTER}. Might 3, Agility 2, Wits 2, Presence 1`;
+const NARRATIVE_RULES = { id: 'narrative', edition: 'original' };
+const D20_RULES = { id: 'd20-lite', edition: 'original' };
+const characterPlan = (choices: Record<string, unknown>) =>
+  planResult({ version: PROTOCOL_VERSION, type: 'PlanCampaign', choices });
+const characterEntry = (choices: Record<string, unknown>) => {
+  const plan = characterPlan(choices);
+  return plan.ok ? plan.value.entries.find(({ field }) => field === 'character') : plan.error.message;
+};
+
+test('rpg-42a.14 plan builds the chosen character from the ruleset sheet and never claims one it cannot build', () => {
+  const chosen = { field: 'character', value: 'Ash', provenance: 'explicit' };
+  assert.deepEqual(characterEntry({ ruleset: NARRATIVE_RULES, character: TYPED_CHARACTER }), chosen);
+  assert.deepEqual(characterEntry({ ruleset: D20_RULES, character: STATTED_CHARACTER }), chosen);
+  assert.deepEqual(characterEntry({ character: TYPED_CHARACTER }), {
+    field: 'character',
+    value: 'none',
+    provenance: 'default',
+  });
+  assert.match(
+    String(characterEntry({ ruleset: D20_RULES, character: TYPED_CHARACTER })),
+    /^Your character needs Might, Agility, Wits, and Presence\./,
+  );
 });

@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import { test } from 'node:test';
+import { INITIAL_DRAFT, START_DRAFT_FILE } from '../../../packages/client-protocol/src/guided-start.ts';
 import { type ClientEvent, EVENT_COMMITTED, PROTOCOL_VERSION } from '../../../packages/client-protocol/src/protocol.ts';
 import { API_KEY_ENV, type DaemonOptions } from '../../cli/src/desktop-daemon.ts';
 import { DEFAULT_PREFERENCES, MAX_FONT_SCALE } from './accessibility.ts';
 import { type Daemon, daemonTransport, ENGINE_CRASHED, PREFERENCES_FILE, startMain, WINDOW_SECURITY } from './main.ts';
-import { CHANNELS, PREFERENCES_QUERY } from './preload.ts';
+import { CHANNELS, PREFERENCES_QUERY, START_QUERY } from './preload.ts';
 
 const DATA_DIR = '/data';
 const PRELOAD = '/app/preload.js';
@@ -303,4 +304,28 @@ test('UI08 main persists only valid preferences from its window', () => {
   electron.ipc(CHANNELS.preferences, SENT_PREFERENCES);
   assert.deepEqual(electron.made, [DATA_DIR]);
   assert.deepEqual(JSON.parse(electron.written[join(DATA_DIR, PREFERENCES_FILE)] ?? ''), SENT_PREFERENCES);
+});
+
+const SAVED_DRAFT = { path: 'guide', step: 2, name: '', intent: '', choices: { genre: 'fantasy' } };
+
+test('rpg-42a.14 main keeps guided start progress in the app data dir and restores it on reopen', () => {
+  const path = join(DATA_DIR, START_DRAFT_FILE);
+  const electron = fakeElectron();
+  start(electron);
+  assert.equal(new URL(electron.windows[0]?.url ?? PAGE).searchParams.get(START_QUERY), JSON.stringify(INITIAL_DRAFT));
+  electron.foreign(CHANNELS.start, SAVED_DRAFT);
+  electron.ipc(CHANNELS.start, { ...SAVED_DRAFT, path: 'shell' });
+  assert.deepEqual(electron.written, {});
+  electron.ipc(CHANNELS.start, SAVED_DRAFT);
+  assert.deepEqual(JSON.parse(electron.written[path] ?? ''), SAVED_DRAFT);
+  for (const [file, expected] of [
+    [JSON.stringify(SAVED_DRAFT), SAVED_DRAFT],
+    ['{broken', INITIAL_DRAFT],
+    [JSON.stringify({ ...SAVED_DRAFT, step: 99 }), INITIAL_DRAFT],
+  ] as const) {
+    const reopened = fakeElectron({ [path]: file });
+    start(reopened);
+    const restored = new URL(reopened.windows[0]?.url ?? PAGE).searchParams.get(START_QUERY);
+    assert.deepEqual(JSON.parse(restored ?? ''), expected);
+  }
 });

@@ -73,6 +73,10 @@ section[data-region="rejected"] {
   border-color: var(--danger);
 }
 
+section[data-region="start"] {
+  grid-column: 1 / -1;
+}
+
 [data-region="conversation"] li {
   display: grid;
   gap: var(--space-1);

@@ -1,8 +1,14 @@
 import { join } from 'node:path';
-import type { ClientCommand } from '../../../packages/client-protocol/src/protocol.ts';
+import { isDeepStrictEqual } from 'node:util';
+import {
+  loadStartDraft,
+  parseStartDraft,
+  START_DRAFT_FILE,
+} from '../../../packages/client-protocol/src/guided-start.ts';
+import { type ClientCommand, failure } from '../../../packages/client-protocol/src/protocol.ts';
 import { type DaemonOptions, daemonEnv, startDaemon as startEngine } from '../../cli/src/desktop-daemon.ts';
 import { loadPreferences, parsePreferences } from './accessibility.ts';
-import { CHANNELS, PREFERENCES_QUERY } from './preload.ts';
+import { CHANNELS, PREFERENCES_QUERY, START_QUERY } from './preload.ts';
 import type { Transport } from './renderer.ts';
 
 export const PREFERENCES_FILE = 'desktop-preferences.json';
@@ -85,6 +91,12 @@ export const daemonTransport = (daemon: Pick<Daemon, 'ready' | 'command' | 'subs
         result?.ok ? { type: 'Accepted', actionId } : { type: 'Rejected', actionId, error: result?.error ?? message },
       );
     }
+    if (command.type === 'PlanCampaign' || command.type === 'CreateCampaign')
+      return emit({
+        type: command.type === 'PlanCampaign' ? 'Planned' : 'Created',
+        command,
+        result: result ?? failure('Rejected', String(message)),
+      });
     if (!result?.ok) return;
     if (command.type === 'ListCampaigns') return emit({ type: 'Campaigns', ...(result.value as object) });
     if (command.type === 'GetCampaignSnapshot') return emit({ type: 'Snapshot', snapshot: result.value });
@@ -120,6 +132,7 @@ export const startMain = ({
   startDaemon = startEngine,
 }: MainOptions) => {
   const preferencesPath = join(dataDir, PREFERENCES_FILE);
+  const startPath = join(dataDir, START_DRAFT_FILE);
   const window = new BrowserWindow({
     width: WINDOW_WIDTH,
     height: WINDOW_HEIGHT,
@@ -152,22 +165,32 @@ export const startMain = ({
       if (typeof line === 'string') transport.send(line);
     }),
   );
+  const save = (path: string, value: unknown) => {
+    try {
+      fs.mkdirSync(dataDir, { recursive: true });
+      fs.writeFileSync(path, JSON.stringify(value));
+    } catch {
+      return;
+    }
+  };
   ipcMain.on(
     CHANNELS.preferences,
     fromWindow((input) => {
       const parsed = parsePreferences(input);
-      if (!parsed.ok) return;
-      try {
-        fs.mkdirSync(dataDir, { recursive: true });
-        fs.writeFileSync(preferencesPath, JSON.stringify(parsed.value));
-      } catch {
-        return;
-      }
+      if (parsed.ok) save(preferencesPath, parsed.value);
+    }),
+  );
+  ipcMain.on(
+    CHANNELS.start,
+    fromWindow((input) => {
+      const draft = parseStartDraft(input);
+      if (isDeepStrictEqual(draft, input)) save(startPath, draft);
     }),
   );
   const preferences = loadPreferences(() => fs.readFileSync(preferencesPath, TEXT));
   const url = new URL(page);
   url.searchParams.set(PREFERENCES_QUERY, JSON.stringify(preferences));
+  url.searchParams.set(START_QUERY, JSON.stringify(loadStartDraft(() => fs.readFileSync(startPath, TEXT))));
   window.loadURL(url.href);
   return { window, stop: () => daemon.stop() };
 };

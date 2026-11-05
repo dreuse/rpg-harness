@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { INITIAL_DRAFT } from '../../../packages/client-protocol/src/guided-start.ts';
 import { DEFAULT_PREFERENCES } from './accessibility.ts';
 import { BRIDGE_KEY, type Bridge, CHANNELS, exposeBridge } from './preload.ts';
 
@@ -39,7 +40,14 @@ const expose = () => {
 test('UI08 preload exposes only the narrow transport bridge', () => {
   const { bridge, keys } = expose();
   assert.deepEqual(keys, [BRIDGE_KEY]);
-  assert.deepEqual(Object.keys(bridge).sort(), ['connect', 'onClose', 'onLine', 'savePreferences', 'send']);
+  assert.deepEqual(Object.keys(bridge).sort(), [
+    'connect',
+    'onClose',
+    'onLine',
+    'savePreferences',
+    'saveStart',
+    'send',
+  ]);
 });
 
 test('UI08 preload forwards lines without leaking the ipc event', () => {
@@ -51,9 +59,15 @@ test('UI08 preload forwards lines without leaking the ipc event', () => {
   bridge.connect();
   bridge.send(LINE);
   bridge.savePreferences(DEFAULT_PREFERENCES);
+  bridge.saveStart(INITIAL_DRAFT);
   emit(CHANNELS.line, LINE);
   emit(CHANNELS.close, ERROR);
-  assert.deepEqual(sent, [[CHANNELS.connect], [CHANNELS.send, LINE], [CHANNELS.preferences, DEFAULT_PREFERENCES]]);
+  assert.deepEqual(sent, [
+    [CHANNELS.connect],
+    [CHANNELS.send, LINE],
+    [CHANNELS.preferences, DEFAULT_PREFERENCES],
+    [CHANNELS.start, INITIAL_DRAFT],
+  ]);
   assert.deepEqual(lines, [[LINE]]);
   assert.deepEqual(closes, [[ERROR]]);
 });

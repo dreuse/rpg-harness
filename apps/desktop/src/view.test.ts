@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { INITIAL_DRAFT, START_STEPS, type StartDraft } from '../../../packages/client-protocol/src/guided-start.ts';
 import { PROTOCOL_VERSION } from '../../../packages/client-protocol/src/protocol.ts';
 import { DEFAULT_PREFERENCES, MAX_FONT_SCALE, type RendererAction } from './accessibility.ts';
-import { PREFERENCES_QUERY } from './preload.ts';
+import { PREFERENCES_QUERY, START_QUERY } from './preload.ts';
 import { type DesktopState, initialState, viewModel } from './renderer.ts';
-import { bindKeys, escapeHtml, keyName, queryPreferences, renderView } from './view.ts';
+import { bindKeys, escapeHtml, KEEP_DEFAULT, keyName, queryPreferences, queryStart, renderView } from './view.ts';
 
 const WIDE_WIDTH = 1600;
 const COMPACT_WIDTH = 480;
@@ -137,4 +138,74 @@ test('UI08 queryPreferences reads the window query and falls back on bad input',
   assert.deepEqual(queryPreferences(search), saved);
   assert.deepEqual(queryPreferences(''), DEFAULT_PREFERENCES);
   assert.deepEqual(queryPreferences(`?${PREFERENCES_QUERY}=%7Bbroken`), DEFAULT_PREFERENCES);
+});
+
+const START_OPTIONS = {
+  genres: [{ id: 'evil', name: HOSTILE, blurb: HOSTILE, characters: [{ name: HOSTILE, summary: HOSTILE }] }],
+  rulesets: [{ id: 'narrative', edition: 'original', blurb: 'Light rules.', recommended: true, sheet: [] }],
+};
+const guideAt = (step: string, choices = {}): StartDraft => ({
+  ...INITIAL_DRAFT,
+  path: 'guide',
+  step: START_STEPS.guide.indexOf(step as (typeof START_STEPS.guide)[number]),
+  choices,
+});
+const startHtml = (draft: StartDraft, plan?: DesktopState['start']['plan']) =>
+  renderView(
+    viewModel({ ...initialState, start: { open: true, draft, options: START_OPTIONS, plan } }, WIDE_WIDTH),
+    DEFAULT_PREFERENCES.locale,
+  );
+
+test('rpg-42a.14 guided start is a labelled region with a focusable step heading and named controls', () => {
+  const closed = renderView(
+    viewModel({ ...initialState, start: { ...initialState.start, created: HOSTILE } }, WIDE_WIDTH),
+    'en',
+  );
+  assert.match(closed, /<section data-region="start" aria-label="New adventure">/);
+  assert.match(closed, /<button type="button" data-start-open="open">New adventure<\/button>/);
+  assert.ok(closed.includes(`<p role="status">Created campaign ${ESCAPED}.</p>`));
+  const genre = startHtml(guideAt('genre', { genre: 'evil' }));
+  assert.match(genre, /<h2 tabindex="-1" data-start-title="genre">Step 2 of 6: Pick a tone and genre<\/h2>/);
+  assert.doesNotMatch(genre, /<img/);
+  assert.match(genre, /data-start-option="0" aria-pressed="true"/);
+  for (const control of ['back', 'skip', 'close']) assert.match(genre, new RegExp(`data-start-control="${control}">`));
+  assert.doesNotMatch(genre, /data-start-control="start"/);
+  const path = startHtml(INITIAL_DRAFT);
+  assert.match(path, /data-start-option="1">Guide me - /);
+  assert.doesNotMatch(path, /aria-pressed/);
+  const character = startHtml(guideAt('character', { genre: 'evil' }));
+  assert.match(
+    character,
+    /<label for="start-entry">Describe your character<\/label><input id="start-entry" name="start-entry" value="">/,
+  );
+  const summary = startHtml(guideAt('summary'), { ok: false, error: { code: 'UnknownEdition', message: HOSTILE } });
+  assert.ok(summary.includes(`<p role="alert">Import your rulebook. ${ESCAPED}</p>`));
+  assert.match(summary, /data-start-control="start" disabled>Start</);
+});
+
+test('rpg-42a.14 bindKeys keeps the browser default when the action asks for it', () => {
+  let listener = (_event: ReturnType<typeof keydown>['event']) => {};
+  bindKeys(
+    { addEventListener: (_type: string, given: typeof listener) => (listener = given) },
+    () => DEFAULT_PREFERENCES,
+    () => KEEP_DEFAULT,
+  );
+  const enter = keydown('Enter');
+  listener(enter.event);
+  assert.equal(enter.prevented(), false);
+});
+
+test('rpg-42a.14 queryStart restores the saved wizard step and falls back on bad input', () => {
+  const draft = guideAt('rules');
+  assert.deepEqual(queryStart(`?${new URLSearchParams({ [START_QUERY]: JSON.stringify(draft) })}`), draft);
+  assert.deepEqual(queryStart(''), INITIAL_DRAFT);
+  assert.deepEqual(queryStart(`?${START_QUERY}=%7Bbroken`), INITIAL_DRAFT);
+});
+
+test('rpg-42a.14 keyName reads letter and digit keys from the physical key when Alt changes the character', () => {
+  const alt = { altKey: true, ctrlKey: false, metaKey: false, shiftKey: false };
+  assert.equal(keyName({ ...alt, key: '˜', code: 'KeyN' }), 'Alt+N');
+  assert.equal(keyName({ ...alt, key: 'n', code: 'KeyN' }), 'Alt+N');
+  assert.equal(keyName({ ...alt, key: '¡', code: 'Digit1' }), 'Alt+1');
+  assert.equal(keyName({ ...alt, altKey: false, key: 'Enter', code: 'Enter' }), 'Enter');
 });
