@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -277,6 +277,18 @@ describe('validate windows/macos/linux packaging, daemon lifecycle and node engi
     const pong = await daemon.request('Ping');
     assert.equal(pong.type, 'Pong');
     assert.equal(await daemon.stop(), 0);
+  });
+
+  it('exits 0 on SIGTERM after the handshake', async () => {
+    const child = spawn(process.execPath, [DAEMON_ENTRY], { env: daemonEnv(baseEnv()) });
+    const ready = Promise.withResolvers<void>();
+    child.stdout.once('data', () => ready.resolve());
+    const exit = new Promise<[number | null, string | null]>((resolve) =>
+      child.once('exit', (code, signal) => resolve([code, signal])),
+    );
+    await ready.promise;
+    child.kill('SIGTERM');
+    assert.deepEqual(await exit, [0, null]);
   });
 
   it('detects a crash and restarts the engine with a new handshake', async (t) => {

@@ -7,6 +7,7 @@ import signal
 import sys
 import tempfile
 import threading
+import time
 import wave
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
@@ -33,6 +34,7 @@ MONO = 1
 ESPEAK_DATA_COPY = "espeak-ng-data"
 SERVE = "serve"
 DOWNLOAD = "download"
+PARENT_POLL_SECONDS = 1.0
 HTTP_OK = 200
 HTTP_BAD_REQUEST = 400
 HTTP_UNAUTHORIZED = 401
@@ -158,6 +160,12 @@ def handler(model, token):
     return Handler
 
 
+def exit_when_orphaned(parent, stop, poll_seconds=PARENT_POLL_SECONDS, current_parent=os.getppid):
+    while current_parent() == parent:
+        time.sleep(poll_seconds)
+    stop()
+
+
 def serve():
     token = os.environ.get(TOKEN_ENV, "")
     if not token:
@@ -172,6 +180,7 @@ def serve():
 
     signal.signal(signal.SIGTERM, stop)
     threading.Thread(target=lambda: (sys.stdin.read(), stop()), daemon=True).start()
+    threading.Thread(target=exit_when_orphaned, args=(os.getppid(), stop), daemon=True).start()
     server = HTTPServer((HOST, ANY_FREE_PORT), handler(load(), token))
     ready_out.write(f"READY {server.server_address[1]}\n")
     ready_out.flush()
@@ -188,4 +197,5 @@ def main():
         sys.exit(f"usage: {SERVE} | {DOWNLOAD}")
 
 
-main()
+if __name__ == "__main__":
+    main()

@@ -73,6 +73,7 @@ export const SHUTDOWN_TIMEOUT_MS = 2000;
 const EXIT_OK = 0;
 const DESKTOP_CLIENT: Client = 'desktop';
 const KILL = 'SIGKILL';
+const TERMINATION_SIGNALS = ['SIGTERM', 'SIGINT'] as const;
 const MEMORY_DATABASE = ':memory:';
 const SQLITE_PROBE = 'SELECT 1 AS ok';
 const NEWLINE = '\n';
@@ -216,6 +217,11 @@ const replyChange = async (
   }
 };
 
+const exitDaemon = () => {
+  disposeSpeech(dataDirFromEnv());
+  process.exit(EXIT_OK);
+};
+
 const replier = ({ name, campaign, problem }: Served, gm: GameMaster) => {
   const subscriptions = new Map<number, Unsubscribe>();
   let queue = Promise.resolve();
@@ -286,10 +292,7 @@ const replier = ({ name, campaign, problem }: Served, gm: GameMaster) => {
       }
       if (type === 'Shutdown') {
         campaign?.close();
-        return send({ id, type: 'Stopped' }, () => {
-          disposeSpeech(dataDirFromEnv());
-          process.exit(EXIT_OK);
-        });
+        return send({ id, type: 'Stopped' }, exitDaemon);
       }
       return send({ id, type: 'Error', message: `Unknown request ${type}.` });
     } catch (error) {
@@ -313,12 +316,20 @@ const replier = ({ name, campaign, problem }: Served, gm: GameMaster) => {
   const diagnose = ({ id }: Request) =>
     send({ id, type: 'Diagnosed', summary: playbackFor(dataDirFromEnv()).diagnostics?.() });
 
-  return (input: unknown) => {
-    const request = requestOf(input);
-    if (request?.type === PLAYBACK) return playback(request);
-    if (request?.type === DIAGNOSTICS) return diagnose(request);
-    queue = queue.then(() => reply(input)).then(IGNORE, IGNORE);
+  const shutdown = () => {
+    campaign?.close();
+    exitDaemon();
   };
+
+  return Object.assign(
+    (input: unknown) => {
+      const request = requestOf(input);
+      if (request?.type === PLAYBACK) return playback(request);
+      if (request?.type === DIAGNOSTICS) return diagnose(request);
+      queue = queue.then(() => reply(input)).then(IGNORE, IGNORE);
+    },
+    { shutdown },
+  );
 };
 
 const runDaemon = async () => {
@@ -339,6 +350,7 @@ const runDaemon = async () => {
     gm: route,
   };
   const reply = replier(serve(process.env, gm), gm);
+  for (const signal of TERMINATION_SIGNALS) process.once(signal, reply.shutdown);
   send(ready);
   if (parentPort === undefined) createInterface({ input: process.stdin }).on('line', reply);
   else parentPort.on('message', ({ data }) => reply(data));
