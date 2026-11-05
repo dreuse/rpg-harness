@@ -1,0 +1,206 @@
+import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { type TestContext, test } from 'node:test';
+import { PROTOCOL_VERSION } from '../../../packages/client-protocol/src/protocol.ts';
+import { playTurns } from '../../../packages/engine/src/character.ts';
+import { loadState } from '../../../packages/engine/src/turn.ts';
+import { VOICE_PROFILE_SET, voiceProfileOf } from '../../../packages/engine/src/voice-profile.ts';
+import { createCampaignStore } from '../../../packages/persistence/src/campaign-store.ts';
+import { openDatabase } from '../../../packages/persistence/src/database.ts';
+import { createEntityStore } from '../../../packages/persistence/src/entity-store.ts';
+import type { VoiceProfile } from '../../../packages/voice/src/voice.ts';
+import { createEngineGateway, FAKE_GAME_MASTER, openClientSession, readCampaignState } from './engine-gateway.ts';
+import { utterancesFor } from './turn-utterances.ts';
+
+const TEMP_PREFIX = 'rpg-turn-utterances-';
+const CAMPAIGN = 'QuietTavern';
+const NO_CHARACTER = async () => undefined;
+const MONK_ID = 'npc-monk';
+const GUARD_ID = 'npc-guard';
+const GHOST_ID = 'npc-ghost';
+const MONK_LINE = 'The shrine lies north.';
+const GUARD_LINE = 'Move along.';
+const NARRATOR_LINE = 'Rain taps the window.';
+const SECOND_ACTION = 'look around';
+const SECOND_ACTION_ID = 'typed-2';
+const WHISPER = { emotion: 'whisper', intensity: 0.4 };
+
+const NARRATOR: VoiceProfile = {
+  id: 'narrator',
+  language: 'en-GB',
+  pace: 1,
+  style: 'calm',
+  pronunciations: {},
+  fallbacks: [{ providerId: 'fake-tts', voiceId: 'narrator-voice' }],
+};
+const GUARD_PROFILE: VoiceProfile = {
+  ...NARRATOR,
+  id: GUARD_ID,
+  fallbacks: [{ providerId: 'fake-tts', voiceId: 'guard' }],
+};
+
+const npc = (id: string, campaignId: string) => ({
+  id,
+  campaignId,
+  kind: 'npc' as const,
+  name: id,
+  data: {},
+  visibility: 'public' as const,
+  actorId: null,
+});
+
+const setup = async (t: TestContext) => {
+  const dataDir = mkdtempSync(join(tmpdir(), TEMP_PREFIX));
+  t.after(() => rmSync(dataDir, { recursive: true, force: true }));
+  for await (const _ of createEngineGateway(dataDir).create(CAMPAIGN, undefined, NO_CHARACTER));
+  const campaignId = readCampaignState(dataDir, CAMPAIGN).campaign.id;
+  const connection = openDatabase(join(dataDir, `${CAMPAIGN}.sqlite`));
+  t.after(() => connection.close());
+  const store = createCampaignStore(connection.database);
+  const entities = createEntityStore(connection.database);
+  entities.saveEntity(npc(MONK_ID, campaignId));
+  entities.saveEntity(npc(GUARD_ID, campaignId));
+  const stateOf = () => loadState(store, campaignId);
+  const lastTurnId = () => stateOf().turns.at(-1)?.id ?? '';
+  const guardCalls: string[] = [];
+  const npcVoices = {
+    profileOf: (speakerId: string) => {
+      guardCalls.push(speakerId);
+      return speakerId === GUARD_ID ? GUARD_PROFILE : undefined;
+    },
+  };
+  const speak = (segments: Parameters<typeof utterancesFor>[0]['segments'], important?: ReadonlySet<string>) =>
+    utterancesFor({
+      store,
+      entities,
+      campaignId,
+      turnId: lastTurnId(),
+      segments,
+      narrator: NARRATOR,
+      npcVoices,
+      important,
+    });
+  const profileSets = (speakerId: string) =>
+    stateOf().events.filter((event) => event.type === VOICE_PROFILE_SET && event.payload.speakerId === speakerId);
+  const playSecondTurn = () => {
+    const opened = openClientSession(dataDir, CAMPAIGN);
+    try {
+      const snapshot = opened.session.getSnapshot({
+        version: PROTOCOL_VERSION,
+        type: 'GetCampaignSnapshot',
+        campaignId,
+      });
+      assert.ok(snapshot.ok);
+      const submitted = opened.session.submitPlayerAction({
+        version: PROTOCOL_VERSION,
+        type: 'SubmitPlayerAction',
+        campaignId,
+        actionId: SECOND_ACTION_ID,
+        expectedRevision: snapshot.value.revision,
+        sceneId: snapshot.value.currentScene?.id ?? '',
+        actorId: snapshot.value.characters[0]?.id ?? '',
+        input: SECOND_ACTION,
+      });
+      assert.ok(submitted.ok);
+    } finally {
+      opened.close();
+    }
+  };
+  const narrateAfterVoice = async () => {
+    let requests = 0;
+    const gm = {
+      request: async () => {
+        requests += 1;
+        return { narration: MONK_LINE, segments: [{ text: MONK_LINE }] };
+      },
+      summarizer: FAKE_GAME_MASTER.summarizer,
+    };
+    const opened = openClientSession(dataDir, CAMPAIGN, gm);
+    try {
+      await opened.narrate();
+      const snapshot = opened.session.getSnapshot({
+        version: PROTOCOL_VERSION,
+        type: 'GetCampaignSnapshot',
+        campaignId,
+      });
+      assert.ok(snapshot.ok);
+      return { turnCount: snapshot.value.turns.length, requests };
+    } finally {
+      opened.close();
+    }
+  };
+  return { speak, narrateAfterVoice, stateOf, profileSets, playSecondTurn, guardCalls, store };
+};
+
+test('an important npc voice is persisted once and reused on the next turn', async (t: TestContext) => {
+  const { speak, stateOf, profileSets, playSecondTurn } = await setup(t);
+  const [first] = speak([{ speakerId: MONK_ID, text: MONK_LINE, important: true }]);
+  assert.equal(profileSets(MONK_ID).length, 1);
+  assert.deepEqual(first?.profile, voiceProfileOf(stateOf().events, MONK_ID));
+  assert.equal(first?.profile.id, MONK_ID);
+  assert.notDeepEqual(first?.profile, NARRATOR);
+
+  playSecondTurn();
+  const revision = stateOf().revision;
+  const [second] = speak([{ speakerId: MONK_ID, text: MONK_LINE }], new Set([MONK_ID]));
+  assert.deepEqual(second?.profile, first?.profile);
+  assert.equal(profileSets(MONK_ID).length, 1);
+  assert.equal(stateOf().revision, revision);
+});
+
+test('persisting a voice adds no play turn, snapshot turn or GM narration', async (t: TestContext) => {
+  const { speak, stateOf, profileSets, narrateAfterVoice } = await setup(t);
+  const before = playTurns(stateOf()).length;
+  speak([{ speakerId: MONK_ID, text: MONK_LINE, important: true }]);
+  assert.equal(profileSets(MONK_ID).length, 1);
+  assert.equal(playTurns(stateOf()).length, before);
+  assert.deepEqual(await narrateAfterVoice(), { turnCount: before, requests: 0 });
+});
+
+test('a rejected save keeps the regular voice path', async (t: TestContext) => {
+  const { speak, guardCalls } = await setup(t);
+  const [utterance] = speak([{ speakerId: GHOST_ID, text: MONK_LINE, important: true }]);
+  assert.equal(utterance?.profile, NARRATOR);
+  assert.deepEqual(guardCalls, [GHOST_ID]);
+});
+
+test('delivery from the GM segment reaches the utterance', async (t: TestContext) => {
+  const { speak } = await setup(t);
+  const [narrated, spoken] = speak([
+    { text: NARRATOR_LINE },
+    { speakerId: MONK_ID, text: MONK_LINE, important: true, delivery: WHISPER },
+  ]);
+  assert.equal(narrated?.delivery, undefined);
+  assert.deepEqual(spoken?.delivery, WHISPER);
+  assert.equal(narrated?.profile, NARRATOR);
+});
+
+test('a non-important npc keeps the regular voice path and persists nothing', async (t: TestContext) => {
+  const { speak, profileSets, guardCalls } = await setup(t);
+  const [utterance] = speak([{ speakerId: GUARD_ID, text: GUARD_LINE }]);
+  assert.equal(utterance?.profile, GUARD_PROFILE);
+  assert.deepEqual(guardCalls, [GUARD_ID]);
+  assert.equal(profileSets(GUARD_ID).length, 0);
+});
+
+test('a player-chosen important set marks an npc without a GM hint', async (t: TestContext) => {
+  const { speak, profileSets, guardCalls } = await setup(t);
+  speak([{ speakerId: MONK_ID, text: MONK_LINE }], new Set([MONK_ID]));
+  assert.equal(profileSets(MONK_ID).length, 1);
+  assert.deepEqual(guardCalls, []);
+});
+
+test('an important speaker that is not an npc speaks with the narrator voice and does not crash the turn', async (t: TestContext) => {
+  const { speak, stateOf } = await setup(t);
+  const revision = stateOf().revision;
+  const utterances = speak([
+    { speakerId: GHOST_ID, text: MONK_LINE, important: true },
+    { speakerId: MONK_ID, text: GUARD_LINE, important: true },
+  ]);
+  assert.equal(utterances[0]?.profile, NARRATOR);
+  assert.equal(utterances[0]?.speakerId, GHOST_ID);
+  assert.equal(utterances[1]?.profile.id, MONK_ID);
+  assert.equal(stateOf().revision, revision + 1);
+});

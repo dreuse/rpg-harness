@@ -171,6 +171,35 @@ describe('rpg-42a.28 API game master wiring', () => {
     assert.equal(after.value.turns.at(-1)?.narration, NARRATION);
   });
 
+  it('rpg-cm63.10 hands the GM segments back with the narrated turn', async (t) => {
+    const dataDir = await seededCampaign(t);
+    const segments = [
+      { text: NARRATION },
+      { speakerId: 'npc-stranger', text: ACTION, important: true, delivery: { emotion: 'whisper' } },
+    ];
+    const gm: GameMaster = {
+      request: async () => ({ narration: narrationOf(segments), segments }),
+      summarizer: FAKE_GAME_MASTER.summarizer,
+    };
+    const { session, campaignId, close, narrate } = openClientSession(dataDir, CAMPAIGN, gm);
+    t.after(close);
+    const envelope = { version: PROTOCOL_VERSION, campaignId } as const;
+    const before = session.getSnapshot({ ...envelope, type: 'GetCampaignSnapshot' });
+    assert.ok(before.ok);
+    const submitted = session.submitPlayerAction({
+      ...envelope,
+      type: 'SubmitPlayerAction',
+      actionId: randomUUID(),
+      expectedRevision: before.value.revision,
+      sceneId: before.value.currentScene?.id ?? '',
+      actorId: before.value.characters[0]?.id ?? '',
+      input: ACTION,
+    });
+    assert.ok(submitted.ok);
+    assert.deepEqual(await narrate(), segments);
+    assert.deepEqual(await narrate(), []);
+  });
+
   it('rpg-42a.36 narrates from a built packet without waiting for a stuck or failing summarizer', async (t) => {
     const dataDir = await seededCampaign(t);
     const packets: ContextPacket[] = [];

@@ -460,7 +460,7 @@ const editField = (session: ClientSession, data: TuiData, name: string, text: st
 
 const valuesOf = (sheet: readonly ViewComponent[]) => new Map(sheet.map(({ id, value }) => [id, value]));
 
-type Narrate = () => Promise<void>;
+type Narrate = () => Promise<unknown>;
 
 const interactive = async (
   data: () => TuiData,

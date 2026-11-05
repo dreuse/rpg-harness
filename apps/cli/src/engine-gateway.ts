@@ -145,6 +145,7 @@ export const GM_NOTICES: Readonly<Record<GmRoute, string>> = {
 };
 const NO_FACTS: NarrationContext = { facts: [], equipment: {}, viewer: PLAYER_VIEWER };
 const PENDING_NARRATION = '';
+const NO_SEGMENTS: readonly GmSegment[] = [];
 
 const databasePath = (dataDir: string, name: string) =>
   join(dataDir, `${encodeURIComponent(name)}${DATABASE_EXTENSION}`);
@@ -299,17 +300,19 @@ const narrateLatest = async (
   { engine, store, campaignId, database }: Session,
   request: (packet: ContextPacket) => Promise<GmTurnReply>,
   sessionId: string,
-) => {
+): Promise<readonly GmSegment[]> => {
   const state = engine.getState(campaignId);
   const latest = playTurns(state).at(-1);
   const committed = latest === undefined ? undefined : storedTurn(state, latest.actionId);
-  if (committed === undefined || committed.turn.narration !== PENDING_NARRATION) return;
+  if (committed === undefined || committed.turn.narration !== PENDING_NARRATION) return NO_SEGMENTS;
   const packet = contextPacketOf(database, state, committed);
   let usage: GmUsage | undefined;
+  let segments: readonly GmSegment[] = NO_SEGMENTS;
   const narrator = {
     narrate: async () => {
       const reply = await request(packet);
       usage = reply.usage;
+      segments = reply.segments;
       return { narration: reply.narration, claims: [] };
     },
   };
@@ -317,6 +320,7 @@ const narrateLatest = async (
   const outcome = await narrateTurn(store, narrator, committed, { facts, equipment: {}, viewer: PLAYER_VIEWER });
   if ('inconsistent' in outcome) store.recordNarration(campaignId, committed.turn.id, FAKE_GM_REPLY);
   if (usage !== undefined) recordGmUsage(store, { campaignId, turnId: committed.turn.id, sessionId, usage });
+  return 'inconsistent' in outcome ? narratorSegments(FAKE_GM_REPLY) : segments;
 };
 
 const settled = () => delay(SUMMARY_SETTLE_MS, undefined, { ref: false });
@@ -331,7 +335,7 @@ const summarizeInBackground = ({ store, campaignId, database }: Session, summari
 type OpenSession = Session & {
   sessionId: string;
   gmDefaults: () => GmSettings;
-  narrate: () => Promise<void>;
+  narrate: () => Promise<readonly GmSegment[]>;
   settle: () => Promise<unknown>;
   close: () => void;
 };
@@ -366,11 +370,14 @@ const openSession = (
         ...gmDefaults(),
         ...gmSettingsOf(engine.getState(session.campaignId).changes),
       };
-      if ('request' in gm)
-        await narrateLatest(session, (packet) => gm.request(packet, { databasePath: path, model }), sessionId);
+      const segments =
+        'request' in gm
+          ? await narrateLatest(session, (packet) => gm.request(packet, { databasePath: path, model }), sessionId)
+          : NO_SEGMENTS;
       summarized = summarizeInBackground(session, (level, texts, language) =>
         gm.summarizer(level, texts, language, summaryModel),
       );
+      return segments;
     };
     const settle = () => Promise.race([summarized, settled()]);
     return { ...session, sessionId, gmDefaults, narrate, settle, close };

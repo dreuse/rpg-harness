@@ -34,6 +34,7 @@ export const SEGMENTS_SCHEMA = {
         properties: {
           speakerId: { type: 'string', maxLength: MAX_SPEAKER_ID_LENGTH },
           text: { type: 'string' },
+          important: { type: 'boolean' },
           delivery: {
             type: 'object',
             properties: {
@@ -53,7 +54,12 @@ export const SEGMENTS_SCHEMA = {
   additionalProperties: false,
 } as const;
 
-export type GmSegment = { readonly speakerId?: string; readonly text: string; readonly delivery?: Delivery };
+export type GmSegment = {
+  readonly speakerId?: string;
+  readonly text: string;
+  readonly important?: boolean;
+  readonly delivery?: Delivery;
+};
 
 export const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null;
@@ -89,6 +95,7 @@ const segmentOf = (value: unknown): GmSegment[] => {
     {
       ...(speakerId === undefined ? {} : { speakerId }),
       text: value.text.trim(),
+      ...(value.important === true ? { important: true } : {}),
       ...(delivery === undefined ? {} : { delivery }),
     },
   ];

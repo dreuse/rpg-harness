@@ -52,6 +52,22 @@ describe('rpg-cm63.3 GM narration segments', () => {
     assert.equal(narrationOf(segments ?? []), `${NARRATOR_LINE} ${NPC_LINE} Rain.`);
   });
 
+  it('keeps the important hint only when it is the boolean true', () => {
+    const segments = segmentsOf(
+      reply([
+        { speakerId: NPC_ID, text: NPC_LINE, important: true },
+        { speakerId: NPC_ID, text: NPC_LINE, important: 'yes' },
+        { speakerId: NPC_ID, text: NPC_LINE, important: false },
+      ]),
+    );
+    assert.deepEqual(segments, [
+      { speakerId: NPC_ID, text: NPC_LINE, important: true },
+      { speakerId: NPC_ID, text: NPC_LINE },
+      { speakerId: NPC_ID, text: NPC_LINE },
+    ]);
+    assert.equal(SEGMENTS_SCHEMA.properties.segments.items.properties.important.type, 'boolean');
+  });
+
   it('rejects malformed output so the caller falls back to one narrator segment', () => {
     for (const value of [undefined, null, 'text', [], {}, reply('x'), reply([]), reply([{ text: ' ' }, 7])])
       assert.equal(segmentsOf(value), undefined);

@@ -1,0 +1,71 @@
+import { isDeepStrictEqual } from 'node:util';
+import type { CampaignStore } from '../../../packages/domain/src/campaign.ts';
+import { StaleRevisionError } from '../../../packages/domain/src/campaign.ts';
+import type { EntityStore } from '../../../packages/domain/src/entity.ts';
+import { InvalidActionError, loadState } from '../../../packages/engine/src/turn.ts';
+import { setVoiceProfile, voiceProfileOf } from '../../../packages/engine/src/voice-profile.ts';
+import { importantNpcProfile } from '../../../packages/voice/src/cinematic.ts';
+import { outputSegmentsOf, routeSegments } from '../../../packages/voice/src/speaker-routing.ts';
+import type { CommittedUtterance, VoiceProfile } from '../../../packages/voice/src/voice.ts';
+import type { GmSegment } from './gm-segments.ts';
+
+const VOICE_ACTION_PREFIX = 'voice';
+const VOICE_ACTION_SEPARATOR = '-';
+const VOICE_INTENT = 'assign important voice';
+const NO_ID = '';
+
+export interface TurnUtterances {
+  readonly store: CampaignStore;
+  readonly entities: EntityStore;
+  readonly campaignId: string;
+  readonly turnId: string;
+  readonly segments: readonly GmSegment[];
+  readonly narrator: VoiceProfile;
+  readonly npcVoices: { readonly profileOf: (speakerId: string) => VoiceProfile | undefined };
+  readonly important?: ReadonlySet<string> | undefined;
+}
+
+const importantProfileOf = ({ store, entities, campaignId, turnId, narrator }: TurnUtterances, npcId: string) => {
+  const state = loadState(store, campaignId);
+  const stored = voiceProfileOf(state.events, npcId);
+  const profile = importantNpcProfile(npcId, narrator, stored);
+  if (isDeepStrictEqual(profile, stored)) return stored;
+  const actionId = [VOICE_ACTION_PREFIX, turnId, npcId].join(VOICE_ACTION_SEPARATOR);
+  try {
+    setVoiceProfile(store, entities, {
+      campaignId,
+      actionId,
+      expectedRevision: state.revision,
+      sceneId: state.currentScene?.id ?? NO_ID,
+      actorId: state.characters[0]?.id ?? NO_ID,
+      input: VOICE_INTENT,
+      intent: VOICE_INTENT,
+      speakerId: npcId,
+      profile,
+    });
+    return profile;
+  } catch (error) {
+    if (error instanceof InvalidActionError || error instanceof StaleRevisionError) return undefined;
+    throw error;
+  }
+};
+
+export const utterancesFor = (turn: TurnUtterances): readonly CommittedUtterance[] => {
+  const { store, campaignId, turnId, segments, narrator, npcVoices, important = new Set<string>() } = turn;
+  const committed = { events: loadState(store, campaignId).events.filter((event) => event.turnId === turnId) };
+  const eventId = committed.events[0]?.id;
+  if (eventId === undefined) return [];
+  const marked = new Set([
+    ...important,
+    ...segments.flatMap(({ speakerId, important: hinted }) =>
+      hinted === true && speakerId !== undefined ? [speakerId] : [],
+    ),
+  ]);
+  const importantProfiles = new Map([...marked].map((id) => [id, importantProfileOf(turn, id)] as const));
+  return routeSegments({
+    committed,
+    segments: outputSegmentsOf(eventId, segments),
+    narrator,
+    profileOf: (speakerId) => importantProfiles.get(speakerId) ?? npcVoices.profileOf(speakerId),
+  });
+};
