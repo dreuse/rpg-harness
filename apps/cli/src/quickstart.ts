@@ -17,6 +17,7 @@ import {
   SCIENCE_FICTION_PACK,
 } from '../../../packages/content/src/packs.ts';
 import type { StoryKit } from '../../../packages/content/src/story.ts';
+import { DEFAULT_RULES_USAGE, usesDice } from '../../../packages/domain/src/rules-usage.ts';
 import { type CampaignConfig, type ConfigIssue, generateCampaignConfig } from '../../../packages/intent/src/config.ts';
 import {
   CLIENT_CAPABILITIES,
@@ -52,6 +53,7 @@ import { type BuildInput, buildCharacter } from '../../../packages/rules/src/cha
 import { D20_LITE_CREATION } from '../../../packages/rules/src/d20-lite.ts';
 import { DICE_POOL_LITE_CREATION } from '../../../packages/rules/src/dice-pool-lite.ts';
 import { NARRATIVE_CREATION } from '../../../packages/rules/src/narrative.ts';
+import { rulesUsageOf } from '../../../packages/rules/src/rulepack.ts';
 import { describedBuild } from './character-creation.ts';
 import { BUILT_IN_PACKS } from './import-gateway.ts';
 
@@ -90,6 +92,8 @@ const PLAN_FIELDS = [
   'simulation',
 ] as const;
 const LIGHT_RULES = 'Light rules. The GM decides what happens from your story.';
+const DICELESS_SHEETLESS = 'No dice and no character sheet. The GM decides what happens from your story.';
+const DICE_FIELDS: readonly (typeof PLAN_FIELDS)[number][] = ['dice', 'diceVisualization'];
 const LIST = new Intl.ListFormat('en', { type: 'conjunction' });
 const ALTERNATIVES = new Intl.ListFormat('en', { type: 'disjunction' });
 const CONFLICT = 'conflict';
@@ -224,6 +228,12 @@ const sheetOf = ({ id, edition }: (typeof BUILT_IN_PACKS)[number]) =>
     .filter(({ derived }) => derived === undefined)
     .map(({ id: field, label }) => label ?? field);
 
+const blurbOf = (pack: (typeof BUILT_IN_PACKS)[number], features: readonly string[]) => {
+  const { resolution, sheet } = rulesUsageOf(pack);
+  if (resolution !== 'dice' && sheet === 'none') return DICELESS_SHEETLESS;
+  return features.length === 0 ? LIGHT_RULES : `Rules for ${LIST.format(features)}.`;
+};
+
 const readyMadeOn = (pack: (typeof BUILT_IN_PACKS)[number]) => {
   const rules = creationRulesFor(pack);
   return (
@@ -248,10 +258,11 @@ export const startOptions = (): StartOptions => {
       return {
         id: pack.id,
         edition: pack.edition,
-        blurb: features.length === 0 ? LIGHT_RULES : `Rules for ${LIST.format(features)}.`,
+        blurb: blurbOf(pack, features),
         recommended: features.length === lightest,
         readyMade: readyMadeOn(pack),
         sheet: sheetOf(pack),
+        usage: rulesUsageOf(pack),
       };
     }),
   };
@@ -289,10 +300,19 @@ export const commandConfig = (
   client?: string,
 ): CampaignConfig => planCampaign(intent, client === undefined ? choices : { ...choices, client });
 
+export const usageFor = (rulepack: CampaignConfig['rulepack']) => {
+  const pack = BUILT_IN_PACKS.find(
+    ({ id, edition, revision }) =>
+      id === rulepack?.id && edition === rulepack.edition && revision === rulepack.revision,
+  );
+  return pack === undefined ? DEFAULT_RULES_USAGE : rulesUsageOf(pack);
+};
+
 export const planStart = (command: PlanCampaign, client?: string): CampaignPlan => {
   const config = commandConfig(command, client);
   const character = startingCharacter(config);
-  const entries: PlanEntry[] = PLAN_FIELDS.map((field) =>
+  const diceless = !usesDice(usageFor(config.rulepack));
+  const entries: PlanEntry[] = PLAN_FIELDS.filter((field) => !(diceless && DICE_FIELDS.includes(field))).map((field) =>
     field === 'character'
       ? {
           field,

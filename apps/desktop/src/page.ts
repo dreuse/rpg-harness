@@ -381,10 +381,11 @@ export const mountPage = ({
     render();
   };
   const focusRegion = (region: Region) => {
-    showPane(region);
     const section = root.querySelector<HTMLElement>(`[data-region="${region}"]`);
-    section?.setAttribute(TABINDEX, PROGRAMMATIC_FOCUS);
-    section?.focus();
+    if (section === null) return;
+    showPane(region);
+    section.setAttribute(TABINDEX, PROGRAMMATIC_FOCUS);
+    section.focus();
   };
   const run = (action: RendererAction, event: KeyEventLike) => {
     const region = FOCUS_REGIONS[action];

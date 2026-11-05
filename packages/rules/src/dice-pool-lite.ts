@@ -24,6 +24,8 @@ export const DICE_POOL_LITE_MANIFEST: RulePackManifest = {
   edition: 'original',
   revision: '1',
   capabilities: { checks: true, dice: true },
+  resolution: 'dice',
+  sheet: 'full',
   sourceRefs: [],
 };
 

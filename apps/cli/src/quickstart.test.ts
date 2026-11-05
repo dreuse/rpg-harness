@@ -257,3 +257,26 @@ test('rpg-42a.19 ready-made characters are offered only on rules that can build 
   });
   assert.match(String(characterEntry({ ruleset: D20_RULES, character: archetype.name })), /^Your character needs/);
 });
+
+test('rpg-42a.38 start options declare usage and explain the diceless built-in pack in plain words', () => {
+  const { rulesets } = startOptions();
+  const usage = Object.fromEntries(rulesets.map(({ id, usage }) => [id, usage]));
+  assert.deepEqual(usage, {
+    'd20-lite': { resolution: 'dice', sheet: 'full' },
+    'dice-pool-lite': { resolution: 'dice', sheet: 'full' },
+    narrative: { resolution: 'adjudicated', sheet: 'none' },
+  });
+  assert.equal(
+    rulesets.find(({ id }) => id === 'narrative')?.blurb,
+    'No dice and no character sheet. The GM decides what happens from your story.',
+  );
+});
+
+test('rpg-42a.38 the plan of a diceless ruleset has no dice entries', () => {
+  const fields = (ruleset: Record<string, unknown>) => {
+    const plan = characterPlan({ ruleset });
+    return plan.ok ? plan.value.entries.map(({ field }) => field) : [];
+  };
+  assert.deepEqual(fields(NARRATIVE_RULES), ['ruleset', 'genre', 'character', 'voiceOutput', 'simulation']);
+  assert.ok(fields(D20_RULES).includes('dice'));
+});

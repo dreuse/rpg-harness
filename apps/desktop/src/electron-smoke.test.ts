@@ -247,3 +247,7 @@ test('rpg-42a.39 desktop journey in Brazilian Portuguese: home, guided start and
   const { audit } = JSON.parse(readFileSync(files[0]?.replace(/\.png$/, SHOT_DATA_EXTENSION) ?? '', 'utf8'));
   assert.equal(audit.lang, PORTUGUESE);
 });
+
+test('rpg-42a.38 desktop journey of a diceless, sheetless campaign: rules, summary and play', { skip }, async (t) => {
+  checkBaselines(t, await captureJourneys(t, ['diceless']));
+});

@@ -15,6 +15,8 @@ export const NARRATIVE_MANIFEST: RulePackManifest = {
   edition: 'original',
   revision: '1',
   capabilities: { checks: ADJUDICATED_MODE, combat: ADJUDICATED_MODE, resources: false, progression: false },
+  resolution: 'adjudicated',
+  sheet: 'none',
   sourceRefs: [],
 };
 

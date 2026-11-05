@@ -19,6 +19,7 @@ import {
   type VisualizationEvent,
 } from '../../../packages/client-protocol/src/visualization.ts';
 import { type CampaignId, OPENING_ACTION_ID } from '../../../packages/domain/src/campaign.ts';
+import { DEFAULT_RULES_USAGE, type RulesUsage, usesDice, usesSheet } from '../../../packages/domain/src/rules-usage.ts';
 import { DEFAULT_LOCALE, safeLocale, say } from './messages.ts';
 import { type ColorDepth, colorDepthOf, FRAME_COLUMNS, frame, paint, supportsUnicode } from './theme.ts';
 import { printable } from './views.ts';
@@ -71,16 +72,19 @@ export type Terminal = {
 type Stream = { readonly isTTY?: boolean; readonly columns?: number; readonly rows?: number };
 type PaneId = 'conversation' | 'sheet' | 'log' | 'mechanics';
 
-type Pane = { readonly id: PaneId; readonly key: string };
+type Pane = { readonly id: PaneId; readonly key: string; readonly label?: string };
 type Shown = { readonly title: string; readonly rows: readonly string[]; readonly follow: boolean };
 
 const CONVERSATION: Pane = { id: 'conversation', key: '1' };
-const PANES: readonly Pane[] = [
-  CONVERSATION,
-  { id: 'sheet', key: '2' },
-  { id: 'log', key: '3' },
-  { id: 'mechanics', key: '4' },
-];
+const CHARACTER_LABEL = 'pane.character';
+const PANE_IDS: readonly PaneId[] = ['conversation', 'sheet', 'log', 'mechanics'];
+
+export const panesFor = (rules: RulesUsage = DEFAULT_RULES_USAGE): readonly Pane[] =>
+  PANE_IDS.filter((id) => id !== 'mechanics' || usesDice(rules)).map((id, index) => ({
+    id,
+    key: `${index + NEXT}`,
+    ...(id === 'sheet' && !usesSheet(rules) ? { label: CHARACTER_LABEL } : {}),
+  }));
 
 export const DEFAULT_WIDTH = 80;
 export const DEFAULT_HEIGHT = 24;
@@ -90,7 +94,6 @@ const MIN_HEIGHT = 10;
 const MIN_PANE_HEIGHT = 3;
 const BORDER_ROWS = 2;
 const SPLIT_SHARE = 0.6;
-const SPLIT_PARTNER: PaneId = 'sheet';
 const FOLLOWS_LATEST: ReadonlySet<PaneId> = new Set(['conversation', 'log', 'mechanics']);
 const DUMB_TERM = 'dumb';
 const ANIMATED_COLORS: ReadonlySet<ColorDepth> = new Set(['256', 'truecolor']);
@@ -124,7 +127,7 @@ const FLAG_WORDS: Readonly<Record<string, boolean>> = {
 };
 
 const localeOf = (data: TuiData) => data.locale ?? DEFAULT_LOCALE;
-const labelOf = (locale: string, { id }: Pane) => say(locale, `pane.${id}`);
+const labelOf = (locale: string, { id, label }: Pane) => say(locale, label ?? `pane.${id}`);
 const helpLabel = (locale: string) => say(locale, 'tui.help');
 
 const helpLines = (data: TuiData) => {
@@ -132,7 +135,9 @@ const helpLines = (data: TuiData) => {
   const { gm } = data.snapshot;
   return [
     say(locale, 'help.tab'),
-    ...PANES.map((pane) => say(locale, 'help.pane', { key: pane.key, label: labelOf(locale, pane) })),
+    ...panesFor(data.snapshot.rules).map((pane) =>
+      say(locale, 'help.pane', { key: pane.key, label: labelOf(locale, pane) }),
+    ),
     say(locale, 'help.type', { key: TYPE_KEY }),
     say(locale, 'help.edit'),
     say(locale, 'help.toggle', { key: HELP_KEY }),
@@ -194,21 +199,25 @@ const typing = (state: TuiState, draft: string, key: Key): TuiState => {
   return key.ctrl || key.meta || !PRINTABLE.test(text) ? state : { ...state, draft: `${draft}${text}` };
 };
 
-export const nextState = (state: TuiState, key: Key): TuiState => {
-  const ready = { ...state, submitted: undefined, notice: undefined };
-  if (key.ctrl && key.name === INTERRUPT) return { ...ready, quit: true };
-  if (state.draft !== undefined) return typing(ready, state.draft, key);
-  if (key.name === TAB) {
-    const step = key.shift ? PANES.length - NEXT : NEXT;
-    return { ...ready, pane: (state.pane + step) % PANES.length, help: false };
-  }
-  const chosen = PANES.findIndex((pane) => pane.key === key.sequence);
-  if (chosen >= 0) return { ...ready, pane: chosen, help: false };
-  if (key.sequence === HELP_KEY) return { ...ready, help: !state.help };
-  if (key.sequence === QUIT_KEY) return { ...ready, quit: true };
-  if (key.sequence === TYPE_KEY || key.name === RETURN) return { ...ready, draft: '' };
-  return ready;
-};
+export const nextStateIn =
+  (panes: readonly Pane[]) =>
+  (state: TuiState, key: Key): TuiState => {
+    const ready = { ...state, submitted: undefined, notice: undefined };
+    if (key.ctrl && key.name === INTERRUPT) return { ...ready, quit: true };
+    if (state.draft !== undefined) return typing(ready, state.draft, key);
+    if (key.name === TAB) {
+      const step = key.shift ? panes.length - NEXT : NEXT;
+      return { ...ready, pane: (state.pane + step) % panes.length, help: false };
+    }
+    const chosen = panes.findIndex((pane) => pane.key === key.sequence);
+    if (chosen >= 0) return { ...ready, pane: chosen, help: false };
+    if (key.sequence === HELP_KEY) return { ...ready, help: !state.help };
+    if (key.sequence === QUIT_KEY) return { ...ready, quit: true };
+    if (key.sequence === TYPE_KEY || key.name === RETURN) return { ...ready, draft: '' };
+    return ready;
+  };
+
+export const nextState = nextStateIn(panesFor());
 
 const chunks = (word: string, width: number): string[] =>
   word.length <= width ? [word] : [word.slice(0, width), ...chunks(word.slice(width), width)];
@@ -283,10 +292,13 @@ const conversation = ({ currentScene, characters, turns }: CampaignSnapshot, loc
 
 const PANE_ROWS: Readonly<Record<PaneId, (data: TuiData) => readonly string[]>> = {
   conversation: (data) => conversation(data.snapshot, localeOf(data)),
-  sheet: (data) => [
-    ...data.snapshot.characters.map(({ name }) => say(localeOf(data), 'tui.character', { name })),
-    ...sheetRows(data.sheet),
-  ],
+  sheet: (data) =>
+    usesSheet(data.snapshot.rules ?? DEFAULT_RULES_USAGE)
+      ? [
+          ...data.snapshot.characters.map(({ name }) => say(localeOf(data), 'tui.character', { name })),
+          ...sheetRows(data.sheet),
+        ]
+      : [...sheetRows(data.sheet), say(localeOf(data), 'tui.noSheet')],
   log: ({ events }) =>
     events.flatMap((event) => (event.type === EVENT_COMMITTED ? [`#${event.revision} ${event.event.type}`] : [])),
   mechanics: (data) => data.mechanics.map((event) => indicator(event, localeOf(data))),
@@ -297,7 +309,7 @@ const paneRows = (id: PaneId, data: TuiData) => {
   return rows.length === 0 ? [say(localeOf(data), `empty.${id}`)] : rows;
 };
 
-const paneAt = (index: number) => PANES[index] ?? CONVERSATION;
+const paneAt = (panes: readonly Pane[], index: number) => panes[index] ?? CONVERSATION;
 
 const shown = (pane: Pane, data: TuiData): Shown => ({
   title: labelOf(localeOf(data), pane),
@@ -311,11 +323,13 @@ const fit = (rows: readonly string[], height: number, follow: boolean) => {
 };
 
 const columnsFor = (state: TuiState, data: TuiData, width: number) => {
-  const focused = paneAt(state.pane);
+  const panes = panesFor(data.snapshot.rules);
+  const focused = paneAt(panes, state.pane);
   const help: Shown = { title: helpLabel(localeOf(data)), rows: helpLines(data), follow: false };
   if (width < SPLIT_MIN_WIDTH) return [{ pane: state.help ? help : shown(focused, data), width, focused: true }];
   const left = Math.round(width * SPLIT_SHARE);
-  const partner = focused.id === CONVERSATION.id ? (PANES.find(({ id }) => id === SPLIT_PARTNER) ?? focused) : focused;
+  const [, second = focused] = panes;
+  const partner = focused.id === CONVERSATION.id ? second : focused;
   const rightFocused = state.help || focused.id !== CONVERSATION.id;
   return [
     { pane: shown(CONVERSATION, data), width: left, focused: !rightFocused },
@@ -326,9 +340,10 @@ const columnsFor = (state: TuiState, data: TuiData, width: number) => {
 export const renderScreen = (state: TuiState, data: TuiData, capabilities: Capabilities): string[] => {
   const { width, height, colors } = capabilities;
   const locale = localeOf(data);
-  const focused = paneAt(state.pane);
+  const panes = panesFor(data.snapshot.rules);
+  const focused = paneAt(panes, state.pane);
   const focusedTab = `[${focused.key} ${labelOf(locale, focused)}]`;
-  const tabs = PANES.map((pane) => (pane.key === focused.key ? focusedTab : `${pane.key} ${labelOf(locale, pane)}`));
+  const tabs = panes.map((pane) => (pane.key === focused.key ? focusedTab : `${pane.key} ${labelOf(locale, pane)}`));
   const tabRows = wrap([tabs.join(SPACE)], width).map((row) =>
     row.replace(focusedTab, paint(colors, 'accent', focusedTab)),
   );
@@ -361,7 +376,9 @@ const section = (title: string, rows: readonly string[], { width, colors }: Capa
 };
 
 export const renderLinear = (data: TuiData, capabilities: Capabilities): string[] => [
-  ...PANES.flatMap((pane) => section(`${labelOf(localeOf(data), pane)}:`, paneRows(pane.id, data), capabilities)),
+  ...panesFor(data.snapshot.rules).flatMap((pane) =>
+    section(`${labelOf(localeOf(data), pane)}:`, paneRows(pane.id, data), capabilities),
+  ),
   ...(data.audio === undefined ? [] : wrap([data.audio], capabilities.width)),
 ];
 
@@ -480,7 +497,7 @@ const interactive = async (
   };
   paint();
   for await (const key of keys) {
-    state = nextState(state, key);
+    state = nextStateIn(panesFor(data().snapshot.rules))(state, key);
     generation += 1;
     if (state.quit) return;
     if (state.submitted !== undefined) {
@@ -523,7 +540,7 @@ const linear = async (
   if (notice !== undefined) print(wrap([notice], width));
   for await (const line of terminal.lines) {
     const text = line.trim();
-    const pane = PANES.find(({ key }) => key === text);
+    const pane = panesFor(data().snapshot.rules).find(({ key }) => key === text);
     if (text === QUIT_KEY) return;
     if (text === '') continue;
     if (text === HELP_KEY) {

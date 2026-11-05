@@ -15,9 +15,12 @@ import {
   parseCharacterProfile,
 } from '../../../packages/domain/src/character.ts';
 import type { CampaignEntity, EntityKind, Relationship } from '../../../packages/domain/src/entity.ts';
+import { usesSheet } from '../../../packages/domain/src/rules-usage.ts';
 import { CHARACTER_CREATED, playTurns, profileOf } from '../../../packages/engine/src/character.ts';
 import { currentEncounter, type EncounterAction } from '../../../packages/engine/src/encounter.ts';
 import { questLog } from '../../../packages/engine/src/quest.ts';
+import { campaignConfigOf } from '../../../packages/engine/src/turn.ts';
+import { parseCampaignConfig } from '../../../packages/intent/src/config.ts';
 import { PLAYER_VIEWER, type Scoped, type Viewer, visibleTo } from '../../../packages/memory/src/knowledge.ts';
 import type { RollEvent } from '../../../packages/rules/src/dice.ts';
 import {
@@ -35,7 +38,7 @@ import {
   type SheetViewer,
   type SheetViewInput,
 } from '../../../packages/rules/src/sheet-view.ts';
-import { creationRulesFor } from './quickstart.ts';
+import { creationRulesFor, usageFor } from './quickstart.ts';
 
 export const VIEW_NAMES = ['sheet', 'sheet-export', 'inventory', 'journal', 'quests', 'encounter', 'recap'] as const;
 export type ViewName = (typeof VIEW_NAMES)[number];
@@ -62,6 +65,7 @@ const EDIT_TYPE_BY_VALUE: Readonly<Record<string, SheetValueType>> = {
 const EDITABLE_FIELDS: readonly FieldVisibility[] = ['public', OWNER_FIELD];
 const NO_CHARACTER = 'No character yet.';
 const NO_SHEET = 'No character sheet yet.';
+const SHEETLESS = 'This game does not use character sheets.';
 const NO_ITEMS = 'No items yet.';
 const NO_QUESTS = 'No quests yet.';
 const NO_EVENTS = 'No events yet.';
@@ -148,7 +152,22 @@ const sheetInput = (source: ViewSource, hero: Character, viewer: SheetViewer): S
   };
 };
 
+const sheetless = ({ state }: ViewSource) => {
+  const saved = parseCampaignConfig(campaignConfigOf(state.events));
+  return saved.ok && !usesSheet(usageFor(saved.config.rulepack));
+};
+
+const description = (hero: Character, source: ViewSource) => {
+  const stored = storedProfile(source, hero);
+  const parsed = stored === undefined ? undefined : parseCharacterProfile(stored.data);
+  return parsed?.ok === true && parsed.profile.background.trim() !== '' ? [parsed.profile.background.trim()] : [];
+};
+
+const sheetlessText = (hero: Character, source: ViewSource) =>
+  [hero.name, ...description(hero, source), SHEETLESS].join('\n');
+
 const sheet = (hero: Character, source: ViewSource, viewer: SheetViewer) => {
+  if (sheetless(source)) return sheetlessText(hero, source);
   const input = sheetInput(source, hero, viewer);
   if (input === undefined) return `${hero.name}\n${NO_SHEET}`;
   const { rulepack } = input.schema;
@@ -217,14 +236,29 @@ export const sheetComponents = ({ groups, computed }: SheetView) => {
   );
 };
 
+const IDENTITY_FIELDS = [
+  { id: 'name', label: 'Name' },
+  { id: 'description', label: 'Description' },
+] as const;
+
+const identityComponents = (hero: Character, source: ViewSource) => {
+  const [text = ''] = description(hero, source);
+  return IDENTITY_FIELDS.flatMap(({ id, label }) => {
+    const value = id === 'name' ? hero.name : text;
+    return value === '' ? [] : [{ kind: SHEET_COMPONENT, id, label, value, editable: false }];
+  });
+};
+
 export const sheetFields = (source: ViewSource, viewer: Viewer) => {
   const [hero] = source.state.characters;
   const sheetViewer = hero === undefined ? undefined : sheetViewerOf(viewer, hero);
+  if (hero !== undefined && sheetViewer !== undefined && sheetless(source)) return identityComponents(hero, source);
   const input = hero === undefined || sheetViewer === undefined ? undefined : sheetInput(source, hero, sheetViewer);
   return input === undefined ? [] : sheetComponents(buildSheetView(input));
 };
 
 const sheetExport = (hero: Character, source: ViewSource, viewer: SheetViewer) => {
+  if (sheetless(source)) return sheetlessText(hero, source);
   const input = sheetInput(source, hero, viewer);
   return input === undefined ? `${hero.name}\n${NO_SHEET}` : JSON.stringify(exportSheet(input), null, JSON_INDENT);
 };

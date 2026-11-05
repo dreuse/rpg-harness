@@ -60,6 +60,8 @@ export const D20_LITE_MANIFEST: RulePackManifest = {
   edition: 'original',
   revision: '1',
   capabilities: { checks: true, combat: true, resources: true, progression: true, dice: true },
+  resolution: 'dice',
+  sheet: 'full',
   sourceRefs: [],
 };
 

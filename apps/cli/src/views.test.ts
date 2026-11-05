@@ -22,6 +22,7 @@ import {
   D20_LITE_CREATION,
   DEFAULT_CHECK_DC,
 } from '../../../packages/rules/src/d20-lite.ts';
+import { NARRATIVE_CREATION } from '../../../packages/rules/src/narrative.ts';
 import { SHEET_SCHEMA_VERSION } from '../../../packages/rules/src/sheet-schema.ts';
 import { importSheet, SHEET_EXPORT_FORMAT } from '../../../packages/rules/src/sheet-view.ts';
 import { createEngineGateway, FAKE_GAME_MASTER, openClientSession, readCampaignState } from './engine-gateway.ts';
@@ -683,3 +684,41 @@ test('sheet components pass numeric limits from the field edit', () => {
   assert.deepEqual([might?.min, might?.max], [1, 10]);
   assert.equal(Object.hasOwn(name ?? {}, 'min'), false);
 });
+
+test('rpg-42a.38 a sheetless ruleset shows the name and description and says the game uses no sheets', () =>
+  withDataDir(async (dataDir) => {
+    await run(dataDir, ['new', CAMPAIGN, 'A horror story using the Narrative rules']);
+    createHero(dataDir, 'Wren', NARRATIVE_CREATION, {});
+    const expected = 'Wren\nA drifter.\nThis game does not use character sheets.';
+    assert.equal((await run(dataDir, ['sheet', CAMPAIGN])).trim(), expected);
+    assert.equal((await run(dataDir, ['sheet-export', CAMPAIGN])).trim(), expected);
+    assert.doesNotMatch(await run(dataDir, ['sheet', CAMPAIGN]), /No character sheet yet/);
+  }));
+
+test('rpg-42a.38 a sheetless campaign without a created character still never claims data is missing', () =>
+  withDataDir(async (dataDir) => {
+    await run(dataDir, ['new', CAMPAIGN, 'A horror story using the Narrative rules']);
+    const sheet = await run(dataDir, ['sheet', CAMPAIGN]);
+    assert.match(sheet, /This game does not use character sheets\./);
+    assert.doesNotMatch(sheet, /No character sheet yet/);
+  }));
+
+test('rpg-42a.38 the sheet view of a sheetless ruleset serves the character name and description only', () =>
+  withDataDir(async (dataDir) => {
+    await run(dataDir, ['new', CAMPAIGN, 'A horror story using the Narrative rules']);
+    createHero(dataDir, 'Wren', NARRATIVE_CREATION, {});
+    const { session, campaignId, close } = openClientSession(dataDir, CAMPAIGN);
+    try {
+      const view = session.requestView({ version: PROTOCOL_VERSION, type: 'RequestView', campaignId, viewId: 'sheet' });
+      assert.ok(view.ok);
+      assert.deepEqual(
+        view.value.components.map(({ id, label, value, editable }) => [id, label, value, editable]),
+        [
+          ['name', 'Name', 'Wren', false],
+          ['description', 'Description', 'A drifter.', false],
+        ],
+      );
+    } finally {
+      close();
+    }
+  }));

@@ -1,3 +1,4 @@
+import { DEFAULT_RULES_USAGE, usesDice, usesSheet } from '../../domain/src/rules-usage.ts';
 import { type Catalog, createTranslator, DEFAULT_LOCALE, safeLocale } from './locale.ts';
 import {
   type CampaignPlan,
@@ -111,6 +112,11 @@ export const START_CATALOG: Catalog = {
     'rules.title': 'Pick a rules system',
     'rules.text': 'Light rules are best for your first game.',
     'rules.recommended': '{name} (recommended for new players)',
+    'rules.noDice': 'Some systems use no dice. The GM decides what happens from your story.',
+    'rules.noSheet': 'Some systems have no character sheet. You only need a name and a short description.',
+    'character.noSheet':
+      'This game does not use a character sheet. Give your character a name and a short description.',
+    'features.noDice': 'This game does not use dice.',
     'features.text': 'These stay off unless you turn them on.',
   },
   'pt-BR': {
@@ -159,6 +165,10 @@ export const START_CATALOG: Catalog = {
     'rules.title': 'Escolha um sistema de regras',
     'rules.text': 'Regras leves são as melhores para o seu primeiro jogo.',
     'rules.recommended': '{name} (recomendado para iniciantes)',
+    'rules.noDice': 'Alguns sistemas não usam dados. O mestre decide o que acontece a partir da sua história.',
+    'rules.noSheet': 'Alguns sistemas não têm ficha de personagem. Você só precisa de um nome e uma descrição curta.',
+    'character.noSheet': 'Este jogo não usa ficha de personagem. Dê ao seu personagem um nome e uma descrição curta.',
+    'features.noDice': 'Este jogo não usa dados.',
     'features.text': 'Estes ficam desligados, a não ser que você os ligue.',
   },
 };
@@ -198,6 +208,7 @@ const FIELD_STEPS: Readonly<Record<string, StartStep>> = {
   ...Object.fromEntries(FEATURES.map((feature) => [feature, 'features'])),
 };
 const FIRST_STEP = 0;
+const DICE_FEATURE: Feature = 'diceVisualization';
 const DRAFT_KEYS = ['path', 'step', 'name', 'intent', 'choices'];
 const NEXT = 1;
 const EDITION_KEYS = ['id', 'edition'] as const;
@@ -324,14 +335,22 @@ const errorText = (locale: string, { code, message }: { readonly code: string; r
 
 type Page = Pick<StartScreen, 'title' | 'text' | 'options'> & Partial<StartScreen>;
 
-const characterPage = (draft: StartDraft, { genres, rulesets }: StartOptions, locale: string): Page => {
+const usageOf = (draft: StartDraft, options: StartOptions) =>
+  options.rulesets.find(
+    ({ id, edition }) =>
+      isEdition(draft.choices.ruleset) && JSON.stringify({ id, edition }) === JSON.stringify(draft.choices.ruleset),
+  )?.usage ?? DEFAULT_RULES_USAGE;
+
+const characterPage = (draft: StartDraft, options: StartOptions, locale: string): Page => {
+  const { genres, rulesets } = options;
   const genre = genres.find(({ id }) => id === draft.choices.genre);
   const ruleset = rulesets.find(
     ({ id, edition }) =>
       isEdition(draft.choices.ruleset) && JSON.stringify({ id, edition }) === JSON.stringify(draft.choices.ruleset),
   );
-  const sheet =
-    ruleset === undefined || ruleset.sheet.length === 0
+  const sheet = !usesSheet(usageOf(draft, options))
+    ? [text(locale, 'character.noSheet')]
+    : ruleset === undefined || ruleset.sheet.length === 0
       ? []
       : [
           text(locale, 'character.sheet', {
@@ -423,7 +442,12 @@ const PAGES: Readonly<
   }),
   rules: (draft, { rulesets }, _plan, locale) => ({
     title: text(locale, 'rules.title'),
-    text: [text(locale, 'rules.text'), text(locale, 'import.hint', { rulebook: text(locale, 'import.rulebook') })],
+    text: [
+      text(locale, 'rules.text'),
+      text(locale, 'rules.noDice'),
+      text(locale, 'rules.noSheet'),
+      text(locale, 'import.hint', { rulebook: text(locale, 'import.rulebook') }),
+    ],
     options: rulesets.map(({ id, edition, blurb, recommended }) =>
       choose(
         'ruleset',
@@ -435,10 +459,13 @@ const PAGES: Readonly<
     ),
   }),
   character: (draft, options, _plan, locale) => characterPage(draft, options, locale),
-  features: (draft, _options, _plan, locale) => ({
+  features: (draft, options, _plan, locale) => ({
     title: text(locale, 'group.extras'),
-    text: [text(locale, 'features.text')],
-    options: FEATURES.map((field) => ({
+    text: [
+      text(locale, 'features.text'),
+      ...(usesDice(usageOf(draft, options)) ? [] : [text(locale, 'features.noDice')]),
+    ],
+    options: FEATURES.filter((field) => field !== DICE_FEATURE || usesDice(usageOf(draft, options))).map((field) => ({
       label: text(locale, `feature.${field}`),
       detail: text(locale, `feature.${field}.detail`),
       action: { kind: 'toggle', field },

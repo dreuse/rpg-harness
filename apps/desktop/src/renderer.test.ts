@@ -826,3 +826,29 @@ test('rpg-42a.21: a sheet edit needs a character and a known field', () => {
   const { client: ready } = connectedClient();
   assert.equal(ready.editSheet('', 8).ok, false);
 });
+
+test('rpg-42a.38 an accepted action refreshes the snapshot even when the turn committed no events', () => {
+  const { wire, client } = connectedClient();
+  client.submit('look around');
+  const before = wire.sent.length;
+  wire.receive({ type: 'Accepted', actionId: 'a0' });
+  assert.deepEqual(
+    wire.sent.slice(before).map(({ type }) => type),
+    ['GetCampaignSnapshot', 'RequestView'],
+  );
+});
+
+test('rpg-42a.38 a sheetless campaign still requests the view that carries the character card', () => {
+  const { wire, client } = connectedClient();
+  wire.receive({
+    type: 'Snapshot',
+    snapshot: { ...snapshotAt(2), rules: { resolution: 'adjudicated', sheet: 'none' } },
+  });
+  const before = wire.sent.length;
+  client.submit('look around');
+  wire.receive({ type: 'Accepted', actionId: 'a0' });
+  assert.deepEqual(
+    wire.sent.slice(before).map(({ type }) => type),
+    ['SubmitPlayerAction', 'GetCampaignSnapshot', 'RequestView'],
+  );
+});

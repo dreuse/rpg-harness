@@ -128,12 +128,17 @@ const WIDE_LAYOUT = 'wide';
 const JOURNEY_RULESET = 'd20-lite';
 const JOURNEY_GUIDE = 'Guide me';
 const JOURNEY_FEATURE = 'Dice animation';
+const DICELESS_RULESET = 'narrative';
+const DICELESS_NAME = 'Mara';
+const DICELESS_CHARACTER = 'A lighthouse keeper named Mara who hears the sea talk.';
+const UNUSED_PARTS = '[data-region="sheet"], [data-rolls], [data-motion-control]';
 const PORTUGUESE_GUIDE = 'Me guie';
 const PORTUGUESE_FEATURE = 'Animação de dados';
 const JOURNEY_CHARACTER = 'A scout named Wren with might 6, agility 5, wits 7 and presence 4.';
 const RANDOM_REGIONS = '[data-rolls], [data-voice-progress], [data-voice-diagnostics]';
 const CONNECTED = `document.querySelector('[role=status][data-connection="connected"]')`;
 const PLAY_READY = `document.querySelector('main[data-screen="play"] [data-region="conversation"] li:not([aria-busy])') && document.querySelector('[data-region="sheet"] h3')`;
+const DICELESS_PLAY_READY = `document.querySelector('main[data-screen="play"] [data-region="conversation"] li:not([aria-busy])') && document.querySelector('[data-rules-note]') && document.querySelector('[data-region="panels"] [data-character] h3')`;
 const GM_REPLIED = `((gm) => gm && gm.textContent.trim() !== gm.querySelector('[data-speaker-label]').textContent.trim())(document.querySelector('[data-region="conversation"] li:last-child [data-speaker="gm"]'))`;
 const LIVE_ROLL = '[data-roll-skip], [data-roll][data-animated="true"]';
 const SETTLED = `!document.querySelector('[data-roll-skip], [data-changed], [aria-busy]')`;
@@ -150,6 +155,10 @@ const until = (condition: string) => `new Promise((resolve, reject) => {
 const click = (selector: string) => `document.querySelector(${JSON.stringify(selector)}).click();`;
 const clickOption = (text: string) =>
   `[...document.querySelectorAll('[data-start-option]')].find((option) => option.textContent.toLowerCase().includes(${JSON.stringify(text.toLowerCase())})).click();`;
+const optionNamed = (text: string) =>
+  `[...document.querySelectorAll('[data-start-option]')].find((option) => option.textContent.toLowerCase().includes(${JSON.stringify(text.toLowerCase())}))`;
+const chooseOption = (text: string, step: string) =>
+  `await ${until(optionNamed(text))}; ${clickOption(text)} await ${until(`document.querySelector('[data-start-title="${step}"]')`)};`;
 const nextStep = (step: string) =>
   `${click('[data-start-control="next"]')} await ${until(`document.querySelector('[data-start-title="${step}"]')`)};`;
 const steps = (...parts: readonly string[]) => `(async () => { ${parts.join(' ')} })()`;
@@ -190,7 +199,34 @@ const FIRST_TURN = steps(
   `await ${until(`document.querySelector('[data-rolls] [data-roll]') && ${GM_REPLIED} && ${SETTLED}`)};`,
 );
 
-export const JOURNEY: Readonly<Record<'first' | 'reopen' | 'portuguese', readonly JourneyStep[]>> = {
+const DICELESS_TO_RULES = steps(
+  chooseOption(JOURNEY_GUIDE, 'primer'),
+  nextStep('genre'),
+  chooseOption('fantasy', 'rules'),
+);
+const DICELESS_TO_SUMMARY = steps(
+  chooseOption(DICELESS_RULESET, 'character'),
+  `document.querySelector('#start-entry').value = ${JSON.stringify(DICELESS_CHARACTER)};`,
+  `document.querySelector('[data-start-form]').requestSubmit();`,
+  `await ${until(`document.querySelector('[data-start-title="features"]')`)};`,
+  `if ([...document.querySelectorAll('[data-start-option]')].some((option) => option.textContent.includes(${JSON.stringify(JOURNEY_FEATURE)}))) throw new Error('diceless guided start offers dice animation');`,
+  nextStep('summary'),
+  `await ${until(`document.querySelector('[data-start-control="start"]:not([disabled])')`)};`,
+);
+const DICELESS_PLAY = steps(
+  JOURNEY_LISTENER,
+  click('[data-start-control="start"]'),
+  `await ${until(`document.querySelector('#home-continue-0')`)};`,
+  click('#home-continue-0'),
+  `await ${until(`${DICELESS_PLAY_READY} && window.journeySnapshot`)};`,
+  `document.querySelector('#action-input').value = ${JSON.stringify(JOURNEY_ACTION)};`,
+  `document.querySelector('#action-form').requestSubmit();`,
+  `await ${until(`window.journeySnapshot?.turns.length > 1 && ${GM_REPLIED} && ${SETTLED}`)};`,
+  `if (document.querySelector(${JSON.stringify(UNUSED_PARTS)})) throw new Error('diceless play shows a sheet, dice or motion setting');`,
+  `if (document.querySelector('[data-character] h3').textContent !== ${JSON.stringify(DICELESS_NAME)} || !document.querySelector('[data-character] p').textContent.includes(${JSON.stringify(DICELESS_CHARACTER)})) throw new Error('diceless play lacks the character name and description');`,
+);
+
+export const JOURNEY: Readonly<Record<'first' | 'reopen' | 'portuguese' | 'diceless', readonly JourneyStep[]>> = {
   first: [
     { script: FIRST_HOME, shot: 'first-run-home' },
     { script: OPEN_START, shot: 'guided-start' },
@@ -260,6 +296,13 @@ export const JOURNEY: Readonly<Record<'first' | 'reopen' | 'portuguese', readonl
       ),
       shot: 'continue',
     },
+  ],
+  diceless: [
+    { script: FIRST_HOME },
+    { script: OPEN_START },
+    { script: DICELESS_TO_RULES, shot: 'diceless-rules' },
+    { script: DICELESS_TO_SUMMARY, shot: 'diceless-summary' },
+    { script: DICELESS_PLAY, shot: 'diceless-play' },
   ],
   portuguese: [
     { script: FIRST_HOME, shot: 'pt-BR-first-run-home' },

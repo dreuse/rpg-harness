@@ -920,3 +920,23 @@ test('rpg-42a.37: SaveGmSettings persists per campaign and the snapshot shows se
   const stale = session.saveGmSettings({ ...save, actionId: 'gm-3', expectedRevision: OPENING_REVISION });
   assert.equal(stale.ok ? undefined : stale.error.code, 'StaleRevision');
 });
+
+const configFor = (id: string) => {
+  const intent = createCampaignIntent({ ruleset: explicit({ id, edition: 'original' }) });
+  const generated = generateCampaignConfig(intent, { rulepacks: BUILT_IN_PACKS, genres: [] });
+  assert.ok(generated.ok);
+  return generated.config;
+};
+
+test('rpg-42a.38 snapshot declares how the pinned ruleset resolves actions and uses sheets', () => {
+  const rulesOf = (id?: string) => {
+    const { sessionFor, envelope, seed } = setup();
+    if (id !== undefined) seed('config', CAMPAIGN_CONFIGURED, { config: configFor(id) }, 'gm');
+    const snapshot = sessionFor(PLAYER_VIEWER).getSnapshot({ ...envelope, type: 'GetCampaignSnapshot' });
+    assert.ok(snapshot.ok);
+    return snapshot.value.rules;
+  };
+  assert.deepEqual(rulesOf('narrative'), { resolution: 'adjudicated', sheet: 'none' });
+  assert.deepEqual(rulesOf('d20-lite'), { resolution: 'dice', sheet: 'full' });
+  assert.equal(rulesOf(), undefined);
+});

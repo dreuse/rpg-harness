@@ -51,7 +51,7 @@ import { type Scoped, type Viewer, visibleTo } from '../../../packages/memory/sr
 import { createEntityStore } from '../../../packages/persistence/src/entity-store.ts';
 import { listScopedEvents } from '../../../packages/persistence/src/event-store.ts';
 import { rangeIssue } from '../../../packages/rules/src/character-builder.ts';
-import { creationRulesFor } from './quickstart.ts';
+import { creationRulesFor, usageFor } from './quickstart.ts';
 import { checkFor, emitVisualizations, resultsOf, visualizationPreferenceOf } from './roll-visualization.ts';
 import { panelsOf, printable, sheetFields, type ViewSource } from './views.ts';
 
@@ -231,6 +231,7 @@ export const createClientSessions = (
     const events = readEvents(campaignId);
     const voice = voiceSettingsOf(events);
     const gm = gmSnapshotOf(events, defaults(), sessionId);
+    const config = savedConfig(state.events);
     return deepFreeze(
       structuredClone({
         version: PROTOCOL_VERSION,
@@ -242,6 +243,7 @@ export const createClientSessions = (
         turns: playTurns(state),
         ...(voice === undefined ? {} : { voice }),
         ...(gm === undefined ? {} : { gm }),
+        ...(config === undefined ? {} : { rules: usageFor(config.rulepack) }),
       }),
     );
   };

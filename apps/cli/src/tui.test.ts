@@ -29,6 +29,8 @@ import {
   INITIAL_STATE,
   motionOf,
   nextState,
+  nextStateIn,
+  panesFor,
   renderLinear,
   renderScreen,
   rollFrames,
@@ -685,4 +687,52 @@ test('rpg-42a.37: TUI help shows GM model and token use, and a crossed budget wa
   const helpAndOneNotice = 3;
   assert.equal(printed.split('more than the 10 token budget').length, helpAndOneNotice);
   assert.equal(engine.getState(campaignId).turns.filter(({ input }) => input === ACTION).length, 2);
+});
+
+const DICELESS_SHEETLESS = { resolution: 'adjudicated', sheet: 'none' } as const;
+const characterSheet = [
+  { kind: 'field', id: 'name', label: 'Name', value: 'Wanderer' },
+  { kind: 'field', id: 'description', label: 'Description', value: 'A tired lighthouse keeper.' },
+] as const;
+const sheetlessData: TuiData = {
+  ...data,
+  snapshot: { ...snapshot, rules: DICELESS_SHEETLESS },
+  sheet: characterSheet,
+  mechanics: [],
+};
+const diceOnlyData: TuiData = { ...data, snapshot: { ...snapshot, rules: { resolution: 'dice', sheet: 'none' } } };
+
+test('rpg-42a.38 the TUI of a diceless sheetless game shows a Character pane and hides Mechanics', () => {
+  const screens = visibleRows(renderScreen(INITIAL_STATE, sheetlessData, PLAIN_WIDE)).join('\n');
+  assert.match(screens, /\[1 Conversation\] 2 Character 3 Event log/);
+  assert.doesNotMatch(screens, /Sheet|Mechanics|No sheet yet|No mechanics yet/);
+  const panes = panesFor(DICELESS_SHEETLESS);
+  assert.deepEqual(
+    panes.map(({ id, key }) => [id, key]),
+    [
+      ['conversation', '1'],
+      ['sheet', '2'],
+      ['log', '3'],
+    ],
+  );
+  const step = nextStateIn(panes);
+  assert.equal(step(INITIAL_STATE, key('2')).pane, 1);
+  assert.equal(step(INITIAL_STATE, key('4')).pane, INITIAL_STATE.pane);
+  const character = visibleRows(renderScreen(step(INITIAL_STATE, key('2')), sheetlessData, PLAIN_WIDE)).join('\n');
+  assert.match(
+    character,
+    /Name: Wanderer[\s\S]*Description: A tired lighthouse keeper\.[\s\S]*This game does not use character sheets\./,
+  );
+  const linear = renderLinear(sheetlessData, PLAIN_WIDE).join('\n');
+  assert.match(linear, /Conversation:[\s\S]*Character:[\s\S]*Event log:/);
+  assert.doesNotMatch(linear, /Sheet|Mechanics/);
+});
+
+test('rpg-42a.38 the TUI keeps mechanics for a dice game without a sheet and the Sheet pane for a full sheet game', () => {
+  const screen = visibleRows(renderScreen(INITIAL_STATE, diceOnlyData, PLAIN_WIDE)).join('\n');
+  assert.match(screen, /\[1 Conversation\] 2 Character 3 Event log 4 Mechanics/);
+  assert.match(
+    visibleRows(renderScreen(INITIAL_STATE, data, PLAIN_WIDE)).join('\n'),
+    /2 Sheet 3 Event log 4 Mechanics/,
+  );
 });

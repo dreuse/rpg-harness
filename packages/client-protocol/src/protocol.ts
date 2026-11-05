@@ -11,6 +11,7 @@ import type {
 } from '../../domain/src/campaign.ts';
 import type { RuleCitation } from '../../domain/src/character.ts';
 import type { GmSettings, GmUsageTotals } from '../../domain/src/gm.ts';
+import type { RulesUsage } from '../../domain/src/rules-usage.ts';
 import type { SavedVoiceSettings } from '../../domain/src/voice.ts';
 import type { VisualizationEvent } from './visualization.ts';
 
@@ -196,6 +197,7 @@ export type StartRuleset = {
   readonly recommended: boolean;
   readonly readyMade: boolean;
   readonly sheet: readonly string[];
+  readonly usage?: RulesUsage;
 };
 export type StartOptions = { readonly genres: readonly StartGenre[]; readonly rulesets: readonly StartRuleset[] };
 export type PlanEntry = { readonly field: string; readonly value: string; readonly provenance: string };
@@ -215,6 +217,7 @@ export type CampaignSnapshot = {
   readonly turns: readonly Turn[];
   readonly voice?: SavedVoiceSettings;
   readonly gm?: GmSnapshot;
+  readonly rules?: RulesUsage;
 };
 
 export type GmSnapshot = {

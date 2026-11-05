@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import { INITIAL_DRAFT, START_STEPS, type StartDraft } from '../../../packages/client-protocol/src/guided-start.ts';
 import { type CampaignSummary, PROTOCOL_VERSION } from '../../../packages/client-protocol/src/protocol.ts';
 import type { VisualizationEvent } from '../../../packages/client-protocol/src/visualization.ts';
+import type { RulesUsage } from '../../../packages/domain/src/rules-usage.ts';
 import { DEFAULT_PREFERENCES, MAX_FONT_SCALE, type RendererAction } from './accessibility.ts';
 import { PREFERENCES_QUERY, START_QUERY } from './preload.ts';
 import { type DesktopState, initialState, OPENING_ACTION_ID, PLAY_REGIONS, viewModel } from './renderer.ts';
@@ -811,4 +812,84 @@ test('rpg-42a.27 a committed turn with blank narration shows a no-reply line', (
   const model = { ...viewModel(state, WIDE_WIDTH), conversation: blank };
   assert.match(renderView(model, 'en'), /<p data-speaker="system">No reply was recorded for this turn\.<\/p>/);
   assert.match(renderView(model, 'es'), /<p data-speaker="system">No se registró respuesta para este turno\.<\/p>/);
+});
+
+const withRules = (rules: RulesUsage, extra: Partial<DesktopState> = {}): DesktopState => {
+  const { snapshot } = state;
+  assert.ok(snapshot !== undefined);
+  return { ...state, ...extra, snapshot: { ...snapshot, rules } };
+};
+const DICELESS_SHEETLESS: RulesUsage = { resolution: 'adjudicated', sheet: 'none' };
+const NO_SHEET_DICE: RulesUsage = { resolution: 'dice', sheet: 'none' };
+const SHEET_NO_DICE: RulesUsage = { resolution: 'adjudicated', sheet: 'full' };
+
+test('rpg-42a.38 a diceless sheetless game hides the sheet panel, dice card and motion setting', () => {
+  const diceless = withRules(DICELESS_SHEETLESS, { rolls: [rolled('r1', 3)], rolling: true });
+  for (const width of [WIDE_WIDTH, MEDIUM_WIDTH, COMPACT_WIDTH]) {
+    const model = viewModel(diceless, width);
+    const html = renderView(model, 'en');
+    assert.doesNotMatch(
+      html,
+      /data-region="sheet"|data-rolls|data-roll\b|data-motion-control|data-stat/,
+      String(width),
+    );
+    assert.doesNotMatch(html, /No character sheet yet|No stats tracked|Character sheet|>Dice</, String(width));
+    assert.deepEqual(model.layout.columns.flat().toSorted(), ['conversation', 'panels'], String(width));
+    assert.ok(model.layout.columns.every((column) => column.length > 0));
+  }
+  assert.deepEqual(viewModel(diceless, MEDIUM_WIDTH).layout.columns, [['conversation'], ['panels']]);
+  assert.deepEqual(viewModel(diceless, COMPACT_WIDTH).layout.columns, [['conversation', 'panels']]);
+  assert.match(
+    renderView(viewModel(diceless, WIDE_WIDTH), 'en'),
+    /<p data-rules-note>This game does not use dice or character sheets\.<\/p>/,
+  );
+});
+
+test('rpg-42a.38 dice and sheet are hidden independently and notes say what the game does not use', () => {
+  const noSheet = renderView(viewModel(withRules(NO_SHEET_DICE, { rolls: [rolled('r1', 3)] }), WIDE_WIDTH), 'en');
+  assert.doesNotMatch(noSheet, /data-region="sheet"/);
+  assert.match(noSheet, /data-rolls/);
+  assert.match(noSheet, /data-motion-control/);
+  assert.match(noSheet, /<p data-rules-note>This game does not use character sheets\.<\/p>/);
+  const noDice = renderView(viewModel(withRules(SHEET_NO_DICE, { rolls: [rolled('r1', 3)] }), WIDE_WIDTH), 'en');
+  assert.match(noDice, /data-region="sheet"/);
+  assert.doesNotMatch(noDice, /data-rolls|data-motion-control/);
+  assert.match(noDice, /<p data-rules-note>This game does not use dice\.<\/p>/);
+  const full = renderView(viewModel(state, WIDE_WIDTH), 'en');
+  assert.doesNotMatch(full, /data-rules-note/);
+  assert.match(full, /data-region="sheet"/);
+});
+
+test('rpg-42a.38 the note is translated', () => {
+  for (const locale of ['es', 'pt-BR'])
+    assert.match(
+      renderView(viewModel(withRules(DICELESS_SHEETLESS), WIDE_WIDTH, { ...DEFAULT_PREFERENCES, locale }), locale),
+      /<p data-rules-note>/,
+    );
+});
+
+const IDENTITY_VIEW = {
+  campaignId: CAMPAIGN,
+  viewId: 'sheet',
+  components: [
+    { kind: 'field', id: 'name', label: 'Name', value: 'Mara' },
+    { kind: 'field', id: 'description', label: 'Description', value: 'A lighthouse keeper.' },
+  ],
+} as const;
+
+test('rpg-42a.38 a sheetless game shows a character card with name and description in the journal column', () => {
+  const sheetless = withRules(DICELESS_SHEETLESS, { views: { sheet: IDENTITY_VIEW } });
+  const html = renderView(viewModel(sheetless, WIDE_WIDTH), 'en');
+  assert.match(
+    html,
+    /<section data-character aria-label="Character"><h3>Mara<\/h3><p>A lighthouse keeper\.<\/p><\/section>/,
+  );
+  assert.ok(html.indexOf('data-region="panels"') < html.indexOf('data-character'));
+  assert.doesNotMatch(html, /data-region="sheet"|data-stat/);
+  const full = renderView(
+    viewModel(withRules({ resolution: 'dice', sheet: 'full' }, { views: { sheet: IDENTITY_VIEW } }), WIDE_WIDTH),
+    'en',
+  );
+  assert.doesNotMatch(full, /data-character/);
+  assert.doesNotMatch(renderView(viewModel(withRules(DICELESS_SHEETLESS), WIDE_WIDTH), 'en'), /data-character/);
 });

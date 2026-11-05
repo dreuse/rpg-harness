@@ -5,7 +5,7 @@ import { createSeededRng } from './dice.ts';
 import { RULE_DSL_VERSION } from './dsl.ts';
 import { ADJUDICATED_MODE, adjudicate, NARRATIVE_CREATION, NARRATIVE_MANIFEST } from './narrative.ts';
 import { resolveAction } from './resolve.ts';
-import { CapabilityDisabledError, requireCapability, validateManifest } from './rulepack.ts';
+import { CapabilityDisabledError, requireCapability, rulesUsageOf, validateManifest } from './rulepack.ts';
 import type { TraitSheet } from './traits.ts';
 
 const SEED = 7;
@@ -70,4 +70,18 @@ test('narrative supplies creation rules for a named character with a backstory',
     edition,
     revision,
   });
+});
+
+test('narrative declares adjudicated resolution without a character sheet', () => {
+  assert.deepEqual(rulesUsageOf(NARRATIVE_MANIFEST), { resolution: 'adjudicated', sheet: 'none' });
+  const result = buildCharacter({
+    rules: NARRATIVE_CREATION,
+    backstory: 'A tired lighthouse keeper who hears the sea talk.',
+    proposal: { name: 'Mara', values: {}, equipment: [] },
+  });
+  assert.equal(result.status, 'created');
+  assert.equal(
+    result.status === 'created' ? result.character.profile.background : '',
+    'A tired lighthouse keeper who hears the sea talk.',
+  );
 });

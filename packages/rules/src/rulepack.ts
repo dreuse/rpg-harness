@@ -1,3 +1,12 @@
+import {
+  DEFAULT_RULES_USAGE,
+  RESOLUTION_STYLES,
+  type ResolutionStyle,
+  type RulesUsage,
+  SHEET_USAGES,
+  type SheetUsage,
+} from '../../domain/src/rules-usage.ts';
+
 export const RULEPACK_CONTRACT_VERSION = 1;
 
 export const SUPPORTED_PRIMITIVES = [
@@ -27,6 +36,8 @@ export type RulePackManifest = {
   revision: string;
   capabilities: Record<string, CapabilityValue>;
   characterSheetSchemaId?: string;
+  resolution?: ResolutionStyle;
+  sheet?: SheetUsage;
   sourceRefs: string[];
 };
 
@@ -44,12 +55,30 @@ export const isRecord = (value: unknown): value is Record<string, unknown> => {
 
 export const isNonEmptyString = (value: unknown): value is string => typeof value === 'string' && value.length > 0;
 
+const isResolution = (value: unknown): value is ResolutionStyle => RESOLUTION_STYLES.some((known) => known === value);
+const isSheetUsage = (value: unknown): value is SheetUsage => SHEET_USAGES.some((known) => known === value);
+
+export const rulesUsageOf = ({ resolution, sheet }: Pick<RulePackManifest, 'resolution' | 'sheet'>): RulesUsage => ({
+  resolution: resolution ?? DEFAULT_RULES_USAGE.resolution,
+  sheet: sheet ?? DEFAULT_RULES_USAGE.sheet,
+});
+
 const isCapabilityValue = (value: unknown): value is CapabilityValue =>
   typeof value === 'boolean' || value === ADJUDICATED;
 
 export const validateManifest = (input: unknown): ManifestResult => {
   if (!isRecord(input)) return { ok: false, issues: [{ path: '', message: 'must be an object' }] };
-  const { contractVersion, id, edition, revision, capabilities, characterSheetSchemaId, sourceRefs } = input;
+  const {
+    contractVersion,
+    id,
+    edition,
+    revision,
+    capabilities,
+    characterSheetSchemaId,
+    resolution,
+    sheet,
+    sourceRefs,
+  } = input;
   const hasSheet = Object.hasOwn(input, 'characterSheetSchemaId');
   const issues: ManifestIssue[] = [];
   if (contractVersion !== RULEPACK_CONTRACT_VERSION) {
@@ -70,6 +99,12 @@ export const validateManifest = (input: unknown): ManifestResult => {
   if (hasSheet && !isNonEmptyString(characterSheetSchemaId)) {
     issues.push({ path: 'characterSheetSchemaId', message: NON_EMPTY_STRING });
   }
+  if (resolution !== undefined && !isResolution(resolution)) {
+    issues.push({ path: 'resolution', message: `must be one of ${RESOLUTION_STYLES.join(', ')}` });
+  }
+  if (sheet !== undefined && !isSheetUsage(sheet)) {
+    issues.push({ path: 'sheet', message: `must be one of ${SHEET_USAGES.join(', ')}` });
+  }
   const refs: unknown[] = Array.isArray(sourceRefs) ? [...sourceRefs] : [];
   if (!Array.isArray(sourceRefs)) issues.push({ path: 'sourceRefs', message: 'must be an array' });
   refs.forEach((ref, index) => {
@@ -85,6 +120,8 @@ export const validateManifest = (input: unknown): ManifestResult => {
       revision: revision as string,
       capabilities: Object.fromEntries(capabilityEntries) as Record<string, CapabilityValue>,
       ...(hasSheet ? { characterSheetSchemaId: characterSheetSchemaId as string } : {}),
+      ...(resolution === undefined ? {} : { resolution: resolution as ResolutionStyle }),
+      ...(sheet === undefined ? {} : { sheet: sheet as SheetUsage }),
       sourceRefs: refs as string[],
     },
   };

@@ -35,6 +35,7 @@ import { VISUALIZATION_EVENT, type VisualizationEvent } from '../../../packages/
 import type { Ready } from '../../../packages/client-protocol/src/wire.ts';
 import type { CampaignId } from '../../../packages/domain/src/campaign.ts';
 import type { GmSettings } from '../../../packages/domain/src/gm.ts';
+import { DEFAULT_RULES_USAGE, usesDice, usesSheet } from '../../../packages/domain/src/rules-usage.ts';
 import { componentValue, DEFAULT_LOCALE, DEFAULT_PREFERENCES, translate, type UiPreferences } from './accessibility.ts';
 import { effectiveMotion, parseVisualization, ROLL_HISTORY, rollPlan } from './dice.ts';
 
@@ -119,9 +120,11 @@ export { OPENING_ACTION_ID } from '../../../packages/domain/src/campaign.ts';
 
 const SIDE_BY_SIDE: Layout['columns'] = [['conversation'], ['sheet', 'panels']];
 
-export const layoutFor = (width: number): Layout => {
-  if (!(width > COMPACT_MAX_WIDTH)) return { name: 'compact', columns: [PLAY_REGIONS] };
-  return { name: width <= MEDIUM_MAX_WIDTH ? 'medium' : 'wide', columns: SIDE_BY_SIDE };
+export const layoutFor = (width: number, hidden: readonly Region[] = []): Layout => {
+  const shown = (regions: readonly Region[]) => regions.filter((region) => !hidden.includes(region));
+  const compact = !(width > COMPACT_MAX_WIDTH);
+  const columns = (compact ? [PLAY_REGIONS] : SIDE_BY_SIDE).map(shown).filter((column) => column.length > 0);
+  return { name: compact ? 'compact' : width <= MEDIUM_MAX_WIDTH ? 'medium' : 'wide', columns };
 };
 
 export const initialState: DesktopState = {
@@ -228,6 +231,15 @@ const sheetGroupsOf = (
     return groups;
   }, []);
 
+const identityOf = (view: ViewDescriptor | undefined) => {
+  const fieldValue = (id: string) => view?.components.find((component) => component.id === id)?.value;
+  const name = fieldValue('name');
+  const description = fieldValue('description');
+  return typeof name === 'string'
+    ? { name, description: typeof description === 'string' ? description : undefined }
+    : undefined;
+};
+
 export const viewModel = (
   state: DesktopState,
   width: number,
@@ -236,12 +248,17 @@ export const viewModel = (
 ) => {
   const committed = state.snapshot?.turns ?? [];
   const motion = effectiveMotion(preferences.motion, preferences.reducedMotion);
+  const rules = state.snapshot?.rules ?? DEFAULT_RULES_USAGE;
+  const dice = usesDice(rules);
+  const sheet = usesSheet(rules);
   const pending = state.outbox.filter(
     ({ campaignId, actionId }) =>
       campaignId === state.selected && !committed.some((turn) => turn.actionId === actionId),
   );
   return {
-    layout: layoutFor(width),
+    layout: layoutFor(width, sheet ? [] : ['sheet']),
+    uses: { dice, sheet },
+    characterCard: sheet ? undefined : identityOf(state.views[SHEET_VIEW]),
     status: {
       connection: state.connection.status,
       label: statusLabel(state.connection, preferences.locale),
@@ -265,7 +282,7 @@ export const viewModel = (
     sheet: state.views[SHEET_VIEW],
     sheetGroups: sheetGroupsOf(state.views[SHEET_VIEW]?.components ?? [], state, preferences.locale),
     sheetEditing: state.sheetEditing,
-    rolls: state.rolls.map((roll, index) => rollPlan(roll, index === 0 && state.rolling ? motion : 'off')),
+    rolls: dice ? state.rolls.map((roll, index) => rollPlan(roll, index === 0 && state.rolling ? motion : 'off')) : [],
     fontScale: preferences.fontScale,
     animate: motion === 'full',
     motion: preferences.motion,
@@ -459,6 +476,7 @@ export const createDesktopClient = ({
           ? state.rejected
           : [...state.rejected, { actionId: action.actionId, input: action.input, message }],
     });
+    if (message === undefined) refresh();
   };
 
   const onReady = (message: Record<string, unknown>) => {

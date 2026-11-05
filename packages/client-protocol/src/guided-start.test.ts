@@ -46,7 +46,15 @@ const OPTIONS: StartOptions = {
       readyMade: true,
       sheet: ['Might'],
     },
-    { id: 'narrative', edition: 'original', blurb: 'Light rules.', recommended: true, readyMade: true, sheet: [] },
+    {
+      id: 'narrative',
+      edition: 'original',
+      blurb: 'Light rules.',
+      recommended: true,
+      readyMade: true,
+      sheet: [],
+      usage: { resolution: 'adjudicated', sheet: 'none' },
+    },
   ],
 };
 const PLAN: Result<CampaignPlan> = {
@@ -343,4 +351,45 @@ test('rpg-42a.39 guided start reads in Brazilian Portuguese and names the defaul
   assert.equal(unknown.error, 'Importe seu livro de regras. D&D 1.9');
   assert.equal(createCommand(skipAll, undefined, 'pt-BR').name, 'Minha aventura');
   assert.equal(createCommand({ ...skipAll, name: 'Ashfall' }, undefined, 'pt-BR').name, 'Ashfall');
+});
+
+const NARRATIVE_CHOICE = { kind: 'choose', field: 'ruleset', value: { id: 'narrative', edition: 'original' } } as const;
+const D20_CHOICE = { kind: 'choose', field: 'ruleset', value: { id: 'd20-lite', edition: 'original' } } as const;
+const toRules = [
+  { kind: 'path', path: 'guide' },
+  { kind: 'next' },
+  { kind: 'choose', field: 'genre', value: 'fantasy' },
+] as const;
+
+test('rpg-42a.38 rules step explains diceless and sheetless systems in plain words', () => {
+  const screen = startScreen(run(toRules), OPTIONS, undefined);
+  assert.equal(screen.step, 'rules');
+  assert.ok(screen.text.includes('Some systems use no dice. The GM decides what happens from your story.'));
+  assert.ok(
+    screen.text.includes('Some systems have no character sheet. You only need a name and a short description.'),
+  );
+});
+
+test('rpg-42a.38 character step says a sheetless game uses a name and description only', () => {
+  const sheetless = startScreen(run([...toRules, NARRATIVE_CHOICE]), OPTIONS, undefined);
+  assert.equal(sheetless.step, 'character');
+  assert.ok(
+    sheetless.text.includes(
+      'This game does not use a character sheet. Give your character a name and a short description.',
+    ),
+  );
+  const full = startScreen(run([...toRules, D20_CHOICE]), OPTIONS, undefined);
+  assert.ok(!full.text.some((line) => line.includes('does not use a character sheet')));
+});
+
+test('rpg-42a.38 features step drops the dice animation for a diceless ruleset', () => {
+  const featureLabels = (ruleset: typeof NARRATIVE_CHOICE | typeof D20_CHOICE) =>
+    startScreen(run([...toRules, ruleset, { kind: 'skip' }]), OPTIONS, undefined).options.map(({ label }) => label);
+  assert.deepEqual(featureLabels(NARRATIVE_CHOICE), ['Voice narration', 'Living world']);
+  assert.deepEqual(featureLabels(D20_CHOICE), ['Dice animation', 'Voice narration', 'Living world']);
+  assert.ok(
+    startScreen(run([...toRules, NARRATIVE_CHOICE, { kind: 'skip' }]), OPTIONS, undefined).text.includes(
+      'This game does not use dice.',
+    ),
+  );
 });

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { DEFAULT_RULES_USAGE } from '../../domain/src/rules-usage.ts';
 import {
   CapabilityDisabledError,
   capabilityState,
@@ -7,6 +8,7 @@ import {
   RULEPACK_CONTRACT_VERSION,
   type RulePackManifest,
   requireCapability,
+  rulesUsageOf,
   SUPPORTED_PRIMITIVES,
   validateManifest,
 } from './rulepack.ts';
@@ -142,4 +144,13 @@ test('no default d20 stat, dice or combat field is required', () => {
     assert.ok(!requiredPaths.some((path) => path.includes(name)), name);
   }
   assert.deepEqual(listCapabilities(manifest()), []);
+});
+
+test('declares resolution style and sheet usage, with defaults for packs that omit them', () => {
+  const declared = manifest({ resolution: 'adjudicated', sheet: 'none' });
+  assert.deepEqual(validateManifest(declared), { ok: true, manifest: declared });
+  assert.deepEqual(rulesUsageOf(declared), { resolution: 'adjudicated', sheet: 'none' });
+  assert.deepEqual(rulesUsageOf(manifest()), DEFAULT_RULES_USAGE);
+  const bad = validateManifest({ ...manifest(), resolution: 'coin', sheet: 'huge' });
+  assert.deepEqual(bad.ok ? [] : bad.issues.map(({ path }) => path), ['resolution', 'sheet']);
 });

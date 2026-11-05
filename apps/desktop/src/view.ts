@@ -111,8 +111,13 @@ const diagnostics = ({ diagnostics: { pid, gm, error, attempts } }: ViewModel, l
 
 const pageHeading = (text: string) => `<h1 id="${HEADING_ID}${STATUS}" tabindex="-1">${escapeHtml(text)}</h1>`;
 
-const header = ({ title }: ViewModel, locale: string) =>
-  `<hgroup>${pageHeading(title.campaign ?? translate(locale, 'app.name'))}${title.scene === undefined ? '' : `<p>${escapeHtml(title.scene)}</p>`}</hgroup>`;
+const rulesNote = ({ uses }: ViewModel, locale: string) => {
+  const key = uses.dice ? (uses.sheet ? '' : 'noSheet') : uses.sheet ? 'noDice' : 'noBoth';
+  return key === '' ? '' : `<p data-rules-note>${escapeHtml(translate(locale, `rules.note.${key}`))}</p>`;
+};
+
+const header = (model: ViewModel, locale: string) =>
+  `<hgroup>${pageHeading(model.title.campaign ?? translate(locale, 'app.name'))}${model.title.scene === undefined ? '' : `<p>${escapeHtml(model.title.scene)}</p>`}</hgroup>${rulesNote(model, locale)}`;
 
 const connection = (model: ViewModel, locale: string) =>
   `<p role="status" data-connection="${model.status.connection}">${escapeHtml(model.status.label)}</p>${model.status.canRetry ? button('data-action', 'retry', translate(locale, 'action.retry')) : ''}${diagnostics(model, locale)}`;
@@ -298,7 +303,7 @@ const settingsMenu = (
   voice: DesktopVoiceView | undefined,
   setup: VoiceSetupView | undefined,
 ) =>
-  `<details data-settings><summary id="settings-toggle">${escapeHtml(translate(locale, 'settings.label'))}</summary><div>${languageControl(locale)}${motionControl(model.motion, locale)}${voiceSettings(voice, setup, locale)}${gmSettings(model.gm, locale)}</div></details>`;
+  `<details data-settings><summary id="settings-toggle">${escapeHtml(translate(locale, 'settings.label'))}</summary><div>${languageControl(locale)}${model.uses.dice ? motionControl(model.motion, locale) : ''}${voiceSettings(voice, setup, locale)}${gmSettings(model.gm, locale)}</div></details>`;
 
 const setupBody = ({ step, provider, progress, error }: VoiceSetupView, locale: string): string => {
   const text = (key: string, values?: Record<string, string | number>) =>
@@ -498,7 +503,8 @@ const REGION_BODIES: Readonly<Record<Region, (model: ViewModel, locale: string) 
       ? empty(locale, 'sheet')
       : `${name}<p data-empty>${escapeHtml(translate(locale, 'sheet.noStats'))}</p>`;
   },
-  panels: ({ panels }, locale) =>
+  panels: ({ panels, characterCard }, locale) =>
+    characterCardHtml(characterCard, locale) +
     orEmpty(
       panels === undefined
         ? []
@@ -511,6 +517,11 @@ const REGION_BODIES: Readonly<Record<Region, (model: ViewModel, locale: string) 
       'panels',
     ),
 };
+
+const characterCardHtml = (card: ViewModel['characterCard'], locale: string) =>
+  card === undefined
+    ? ''
+    : `<section data-character aria-label="${escapeHtml(translate(locale, 'region.character'))}"><h3>${escapeHtml(card.name)}</h3>${card.description === undefined ? '' : `<p>${escapeHtml(card.description)}</p>`}</section>`;
 
 const section = (name: string, locale: string, body: string) =>
   `<section data-region="${name}" aria-label="${escapeHtml(translate(locale, `region.${name}`))}">${body}</section>`;
