@@ -8,7 +8,7 @@ import type {
   EventId,
   Turn,
 } from '../../../packages/domain/src/campaign.ts';
-import { OPENING_ACTION_ID } from '../../../packages/domain/src/campaign.ts';
+import { CHECK_SKIPPED, OPENING_ACTION_ID } from '../../../packages/domain/src/campaign.ts';
 import type { CampaignEntity } from '../../../packages/domain/src/entity.ts';
 import type { GmSettings } from '../../../packages/domain/src/gm.ts';
 import { playTurns } from '../../../packages/engine/src/character.ts';
@@ -56,6 +56,7 @@ import { scopedEventsOf, scopeLookupOf, worldOf } from './client-session.ts';
 import {
   checkRulesPrompt,
   languageInstruction,
+  noCheckPrompt,
   OPENING_PROMPT,
   RULES_RETRY_PROMPT,
   RULES_STRICTNESS_PROMPTS,
@@ -215,6 +216,9 @@ export const contextPacketOf = (
         ...(isStalled(state) ? [STALL_INSTRUCTION] : []),
         ...(language === undefined ? [] : [languageInstruction(language)]),
         ...strictnessInstructions(config, state, defaults),
+        ...committed.events
+          .filter(({ type }) => type === CHECK_SKIPPED)
+          .map(({ payload }) => noCheckPrompt(String(payload.reason))),
         ...(retry ? [RULES_RETRY_PROMPT] : []),
         ...(repeated.length === NONE ? [] : [repetitionRetryPrompt(repeated)]),
       ],

@@ -6,7 +6,7 @@ import {
   type Violation,
 } from '../../narrative/src/consistency.ts';
 import { GameMasterInterruptedError } from './scripted-session.ts';
-import { CHECK_RESOLVED, loadState, type PlayerAction, storedTurnOf } from './turn.ts';
+import { CHECK_RESOLVED, CHECK_SKIPPED, loadState, type PlayerAction, storedTurnOf } from './turn.ts';
 
 export type NarratedTurn = Pick<ConsistencyInput, 'narration' | 'claims'>;
 
@@ -44,7 +44,7 @@ const recordChecked = (
   { narration, claims }: NarratedTurn,
 ): GameplayOutcome => {
   const { events } = loadState(store, committed.turn.campaignId);
-  const checkResolved = committed.events.some(({ type }) => type === CHECK_RESOLVED);
+  const checkResolved = committed.events.some(({ type }) => type === CHECK_RESOLVED || type === CHECK_SKIPPED);
   const report = checkConsistency({ ...context, narration, claims, events, checkResolved });
   if (!report.ok) return { committed, inconsistent: report };
   store.recordNarration(committed.turn.campaignId, committed.turn.id, narration);

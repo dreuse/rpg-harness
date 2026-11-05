@@ -16,7 +16,7 @@ import {
   openClientSession,
   readCampaignState,
 } from './engine-gateway.ts';
-import { RULES_RETRY_PROMPT } from './gm-api.ts';
+import { noCheckPrompt, RULES_RETRY_PROMPT } from './gm-api.ts';
 import type { GmProposal } from './gm-proposals.ts';
 import { narrationOf } from './gm-segments.ts';
 
@@ -44,10 +44,10 @@ const tempDataDir = (t: TestContext) => {
   return dataDir;
 };
 
-const hollowLantern = async (t: TestContext, script: Script) => {
+const hollowLantern = async (t: TestContext, script: Script, pitch = D20_PITCH) => {
   const dataDir = tempDataDir(t);
   const describe = async () => 'Wren, a scout. Might 3, Agility 2, Wits 2, Presence 1';
-  for await (const _ of createEngineGateway(dataDir).create(CAMPAIGN, D20_PITCH, describe));
+  for await (const _ of createEngineGateway(dataDir).create(CAMPAIGN, pitch, describe));
   const packets: ContextPacket[] = [];
   const gm: GameMaster = {
     request: async (packet) => {
@@ -206,5 +206,25 @@ describe('rpg-42a.74 GM-proposed checks', () => {
       await say('I look at the bar');
       assert.equal(packets.length, 2);
     });
+  });
+});
+
+describe('rpg-42a.77 an action that cannot roll says why', () => {
+  it('shows the reason once and tells the GM to narrate the outcome itself', async (t) => {
+    const { say, snapshot, packets, eventsOfType } = await hollowLantern(
+      t,
+      [{ narration: AFTER_ROLL }],
+      'A fantasy story with no rulebook',
+    );
+    await say('Attack');
+    assert.equal(eventsOfType(CHECK_RESOLVED).length, 0);
+    assert.deepEqual(snapshot().noRoll, { actionId: snapshot().turns.at(-1)?.actionId, reason: 'no-rulebook' });
+    const sections = packets[0]?.sections ?? [];
+    assert.ok(
+      sections.some(
+        ({ name, items }) => name === 'instructions' && items.some((i) => i === noCheckPrompt('no-rulebook')),
+      ),
+    );
+    assert.ok(sections.some(({ name, items }) => name === 'results' && items.some((i) => i.includes('CheckSkipped'))));
   });
 });

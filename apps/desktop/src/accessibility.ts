@@ -419,6 +419,10 @@ export const CATALOG: Catalog = {
     'roll.skip': 'Skip animation',
     'roll.history': 'Recent rolls',
     'roll.offer': 'Roll',
+    'noRoll.no-rulebook': 'No roll: this campaign has no rulebook. The GM decides the outcome.',
+    'noRoll.dice-off': 'No roll: dice are off. The GM decides the outcome.',
+    'noRoll.unsupported-rulebook': 'No roll: this rulebook has no built-in checks. The GM decides the outcome.',
+    'noRoll.missing-scores': 'No roll: the character sheet scores are incomplete. The GM decides the outcome.',
     'language.label': 'Language',
     'storyLanguage.label': 'Story language',
     'action.label': 'Your action',
@@ -657,6 +661,12 @@ export const CATALOG: Catalog = {
     'roll.skip': 'Saltar animación',
     'roll.history': 'Tiradas recientes',
     'roll.offer': 'Tirar',
+    'noRoll.no-rulebook': 'Sin tirada: esta campaña no tiene libro de reglas. El GM decide el resultado.',
+    'noRoll.dice-off': 'Sin tirada: los dados están desactivados. El GM decide el resultado.',
+    'noRoll.unsupported-rulebook':
+      'Sin tirada: este libro de reglas no tiene pruebas integradas. El GM decide el resultado.',
+    'noRoll.missing-scores':
+      'Sin tirada: las puntuaciones de la hoja de personaje están incompletas. El GM decide el resultado.',
     'language.label': 'Idioma',
     'storyLanguage.label': 'Idioma de la historia',
     'action.label': 'Tu acción',
@@ -894,6 +904,12 @@ export const CATALOG: Catalog = {
     'roll.skip': 'Pular animação',
     'roll.history': 'Rolagens recentes',
     'roll.offer': 'Rolar',
+    'noRoll.no-rulebook': 'Sem rolagem: esta campanha não tem livro de regras. O mestre decide o resultado.',
+    'noRoll.dice-off': 'Sem rolagem: os dados estão desligados. O mestre decide o resultado.',
+    'noRoll.unsupported-rulebook':
+      'Sem rolagem: este livro de regras não tem testes embutidos. O mestre decide o resultado.',
+    'noRoll.missing-scores':
+      'Sem rolagem: os valores da ficha do personagem estão incompletos. O mestre decide o resultado.',
     'language.label': 'Idioma',
     'storyLanguage.label': 'Idioma da história',
     'action.label': 'Sua ação',

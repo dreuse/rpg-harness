@@ -9,10 +9,12 @@ import {
   type CampaignState,
   type CampaignStore,
   CHECK_RESOLVED,
+  CHECK_SKIPPED,
   type Character,
   type CharacterId,
   type CommittedTurn,
   type EventId,
+  type NoCheckReason,
   OPENING_ACTION_ID,
   PLAYER_ACTION_SUBMITTED,
   SCENE_OPENED,
@@ -39,9 +41,10 @@ export type CheckResolution = {
   readonly bonus?: number;
 };
 export type Check = (actionId: string, rng: Rng) => CheckResolution;
+export type NoCheck = { readonly noCheck: NoCheckReason };
 export type Step = readonly [type: string, payload: Record<string, unknown>, visibility?: TurnVisibility];
 
-export { CHECK_RESOLVED };
+export { CHECK_RESOLVED, CHECK_SKIPPED };
 
 export class InvalidActionError extends Error {
   readonly actionId: string;
@@ -180,17 +183,18 @@ export const replayOf = (
 export const performAction = (
   store: CampaignStore,
   action: PlayerAction,
-  check?: Check,
+  check?: Check | NoCheck,
   rng: Rng = Math.random,
 ): CommittedTurn => {
   const state = loadState(store, action.campaignId);
   const stored = replayOf(store, state, action);
   if (stored !== undefined) return stored;
   validate(state, action);
-  if (check !== undefined)
+  if (typeof check === 'function')
     return commit(store, action, [
       [CHECK_RESOLVED, { resolution: { ok: true, ...check(action.actionId, rng) } }, PLAYER_VISIBLE],
     ]);
+  if (check !== undefined) return commit(store, action, [[CHECK_SKIPPED, { reason: check.noCheck }, PLAYER_VISIBLE]]);
   return store.commitTurn({
     expectedRevision: action.expectedRevision,
     characters: [],

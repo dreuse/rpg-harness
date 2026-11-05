@@ -33,7 +33,7 @@ import {
 import { parseViewDescriptor } from '../../../packages/client-protocol/src/view-registry.ts';
 import { VISUALIZATION_EVENT, type VisualizationEvent } from '../../../packages/client-protocol/src/visualization.ts';
 import { NARRATION, type Ready } from '../../../packages/client-protocol/src/wire.ts';
-import type { CampaignId } from '../../../packages/domain/src/campaign.ts';
+import type { CampaignId, NoCheckReason } from '../../../packages/domain/src/campaign.ts';
 import type { GmSettings } from '../../../packages/domain/src/gm.ts';
 import { DEFAULT_RULES_USAGE, usesDice, usesSheet } from '../../../packages/domain/src/rules-usage.ts';
 import { componentValue, DEFAULT_LOCALE, DEFAULT_PREFERENCES, translate, type UiPreferences } from './accessibility.ts';
@@ -46,6 +46,15 @@ export const DESKTOP_VIEW_IDS = ['sheet'] as const;
 const SHEET_VIEW = 'sheet';
 const READY = 'Ready';
 const NEWLINE = '\n';
+type ConversationTurn = {
+  readonly actionId: string;
+  readonly input: string;
+  readonly narration: string;
+  readonly pending: boolean;
+  readonly noRoll?: NoCheckReason | undefined;
+};
+const ROLL_PATTERN = /^\/roll$/i;
+const PLAIN_ROLL = 'roll';
 const SEGMENT_JOIN = ' ';
 const CAMPAIGNS = 'Campaigns';
 const SNAPSHOT = 'Snapshot';
@@ -285,15 +294,22 @@ export const viewModel = (
     playing: state.selected !== undefined,
     home: homeOf(state, preferences.locale, now),
     conversation: [
-      ...committed.map(({ actionId, input, narration }) => ({ actionId, input, narration, pending: false })),
+      ...committed.map(({ actionId, input, narration }) => ({
+        actionId,
+        input,
+        narration,
+        pending: false,
+        ...(state.snapshot?.noRoll?.actionId === actionId ? { noRoll: state.snapshot.noRoll.reason } : {}),
+      })),
       ...pending.map(({ actionId, input }) => ({ actionId, input, narration: '', pending: true })),
-    ].map((turn, index, turns) =>
-      index === turns.length - 1 &&
-      turn.narration === '' &&
-      state.streaming !== undefined &&
-      state.outbox.some(({ actionId }) => actionId === turn.actionId)
-        ? { ...turn, narration: state.streaming.text }
-        : turn,
+    ].map(
+      (turn, index, turns): ConversationTurn =>
+        index === turns.length - 1 &&
+        turn.narration === '' &&
+        state.streaming !== undefined &&
+        state.outbox.some(({ actionId }) => actionId === turn.actionId)
+          ? { ...turn, narration: state.streaming.text }
+          : turn,
     ),
     rollOffer: pending.length === 0 ? state.snapshot?.rollOffer : undefined,
     sheet: state.views[SHEET_VIEW],
@@ -698,6 +714,11 @@ export const createDesktopClient = ({
     return { ok: true, value: action };
   };
 
+  const rollNow = () => {
+    const offer = state.snapshot?.rollOffer;
+    return offer === undefined ? submitAction(PLAIN_ROLL) : submitAction(offer.label, offer.offerId);
+  };
+
   return {
     state: () => state,
     subscribe: (listener: (state: DesktopState) => void) => {
@@ -749,7 +770,8 @@ export const createDesktopClient = ({
         ? failure('Rejected', 'no roll is offered right now')
         : submitAction(offer.label, offer.offerId);
     },
-    submit: (input: string): Result<SubmitPlayerAction> => submitAction(input),
+    submit: (input: string): Result<SubmitPlayerAction> =>
+      ROLL_PATTERN.test(input.trim()) ? rollNow() : submitAction(input),
     startScreen: () => startScreen(state.start.draft, state.start.options, state.start.plan, locale()),
     openStart: () => {
       update({ start: { ...state.start, open: true, created: undefined } });

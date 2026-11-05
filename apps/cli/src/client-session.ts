@@ -16,6 +16,7 @@ import {
   failure,
   type GmSnapshot,
   type ListCampaigns,
+  type NoRoll,
   PROTOCOL_VERSION,
   parseCommand,
   type Result,
@@ -34,10 +35,12 @@ import {
   type CampaignState,
   CHARACTER_CREATED,
   CHECK_RESOLVED,
+  CHECK_SKIPPED,
   type CharacterId,
   type DomainEvent,
   type EventId,
   MAIN_BRANCH,
+  type NoCheckReason,
   StaleRevisionError,
 } from '../../../packages/domain/src/campaign.ts';
 import type { CampaignEntity, Relationship, Visibility } from '../../../packages/domain/src/entity.ts';
@@ -109,6 +112,14 @@ const speakersOf = (entities: World['entities'], viewer: Viewer) =>
   visibleTo(entities, viewer)
     .filter(({ kind }) => kind === NPC_KIND)
     .map(({ id, name }) => ({ id, name }));
+
+const noRollOf = (state: CampaignState): NoRoll | undefined => {
+  const latest = playTurns(state).at(-1);
+  const skipped = state.events.find(({ type, turnId }) => type === CHECK_SKIPPED && turnId === latest?.id);
+  return latest === undefined || skipped === undefined
+    ? undefined
+    : { actionId: latest.actionId, reason: skipped.payload.reason as NoCheckReason };
+};
 
 const savedConfig = (events: ViewSource['state']['events']) => {
   const saved = parseCampaignConfig(campaignConfigOf(events));
@@ -308,6 +319,7 @@ export const createClientSessions = (
     const gm = gmSnapshotOf(state, defaults(), sessionId);
     const config = savedConfig(state.events);
     const rollOffer = pendingCheckOffer(state.events);
+    const noRoll = noRollOf(state);
     return deepFreeze(
       structuredClone({
         version: PROTOCOL_VERSION,
@@ -319,6 +331,7 @@ export const createClientSessions = (
         currentScene,
         turns: playTurns(state),
         ...(rollOffer === undefined ? {} : { rollOffer }),
+        ...(noRoll === undefined ? {} : { noRoll }),
         ...(language === undefined ? {} : { language }),
         ...(voice === undefined ? {} : { voice }),
         ...(gm === undefined ? {} : { gm }),

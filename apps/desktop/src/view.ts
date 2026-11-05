@@ -617,8 +617,8 @@ const REGION_BODIES: Readonly<Record<Region, (model: ViewModel, locale: string) 
   conversation: (model, locale) =>
     `<ol aria-live="polite">${model.conversation
       .map(
-        ({ actionId, input, narration, pending }) =>
-          `<li data-action-id="${escapeHtml(actionId)}"${pending ? ' aria-busy="true"' : ''}>${actionId === OPENING_ACTION_ID ? '' : speaker(locale, 'player', input)}${gmLine(locale, narration, pending)}</li>`,
+        ({ actionId, input, narration, pending, noRoll }) =>
+          `<li data-action-id="${escapeHtml(actionId)}"${pending ? ' aria-busy="true"' : ''}>${actionId === OPENING_ACTION_ID ? '' : speaker(locale, 'player', input)}${gmLine(locale, narration, pending)}${noRoll === undefined ? '' : systemLine(translate(locale, `noRoll.${noRoll}`))}</li>`,
       )
       .join(
         '',

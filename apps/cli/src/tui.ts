@@ -290,11 +290,12 @@ const sheetRows = (sheet: readonly ViewComponent[]) =>
     return [...heading, sheetRow(component)];
   });
 
-const conversation = ({ currentScene, characters, turns, rollOffer }: CampaignSnapshot, locale: string) => {
+const conversation = ({ currentScene, characters, turns, rollOffer, noRoll }: CampaignSnapshot, locale: string) => {
   const names = new Map(characters.map(({ id, name }) => [id, name]));
   const rows = turns.flatMap(({ actionId, actorId, input, narration }) => [
     ...(input.trim() === '' || actionId === OPENING_ACTION_ID ? [] : [`${names.get(actorId) ?? actorId}: ${input}`]),
     narration.trim() === '' ? say(locale, 'tui.noReply') : narration,
+    ...(noRoll?.actionId === actionId ? [say(locale, `noRoll.${noRoll.reason}`)] : []),
   ]);
   const offer = rollOffer === undefined ? [] : [say(locale, 'tui.rollOffer', { label: rollOffer.label })];
   return rows.length === 0 || currentScene === undefined

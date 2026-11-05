@@ -995,3 +995,25 @@ test('rpg-42a.74: accepting a roll with no open offer is rejected', () => {
   const { client } = connectedClient();
   assert.equal(client.acceptRoll().ok, false);
 });
+
+test('rpg-42a.77: /roll in the input accepts the open offer, or sends a plain roll, never the literal text', () => {
+  const { wire, client } = connectedClient();
+  wire.receive({ type: 'Snapshot', snapshot: snapshotAt(2, ['old']) });
+  assert.equal(client.submit('/roll').ok, true);
+  assert.equal((wire.sent.at(-1) as { input: string }).input, 'roll');
+  assert.equal((wire.sent.at(-1) as { rollOfferId?: string }).rollOfferId, undefined);
+  wire.receive({ type: 'Snapshot', snapshot: { ...snapshotAt(3, ['old']), rollOffer: ROLL_OFFER } });
+  assert.equal(client.submit(' /ROLL ').ok, true);
+  assert.equal((wire.sent.at(-1) as { rollOfferId?: string }).rollOfferId, ROLL_OFFER.offerId);
+});
+
+test('rpg-42a.77: the reason an action did not roll is shown once under its turn, localized', () => {
+  const { wire, client } = connectedClient();
+  wire.receive({
+    type: 'Snapshot',
+    snapshot: { ...snapshotAt(2, ['old']), noRoll: { actionId: 'old', reason: 'no-rulebook' } },
+  });
+  const html = renderView(viewModel(client.state(), WIDE_WIDTH), 'en');
+  assert.equal(html.match(/No roll: this campaign has no rulebook/g)?.length, 1);
+  assert.match(renderView(viewModel(client.state(), WIDE_WIDTH), 'pt-BR'), /Sem rolagem: esta campanha/);
+});

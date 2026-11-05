@@ -69,6 +69,8 @@ export const RULES_STRICTNESS_PROMPTS: Readonly<Record<RulesStrictness, string>>
 };
 export const RULES_RETRY_PROMPT =
   'Your previous reply claimed a mechanical result the engine did not resolve. Write it again without any hit, miss, damage or other rule outcome, and add a check proposal if the rules call for one.';
+export const noCheckPrompt = (reason: string): string =>
+  `The engine made no roll this turn (${reason}). Narrate the outcome of the player's action yourself. Do not ask the player to attempt it or to roll.`;
 export const repetitionRetryPrompt = (lines: readonly string[]): string =>
   `Your previous reply repeated earlier narration: ${lines.map((line) => JSON.stringify(line)).join(' ')}. Write it again with a new closing line and a new beat.`;
 export const checkRulesPrompt = (ruleIds: readonly string[]): string =>

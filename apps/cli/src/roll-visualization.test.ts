@@ -23,8 +23,8 @@ import { createSeededRng } from '../../../packages/rules/src/dice.ts';
 import { DEFAULT_POOL_CONFIG, rollPool } from '../../../packages/rules/src/dice-pool-lite.ts';
 import { BUILT_IN_PACKS } from './import-gateway.ts';
 import {
-  checkFor,
-  checkForAction,
+  checkForAction as checkForActionOrReason,
+  checkFor as checkForOrReason,
   checkResult,
   checkRulesFor,
   DICE_MECHANIC,
@@ -181,6 +181,10 @@ test('built-in dice rulepacks let a campaign turn dice visualization on', () => 
   }
 });
 
+const rollOnly = (check: ReturnType<typeof checkForOrReason>) => (typeof check === 'function' ? check : undefined);
+const checkFor = (...args: Parameters<typeof checkForOrReason>) => rollOnly(checkForOrReason(...args));
+const checkForAction = (...args: Parameters<typeof checkForActionOrReason>) =>
+  rollOnly(checkForActionOrReason(...args));
 const HERO = 'hero';
 const heroCreated = (values: Readonly<Record<string, number>>) =>
   ({
@@ -229,9 +233,41 @@ test('a d20-lite attempt checks the hero default attribute against the pack DC a
   assert.equal(shown?.modifier, MIGHT_MOD);
   assert.match(shown?.outcome ?? '', /^check\./);
 
-  assert.equal(checkFor(configured(builtInConfig('d20-lite')), TRY, HERO), undefined);
   assert.equal(checkFor([...campaign, sheetEdited(DEFAULT_CHECK_ATTRIBUTE, 99)], TRY, HERO), undefined);
-  assert.equal(checkFor(campaign, TRY, 'stranger'), undefined);
+});
+
+test('rpg-42a.77: a d20-lite actor without scores rolls with modifier 0', () => {
+  const TRY = 'I try to climb the wall';
+  const campaign = configured(builtInConfig('d20-lite'));
+  assert.equal(checkFor(campaign, TRY, HERO)?.('a', createSeededRng(SEED)).bonus, 0);
+  assert.equal(
+    checkFor([...campaign, heroCreated(ATTRIBUTES)], TRY, 'stranger')?.('a', createSeededRng(SEED)).bonus,
+    0,
+  );
+});
+
+test('rpg-42a.77: a matched action with no possible check names the reason', () => {
+  const ATTACK_WORD = 'Attack';
+  const d20 = configured(builtInConfig('d20-lite'));
+  assert.deepEqual(checkForOrReason(configured(visualizingConfig(true)), ATTACK_WORD, HERO), {
+    noCheck: 'unsupported-rulebook',
+  });
+  assert.deepEqual(checkForOrReason([], ATTACK_WORD, HERO, undefined, 'off'), { noCheck: 'no-rulebook' });
+  assert.deepEqual(
+    checkForOrReason([...configured(builtInConfig('d20-lite', 'off')), heroCreated(ATTRIBUTES)], ATTACK_WORD, HERO),
+    { noCheck: 'dice-off' },
+  );
+  assert.deepEqual(
+    checkForOrReason(
+      [...d20, heroCreated(ATTRIBUTES), sheetEdited(DEFAULT_CHECK_ATTRIBUTE, 99)],
+      ATTACK_WORD,
+      HERO,
+      undefined,
+      'as-written',
+    ),
+    { noCheck: 'missing-scores' },
+  );
+  assert.equal(checkForOrReason(d20, 'I wave', HERO), undefined);
 });
 
 test('rpg-42a.10: an attempt checks the attribute its words name and falls back to the default', () => {

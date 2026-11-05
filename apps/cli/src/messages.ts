@@ -38,6 +38,10 @@ export const CLI_CATALOG: Catalog = {
     'help.roll': '/roll - Roll the check the GM offered.',
     'tui.rollOffer': 'Roll offered: {label}. Type /roll or say you attempt it.',
     'tui.noRoll': 'No roll is offered right now.',
+    'noRoll.no-rulebook': 'No roll: this campaign has no rulebook. The GM decides the outcome.',
+    'noRoll.dice-off': 'No roll: dice are off. The GM decides the outcome.',
+    'noRoll.unsupported-rulebook': 'No roll: this rulebook has no built-in checks. The GM decides the outcome.',
+    'noRoll.missing-scores': 'No roll: the character sheet scores are incomplete. The GM decides the outcome.',
     'help.toggle': '{key} - Show or hide this help.',
     'help.quit': '{key} - Quit.',
     'dice.modifier': 'modifier {value}',
@@ -185,6 +189,12 @@ export const CLI_CATALOG: Catalog = {
     'help.roll': '/roll - Faz a rolagem que o mestre ofereceu.',
     'tui.rollOffer': 'Rolagem oferecida: {label}. Digite /roll ou diga que tenta.',
     'tui.noRoll': 'Nenhuma rolagem é oferecida agora.',
+    'noRoll.no-rulebook': 'Sem rolagem: esta campanha não tem livro de regras. O mestre decide o resultado.',
+    'noRoll.dice-off': 'Sem rolagem: os dados estão desligados. O mestre decide o resultado.',
+    'noRoll.unsupported-rulebook':
+      'Sem rolagem: este livro de regras não tem testes embutidos. O mestre decide o resultado.',
+    'noRoll.missing-scores':
+      'Sem rolagem: os valores da ficha do personagem estão incompletos. O mestre decide o resultado.',
     'help.toggle': '{key} - Mostra ou esconde esta ajuda.',
     'help.quit': '{key} - Sai.',
     'dice.modifier': 'modificador {value}',

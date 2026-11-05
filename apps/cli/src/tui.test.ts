@@ -1019,6 +1019,14 @@ test('rpg-42a.74: the TUI conversation names an open roll offer and the /roll hi
   assert.match(screen(press([key('?')])), /\/roll - Roll the check the GM offered\./);
 });
 
+test('rpg-42a.77: the TUI conversation shows why the last action did not roll, localized', () => {
+  const actionId = snapshot.turns.at(-1)?.actionId;
+  assert.ok(actionId);
+  const skipped = { ...data, snapshot: { ...snapshot, noRoll: { actionId, reason: 'dice-off' as const } } };
+  assert.match(renderLinear(skipped, PLAIN_WIDE).join('\n'), /No roll: dice are off\./);
+  assert.doesNotMatch(renderLinear(data, PLAIN).join('\n'), /No roll:/);
+});
+
 test('rpg-42a.74: /roll accepts the open offer by id and says so when none is open', async () => {
   const { session, campaignId } = engineSession();
   const sent: unknown[] = [];

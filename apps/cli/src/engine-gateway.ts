@@ -38,6 +38,7 @@ import {
 import { contextBudgetOf } from '../../../packages/engine/src/memory.ts';
 import {
   CHECK_RESOLVED,
+  CHECK_SKIPPED,
   campaignConfigOf,
   loadState,
   openScene,
@@ -414,7 +415,8 @@ const narrateLatest = async (
   let proposals: readonly GmProposal[] = [];
   const { voice, notice: voiceNotice } = await speak(committed.turn.id);
   const enforced = enforcedStrictnessFor(state, defaults);
-  const checkPending = enforced !== undefined && !committed.events.some(({ type }) => type === CHECK_RESOLVED);
+  const checkPending =
+    enforced !== undefined && !committed.events.some(({ type }) => type === CHECK_RESOLVED || type === CHECK_SKIPPED);
   let reply: GmTurnReply | undefined;
   const previous = previousNarrationsOf(state, committed);
   const forward = streamOf(checkPending ? undefined : voice, listener, committed.turn.id);

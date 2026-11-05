@@ -6,7 +6,12 @@ import {
   type VisualizationEvent,
   type VisualizationPreference,
 } from '../../../packages/client-protocol/src/visualization.ts';
-import type { CampaignEvent, CampaignState, CharacterId } from '../../../packages/domain/src/campaign.ts';
+import type {
+  CampaignEvent,
+  CampaignState,
+  CharacterId,
+  NoCheckReason,
+} from '../../../packages/domain/src/campaign.ts';
 import { CHARACTER_KIND, parseCharacterProfile } from '../../../packages/domain/src/character.ts';
 import type { CampaignEntity, Visibility } from '../../../packages/domain/src/entity.ts';
 import type { GmSettings } from '../../../packages/domain/src/gm.ts';
@@ -22,9 +27,10 @@ import {
   pendingCheckOffer,
 } from '../../../packages/engine/src/check-offer.ts';
 import { gmSettingsOf } from '../../../packages/engine/src/gm-settings.ts';
-import { type Check, campaignConfigOf } from '../../../packages/engine/src/turn.ts';
+import { type Check, campaignConfigOf, type NoCheck } from '../../../packages/engine/src/turn.ts';
 import { type CampaignConfig, parseCampaignConfig } from '../../../packages/intent/src/config.ts';
 import {
+  ATTRIBUTE_AVERAGE,
   ATTRIBUTE_MAX,
   ATTRIBUTE_MIN,
   ATTRIBUTES,
@@ -161,14 +167,16 @@ type CheckSource = (
   input: string,
   worldProfile: unknown,
   ruleId?: string,
-) => Check | undefined;
+) => Check | NoCheck | undefined;
+
+const unavailable = (noCheck: NoCheckReason): NoCheck => ({ noCheck });
 
 const d20Check: CheckSource = (events, actorId, input, worldProfile, ruleId) => {
   const parsed = parseCharacterProfile(profileOf(events, actorId, worldProfile));
-  if (!parsed.ok) return undefined;
-  const scores = new Map(parsed.profile.traits.map(({ id, value }) => [id, value]));
-  const attributes = Object.fromEntries(ATTRIBUTES.map((id) => [id, scores.get(id)]));
-  if (!ATTRIBUTES.every((id) => isScore(attributes[id]))) return undefined;
+  const scores = new Map(parsed.ok ? parsed.profile.traits.map(({ id, value }) => [id, value]) : []);
+  const written = ATTRIBUTES.some((id) => scores.has(id));
+  const attributes = Object.fromEntries(ATTRIBUTES.map((id) => [id, written ? scores.get(id) : ATTRIBUTE_AVERAGE]));
+  if (!ATTRIBUTES.every((id) => isScore(attributes[id]))) return unavailable('missing-scores');
   const sheet = createSheet({ characterId: actorId, attributes: attributes as Record<Attribute, number> });
   const attribute = ruleId === undefined ? attributeOf(input) : D20_LITE_CHECK_RULES[ruleId];
   if (attribute === undefined) return undefined;
@@ -234,16 +242,29 @@ export const checkRulesFor = (
 const worldProfileOf = (entities: readonly CampaignEntity[], actorId: CharacterId) =>
   entities.find(({ id, kind }) => id === actorId && kind === CHARACTER_KIND)?.data;
 
+const hasRulebook = (events: readonly CampaignEvent[]) => {
+  const saved = parseCampaignConfig(campaignConfigOf(events));
+  return saved.ok && saved.config.rulepack !== null;
+};
+
+const setupOf = (events: readonly CampaignEvent[], strictness: RulesStrictness) => {
+  const saved = parseCampaignConfig(campaignConfigOf(events));
+  if (!saved.ok || saved.config.rulepack === null) return unavailable('no-rulebook');
+  if (!rollsDice(saved.config)) return unavailable('dice-off');
+  return checkEntryOf(events, strictness) ?? unavailable('unsupported-rulebook');
+};
+
 export const checkFor = (
   events: readonly CampaignEvent[],
   input: string,
   actorId: CharacterId,
   entities = NO_ENTITIES,
   strictness: RulesStrictness = DEFAULT_RULES_STRICTNESS,
-): Check | undefined =>
-  callsForCheck(input, strictness)
-    ? checkEntryOf(events, strictness)?.[1](events, actorId, input, worldProfileOf(entities, actorId))
-    : undefined;
+): Check | NoCheck | undefined => {
+  if (!callsForCheck(input, hasRulebook(events) ? strictness : AS_WRITTEN)) return undefined;
+  const setup = setupOf(events, strictness);
+  return 'noCheck' in setup ? setup : setup[1](events, actorId, input, worldProfileOf(entities, actorId));
+};
 
 export const offeredCheckFor = (
   events: readonly CampaignEvent[],
@@ -252,9 +273,10 @@ export const offeredCheckFor = (
   entities = NO_ENTITIES,
 ): Check | undefined => {
   const entry = checkEntryOf(events, AS_WRITTEN);
-  return entry?.[2].includes(ruleId)
+  const offered = entry?.[2].includes(ruleId)
     ? entry[1](events, actorId, label, worldProfileOf(entities, actorId), ruleId)
     : undefined;
+  return typeof offered === 'function' ? offered : undefined;
 };
 
 const acceptsOffer = (input: string) => wordsOf(input).some((word) => ATTEMPT_WORDS.has(word));
@@ -265,7 +287,7 @@ export const checkForAction = (
   actorId: CharacterId,
   entities = NO_ENTITIES,
   strictness: RulesStrictness = DEFAULT_RULES_STRICTNESS,
-): Check | undefined => {
+): Check | NoCheck | undefined => {
   const offer = pendingCheckOffer(events);
   if (rollOfferId !== undefined && offer?.offerId !== rollOfferId) throw new RangeError(CLOSED_OFFER);
   if (offer !== undefined && rollOfferId !== undefined) {

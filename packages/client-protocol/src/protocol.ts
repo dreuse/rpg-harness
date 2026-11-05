@@ -5,6 +5,7 @@ import type {
   CharacterId,
   DomainEvent,
   EventId,
+  NoCheckReason,
   Scene,
   SceneId,
   Turn,
@@ -244,6 +245,8 @@ export type RollOffer = {
   readonly label: string;
 };
 
+export type NoRoll = { readonly actionId: string; readonly reason: NoCheckReason };
+
 export type CampaignSnapshot = {
   readonly version: ProtocolVersion;
   readonly campaignId: CampaignId;
@@ -254,6 +257,7 @@ export type CampaignSnapshot = {
   readonly currentScene: Scene | undefined;
   readonly turns: readonly Turn[];
   readonly rollOffer?: RollOffer;
+  readonly noRoll?: NoRoll;
   readonly language?: string;
   readonly voice?: SavedVoiceSettings;
   readonly gm?: GmSnapshot;

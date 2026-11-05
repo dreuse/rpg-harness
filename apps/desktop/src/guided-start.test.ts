@@ -10,7 +10,10 @@ import {
   type StartDraft,
 } from '../../../packages/client-protocol/src/guided-start.ts';
 import type { ClientCommand } from '../../../packages/client-protocol/src/protocol.ts';
+import { CHECK_RESOLVED } from '../../../packages/domain/src/campaign.ts';
+import { D20_SIDES } from '../../../packages/rules/src/d20-lite.ts';
 import { CAMPAIGN_ENV, startDaemon } from '../../cli/src/desktop-daemon.ts';
+import { readCampaignState } from '../../cli/src/engine-gateway.ts';
 import { hermeticGmEnv } from '../../cli/src/gm-test-env.ts';
 import { DATA_DIR_ENV } from '../../cli/src/setup-check.ts';
 import { daemonTransport } from './main.ts';
@@ -166,4 +169,55 @@ test('rpg-42a.39 desktop guided start follows the player language and names the 
   assert.ok(summary?.text.includes('Gênero: horror (escolhido)'));
   await desktop.act([{ kind: 'start' }]);
   assert.ok(desktop.client.state().campaigns.some(({ name }) => name === 'Minha aventura'));
+});
+
+const D20_GUIDE: readonly StartAction[] = GUIDE.map((action) =>
+  action.kind === 'choose' && action.field === 'ruleset'
+    ? { ...action, value: { id: 'd20-lite', edition: 'original' } }
+    : action,
+);
+const DEFAULT_GUIDE: readonly StartAction[] = [
+  { kind: 'path', path: 'guide' },
+  { kind: 'next' },
+  { kind: 'next' },
+  { kind: 'next' },
+  { kind: 'skip' },
+  { kind: 'next' },
+  { kind: 'enter', text: GUIDED_NAME },
+];
+
+const rolledSides = (dataDir: string) => {
+  const [resolved] = readCampaignState(dataDir, GUIDED_NAME).events.filter(({ type }) => type === CHECK_RESOLVED);
+  const resolution = resolved?.payload.resolution as { rolls: { pool: { dice: { sides: number }[] } }[] } | undefined;
+  return resolution?.rolls[0]?.pool.dice[0]?.sides;
+};
+
+const attackThroughDesktop = async (t: TestContext, actions: readonly StartAction[], input: string) => {
+  const { dataDir } = await createThrough(t, actions);
+  const { client, settled } = await openDesktop(t, envFor(dataDir, GUIDED_NAME));
+  const id = client.state().campaigns.find((item) => item.name === GUIDED_NAME)?.id;
+  assert.ok(id);
+  client.select(id);
+  await settled();
+  assert.equal(client.submit(input).ok, true);
+  await settled();
+  return { client, dataDir };
+};
+
+test('rpg-42a.77 guided start with the classic d20 and no sheet rolls a d20 for Attack', async (t) => {
+  const { client, dataDir } = await attackThroughDesktop(t, D20_GUIDE, 'Attack');
+  assert.equal(rolledSides(dataDir), D20_SIDES);
+  assert.equal(client.state().snapshot?.noRoll, undefined);
+});
+
+test('rpg-42a.77 guided start without a ruleset shows the no-rulebook reason for Attack', async (t) => {
+  const { client, dataDir } = await attackThroughDesktop(t, DEFAULT_GUIDE, 'Attack');
+  assert.equal(rolledSides(dataDir), undefined);
+  assert.equal(client.state().snapshot?.noRoll?.reason, 'no-rulebook');
+});
+
+test('rpg-42a.77 /roll in the desktop input rolls a plain d20 and is not sent to the GM as text', async (t) => {
+  const { client, dataDir } = await attackThroughDesktop(t, D20_GUIDE, '/roll');
+  assert.equal(rolledSides(dataDir), D20_SIDES);
+  assert.notEqual(client.state().snapshot?.turns.at(-1)?.input, '/roll');
 });
