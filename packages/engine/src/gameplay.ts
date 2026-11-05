@@ -1,10 +1,11 @@
-import type { CampaignStore, CommittedTurn } from '../../domain/src/campaign.ts';
+import { type CampaignState, type CampaignStore, type CommittedTurn, GM_ROLLED } from '../../domain/src/campaign.ts';
 import {
   type ConsistencyInput,
   type ConsistencyReport,
   checkConsistency,
   type Violation,
 } from '../../narrative/src/consistency.ts';
+import { gmRollIdOf } from './gm-roll.ts';
 import { GameMasterInterruptedError } from './scripted-session.ts';
 import { CHECK_RESOLVED, CHECK_SKIPPED, loadState, type PlayerAction, storedTurnOf } from './turn.ts';
 
@@ -37,15 +38,30 @@ const PENDING_NARRATION = '';
 
 const isUnresolvedOutcome = ({ kind }: Violation) => kind === 'unresolved-outcome';
 
+const gmRollIdsAfter = (
+  { events, turns }: Pick<CampaignState, 'events' | 'turns'>,
+  { turn }: CommittedTurn,
+): ReadonlySet<string> => {
+  const actionOf = new Map(turns.map(({ id, actionId }) => [id, actionId]));
+  const rolled = events
+    .slice(events.findLastIndex(({ turnId }) => turnId === turn.id) + 1)
+    .filter(({ type }) => type === GM_ROLLED)
+    .map(({ turnId }) => gmRollIdOf(actionOf.get(turnId) ?? ''));
+  return new Set(rolled.filter((id) => id !== undefined));
+};
+
 const recordChecked = (
   store: CampaignStore,
   committed: CommittedTurn,
   context: NarrationContext,
   { narration, claims }: NarratedTurn,
 ): GameplayOutcome => {
-  const { events } = loadState(store, committed.turn.campaignId);
+  const state = loadState(store, committed.turn.campaignId);
+  const { events } = state;
   const checkResolved = committed.events.some(({ type }) => type === CHECK_RESOLVED || type === CHECK_SKIPPED);
-  const report = checkConsistency({ ...context, narration, claims, events, checkResolved });
+  const rolledIds = gmRollIdsAfter(state, committed);
+  const unrolled = claims.filter(({ kind, ref }) => kind !== 'outcome' || !rolledIds.has(ref));
+  const report = checkConsistency({ ...context, narration, claims: unrolled, events, checkResolved });
   if (!report.ok) return { committed, inconsistent: report };
   store.recordNarration(committed.turn.campaignId, committed.turn.id, narration);
   return { committed, narration };

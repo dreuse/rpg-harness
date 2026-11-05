@@ -41,6 +41,29 @@ export const createSeededRng = (seed: number): Rng => {
   };
 };
 
+const EXPRESSION_SHAPE = /^[+-]?[^+-]+(?:[+-][^+-]+)*$/;
+const EXPRESSION_TOKEN = /[+-]?[^+-]+/g;
+const DICE_TOKEN = /^\+?(\d{1,4})d(\d{1,4})$/;
+const MODIFIER_TOKEN = /^([+-]?\d{1,9})$/;
+const WHITESPACE = /\s+/g;
+const COUNT_GROUP = 1;
+const SIDES_GROUP = 2;
+
+export const parseDiceExpression = (expression: string): DicePool | undefined => {
+  const compact = expression.replace(WHITESPACE, '');
+  if (!EXPRESSION_SHAPE.test(compact)) return undefined;
+  const dice: DieTerm[] = [];
+  let modifier = 0;
+  for (const token of compact.match(EXPRESSION_TOKEN) ?? []) {
+    const term = DICE_TOKEN.exec(token);
+    if (term !== null) dice.push({ count: Number(term[COUNT_GROUP]), sides: Number(term[SIDES_GROUP]) });
+    else if (MODIFIER_TOKEN.test(token)) modifier += Number(token);
+    else return undefined;
+  }
+  const parsed = validateDicePool({ dice, modifier });
+  return parsed.ok ? parsed.pool : undefined;
+};
+
 const isUnitInterval = (value: number) => Number.isFinite(value) && value >= 0 && value < 1;
 
 const isIntegerIn = (value: unknown, min: number, max: number): value is number =>

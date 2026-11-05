@@ -1018,3 +1018,20 @@ test('rpg-42a.77: the reason an action did not roll is shown once under its turn
   assert.equal(html.match(/No roll: this campaign has no rulebook/g)?.length, 1);
   assert.match(renderView(viewModel(client.state(), WIDE_WIDTH), 'pt-BR'), /Sem rolagem: esta campanha/);
 });
+
+test('rpg-42a.89: a roll tray entry names the NPC that rolled and escapes the label', () => {
+  const { wire, client } = connectedClient();
+  const npcRoll = (resultId: string, roller: string) => ({
+    ...rollEvent(resultId, 12),
+    final: { total: 15, modifier: 3, roller },
+  });
+  wire.receive(npcRoll('tam-swing', 'Old Tam'));
+  const html = renderView(viewModel(client.state(), WIDE_WIDTH), 'en');
+  assert.match(html, /<figcaption>[^<]*d20 12[^<]*rolled by Old Tam<\/figcaption>/);
+  assert.match(renderView(viewModel(client.state(), WIDE_WIDTH), 'pt-BR'), /rolada por Old Tam/);
+  wire.receive(npcRoll('hostile', '<b>Tam</b>'));
+  const hostile = renderView(viewModel(client.state(), WIDE_WIDTH), 'en');
+  assert.doesNotMatch(hostile, /<b>Tam<\/b>/);
+  assert.match(hostile, /rolled by &lt;b&gt;Tam&lt;\/b&gt;/);
+  assert.match(hostile, /<details data-roll-history>[\s\S]*rolled by Old Tam/);
+});

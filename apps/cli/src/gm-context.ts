@@ -55,6 +55,7 @@ import { touchesOf, walkGraph } from '../../../packages/persistence/src/graph.ts
 import { scopedEventsOf, scopeLookupOf, worldOf } from './client-session.ts';
 import {
   checkRulesPrompt,
+  GM_ROLL_PROMPT,
   languageInstruction,
   noCheckPrompt,
   OPENING_PROMPT,
@@ -66,7 +67,7 @@ import {
 import { budgetOf } from './gm-limits.ts';
 import { COMPARED_NARRATIONS, closingSentencesOf } from './gm-repetition.ts';
 import { describeConfig, styleLinesOf } from './quickstart.ts';
-import { checkRulesFor, enforcedStrictnessFor, rulesStrictnessFor } from './roll-visualization.ts';
+import { checkRulesFor, enforcedStrictnessFor, gmRollsAllowed, rulesStrictnessFor } from './roll-visualization.ts';
 import { panelsOf } from './views.ts';
 
 export const SCENE_TURN_LIMIT = 20;
@@ -148,6 +149,7 @@ export type PacketOptions = {
   readonly defaults?: GmSettings;
   readonly retry?: boolean;
   readonly repeated?: readonly string[];
+  readonly gmRolls?: readonly string[];
 };
 
 const strictnessInstructions = (config: ReturnType<typeof configOf>, state: CampaignState, defaults: GmSettings) => {
@@ -166,7 +168,7 @@ export const contextPacketOf = (
   viewer: Viewer = PLAYER_VIEWER,
   preset: ContextBudgetPreset = contextBudgetOf(state.changes),
   ratio = 1,
-  { defaults = {}, retry = false, repeated = [] }: PacketOptions = {},
+  { defaults = {}, retry = false, repeated = [], gmRolls = [] }: PacketOptions = {},
 ): ContextPacket => {
   const campaignId = state.campaign.id;
   const scoped = eventsOfTypes(database, campaignId, MEMORY_EVENT_TYPES);
@@ -223,6 +225,7 @@ export const contextPacketOf = (
         ...(isStalled(state) ? [STALL_INSTRUCTION] : []),
         ...(language === undefined ? [] : [languageInstruction(language)]),
         ...strictnessInstructions(config, state, defaults),
+        ...(gmRollsAllowed(state.events, rulesStrictnessFor(state, defaults)) ? [GM_ROLL_PROMPT] : []),
         ...committed.events
           .filter(({ type }) => type === CHECK_SKIPPED)
           .map(({ payload }) => noCheckPrompt(String(payload.reason))),
@@ -265,7 +268,8 @@ export const contextPacketOf = (
       recentClosings: closingSentencesOf(previousNarrationsOf(state, committed)),
       results: committed.events
         .filter(({ id }) => visibleEvents.has(id))
-        .map(({ type, payload }) => `${type} ${JSON.stringify(payload)}`),
+        .map(({ type, payload }) => `${type} ${JSON.stringify(payload)}`)
+        .concat(gmRolls),
       playerInput: [committed.turn.input],
     },
     budget,

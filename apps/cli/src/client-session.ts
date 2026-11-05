@@ -39,6 +39,7 @@ import {
   type CharacterId,
   type DomainEvent,
   type EventId,
+  GM_ROLLED,
   MAIN_BRANCH,
   type NoCheckReason,
   StaleRevisionError,
@@ -101,6 +102,8 @@ const NO_WORLD: WorldSource = () => EMPTY_WORLD;
 const NEWLINE = '\n';
 const SCOPE_CACHE_SLACK = 2;
 const UNKNOWN_PLAY_TIME = null;
+
+const ROLL_EVENT_TYPES = [CHECK_RESOLVED, GM_ROLLED];
 
 export const scopedEventsOf =
   (database: DatabaseSync): EventSource =>
@@ -301,9 +304,9 @@ export const createClientSessions = (
     const encounter = actedEvents.flatMap(({ id, payload }) =>
       resultsOf(payload, actedScopes.get(id)?.visibility ?? HIDDEN),
     );
-    const checks = readEvents(campaignId, { type: CHECK_RESOLVED, afterRevision: fromRevision }).flatMap(
-      ({ payload, visibility }) => resultsOf(payload, visibility),
-    );
+    const checks = ROLL_EVENT_TYPES.flatMap((type) => readEvents(campaignId, { type, afterRevision: fromRevision }))
+      .sort((first, second) => first.seq - second.seq)
+      .flatMap(({ payload, visibility }) => resultsOf(payload, visibility));
     return { results: [...encounter, ...checks], preference: visualizationPreferenceOf(events) };
   };
 

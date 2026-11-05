@@ -7,6 +7,13 @@ import {
   type FactStore,
 } from '../../../packages/domain/src/entity.ts';
 import { GM_PROPOSAL_INPUT, offerCheck } from '../../../packages/engine/src/check-offer.ts';
+import {
+  GM_ROLL_VISIBILITIES,
+  type GmRollVisibility,
+  MAX_ROLL_EXPRESSION_LENGTH,
+  MAX_ROLL_REASON_LENGTH,
+  rollForGm,
+} from '../../../packages/engine/src/gm-roll.ts';
 import { introduceEntity, openPending } from '../../../packages/engine/src/memory.ts';
 import {
   ActionIdConflictError,
@@ -16,6 +23,7 @@ import {
 } from '../../../packages/engine/src/turn.ts';
 import { PENDING_KINDS, type PendingKind } from '../../../packages/memory/src/graph.ts';
 import type { NarrationClaim } from '../../../packages/narrative/src/consistency.ts';
+import type { Rng } from '../../../packages/rules/src/dice.ts';
 import { isRecord } from '../../../packages/rules/src/rulepack.ts';
 
 export const MAX_PROPOSALS = 8;
@@ -35,6 +43,7 @@ export const ENTITY_PROPOSAL = 'entity';
 export const PENDING_PROPOSAL = 'pending';
 export const CHECK_PROPOSAL = 'check';
 export const OUTCOME_PROPOSAL = 'outcome';
+export const GM_ROLL_PROPOSAL = 'gm-roll';
 
 const ID_PATTERN = '^[a-z0-9][a-z0-9-]*$';
 const ID_REGEX = new RegExp(ID_PATTERN);
@@ -48,6 +57,7 @@ const PROPOSAL_KEYS = {
   [PENDING_PROPOSAL]: ['kind', 'id', 'pendingKind', 'text', 'entityIds', 'visibility'],
   [CHECK_PROPOSAL]: ['kind', 'id', 'ruleId', 'target', 'label'],
   [OUTCOME_PROPOSAL]: ['kind', 'id', 'text'],
+  [GM_ROLL_PROPOSAL]: ['kind', 'id', 'roller', 'reason', 'visibility', 'ruleId', 'expression'],
 } as const;
 
 type ProposalVisibility = (typeof PROPOSAL_VISIBILITIES)[number];
@@ -86,7 +96,17 @@ export type OutcomeProposal = {
   readonly text: string;
 };
 
-export type GmProposal = EntityProposal | PendingProposal | CheckProposal | OutcomeProposal;
+export type GmRollProposal = {
+  readonly kind: typeof GM_ROLL_PROPOSAL;
+  readonly id: string;
+  readonly roller: string;
+  readonly reason: string;
+  readonly visibility: GmRollVisibility;
+  readonly ruleId?: string;
+  readonly expression?: string;
+};
+
+export type GmProposal = EntityProposal | PendingProposal | CheckProposal | OutcomeProposal | GmRollProposal;
 
 const idSchema = { type: 'string', maxLength: MAX_ID_LENGTH, pattern: ID_PATTERN } as const;
 const visibilitySchema = { type: 'string', enum: PROPOSAL_VISIBILITIES } as const;
@@ -144,6 +164,20 @@ export const PROPOSALS_SCHEMA = {
           text: { type: 'string', maxLength: MAX_OUTCOME_LENGTH },
         },
         required: ['kind', 'id', 'text'],
+        additionalProperties: false,
+      },
+      {
+        type: 'object',
+        properties: {
+          kind: { const: GM_ROLL_PROPOSAL },
+          id: idSchema,
+          roller: idSchema,
+          reason: { type: 'string', maxLength: MAX_ROLL_REASON_LENGTH },
+          visibility: { type: 'string', enum: GM_ROLL_VISIBILITIES },
+          ruleId: { type: 'string', maxLength: MAX_ID_LENGTH, pattern: RULE_ID_PATTERN },
+          expression: { type: 'string', maxLength: MAX_ROLL_EXPRESSION_LENGTH },
+        },
+        required: ['kind', 'id', 'roller', 'reason', 'visibility'],
         additionalProperties: false,
       },
     ],
@@ -222,11 +256,32 @@ const outcomeOf = (value: Record<string, unknown>): OutcomeProposal | undefined 
   return id === undefined || text === undefined ? undefined : { kind: OUTCOME_PROPOSAL, id, text };
 };
 
+const gmRollOf = (value: Record<string, unknown>): GmRollProposal | undefined => {
+  const id = idOf(value.id);
+  const roller = idOf(value.roller);
+  const reason = textOf(value.reason, MAX_ROLL_REASON_LENGTH);
+  const visibility = GM_ROLL_VISIBILITIES.find((known) => known === value.visibility);
+  const ruleId = typeof value.ruleId === 'string' && RULE_ID_REGEX.test(value.ruleId) ? value.ruleId : undefined;
+  const expression = textOf(value.expression, MAX_ROLL_EXPRESSION_LENGTH);
+  if (id === undefined || roller === undefined || reason === undefined || visibility === undefined) return undefined;
+  if ((ruleId === undefined) === (expression === undefined)) return undefined;
+  return {
+    kind: GM_ROLL_PROPOSAL,
+    id,
+    roller,
+    reason,
+    visibility,
+    ...(ruleId === undefined ? {} : { ruleId }),
+    ...(expression === undefined ? {} : { expression }),
+  };
+};
+
 const PARSERS = {
   [ENTITY_PROPOSAL]: entityOf,
   [PENDING_PROPOSAL]: pendingOf,
   [CHECK_PROPOSAL]: checkOf,
   [OUTCOME_PROPOSAL]: outcomeOf,
+  [GM_ROLL_PROPOSAL]: gmRollOf,
 } as const;
 
 const proposalOf = (value: unknown): GmProposal | undefined => {
@@ -245,7 +300,7 @@ export const proposalsOf = (value: unknown): readonly GmProposal[] | undefined =
 
 export const outcomeClaimsOf = (proposals: readonly GmProposal[]): NarrationClaim[] =>
   proposals.flatMap((proposal) =>
-    proposal.kind === OUTCOME_PROPOSAL ? [{ kind: 'outcome' as const, ref: proposal.text }] : [],
+    proposal.kind === OUTCOME_PROPOSAL ? [{ kind: 'outcome' as const, ref: proposal.id }] : [],
   );
 
 const REFUSALS = [InvalidActionError, ActionIdConflictError, StaleRevisionError];
@@ -260,6 +315,31 @@ const actionFor = (committed: CommittedTurn, { kind, id }: GmProposal, revision:
   intent: `The GM records ${kind} ${id}.`,
 });
 
+export const commitGmRolls = (
+  store: CampaignStore,
+  entities: EntityStore,
+  committed: CommittedTurn,
+  proposals: readonly GmProposal[],
+  expressionOf: (spec: Pick<GmRollProposal, 'ruleId' | 'expression'>) => string | undefined,
+  rng: Rng,
+): readonly CommittedTurn[] => {
+  const { campaignId } = committed.turn;
+  const results: CommittedTurn[] = [];
+  for (const proposal of proposals) {
+    if (proposal.kind !== GM_ROLL_PROPOSAL) continue;
+    const { roller, reason, visibility } = proposal;
+    const expression = expressionOf(proposal);
+    if (expression === undefined) continue;
+    const action = actionFor(committed, proposal, loadState(store, campaignId).revision);
+    try {
+      results.push(rollForGm(store, entities, { ...action, gmRoll: { roller, reason, visibility, expression } }, rng));
+    } catch (error) {
+      if (!REFUSALS.some((refusal) => error instanceof refusal)) throw error;
+    }
+  }
+  return results;
+};
+
 export const commitProposals = (
   store: CampaignStore,
   entities: EntityStore,
@@ -271,7 +351,7 @@ export const commitProposals = (
   const { campaignId } = committed.turn;
   const results: CommittedTurn[] = [];
   for (const proposal of proposals) {
-    if (proposal.kind === OUTCOME_PROPOSAL) continue;
+    if (proposal.kind === OUTCOME_PROPOSAL || proposal.kind === GM_ROLL_PROPOSAL) continue;
     const action = actionFor(committed, proposal, loadState(store, campaignId).revision);
     try {
       if (proposal.kind === CHECK_PROPOSAL) {

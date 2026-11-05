@@ -31,6 +31,7 @@ import {
   DICE_MECHANIC,
   emitVisualizations,
   enforcedStrictnessFor,
+  gmRollExpressionFor,
   offeredCheckFor,
   POOL_MECHANIC,
   poolResult,
@@ -451,4 +452,30 @@ test('rpg-42a.74: an offer id whose rule the pack no longer defines is closed, n
     () => checkForAction(events, { input: 'Yes', rollOfferId: OFFER.offerId }, HERO, undefined, 'as-written'),
     /no longer open/,
   );
+});
+
+test('rpg-42a.89: a GM roll resolves to a dice expression the RulePack allows', () => {
+  const d20 = [...configured(builtInConfig('d20-lite')), heroCreated(ATTRIBUTES)];
+  assert.equal(gmRollExpressionFor(d20, 'as-written', { ruleId: 'attack.melee' }), '1d20');
+  assert.equal(gmRollExpressionFor(d20, 'as-written', { expression: '1d8+2' }), '1d8+2');
+  assert.equal(gmRollExpressionFor(d20, 'as-written', { ruleId: 'attack.vorpal' }), undefined);
+  assert.equal(gmRollExpressionFor(d20, 'off', { ruleId: 'attack.melee' }), undefined);
+  assert.equal(gmRollExpressionFor(d20, 'off', { expression: '1d6' }), undefined);
+  const pool = configured(builtInConfig('dice-pool-lite'));
+  assert.equal(gmRollExpressionFor(pool, 'as-written', { ruleId: 'check.pool' }), '2d6');
+  assert.equal(
+    gmRollExpressionFor(configured(builtInConfig('d20-lite', 'off')), 'as-written', { expression: '1d6' }),
+    undefined,
+  );
+  assert.equal(gmRollExpressionFor([], 'as-written', { expression: '1d6' }), undefined);
+});
+
+test('rpg-42a.89: a GM roll carries its roller label into the mechanic result', () => {
+  const roll = d20Roll();
+  const resolution = { ok: true, rolls: [roll], events: [] };
+  assert.equal(resultsOf({ resolution, roller: 'old-tam', rollerName: 'Old Tam' }, 'player')[0]?.roller, 'Old Tam');
+  assert.equal(resultsOf({ resolution, roller: 'gm' }, 'player')[0]?.roller, 'GM');
+  assert.equal(resultsOf({ resolution }, 'player')[0]?.roller, undefined);
+  assert.equal(resultsOf({ resolution, roller: 'gm' }, 'gm').length, 1);
+  assert.deepEqual(emitVisualizations(resultsOf({ resolution, roller: 'gm' }, 'gm'), 'player', ENABLED), []);
 });

@@ -9,6 +9,7 @@ import { type Fact, PLAYER_VIEWER } from '../../memory/src/knowledge.ts';
 import { createCampaignStore } from '../../persistence/src/campaign-store.ts';
 import { openDatabase } from '../../persistence/src/database.ts';
 import { createEntityStore } from '../../persistence/src/entity-store.ts';
+import { createSeededRng } from '../../rules/src/dice.ts';
 import { type EffectiveMechanic, RULE_DSL_VERSION, type RuleDsl } from '../../rules/src/dsl.ts';
 import type { TraitSheet } from '../../rules/src/traits.ts';
 import { createScriptedRng } from '../../testkit/src/fixtures.ts';
@@ -22,6 +23,7 @@ import {
   playGameplayTurn,
   UncommittedTurnError,
 } from './gameplay.ts';
+import { GM_ROLL_ACTION_INFIX, GM_ROLLER, rollForGm } from './gm-roll.ts';
 import { recordNpcLearning, saveNpc } from './npc.ts';
 import { activateQuest, completeObjective, defineQuest } from './quest.ts';
 import { GameMasterInterruptedError } from './scripted-session.ts';
@@ -483,5 +485,45 @@ test('rpg-42a.58: relaxed and off skip the check and never regenerate', async ()
     } finally {
       close();
     }
+  }
+});
+
+const NO_ENTITIES = {} as EntityStore;
+const rolledFor = (store: CampaignStore, parent: string, rollId: string) =>
+  rollForGm(
+    store,
+    NO_ENTITIES,
+    {
+      ...actionFor(store, `${parent}${GM_ROLL_ACTION_INFIX}${rollId}`),
+      gmRoll: { roller: GM_ROLLER, reason: 'Tam swings', visibility: 'secret', expression: '1d20' },
+    },
+    createSeededRng(1),
+  );
+
+test('rpg-42a.89: a GM roll resolves only the outcome claim that names its roll id', async () => {
+  const { store, close } = open();
+  try {
+    const committed = performAction(store, actionFor(store, 'swing'));
+    rolledFor(store, 'swing', 'tam-swing');
+    const named = scripted({ narration: HIT_NARRATION, claims: [{ kind: 'outcome', ref: 'tam-swing' }] });
+    assert.equal(narrated(await narrateTurn(store, named.narrator, committed, AS_WRITTEN)).narration, HIT_NARRATION);
+    const other = open();
+    try {
+      const unrelated = performAction(other.store, actionFor(other.store, 'swing'));
+      rolledFor(other.store, 'swing', 'tam-swing');
+      const { narrator, retries } = scripted(
+        { narration: HIT_NARRATION, claims: [{ kind: 'outcome', ref: 'player-attack' }] },
+        MISS_FREE_REPLY,
+      );
+      assert.equal(
+        narrated(await narrateTurn(other.store, narrator, unrelated, AS_WRITTEN)).narration,
+        MISS_FREE_NARRATION,
+      );
+      assert.deepEqual(retries, [undefined, ['unresolved-outcome']]);
+    } finally {
+      other.close();
+    }
+  } finally {
+    close();
   }
 });

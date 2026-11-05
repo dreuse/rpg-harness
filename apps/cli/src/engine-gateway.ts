@@ -19,6 +19,7 @@ import {
   type CampaignState,
   type CampaignStore,
   type CommittedTurn,
+  GM_ROLLED,
   OPENING_ACTION_ID,
   type Turn,
 } from '../../../packages/domain/src/campaign.ts';
@@ -108,6 +109,7 @@ import {
 import { readGmDefaults, writeGmDefaults } from './gm-defaults.ts';
 import { requestFitting, TOO_LONG_MESSAGE } from './gm-limits.ts';
 import {
+  commitGmRolls,
   commitProposals,
   ENTITY_PROPOSAL,
   type EntityProposal,
@@ -140,6 +142,8 @@ import {
   checkForAction,
   checkRulesFor,
   enforcedStrictnessFor,
+  gmRollExpressionFor,
+  gmRollsAllowed,
   rulesStrictnessFor,
   whoRollsFor,
 } from './roll-visualization.ts';
@@ -202,6 +206,7 @@ const NO_FACTS: NarrationContext = {
 const PENDING_NARRATION = '';
 const NO_SEGMENTS: readonly GmSegment[] = [];
 const NO_REPEATS = 0;
+const NO_GM_ROLLS: readonly string[] = [];
 
 const databasePath = (dataDir: string, name: string) =>
   join(dataDir, `${encodeURIComponent(name)}${DATABASE_EXTENSION}`);
@@ -383,6 +388,7 @@ export const gameMasterFor = async (env: NodeJS.ProcessEnv) => {
 
 type Session = {
   engine: Engine;
+  rng: Rng;
   store: ReturnType<typeof createCampaignStore>;
   campaignId: string;
   database: ReturnType<typeof openDatabase>['database'];
@@ -402,7 +408,7 @@ const streamOf = (voice: TurnSpeech | undefined, listener: StreamedSegment | und
 };
 
 const narrateLatest = async (
-  { engine, store, campaignId, database }: Session,
+  { engine, store, campaignId, database, rng }: Session,
   request: (packet: ContextPacket, onSegment?: (segment: GmSegment) => void) => Promise<GmTurnReply>,
   sessionId: string,
   speak: SpeakTurn,
@@ -428,7 +434,14 @@ const narrateLatest = async (
   let reply: GmTurnReply | undefined;
   const previous = previousNarrationsOf(state, committed);
   const forward = streamOf(checkPending ? undefined : voice, listener, committed.turn.id);
-  const generate = async (retried: readonly unknown[] | undefined, repeated: readonly string[]) => {
+  const strictness = rulesStrictnessFor(state, defaults);
+  const rolling = gmRollsAllowed(state.events, strictness);
+  const generate = async (
+    retried: readonly unknown[] | undefined,
+    repeated: readonly string[],
+    gmRolls: readonly string[] = NO_GM_ROLLS,
+    streamed = true,
+  ) => {
     const fitted = await requestFitting({
       first: preset,
       packetOf: (chosenPreset) =>
@@ -436,8 +449,9 @@ const narrateLatest = async (
           defaults,
           retry: retried !== undefined,
           repeated,
+          gmRolls,
         }),
-      send: (packet) => request(packet, forward),
+      send: (packet) => request(packet, streamed ? forward : undefined),
       ratio,
     }).catch((error: unknown) => {
       if (!(error instanceof ProviderError && error.message === TOO_LONG_MESSAGE)) {
@@ -457,11 +471,24 @@ const narrateLatest = async (
   };
   const narrator = {
     narrate: async (_turn: CommittedTurn, retried?: readonly unknown[]) => {
-      const first = await generate(retried, []);
+      const drafted = await generate(retried, [], NO_GM_ROLLS, !rolling);
+      const rolled = commitGmRolls(
+        store,
+        createEntityStore(database),
+        committed,
+        drafted.proposals ?? [],
+        (spec) => gmRollExpressionFor(state.events, strictness, spec),
+        rng,
+      ).flatMap(({ events }) =>
+        events
+          .filter(({ type }) => type === GM_ROLLED)
+          .map(({ type, payload }) => `${type} ${JSON.stringify(payload)}`),
+      );
+      const first = rolled.length === NO_GM_ROLLS.length ? drafted : await generate(retried, [], rolled);
       const repeated = retried === undefined ? repeatedLinesOf(first.narration, previous) : [];
       let final = first;
       if (repeated.length > NO_REPEATS) {
-        final = await generate(retried, repeated);
+        final = await generate(retried, repeated, rolled);
       }
       segments = voiceNotice === undefined ? final.segments : [{ text: voiceNotice }, ...final.segments];
       proposals = final.proposals ?? [];
@@ -555,7 +582,7 @@ const openSession = (
     if (row === undefined) throw new LocalizedError('campaign.noState', { name });
     const close = () => connection.close();
     const engine = 'narrator' in gm ? narratingEngine(store, database, gm.narrator, rng) : createEngine(store, rng);
-    const session = { engine, store, campaignId: String(row.id), database };
+    const session = { engine, rng, store, campaignId: String(row.id), database };
     const gmDefaults = () => readGmDefaults(dataDir);
     let summarized: Promise<void> = Promise.resolve();
     const speakTurn: SpeakTurn = async (turnId) => {

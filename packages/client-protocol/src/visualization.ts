@@ -22,6 +22,7 @@ export type MechanicResult = {
   readonly total?: number;
   readonly outcome?: string;
   readonly source?: typeof PLAYER_ROLLED;
+  readonly roller?: string;
 };
 
 export type VisualizationFrame = { readonly step: number; readonly reveal: MechanicReveal };
@@ -31,6 +32,7 @@ export type VisualizationFinal = {
   readonly outcome: string | undefined;
   readonly modifier?: number;
   readonly source?: typeof PLAYER_ROLLED;
+  readonly roller?: string;
 };
 
 export type VisualizationEvent = {
@@ -81,11 +83,12 @@ export const outcomeText = (translate: (locale: string, key: string) => string, 
   return text === key ? label : text;
 };
 
-const finalOf = ({ total, outcome, modifier, source }: MechanicResult): VisualizationFinal => ({
+const finalOf = ({ total, outcome, modifier, source, roller }: MechanicResult): VisualizationFinal => ({
   total,
   outcome,
   ...(modifier === undefined ? {} : { modifier }),
   ...(source === undefined ? {} : { source }),
+  ...(roller === undefined ? {} : { roller }),
 });
 
 export const toVisualizationEvent = (

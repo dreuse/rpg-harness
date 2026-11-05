@@ -20,6 +20,7 @@ import { createEntityStore, createFactStore } from '../../../packages/persistenc
 import { createEventStore } from '../../../packages/persistence/src/event-store.ts';
 import {
   checkRulesPrompt,
+  GM_ROLL_PROMPT,
   languageInstruction,
   RULES_RETRY_PROMPT,
   RULES_STRICTNESS_PROMPTS,
@@ -422,12 +423,14 @@ it('rpg-42a.58 tells the GM the strictness: as-written by default, then the save
     SYSTEM_PROMPT,
     RULES_STRICTNESS_PROMPTS['as-written'],
     d20CheckRulesLine(fixture),
+    GM_ROLL_PROMPT,
   ]);
   chooseStrictness(fixture.store, 'relaxed', 'relax');
   assert.deepEqual(instructionsOf(fixture, committed), [
     SYSTEM_PROMPT,
     RULES_STRICTNESS_PROMPTS.relaxed,
     d20CheckRulesLine(fixture),
+    GM_ROLL_PROMPT,
   ]);
   chooseStrictness(fixture.store, 'off', 'off');
   assert.deepEqual(instructionsOf(fixture, committed), [SYSTEM_PROMPT, RULES_STRICTNESS_PROMPTS.off]);
@@ -444,6 +447,7 @@ it('rpg-42a.58 a regeneration packet adds the retry line after the strictness li
     SYSTEM_PROMPT,
     RULES_STRICTNESS_PROMPTS['as-written'],
     d20CheckRulesLine(fixture),
+    GM_ROLL_PROMPT,
     RULES_RETRY_PROMPT,
   ]);
   fixture.connection.close();
@@ -496,5 +500,21 @@ it('rpg-42a.79 the packet lists known npcs with their roles', () => {
   });
   const items = packetAt(fixture, play(store, 'turn-2')).sections.find(({ name }) => name === 'entities')?.items;
   assert.ok(items?.includes('Maren Oakhollow (npc, maren-oakhollow): Innkeeper of the Hollow Lantern'));
+  fixture.connection.close();
+});
+
+it('rpg-42a.89 a packet carries the engine GM rolls under results and the GM roll instruction only when dice are on', () => {
+  const fixture = campaign(CREATED_EVENT.payload, D20_FANTASY());
+  const committed = play(fixture.store, 'turn-1');
+  const state = fixture.store.load(CAMPAIGN.id);
+  assert.ok(state);
+  const line = 'GmRolled {"roller":"old-tam","visibility":"secret"}';
+  const packet = contextPacketOf(fixture.database, state, committed, undefined, undefined, undefined, {
+    gmRolls: [line],
+  });
+  assert.ok(packet.sections.find(({ name }) => name === 'results')?.items.includes(line));
+  assert.ok(packet.sections.find(({ name }) => name === 'instructions')?.items.includes(GM_ROLL_PROMPT));
+  chooseStrictness(fixture.store, 'off', 'off');
+  assert.ok(!instructionsOf(fixture, committed)?.includes(GM_ROLL_PROMPT));
   fixture.connection.close();
 });

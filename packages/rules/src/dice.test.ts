@@ -4,6 +4,7 @@ import {
   createRoller,
   createSeededRng,
   MAX_TERMS,
+  parseDiceExpression,
   type Rng,
   replayRoll,
   type TrustedRoll,
@@ -140,4 +141,21 @@ test('rejects malformed dice pools at the boundary', () => {
   assert.deepEqual(issuePaths(createRoller(scripted([0]).rng)('', { dice: [] })), ['rollId', 'dice', 'modifier']);
   const tooMany = Array.from({ length: MAX_TERMS + 1 }, () => ({ count: 1, sides: 6 }));
   assert.deepEqual(issuePaths(validateDicePool({ dice: tooMany, modifier: 0 })), ['dice']);
+});
+
+test('rpg-42a.89: a dice expression parses into terms and a modifier', () => {
+  assert.deepEqual(parseDiceExpression('1d20+5'), { dice: [{ count: 1, sides: 20 }], modifier: 5 });
+  assert.deepEqual(parseDiceExpression(' 2d6 + 1d4 - 2 '), {
+    dice: [
+      { count: 2, sides: 6 },
+      { count: 1, sides: 4 },
+    ],
+    modifier: -2,
+  });
+});
+
+test('rpg-42a.89: a malformed or out-of-range dice expression is refused', () => {
+  for (const expression of ['', 'd20', '1d', '1d20+', 'roll 1d20', '1d1', '101d6', '1d20; drop', '-1d6']) {
+    assert.equal(parseDiceExpression(expression), undefined, expression);
+  }
 });

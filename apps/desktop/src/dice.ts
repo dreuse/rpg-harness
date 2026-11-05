@@ -82,6 +82,7 @@ export const rollSummary = ({ groups, tokens, final }: RollPlan, locale: string)
     ...(final.total === undefined ? [] : [translate(locale, 'roll.total', { value: final.total })]),
     ...(final.outcome === undefined ? [] : [outcomeText(translate, locale, final.outcome)]),
     ...(final.source === undefined ? [] : [translate(locale, 'roll.reported')]),
+    ...(final.roller === undefined ? [] : [translate(locale, 'roll.roller', { name: final.roller })]),
   ].join(PART_SEPARATOR);
 
 const dieHtml = (shape: string, sides: number) => (faces: readonly number[]) =>
@@ -134,6 +135,7 @@ export const parseVisualization = (message: Record<string, unknown>): Visualizat
     isRecord(final) &&
     isOptional(final.total, 'number') &&
     isOptional(final.outcome, 'string') &&
-    isOptional(final.modifier, 'number');
+    isOptional(final.modifier, 'number') &&
+    isOptional(final.roller, 'string');
   return valid ? (message as VisualizationEvent) : undefined;
 };

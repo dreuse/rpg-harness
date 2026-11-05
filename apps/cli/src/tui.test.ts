@@ -1058,3 +1058,21 @@ test('rpg-42a.74: /roll accepts the open offer by id and says so when none is op
   assert.deepEqual(sent, [[ROLL_OFFER.label, ROLL_OFFER.offerId]]);
   assert.match(output.join(''), /No roll is offered right now\./);
 });
+
+test('rpg-42a.89: a roll an NPC made is labelled with the NPC name in the terminal indicator', () => {
+  const npcRoll = toVisualizationEvent(
+    {
+      resultId: 'tam-swing',
+      mechanic: 'dice',
+      visibility: 'player',
+      reveals: [{ kind: 'die', sides: 20, face: 12 }],
+      total: 15,
+      roller: 'Old Tam',
+    },
+    'player',
+    { enabled: true },
+  );
+  assert.ok(npcRoll);
+  assert.match(rollFrames(npcRoll, ROLL_STEPS).at(-1) ?? '', /; rolled by Old Tam$/);
+  assert.match(rollFrames(npcRoll, ROLL_STEPS, 'pt-BR').at(-1) ?? '', /; rolada por Old Tam$/);
+});

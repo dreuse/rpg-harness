@@ -266,6 +266,7 @@ const indicator = ({ mechanic, frames, final }: VisualizationEvent, locale = DEF
       ? []
       : [say(locale, 'dice.outcome', { value: outcomeText(say, locale, final.outcome) })]),
     ...(final.source === undefined ? [] : [say(locale, 'dice.reported')]),
+    ...(final.roller === undefined ? [] : [say(locale, 'dice.roller', { name: final.roller })]),
   ].join('; ');
 
 const spinning = ({ mechanic, frames }: VisualizationEvent, step: number, tumbles: readonly number[][]) =>

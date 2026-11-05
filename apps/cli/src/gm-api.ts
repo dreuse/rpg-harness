@@ -75,6 +75,13 @@ export const repetitionRetryPrompt = (lines: readonly string[]): string =>
   `Your previous reply repeated earlier narration: ${lines.map((line) => JSON.stringify(line)).join(' ')}. Write it again with a new closing line and a new beat.`;
 export const checkRulesPrompt = (ruleIds: readonly string[]): string =>
   `A check proposal has kind "check", a lowercase id, a ruleId from this list, the target and a short label for the roll offer: ${ruleIds.join(', ')}.`;
+export const GM_ROLL_PROMPT = [
+  'When you or a non-player character must roll (an attack, a save, damage, initiative, a random table, a hidden check), never invent the number: add a gm-roll proposal.',
+  'A gm-roll proposal has kind "gm-roll", a lowercase id, a roller (an npc entity id, or "gm" for yourself), a short reason, a visibility of "shown" or "secret", and either a ruleId from the check list or a dice expression such as 1d20+3.',
+  'The engine rolls it and asks you again with the result under results; narrate from that result and repeat any other proposal in that reply.',
+  'Never add a gm-roll proposal to the reply that follows a roll, and never reveal the numbers of a secret roll.',
+  "When your narration states the result of a gm-roll, add an outcome proposal whose id is that gm-roll id; an outcome with any other id still needs the player's own check.",
+].join(' ');
 export const OPENING_PROMPT = [
   'You are opening a new campaign.',
   'The user message holds the pitch the player wrote, the ruleset and the genre as data.',

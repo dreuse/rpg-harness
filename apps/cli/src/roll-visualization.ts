@@ -27,6 +27,7 @@ import {
   offerFollowsPlayerAction,
   pendingCheckOffer,
 } from '../../../packages/engine/src/check-offer.ts';
+import { GM_ROLLER } from '../../../packages/engine/src/gm-roll.ts';
 import { gmSettingsOf } from '../../../packages/engine/src/gm-settings.ts';
 import { reportedCheck, reportedRoll, rollExpressionOf } from '../../../packages/engine/src/roll-report.ts';
 import {
@@ -48,6 +49,7 @@ import {
   createSheet,
   D20_LITE_CHECK_RULES,
   D20_LITE_MANIFEST,
+  D20_SIDES,
   DEFAULT_CHECK_ATTRIBUTE,
   DEFAULT_CHECK_DC,
 } from '../../../packages/rules/src/d20-lite.ts';
@@ -197,8 +199,8 @@ const d20Check: CheckSource = (events, actorId, input, worldProfile, ruleId) => 
   };
 };
 
-const CHECKS: readonly (readonly [RulePackManifest, CheckSource, readonly string[]])[] = [
-  [D20_LITE_MANIFEST, d20Check, Object.keys(D20_LITE_CHECK_RULES)],
+const CHECKS: readonly (readonly [RulePackManifest, CheckSource, readonly string[], string])[] = [
+  [D20_LITE_MANIFEST, d20Check, Object.keys(D20_LITE_CHECK_RULES), `1d${D20_SIDES}`],
   [
     DICE_POOL_LITE_MANIFEST,
     () => (actionId, rng) => {
@@ -206,6 +208,7 @@ const CHECKS: readonly (readonly [RulePackManifest, CheckSource, readonly string
       return { rolls: roll.rolls, events: [{ event: roll.outcome }] };
     },
     DICE_POOL_LITE_CHECK_RULES,
+    `${BASE_POOL_DICE}d${DEFAULT_POOL_CONFIG.sides}`,
   ],
 ];
 
@@ -243,6 +246,27 @@ const checkEntryOf = (events: readonly CampaignEvent[], strictness: RulesStrictn
     ([pack]) => pack.id === rulepack?.id && pack.edition === rulepack.edition && pack.revision === rulepack.revision,
   );
 };
+
+export type GmRollSpec = { readonly ruleId?: string; readonly expression?: string };
+
+export const gmRollExpressionFor = (
+  events: readonly CampaignEvent[],
+  strictness: RulesStrictness,
+  { ruleId, expression }: GmRollSpec,
+): string | undefined => {
+  const saved = parseCampaignConfig(campaignConfigOf(events));
+  if (!saved.ok || !rollsDice(saved.config)) return undefined;
+  if (ruleId !== undefined) {
+    const entry = checkEntryOf(events, strictness);
+    return entry?.[2].includes(ruleId) ? entry[3] : undefined;
+  }
+  return saved.config.rulepack === null || strictness !== 'off' ? expression : undefined;
+};
+
+const GM_ROLL_PROBE = `1d${D20_SIDES}`;
+
+export const gmRollsAllowed = (events: readonly CampaignEvent[], strictness: RulesStrictness): boolean =>
+  gmRollExpressionFor(events, strictness, { expression: GM_ROLL_PROBE }) !== undefined;
 
 export const checkRulesFor = (
   events: readonly CampaignEvent[],
@@ -377,6 +401,7 @@ export const rollResult = (
   outcome?: string,
   bonus = NO_BONUS,
   source?: typeof PLAYER_ROLLED,
+  roller?: string,
 ): MechanicResult => ({
   resultId: roll.rollId,
   mechanic: DICE_MECHANIC,
@@ -386,6 +411,7 @@ export const rollResult = (
   total: roll.total + bonus,
   ...(outcome === undefined ? {} : { outcome }),
   ...(source === undefined ? {} : { source }),
+  ...(roller === undefined ? {} : { roller }),
 });
 
 const outcomeOf = ({ ok, events, error }: Readonly<Record<string, unknown>>) => {
@@ -399,15 +425,24 @@ export const checkResult = (check: ActionResolution, bonus: number, visibility: 
   return d20 === undefined ? [] : [rollResult(d20, visibility, outcomeOf(check), bonus)];
 };
 
+const GM_LABEL = 'GM';
+
+const rollerLabelOf = (payload: unknown): string | undefined => {
+  if (!isRecord(payload)) return undefined;
+  if (typeof payload.rollerName === 'string') return payload.rollerName;
+  return payload.roller === GM_ROLLER ? GM_LABEL : undefined;
+};
+
 export const resultsOf = (payload: unknown, visibility: Visibility): MechanicResult[] => {
   const resolution = isRecord(payload) ? payload.resolution : undefined;
   if (!isRecord(resolution) || !Array.isArray(resolution.rolls)) return [];
   const outcome = outcomeOf(resolution);
   const bonus = Number.isFinite(resolution.bonus) ? Number(resolution.bonus) : NO_BONUS;
   const source = resolution.source === PLAYER_SOURCE ? PLAYER_ROLLED : undefined;
+  const roller = rollerLabelOf(payload);
   return resolution.rolls.flatMap((stored) => {
     const replayed = replayRoll(stored);
-    return replayed.ok ? [rollResult(replayed.event, visibility, outcome, bonus, source)] : [];
+    return replayed.ok ? [rollResult(replayed.event, visibility, outcome, bonus, source, roller)] : [];
   });
 };
 

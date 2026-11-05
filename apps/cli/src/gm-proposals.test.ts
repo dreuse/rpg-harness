@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it, type TestContext } from 'node:test';
 import { PROTOCOL_VERSION } from '../../../packages/client-protocol/src/protocol.ts';
+import { MAX_ROLL_EXPRESSION_LENGTH } from '../../../packages/engine/src/gm-roll.ts';
 import { pendingOf } from '../../../packages/memory/src/graph.ts';
 import { openDatabase } from '../../../packages/persistence/src/database.ts';
 import { createEntityStore, createFactStore } from '../../../packages/persistence/src/entity-store.ts';
@@ -52,6 +53,22 @@ const ATTACK_CHECK = {
   ruleId: 'attack.melee',
   target: 'Old Tam',
   label: 'Attack Old Tam with your sword',
+};
+const TAM_ATTACK_ROLL = {
+  kind: 'gm-roll',
+  id: 'tam-swing',
+  roller: 'old-tam',
+  reason: 'Tam swings his cudgel',
+  visibility: 'shown',
+  ruleId: 'attack.melee',
+};
+const SECRET_LISTEN = {
+  kind: 'gm-roll',
+  id: 'hidden-listen',
+  roller: 'gm',
+  reason: 'Does Tam hear the lock click',
+  visibility: 'secret',
+  expression: '1d20+2',
 };
 const HIT_OUTCOME = { kind: 'outcome', id: 'tam-hit', text: 'a hit on Old Tam' };
 
@@ -124,7 +141,22 @@ describe('rpg-42a.43 GM proposals', () => {
     assert.deepEqual(proposalsOf({ proposals: [ATTACK_CHECK, HIT_OUTCOME] }), [ATTACK_CHECK, HIT_OUTCOME]);
   });
 
+  it('rpg-42a.89 parses a GM roll by rule or by dice expression', () => {
+    assert.deepEqual(proposalsOf({ proposals: [TAM_ATTACK_ROLL, SECRET_LISTEN] }), [TAM_ATTACK_ROLL, SECRET_LISTEN]);
+  });
+
   const invalid: readonly [string, unknown][] = [
+    ['gm roll with neither rule nor expression', [{ ...TAM_ATTACK_ROLL, ruleId: undefined }]],
+    ['gm roll with both rule and expression', [{ ...TAM_ATTACK_ROLL, expression: '1d20' }]],
+    ['gm roll with an unknown visibility', [{ ...TAM_ATTACK_ROLL, visibility: 'player' }]],
+    ['gm roll without a visibility', [{ ...TAM_ATTACK_ROLL, visibility: undefined }]],
+    ['gm roll without a reason', [{ ...TAM_ATTACK_ROLL, reason: ' ' }]],
+    ['gm roll with a bad roller id', [{ ...TAM_ATTACK_ROLL, roller: 'Old Tam' }]],
+    [
+      'gm roll with a long expression',
+      [{ ...SECRET_LISTEN, expression: `1d20${'+1'.repeat(MAX_ROLL_EXPRESSION_LENGTH)}` }],
+    ],
+    ['gm roll with an unknown key', [{ ...TAM_ATTACK_ROLL, damage: 5 }]],
     ['check without a rule', [{ ...ATTACK_CHECK, ruleId: undefined }]],
     ['check with a spaced rule', [{ ...ATTACK_CHECK, ruleId: 'attack melee' }]],
     ['check without a target', [{ ...ATTACK_CHECK, target: ' ' }]],
