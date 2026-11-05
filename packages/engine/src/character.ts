@@ -1,5 +1,6 @@
 import {
   type CampaignEvent,
+  type CampaignState,
   type CampaignStore,
   CHARACTER_CREATED,
   type CharacterId,
@@ -28,6 +29,7 @@ export const SHEET_FIELD_EDITED = 'SheetFieldEdited';
 const OWNER_VISIBLE: readonly Visibility[] = ['public', 'owner'];
 const EDIT_INTENT = 'edit sheet field';
 const NO_SCENE = '';
+const SHEET_EVENTS: readonly string[] = [CHARACTER_CREATED, SHEET_FIELD_EDITED];
 
 const ownerVisible = (rules: CreationRules, profile: CharacterProfile): CharacterProfile => {
   const visible = new Set(
@@ -103,4 +105,9 @@ export const profileOf = (events: readonly CampaignEvent[], actorId: CharacterId
     isRecord(trait) && edits.has(trait.id) ? { ...trait, value: edits.get(trait.id) } : trait,
   );
   return { ...profile, traits };
+};
+
+export const playTurns = ({ turns, events }: Pick<CampaignState, 'turns' | 'events'>) => {
+  const sheetTurns = new Set(events.filter(({ type }) => SHEET_EVENTS.includes(type)).map(({ turnId }) => turnId));
+  return turns.filter(({ id }) => !sheetTurns.has(id));
 };

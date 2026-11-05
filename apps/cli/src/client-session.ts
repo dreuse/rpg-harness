@@ -38,6 +38,7 @@ import {
   StaleRevisionError,
 } from '../../../packages/domain/src/campaign.ts';
 import type { CampaignEntity, Relationship, Visibility } from '../../../packages/domain/src/entity.ts';
+import { playTurns } from '../../../packages/engine/src/character.ts';
 import { currentEncounter } from '../../../packages/engine/src/encounter.ts';
 import type { Engine } from '../../../packages/engine/src/engine.ts';
 import { campaignConfigOf } from '../../../packages/engine/src/turn.ts';
@@ -100,7 +101,7 @@ const savedConfig = (events: ViewSource['state']['events']) => {
 };
 
 export const campaignSummaryOf = (source: ViewSource, viewer: Viewer, lastPlayedAt: string | null): CampaignSummary => {
-  const { campaign, characters, turns, events } = source.state;
+  const { campaign, characters, events } = source.state;
   const { recap } = panelsOf(source, viewer);
   const config = savedConfig(events);
   const rulepack = config?.rulepack;
@@ -115,7 +116,7 @@ export const campaignSummaryOf = (source: ViewSource, viewer: Viewer, lastPlayed
     ruleset: config && rulepack ? { ...rulepack, provenance: config.provenance.ruleset } : null,
     genre: config && genre ? { ...genre, provenance: config.provenance.genre } : null,
     lastNarration: recap.latest === undefined ? null : (printable(recap.latest).trim().split(NEWLINE).at(-1) ?? null),
-    turnCount: turns.length,
+    turnCount: playTurns(source.state).length,
   };
 };
 
@@ -194,7 +195,8 @@ export const createClientSessions = (
 
   const snapshot = (): CampaignSnapshot => {
     sync();
-    const { campaign, revision, characters, currentScene, turns } = engine.getState(campaignId);
+    const state = engine.getState(campaignId);
+    const { campaign, revision, characters, currentScene } = state;
     const voice = voiceSettingsOf(readEvents(campaignId));
     return deepFreeze(
       structuredClone({
@@ -204,7 +206,7 @@ export const createClientSessions = (
         campaign,
         characters,
         currentScene,
-        turns,
+        turns: playTurns(state),
         ...(voice === undefined ? {} : { voice }),
       }),
     );

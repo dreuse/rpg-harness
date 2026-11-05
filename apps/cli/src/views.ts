@@ -15,7 +15,7 @@ import {
   parseCharacterProfile,
 } from '../../../packages/domain/src/character.ts';
 import type { CampaignEntity, EntityKind, Relationship } from '../../../packages/domain/src/entity.ts';
-import { CHARACTER_CREATED, profileOf } from '../../../packages/engine/src/character.ts';
+import { CHARACTER_CREATED, playTurns, profileOf } from '../../../packages/engine/src/character.ts';
 import { currentEncounter, type EncounterAction } from '../../../packages/engine/src/encounter.ts';
 import { questLog } from '../../../packages/engine/src/quest.ts';
 import { PLAYER_VIEWER, type Scoped, type Viewer, visibleTo } from '../../../packages/memory/src/knowledge.ts';
@@ -241,7 +241,7 @@ const namesOf = ({ characters }: CampaignState) => new Map(characters.map(({ id,
 
 const journal = (state: CampaignState) => {
   const names = namesOf(state);
-  const rows = state.turns.map((turn, index) => `  ${index + 1}. ${turnText(names, turn)}`);
+  const rows = playTurns(state).map((turn, index) => `  ${index + 1}. ${turnText(names, turn)}`);
   return section('Journal:', rows, NO_EVENTS);
 };
 
@@ -264,7 +264,7 @@ export const panelsOf = (source: ViewSource, viewer: Viewer): Panels => {
   const [hero] = state.characters;
   const events = visibleEvents(source, viewer);
   const visible = { ...source, entities: visibleTo(source.entities, viewer) };
-  const last = state.turns.at(-1);
+  const last = playTurns(state).at(-1);
   return {
     inventory: hero === undefined ? [] : heldItems(hero, visible).map(({ id, name }) => ({ id, name })),
     quests: questLog(events).map(({ id, title, status, objectives }) => ({

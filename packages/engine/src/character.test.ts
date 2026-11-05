@@ -6,7 +6,7 @@ import { createCampaignStore } from '../../persistence/src/campaign-store.ts';
 import { openDatabase } from '../../persistence/src/database.ts';
 import { type BuildInput, buildCharacter, type CreationRules } from '../../rules/src/character-builder.ts';
 import { SHEET_SCHEMA_VERSION } from '../../rules/src/sheet-schema.ts';
-import { CHARACTER_CREATED, commitCharacter, editSheetField, SHEET_FIELD_EDITED } from './character.ts';
+import { CHARACTER_CREATED, commitCharacter, editSheetField, playTurns, SHEET_FIELD_EDITED } from './character.ts';
 import { createEngine } from './engine.ts';
 import { commit, InvalidActionError, openScene } from './turn.ts';
 
@@ -164,4 +164,17 @@ test('the engine commits a sheet field edit once and rejects stale or non-primit
     });
     assert.equal(engine.getState(campaignId).currentScene?.id, cellar.id);
     assert.deepEqual(editSheetField(store, { ...edit, fieldId: 'grit', value: 4 }).turn, committed.turn);
+  }));
+
+test('rpg-42a.23: character creation and sheet edits are not play turns', () =>
+  withCampaign(({ store, engine, campaignId, action }) => {
+    commitCharacter(store, { ...action, build });
+    const { revision } = engine.getState(campaignId);
+    editSheetField(store, { ...action, actionId: 'edit-grit', expectedRevision: revision, fieldId: 'grit', value: 4 });
+    const state = engine.getState(campaignId);
+    assert.equal(state.turns.length, 3);
+    assert.deepEqual(
+      playTurns(state).map(({ actionId }) => actionId),
+      [state.turns[0]?.actionId],
+    );
   }));

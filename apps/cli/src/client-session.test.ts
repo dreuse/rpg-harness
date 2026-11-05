@@ -13,7 +13,7 @@ import { parseSheetSchema, type SheetEdit } from '../../../packages/client-proto
 import { VISUALIZATION_EVENT } from '../../../packages/client-protocol/src/visualization.ts';
 import { CAMPAIGN_CONFIGURED, MAIN_BRANCH, StaleRevisionError } from '../../../packages/domain/src/campaign.ts';
 import type { Visibility } from '../../../packages/domain/src/entity.ts';
-import { CHARACTER_CREATED } from '../../../packages/engine/src/character.ts';
+import { CHARACTER_CREATED, editSheetField, SHEET_FIELD_EDITED } from '../../../packages/engine/src/character.ts';
 import { createEngine } from '../../../packages/engine/src/engine.ts';
 import { openScene } from '../../../packages/engine/src/turn.ts';
 import { type CampaignConfig, generateCampaignConfig } from '../../../packages/intent/src/config.ts';
@@ -394,6 +394,33 @@ test('committed rolls are not visualized when the campaign has not turned visual
     [],
   );
   assert.ok(ids(gm).includes('swim-roll'));
+});
+
+test('rpg-42a.23: campaign summary narrates the last play turn, not a sheet edit', () => {
+  const campaign = { id: 'c1', name: 'Ashfall' };
+  const turn = { id: 't1', campaignId: campaign.id, sceneId: 's1', actorId: 'h1', input: 'look', narration: 'Fog.' };
+  const edit = { ...turn, id: 't2', actionId: 'a2', input: 'edit sheet field might', narration: '' };
+  const events = [
+    { id: 'e1', campaignId: campaign.id, turnId: edit.id, causationId: null, type: SHEET_FIELD_EDITED, payload: {} },
+  ];
+  const turns = [{ ...turn, actionId: 'a1' }, edit];
+  const state = { campaign, revision: 2, characters: [], currentScene: undefined, turns, events };
+  const summary = campaignSummaryOf({ state, entities: [], relationships: [], eventScopes: [] }, PLAYER_VIEWER, null);
+  assert.equal(summary.lastNarration, 'h1: look - Fog.');
+  assert.equal(summary.turnCount, 1);
+});
+
+test('rpg-42a.23: the snapshot leaves sheet edits out of the turns', () => {
+  const { engine, database, campaignId, turn, sessionFor, envelope } = setup();
+  const edit = { campaignId, actionId: 'edit-1', expectedRevision: OPENING_REVISION, actorId: turn.actorId };
+  editSheetField(createCampaignStore(database), { ...edit, fieldId: 'stress', value: 4 });
+  assert.equal(engine.getState(campaignId).turns.length, 2);
+  const snapshot = sessionFor(PLAYER_VIEWER).getSnapshot({ ...envelope, type: 'GetCampaignSnapshot' });
+  assert.ok(snapshot.ok);
+  assert.deepEqual(
+    snapshot.value.turns.map(({ actionId }) => actionId),
+    [turn.actionId],
+  );
 });
 
 test('EditSheetField commits a re-validated edit through the engine sheet port', () => {

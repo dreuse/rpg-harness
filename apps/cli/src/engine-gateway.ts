@@ -17,7 +17,7 @@ import {
   type Turn,
 } from '../../../packages/domain/src/campaign.ts';
 import type { Visibility } from '../../../packages/domain/src/entity.ts';
-import { commitCharacter, editSheetField } from '../../../packages/engine/src/character.ts';
+import { commitCharacter, editSheetField, playTurns } from '../../../packages/engine/src/character.ts';
 import { createEngine, type Engine } from '../../../packages/engine/src/engine.ts';
 import {
   type GameplayOutcome,
@@ -297,8 +297,11 @@ const savedSettings = (events: CampaignState['events']) => {
   return saved.ok ? [describeConfig(saved.config)] : [];
 };
 
-const recapText = (name: string, { currentScene, characters, turns, events }: CampaignState) =>
-  [...savedSettings(events), sceneText(currentScene?.title ?? name, recap(characters, turns.at(-1)))].join('\n');
+const recapText = (name: string, state: CampaignState) =>
+  [
+    ...savedSettings(state.events),
+    sceneText(state.currentScene?.title ?? name, recap(state.characters, playTurns(state).at(-1))),
+  ].join('\n');
 
 const viewSourceOf = (database: Session['database'], campaignId: CampaignId, state: CampaignState) => ({
   state,
