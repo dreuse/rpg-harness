@@ -1,4 +1,11 @@
-import { type SpeakOptions, type SpeechChunk, type SpeechOutcome, speakOrText, type TtsProvider } from './tts.ts';
+import {
+  type SpeakOptions,
+  type SpeechChunk,
+  type SpeechOutcome,
+  speakOrText,
+  spokenUtterance,
+  type TtsProvider,
+} from './tts.ts';
 import { type CommittedUtterance, estimateCost, resolveVoiceMode, type UsageRate } from './voice.ts';
 
 export interface AudioCache {
@@ -48,7 +55,16 @@ export const createAudioCache = (maxBytes: number): AudioCache => {
 export const audioCacheKey = (providerId: string, voiceId: string, utterance: CommittedUtterance): string => {
   const { language, pace, style, pronunciations } = utterance.profile;
   const sortedPronunciations = Object.entries(pronunciations).sort(([left], [right]) => left.localeCompare(right));
-  return JSON.stringify([providerId, voiceId, language, pace, style, sortedPronunciations, utterance.text]);
+  return JSON.stringify([
+    providerId,
+    voiceId,
+    language,
+    pace,
+    style,
+    sortedPronunciations,
+    utterance.text,
+    utterance.delivery ?? null,
+  ]);
 };
 
 export interface UsageEntry {
@@ -160,7 +176,8 @@ const trackChoice = (provider: TtsProvider, onStart: (choice: VoiceChoice) => vo
   },
 });
 
-export const speakWithBudget = async (options: BudgetedSpeakOptions): Promise<SpeechOutcome> => {
+export const speakWithBudget = async (requested: BudgetedSpeakOptions): Promise<SpeechOutcome> => {
+  const options = { ...requested, utterance: spokenUtterance(requested.utterance, requested.settings) };
   const mode = resolveVoiceMode(options.settings);
   if (mode.kind !== 'voice' || mode.spokenOutput === 'off') return { kind: 'text', reason: 'voice-off' };
   const cache = options.safeToCache ? options.cache : undefined;

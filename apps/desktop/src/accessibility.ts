@@ -45,7 +45,13 @@ export const DEFAULT_PREFERENCES: UiPreferences = {
 };
 
 const MICROPHONE_MODES: readonly unknown[] = ['off', 'push-to-talk', 'hands-free'] satisfies MicrophoneMode[];
-const SPOKEN_OUTPUT_MODES: readonly unknown[] = ['off', 'narrator', 'dialogue', 'full'] satisfies SpokenOutputMode[];
+const SPOKEN_OUTPUT_MODES: readonly unknown[] = [
+  'off',
+  'narrator',
+  'dialogue',
+  'full',
+  'cinematic',
+] satisfies SpokenOutputMode[];
 
 const isMotion = (value: unknown): value is MotionSetting => MOTION_SETTINGS.some((setting) => setting === value);
 
@@ -193,9 +199,11 @@ const CATALOG: Readonly<Record<string, Readonly<Record<string, string>>>> = {
     'voice.output.narrator': 'Narrator reads aloud',
     'voice.output.dialogue': 'Dialogue read aloud',
     'voice.output.full': 'Everything read aloud',
+    'voice.output.cinematic': 'Everything read aloud with expression',
     'voice.speed.normal': 'normal speed',
     'voice.speed': '{speed}× speed',
-    'voice.hint': "Type 'set mic to push-to-talk', 'set output to narrator' or 'set speed to 1.5' to change voice.",
+    'voice.hint':
+      "Type 'set mic to push-to-talk', 'set output to narrator', 'set output to cinematic' or 'set speed to 1.5' to change voice.",
     'voice.fallback': 'Audio unavailable ({reason}); type instead',
     'voice.rejected': 'Voice settings not changed: {codes}',
     'voice.consent': 'Allow microphone capture for this campaign?',
@@ -298,10 +306,11 @@ const CATALOG: Readonly<Record<string, Readonly<Record<string, string>>>> = {
     'voice.output.narrator': 'El narrador lee en voz alta',
     'voice.output.dialogue': 'Diálogos en voz alta',
     'voice.output.full': 'Todo en voz alta',
+    'voice.output.cinematic': 'Todo en voz alta con expresión',
     'voice.speed.normal': 'velocidad normal',
     'voice.speed': 'velocidad {speed}×',
     'voice.hint':
-      "Escribe 'set mic to push-to-talk', 'set output to narrator' o 'set speed to 1.5' para cambiar la voz.",
+      "Escribe 'set mic to push-to-talk', 'set output to narrator', 'set output to cinematic' o 'set speed to 1.5' para cambiar la voz.",
     'voice.fallback': 'Audio no disponible ({reason}); escribe en su lugar',
     'voice.rejected': 'Ajustes de voz sin cambios: {codes}',
     'voice.consent': '¿Permitir la captura del micrófono en esta campaña?',

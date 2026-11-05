@@ -71,7 +71,7 @@ const SETTING_PHRASES: readonly (readonly [VoiceSettingField, RegExp])[] = [
   ],
   [
     'spokenOutput',
-    /^(?:(?:output|speech)\s+(?:to\s+)?(off|narrator|dialogue|full)|(full)\s+voice|(off)\s+(?:the\s+)?(?:output|speech))$/i,
+    /^(?:(?:output|speech)\s+(?:to\s+)?(off|narrator|dialogue|full|cinematic)|(full|cinematic)\s+voice|(off)\s+(?:the\s+)?(?:output|speech))$/i,
   ],
   ['locale', /^(?:locale|language)\s+(?:to\s+)?(\S+)$/i],
   ['speed', /^speed\s+(?:to\s+)?(\d*[.,]?\d+)x?$/i],

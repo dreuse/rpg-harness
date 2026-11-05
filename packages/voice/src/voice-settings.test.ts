@@ -127,6 +127,17 @@ describe('A14 conversational voice settings', () => {
     assert.deepEqual(result, { ok: false, issues: [{ code: 'unrecognized', path: '' }] });
   });
 
+  it('turns cinematic output on and back to full', () => {
+    const on = changeVoiceSettings(session(), { source: 'typed', text: 'set output to cinematic' }, SUPPORTED_LOCALES);
+    assert.equal(on.ok, true);
+    if (!on.ok) return;
+    assert.equal(on.session.preferences.spokenOutput, 'cinematic');
+    const off = changeVoiceSettings(on.session, { source: 'typed', text: 'set output to full' }, SUPPORTED_LOCALES);
+    assert.equal(off.ok, true);
+    if (!off.ok) return;
+    assert.equal(off.session.preferences.spokenOutput, 'full');
+  });
+
   it('changing modes mid-session preserves campaign and input continuity', () => {
     const pendingInput = ['I open the door', 'and step inside'];
     const midSession = session({

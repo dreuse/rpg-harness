@@ -26,11 +26,18 @@ export interface AudioInputProvider extends PrivacyDisclosure {
 
 export type { VoiceProfile };
 
+export interface Delivery {
+  readonly emotion?: string;
+  readonly intensity?: number;
+  readonly pace?: number;
+}
+
 export interface CommittedUtterance {
   readonly text: string;
   readonly speakerId: string;
   readonly eventId: string;
   readonly profile: VoiceProfile;
+  readonly delivery?: Delivery;
 }
 
 export interface AudioOutputProvider extends PrivacyDisclosure {

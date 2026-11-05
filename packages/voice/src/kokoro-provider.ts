@@ -1,10 +1,11 @@
+import { MAX_RATE, MIN_RATE } from './prosody.ts';
 import type { SpeechChunk, TtsProvider } from './tts.ts';
-import type { CommittedUtterance } from './voice.ts';
+import type { CommittedUtterance, Delivery } from './voice.ts';
 
 export interface KokoroEngine {
   ready(): boolean;
   load(): Promise<void>;
-  synthesize(sentence: string, voiceId: string, signal: AbortSignal): Promise<Uint8Array>;
+  synthesize(sentence: string, voiceId: string, signal: AbortSignal, speed: number): Promise<Uint8Array>;
   unload(): Promise<void>;
 }
 
@@ -70,6 +71,39 @@ export const KOKORO_CAPABILITIES: KokoroCapabilities = Object.freeze({
   streaming: true,
   emotion: false,
 });
+
+export const KOKORO_DELIVERY_SPEED = Object.freeze({
+  neutral: 1,
+  calm: 0.9,
+  sad: 0.85,
+  tender: 0.9,
+  whisper: 0.8,
+  happy: 1.1,
+  angry: 1.15,
+  fearful: 1.2,
+  excited: 1.25,
+});
+
+type DeliveryEmotion = keyof typeof KOKORO_DELIVERY_SPEED;
+
+const NEUTRAL_SPEED = KOKORO_DELIVERY_SPEED.neutral;
+const FULL_INTENSITY = 1;
+const NO_INTENSITY = 0;
+
+const isEmotion = (emotion: unknown): emotion is DeliveryEmotion =>
+  typeof emotion === 'string' && Object.hasOwn(KOKORO_DELIVERY_SPEED, emotion);
+
+const finiteOr = (value: number | undefined, fallback: number): number =>
+  typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+
+const clamp = (value: number, min: number, max: number): number => Math.min(max, Math.max(min, value));
+
+export const kokoroSpeed = (delivery: Delivery | undefined): number => {
+  const emotionSpeed = isEmotion(delivery?.emotion) ? KOKORO_DELIVERY_SPEED[delivery.emotion] : NEUTRAL_SPEED;
+  const intensity = clamp(finiteOr(delivery?.intensity, FULL_INTENSITY), NO_INTENSITY, FULL_INTENSITY);
+  const pace = finiteOr(delivery?.pace, NEUTRAL_SPEED);
+  return clamp(pace * (NEUTRAL_SPEED + (emotionSpeed - NEUTRAL_SPEED) * intensity), MIN_RATE, MAX_RATE);
+};
 
 const sentenceSegmenter = new Intl.Segmenter(ENGLISH, { granularity: 'sentence' });
 
@@ -162,11 +196,12 @@ export const createKokoroProvider = ({
     sentence: string,
     voiceId: string,
     signal: AbortSignal,
+    speed: number,
   ): Promise<Uint8Array | undefined> => {
     if (!(await acquire(signal))) return undefined;
     try {
       await ensureLoaded();
-      return await engine.synthesize(sentence, voiceId, signal);
+      return await engine.synthesize(sentence, voiceId, signal, speed);
     } finally {
       release();
     }
@@ -182,8 +217,9 @@ export const createKokoroProvider = ({
     async *synthesize(utterance, voiceId, signal): AsyncGenerator<SpeechChunk> {
       if (!supports(utterance, voiceId)) return;
       const sentences = splitSentences(utterance.text);
+      const speed = kokoroSpeed(utterance.delivery);
       for (const [sequence, sentence] of sentences.entries()) {
-        const audio = await synthesizeSentence(sentence, voiceId, signal);
+        const audio = await synthesizeSentence(sentence, voiceId, signal, speed);
         if (!audio || signal.aborted) return;
         yield {
           utteranceEventId: utterance.eventId,

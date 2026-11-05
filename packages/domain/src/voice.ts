@@ -44,7 +44,7 @@ export const toVoiceProfile = (value: unknown): VoiceProfile | undefined => {
 };
 
 export const MICROPHONE_MODES = ['off', 'push-to-talk', 'hands-free'] as const;
-export const SPOKEN_OUTPUT_MODES = ['off', 'narrator', 'dialogue', 'full'] as const;
+export const SPOKEN_OUTPUT_MODES = ['off', 'narrator', 'dialogue', 'full', 'cinematic'] as const;
 export const MIN_VOICE_SPEED = 0.5;
 export const MAX_VOICE_SPEED = 2;
 export type MicrophoneMode = (typeof MICROPHONE_MODES)[number];

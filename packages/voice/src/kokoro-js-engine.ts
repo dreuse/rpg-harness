@@ -16,7 +16,7 @@ interface RawAudio {
 
 interface KokoroTts {
   readonly model: { dispose(): Promise<void> };
-  generate(text: string, options: { readonly voice: string }): Promise<RawAudio>;
+  generate(text: string, options: { readonly voice: string; readonly speed: number }): Promise<RawAudio>;
 }
 
 interface KokoroModule {
@@ -43,9 +43,9 @@ export const createKokoroJsEngine = (dir: string): KokoroEngine => {
       env.allowRemoteModels = false;
       tts = await KokoroTTS.from_pretrained(KOKORO_MODEL_ID, { dtype: DTYPE, device: DEVICE });
     },
-    synthesize: async (sentence, voiceId) => {
+    synthesize: async (sentence, voiceId, _signal, speed) => {
       if (!tts) throw new Error('kokoro model not loaded');
-      return new Uint8Array((await tts.generate(sentence, { voice: voiceId })).toWav());
+      return new Uint8Array((await tts.generate(sentence, { voice: voiceId, speed })).toWav());
     },
     unload: async () => {
       const loaded = tts;

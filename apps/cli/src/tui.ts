@@ -111,7 +111,8 @@ const HELP_LABEL = 'Help';
 const HELP_TITLE = `${HELP_LABEL}:`;
 const STATUS_HINT = 'Tab next pane, 1-4 pick pane, i type, ? help, q quit';
 const STATUS_SEPARATOR = ' | ';
-const AUDIO_HELP = "Type 'set mic to push-to-talk', 'set output to narrator' or 'set speed to 1.5' to change voice.";
+const AUDIO_HELP =
+  "Type 'set mic to push-to-talk', 'set output to narrator', 'set output to cinematic' or 'set speed to 1.5' to change voice.";
 const NO_SCENE = 'No scene to act in yet.';
 const EDIT_PATTERN = /^\/edit\s+(\S+)\s+(.+)$/i;
 const FLAG_WORDS: Readonly<Record<string, boolean>> = { yes: true, true: true, no: false, false: false };

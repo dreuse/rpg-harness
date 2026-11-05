@@ -244,3 +244,30 @@ test('return() without iterating releases listeners and aborts the provider', as
   assert.equal(getEventListeners(caller.signal, 'abort').length, 0);
   assert.equal(a.signals[0]?.aborted, true);
 });
+
+test('only cinematic output passes expressive delivery to the provider', async () => {
+  const received: CommittedUtterance[] = [];
+  const provider = fake('a');
+  const recording: TtsProvider = {
+    ...provider,
+    synthesize: (utterance, voiceId, signal) => {
+      received.push(utterance);
+      return provider.synthesize(utterance, voiceId, signal);
+    },
+  };
+  const delivered = { ...UTTERANCE, delivery: { emotion: 'angry', intensity: 1 } };
+  for (const spokenOutput of ['full', 'cinematic'] as const) {
+    const outcome = await speakOrText({
+      utterance: delivered,
+      settings: { ...SETTINGS, spokenOutput },
+      providers: [recording],
+      rate: RATE,
+      budget: BUDGET,
+    });
+    if (outcome.kind === 'speech') await collect(outcome.chunks);
+  }
+  assert.deepEqual(
+    received.map((utterance) => utterance.delivery),
+    [undefined, delivered.delivery],
+  );
+});

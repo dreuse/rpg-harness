@@ -1,4 +1,4 @@
-import type { CommittedUtterance, VoiceProfile } from './voice.ts';
+import type { CommittedUtterance, Delivery, VoiceProfile } from './voice.ts';
 
 export const NARRATOR_SPEAKER = 'narrator';
 
@@ -6,6 +6,7 @@ export interface OutputSegment {
   readonly eventId: string;
   readonly text: string;
   readonly speakerId?: string;
+  readonly delivery?: Delivery;
 }
 
 export interface SpeakerRouting {
@@ -31,10 +32,10 @@ export const routeSegments = ({
   profileOf,
 }: SpeakerRouting): readonly CommittedUtterance[] => {
   const committedIds = new Set(committed.events.map((event) => event.id));
-  const route = ({ eventId, text, speakerId = NARRATOR_SPEAKER }: OutputSegment): CommittedUtterance => {
+  const route = ({ eventId, text, speakerId = NARRATOR_SPEAKER, delivery }: OutputSegment): CommittedUtterance => {
     if (!committedIds.has(eventId)) throw new UncommittedSegmentError(eventId);
     const profile = (speakerId === NARRATOR_SPEAKER ? undefined : profileOf(speakerId)) ?? narrator;
-    return Object.freeze({ text, speakerId, eventId, profile });
+    return Object.freeze({ text, speakerId, eventId, profile, ...(delivery === undefined ? {} : { delivery }) });
   };
   return Object.freeze(segments.map(route));
 };

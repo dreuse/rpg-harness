@@ -10,7 +10,7 @@ interface CampaignIntent {
   preferences?: {
     simulation?: 'off' | 'ambient' | 'balanced' | 'dynamic' | 'custom';
     storyIntensity?: number; worldAutonomy?: number; consequenceSeverity?: number;
-    voice?: 'off' | 'narrator' | 'dialogue' | 'full';
+    voice?: 'off' | 'narrator' | 'dialogue' | 'full' | 'cinematic';
     pacing?: 'relaxed' | 'balanced' | 'intense';
   };
   provenance: Record<string, 'explicit' | 'derived' | 'default'>;

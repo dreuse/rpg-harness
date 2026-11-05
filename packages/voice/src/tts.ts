@@ -3,6 +3,7 @@ import {
   estimateCost,
   type PrivacyDisclosure,
   resolveVoiceMode,
+  type SpokenOutputMode,
   type UsageRate,
   type VoiceProfile,
   type VoiceSettings,
@@ -49,6 +50,14 @@ export const DEFAULT_FIRST_CHUNK_TIMEOUT_MS = 5000;
 const CANCELLED: SpeechOutcome = { kind: 'text', reason: 'cancelled' };
 const TIMED_OUT = Symbol('timed-out');
 const ABORTED = Symbol('aborted');
+
+const CINEMATIC: SpokenOutputMode = 'cinematic';
+
+export const spokenUtterance = (utterance: CommittedUtterance, settings: VoiceSettings): CommittedUtterance => {
+  if (settings.spokenOutput === CINEMATIC || utterance.delivery === undefined) return utterance;
+  const { delivery: _delivery, ...plain } = utterance;
+  return plain;
+};
 
 export const selectVoiceId = (profile: VoiceProfile, providerId: string): string | undefined =>
   profile.fallbacks.find((fallback) => fallback.providerId === providerId)?.voiceId;
@@ -162,11 +171,12 @@ export const speakOrText = async (options: SpeakOptions): Promise<SpeechOutcome>
   assertTimeout(timeoutMs);
   const mode = resolveVoiceMode(options.settings);
   if (mode.kind !== 'voice' || mode.spokenOutput === 'off') return { kind: 'text', reason: 'voice-off' };
+  const utterance = spokenUtterance(options.utterance, options.settings);
   const consent = options.settings.consent;
   const consented = consent.granted ? consent.providerIds : [];
-  const cost = estimateCost(options.rate, options.utterance.text.length).amount;
+  const cost = estimateCost(options.rate, utterance.text.length).amount;
   let reason: TextFallbackReason = 'provider-unavailable';
-  for (const { providerId, voiceId } of options.utterance.profile.fallbacks) {
+  for (const { providerId, voiceId } of utterance.profile.fallbacks) {
     if (options.signal?.aborted) return CANCELLED;
     const provider = options.providers.find((candidate) => candidate.id === providerId);
     if (!provider || !consented.includes(providerId) || provider.healthy?.() === false) continue;
@@ -174,7 +184,7 @@ export const speakOrText = async (options: SpeakOptions): Promise<SpeechOutcome>
       reason = 'over-budget';
       continue;
     }
-    const started = await tryStart(provider, voiceId, options, timeoutMs);
+    const started = await tryStart(provider, voiceId, { ...options, utterance }, timeoutMs);
     if (typeof started !== 'string') return { kind: 'speech', chunks: started };
     reason = started;
   }

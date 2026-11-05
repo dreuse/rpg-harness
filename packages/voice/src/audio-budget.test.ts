@@ -82,6 +82,23 @@ test('A16: cache safe repeated output and show model/voice costs and limits', as
   });
 });
 
+test('A16: full output audio is not replayed for cinematic delivery', async () => {
+  const provider = fake('a');
+  const cache = createAudioCache(ROOMY_CACHE_BYTES);
+  const ledger = createUsageLedger({ rate: RATE });
+  const base = { providers: [provider], ledger, cache, safeToCache: true };
+  const delivered = { ...UTTERANCE, delivery: { emotion: 'angry', intensity: 1 } };
+
+  await drain(
+    await speakWithBudget({ ...base, settings: { ...SETTINGS, spokenOutput: 'full' }, utterance: delivered }),
+  );
+  await drain(
+    await speakWithBudget({ ...base, settings: { ...SETTINGS, spokenOutput: 'cinematic' }, utterance: delivered }),
+  );
+
+  assert.equal(provider.calls, 2);
+});
+
 test('A16: output not marked safe is never cached', async () => {
   const provider = fake('a');
   const cache = createAudioCache(ROOMY_CACHE_BYTES);
@@ -104,6 +121,7 @@ test('A16: cache key depends on provider, voice, text and voice settings', () =>
   assert.notEqual(key, audioCacheKey('a', 'b-voice', UTTERANCE));
   assert.notEqual(key, audioCacheKey('a', 'a-voice', { ...UTTERANCE, text: 'other' }));
   assert.notEqual(key, audioCacheKey('a', 'a-voice', { ...UTTERANCE, profile: { ...PROFILE, pace: 2 } }));
+  assert.notEqual(key, audioCacheKey('a', 'a-voice', { ...UTTERANCE, delivery: { emotion: 'angry' } }));
 });
 
 test('A16: cache evicts least recently used entries past its byte bound', () => {

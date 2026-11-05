@@ -51,6 +51,22 @@ test('route segments to narration or correct npc voice after valid commit', () =
   );
 });
 
+test('route passes the segment delivery into the utterance', () => {
+  const delivery = { emotion: 'angry', intensity: 1 };
+  const [plain, delivered] = routeSegments({
+    committed: COMMITTED,
+    segments: [
+      SEGMENTS[0] ?? { eventId: 'ev-narration', text: '' },
+      { ...SEGMENTS[1], eventId: HANGING_EVENT, text: 'Go.', delivery },
+    ],
+    narrator: NARRATOR_PROFILE,
+    profileOf: profilesOf({ [NPC_ID]: NPC_PROFILE }),
+  });
+  assert.equal(plain?.delivery, undefined);
+  assert.equal(plain !== undefined && 'delivery' in plain, false);
+  assert.deepEqual(delivered?.delivery, delivery);
+});
+
 test('reject a segment whose event is not in the commit', () => {
   assert.throws(
     () =>

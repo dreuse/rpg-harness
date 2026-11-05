@@ -3,6 +3,7 @@ import { mock, test } from 'node:test';
 import {
   createKokoroProvider,
   KOKORO_CAPABILITIES,
+  KOKORO_DELIVERY_SPEED,
   KOKORO_IDLE_TIMEOUT_MS,
   KOKORO_MAX_CONCURRENT,
   KOKORO_PROVIDER_ID,
@@ -103,6 +104,21 @@ test('loads lazily and yields one WAV chunk per sentence with the last one final
   );
   await speak(provider);
   assert.equal(engine.loads, 1);
+  await provider.dispose();
+});
+
+test('passes the delivery speed to the engine and neutral speed without delivery', async () => {
+  const engine = fakeEngine();
+  const speeds: number[] = [];
+  const synthesize = engine.synthesize;
+  engine.synthesize = (sentence, voiceId, signal, speed) => {
+    speeds.push(speed);
+    return synthesize(sentence, voiceId, signal, speed);
+  };
+  const provider = createKokoroProvider({ engine });
+  await speak(provider, { ...UTTERANCE, text: 'Run!', delivery: { emotion: 'sad', intensity: 1 } });
+  await speak(provider, { ...UTTERANCE, text: 'Run!' });
+  assert.deepEqual(speeds, [KOKORO_DELIVERY_SPEED.sad, KOKORO_DELIVERY_SPEED.neutral]);
   await provider.dispose();
 });
 
