@@ -26,3 +26,4 @@ coverage/
 .claude/settings.local.json
 !CLAUDE.md
 .voice-spike/
+__pycache__/
