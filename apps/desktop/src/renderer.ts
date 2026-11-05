@@ -290,6 +290,7 @@ export const viewModel = (
       attempts: state.connection.attempts,
     },
     title: { campaign: state.snapshot?.campaign.name, scene: state.snapshot?.currentScene?.title },
+    scene: state.snapshot?.currentScene,
     character: state.snapshot?.characters[0]?.name,
     playing: state.selected !== undefined,
     home: homeOf(state, preferences.locale, now),

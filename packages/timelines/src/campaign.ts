@@ -70,7 +70,13 @@ const applyType = (state: CampaignTimelineState, { campaignId, type, payload }: 
   return {
     ...state,
     characters: [...state.characters, actor],
-    currentScene: { id: String(payload.sceneId), campaignId, title: String(payload.title) },
+    currentScene: {
+      id: String(payload.sceneId),
+      campaignId,
+      title: String(payload.title),
+      ...(typeof payload.locationKind === 'string' ? { locationKind: payload.locationKind } : {}),
+      ...(Array.isArray(payload.moodTags) ? { moodTags: payload.moodTags.map(String) } : {}),
+    },
   };
 };
 

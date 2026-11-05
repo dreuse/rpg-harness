@@ -91,6 +91,40 @@ describe('rpg-42a.46 pitch opening', () => {
     assert.ok(existsSync(fileOf(dataDir, `${TITLE} 2`)));
   });
 
+  it('rpg-cm63.41 persists the GM location kind and mood tags on the opening scene', async (t) => {
+    const dataDir = tempDataDir(t);
+    const tagged: GameMaster = {
+      ...scriptedGm(),
+      request: async () => ({
+        narration: OPENING_NARRATION,
+        segments: [{ text: OPENING_NARRATION }],
+        proposals: [
+          {
+            kind: 'entity',
+            id: 'drowned-chapel',
+            entityKind: 'location',
+            name: CHAPEL,
+            locationKind: 'ruins',
+            mood: ['tense', 'rain'],
+            visibility: 'player',
+          },
+        ],
+      }),
+    };
+    await run(dataDir, tagged, PITCH);
+    const { currentScene } = readCampaignState(dataDir, TITLE);
+    assert.equal(currentScene?.locationKind, 'ruins');
+    assert.deepEqual(currentScene?.moodTags, ['tense', 'rain']);
+  });
+
+  it('rpg-cm63.41 leaves the tags off a scene the GM did not tag', async (t) => {
+    const dataDir = tempDataDir(t);
+    await run(dataDir, scriptedGm(), PITCH);
+    const { currentScene } = readCampaignState(dataDir, TITLE);
+    assert.equal(currentScene?.locationKind, undefined);
+    assert.equal(currentScene?.moodTags, undefined);
+  });
+
   it('stores the full pitch as campaign data', async (t) => {
     const dataDir = tempDataDir(t);
     await run(dataDir, scriptedGm(), PITCH);

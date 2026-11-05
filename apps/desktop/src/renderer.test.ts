@@ -134,6 +134,7 @@ test('UI08: provide responsive desktop conversation, sheets, panels and campaign
   assert.deepEqual(wide.panels?.inventory, PANELS.inventory);
   assert.equal(wide.status.label, 'Connected');
   assert.deepEqual(wide.title, { campaign: 'Harbor', scene: 'Docks' });
+  assert.deepEqual(wide.scene, { id: 's1', campaignId: CAMPAIGN, title: 'Docks' });
   assert.equal(wide.character, 'Ash');
   assert.deepEqual(wide.diagnostics, { pid: 42, gm: 'fake', error: undefined, attempts: 0 });
 

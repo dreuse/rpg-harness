@@ -79,11 +79,13 @@ const setup = (input: readonly string[] = PLAYER_LINES) => {
       calls.push(`claude:${name ?? ''}`);
       return 0;
     },
-    sound: async function* (request) {
+    sound: async function* (request, locale) {
       calls.push(`sound:${JSON.stringify(request)}`);
+      soundLocales.push(locale);
       yield 'music: on, volume 50%';
     },
   };
+  const soundLocales: (string | undefined)[] = [];
   const out: string[] = [];
   const err: string[] = [];
   const io = {
@@ -91,7 +93,7 @@ const setup = (input: readonly string[] = PLAYER_LINES) => {
     stderr: (text: string) => err.push(text),
     lines: lines(input),
   };
-  return { calls, gateway, io, out, err };
+  return { calls, gateway, io, out, err, soundLocales };
 };
 
 test('help lists every command with a one-line description in plain text', async () => {
@@ -493,6 +495,13 @@ test('sound turns channels on, sets volumes and passes the download consent to t
   ]);
   assert.deepEqual(out, ['music: on, volume 50%\n']);
   assert.deepEqual(err, []);
+});
+
+test('rpg-cm63.41 sound passes the CLI locale to the gateway', async () => {
+  const { gateway, io, soundLocales } = setup();
+  assert.equal(await main(['sound'], io, gateway), 0);
+  assert.equal(await main(['sound'], { ...io, locale: 'pt-BR' }, gateway), 0);
+  assert.deepEqual(soundLocales, ['en', 'pt-BR']);
 });
 
 test('sound rejects a volume outside 0 to 1, stray arguments and options for other commands', async () => {

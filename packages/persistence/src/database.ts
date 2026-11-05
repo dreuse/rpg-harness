@@ -161,6 +161,13 @@ export const MIGRATIONS: readonly Migration[] = [
       );
     `,
   },
+  {
+    version: 10,
+    sql: `
+      ALTER TABLE scene ADD COLUMN location_kind TEXT;
+      ALTER TABLE scene ADD COLUMN mood_tags TEXT;
+    `,
+  },
 ];
 
 const STARTED = 'started';

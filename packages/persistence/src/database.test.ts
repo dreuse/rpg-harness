@@ -287,7 +287,7 @@ test('interrupted migration can be detected or recovered without deleting user d
   });
 });
 
-const BEFORE_KIND_VERSION = MIGRATIONS.length - 1;
+const BEFORE_KIND_VERSION = 8;
 const SYSTEM_TURN_ID = 'turn-system';
 const PLAY_TURN_ID = 'turn-play';
 const INSERT_KIND_TURN =

@@ -2,6 +2,7 @@ import type { AmbientSink } from '../../../packages/voice/src/ambience.ts';
 import type { ModelConsent } from '../../../packages/voice/src/kokoro-model.ts';
 import {
   createSoundController,
+  SCENE_EFFECT,
   type SoundClock,
   type SoundController,
 } from '../../../packages/voice/src/sound-controller.ts';
@@ -37,7 +38,7 @@ export type SoundAudioContext = {
 
 export type WebAudioSink = AmbientSink & { dispose(): void };
 export type DesktopSound = {
-  update(settings: SoundSettings, scene: SceneSoundInput | undefined): void;
+  update(settings: SoundSettings, scene: SceneSoundInput | undefined, sceneId?: string): void;
   speaking(active: boolean): void;
   refresh(): Promise<void>;
   dispose(): void;
@@ -47,6 +48,7 @@ type Layer = { gain?: GainLike; source?: SourceLike };
 
 const LAYER_SEPARATOR = ':';
 const ONE_SHOT_KIND = 'effect';
+const ONE_SHOT_PREFIX = `${ONE_SHOT_KIND}${LAYER_SEPARATOR}`;
 const SILENT = 0;
 
 const browserClock: SoundClock = {
@@ -105,7 +107,10 @@ export const createWebAudioSink = ({
       if (gain !== undefined) gain.gain.value = volume;
     },
     start: (id) => {
-      if (layers.has(id)) return;
+      if (layers.has(id)) {
+        if (!id.startsWith(ONE_SHOT_PREFIX)) return;
+        stop(id);
+      }
       const layer: Layer = {};
       layers.set(id, layer);
       play(id, layer).catch(() => undefined);
@@ -137,12 +142,18 @@ export const createDesktopSound = ({
   let narrating = false;
   let settings: SoundSettings | undefined;
   let scene: SceneSoundInput | undefined;
+  let sceneId: string | undefined;
+  let chimedScene: string | undefined;
 
   const sync = (): void => {
     if (running === undefined || settings === undefined) return;
     const { controller } = running;
     controller.apply(settings);
     if (scene !== undefined) controller.setScene(scene);
+    if (installed && sceneId !== undefined && sceneId !== chimedScene) {
+      chimedScene = sceneId;
+      controller.effect(SCENE_EFFECT);
+    }
     if (silenced === (scene === undefined)) return;
     silenced = scene === undefined;
     controller.setSilence(silenced);
@@ -184,9 +195,11 @@ export const createDesktopSound = ({
   });
 
   return {
-    update: (nextSettings, nextScene) => {
+    update: (nextSettings, nextScene, nextSceneId) => {
       settings = nextSettings;
       scene = nextScene;
+      sceneId = nextSceneId;
+      if (nextScene === undefined) chimedScene = undefined;
       if (!soundEnabled(nextSettings)) return stop();
       if (running === undefined) start();
       sync();

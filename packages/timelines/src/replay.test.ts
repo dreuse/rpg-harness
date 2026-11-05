@@ -89,6 +89,8 @@ const playSession = () => {
     campaignId: campaign.id,
     actorName: 'Mara',
     sceneTitle: 'The Dock at Dusk',
+    locationKind: 'harbour',
+    moodTags: ['tense'],
     narration: 'A lantern sways at the end of the pier.',
   });
   engine.renameCampaign(campaign.id, NEW_NAME);
@@ -170,6 +172,8 @@ test('T01: replay state matches directly materialized state and recorded roll ou
       turnIds: state.turns.map(({ id }) => id),
     },
   );
+  assert.deepEqual(replayed.currentScene?.moodTags, ['tense']);
+  assert.equal(replayed.currentScene?.locationKind, 'harbour');
   const materializedRolls = currentEncounter(state.events)?.actions.flatMap(({ resolution }) => resolution.rolls);
   assert.equal(committedRolls.length, DRAWS.length);
   assert.deepEqual(replayed.rolls, committedRolls);

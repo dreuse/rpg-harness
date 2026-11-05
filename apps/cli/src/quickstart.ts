@@ -213,7 +213,12 @@ export const isPitch = (text: string) =>
 export const titleOf = (pitch: string) =>
   pitch.trim().split(WORD_SEPARATOR).slice(0, MAX_TITLE_WORDS).join(' ').slice(0, MAX_TITLE_LENGTH).trim();
 
-export type Opening = { title: string; narration: string };
+export type Opening = {
+  title: string;
+  narration: string;
+  locationKind?: string;
+  moodTags?: readonly string[];
+};
 
 export const openingFor = ({ genre }: CampaignConfig, fallback: Opening): Opening => {
   const pack = GENRE_PACKS.find((candidate) => candidate.genre.id === genre?.id);

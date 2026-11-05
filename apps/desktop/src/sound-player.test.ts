@@ -15,6 +15,7 @@ const VOLUME = 0.5;
 const TOLERANCE = 1e-9;
 const MUSIC_ON: SoundSettings = { ...DEFAULT_SOUND_SETTINGS, music: { enabled: true, volume: VOLUME } };
 const AMBIENCE_ON: SoundSettings = { ...MUSIC_ON, ambience: { enabled: true, volume: VOLUME } };
+const EFFECTS_ON: SoundSettings = { ...MUSIC_ON, effects: { enabled: true, volume: VOLUME } };
 const TAVERN = { location: 'tavern', mood: [] };
 const QUIET_SCENE = { location: '', mood: [] };
 const COMBAT = { location: '', mood: ['combat'] };
@@ -174,6 +175,16 @@ test('rpg-cm63.33 an effect plays once and a stopped layer is released', async (
   sink.stop('music:calm');
   assert.equal(audio.sources.find(({ buffer }) => buffer === 'music:calm')?.stopped, true);
   assert.equal(audio.gains[1]?.disconnected, true);
+});
+
+test('rpg-cm63.41 starting an effect again plays it again', async () => {
+  const { audio, sink } = sinkSetup();
+  sink.start('effect:bell');
+  await flush();
+  sink.start('effect:bell');
+  await flush();
+  assert.equal(audio.sources.filter(({ buffer }) => buffer === 'effect:bell').length, 2);
+  assert.equal(audio.sources.filter(({ buffer, stopped }) => buffer === 'effect:bell' && !stopped).length, 1);
 });
 
 test('rpg-cm63.33 a layer stopped before it finished loading never plays', async () => {
@@ -418,4 +429,34 @@ test('rpg-cm63.39 refreshing after a download starts the sound that was waiting 
   await sound.refresh();
   await flush();
   assert.deepEqual(requested, ['music:calm']);
+});
+
+const chimes = (requested: readonly string[]) => requested.filter((label) => label === 'effect:bell').length;
+
+test('rpg-cm63.41 every new scene chimes once and a repeated update does not', async () => {
+  const { sound, requested } = soundSetup();
+  sound.update(EFFECTS_ON, QUIET_SCENE, 'scene-1');
+  await flush();
+  assert.equal(chimes(requested), 1);
+  sound.update(EFFECTS_ON, QUIET_SCENE, 'scene-1');
+  await flush();
+  assert.equal(chimes(requested), 1);
+  sound.update(EFFECTS_ON, COMBAT, 'scene-2');
+  await flush();
+  assert.equal(chimes(requested), 2);
+});
+
+test('rpg-cm63.41 a scene opened while the sounds are not installed stays silent', async () => {
+  const { sound, requested } = soundSetup(false);
+  sound.update(EFFECTS_ON, QUIET_SCENE, 'scene-1');
+  await flush();
+  assert.equal(chimes(requested), 0);
+});
+
+test('rpg-cm63.41 persisted tags are used and the title is only the fallback', () => {
+  assert.deepEqual(sceneSoundInput('Docks', { locationKind: 'sea', moodTags: ['tense'] }), {
+    location: 'sea',
+    mood: ['tense'],
+  });
+  assert.deepEqual(sceneSoundInput('Docks'), { location: '', mood: ['docks'] });
 });

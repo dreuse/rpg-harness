@@ -1240,7 +1240,8 @@ const PREVIEW_MS = 2000;
 const fakeSound = () => {
   const calls: unknown[][] = [];
   const sound: DesktopSound = {
-    update: (settings, scene) => calls.push(['update', settings, scene]),
+    update: (settings, scene, sceneId) =>
+      calls.push(sceneId === undefined ? ['update', settings, scene] : ['update', settings, scene, sceneId]),
     speaking: (active) => calls.push(['speaking', active]),
     refresh: async () => {
       calls.push(['refresh']);
@@ -1260,7 +1261,19 @@ test('rpg-cm63.33 page hands the saved sound settings and the scene to playback 
   page.receive({ type: 'Campaigns', campaigns: [SNAPSHOT.campaign] });
   continueHarbor(page);
   page.receive({ type: 'Snapshot', snapshot: SNAPSHOT });
-  assert.deepEqual(last('update'), ['update', MUSIC_ON, { location: '', mood: ['docks'] }]);
+  assert.deepEqual(last('update'), ['update', MUSIC_ON, { location: '', mood: ['docks'] }, 's1']);
+});
+
+test('rpg-cm63.41 page prefers the persisted location kind and mood tags over the scene title', () => {
+  const page = fakePage();
+  const { sound, last } = fakeSound();
+  mount(page, { sound: MUSIC_ON }, deniedMicrophone, undefined, WIDE_WIDTH, { sound });
+  page.receive(READY);
+  page.receive({ type: 'Campaigns', campaigns: [SNAPSHOT.campaign] });
+  continueHarbor(page);
+  const currentScene = { ...SNAPSHOT.currentScene, locationKind: 'tavern', moodTags: ['tense'] };
+  page.receive({ type: 'Snapshot', snapshot: { ...SNAPSHOT, currentScene } });
+  assert.deepEqual(last('update'), ['update', MUSIC_ON, { location: 'tavern', mood: ['tense'] }, 's1']);
 });
 
 test('rpg-cm63.33 page ducks the background while a voice preview plays and releases it afterwards', async () => {

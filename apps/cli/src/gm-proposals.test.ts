@@ -18,8 +18,10 @@ import {
 import {
   MAX_FACT_LENGTH,
   MAX_FACTS,
+  MAX_MOOD_TAGS,
   MAX_NAME_LENGTH,
   MAX_PROPOSALS,
+  MAX_TAG_LENGTH,
   PROPOSALS_SCHEMA,
   proposalsOf,
 } from './gm-proposals.ts';
@@ -107,6 +109,11 @@ describe('rpg-42a.43 GM proposals', () => {
     ]);
   });
 
+  it('rpg-cm63.41 parses the location kind and mood tags of a place', () => {
+    const place = { ...STRANGER, entityKind: 'location', locationKind: 'tavern', mood: ['tense', 'rain'] };
+    assert.deepEqual(proposalsOf({ proposals: [place] }), [{ ...place, visibility: 'player' }]);
+  });
+
   it('ignores an absent or empty proposal list', () => {
     assert.equal(proposalsOf({}), undefined);
     assert.equal(proposalsOf({ proposals: [] }), undefined);
@@ -133,6 +140,10 @@ describe('rpg-42a.43 GM proposals', () => {
     ['long name', [{ ...STRANGER, name: 'x'.repeat(MAX_NAME_LENGTH + 1) }]],
     ['long fact', [{ ...STRANGER, facts: ['x'.repeat(MAX_FACT_LENGTH + 1)] }]],
     ['too many facts', [{ ...STRANGER, facts: Array.from({ length: MAX_FACTS + 1 }, () => 'fact') }]],
+    ['blank location kind', [{ ...STRANGER, locationKind: ' ' }]],
+    ['long location kind', [{ ...STRANGER, locationKind: 'x'.repeat(MAX_TAG_LENGTH + 1) }]],
+    ['long mood tag', [{ ...STRANGER, mood: ['x'.repeat(MAX_TAG_LENGTH + 1)] }]],
+    ['too many mood tags', [{ ...STRANGER, mood: Array.from({ length: MAX_MOOD_TAGS + 1 }, () => 'tense') }]],
     ['public visibility', [{ ...STRANGER, visibility: 'public' }]],
     ['unknown pending kind', [{ ...DEBT, pendingKind: 'curse' }]],
     ['pending without entities', [{ ...DEBT, entityIds: [] }]],

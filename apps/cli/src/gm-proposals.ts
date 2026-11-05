@@ -23,6 +23,8 @@ export const MAX_ID_LENGTH = 64;
 export const MAX_NAME_LENGTH = 80;
 export const MAX_FACT_LENGTH = 300;
 export const MAX_FACTS = 5;
+export const MAX_TAG_LENGTH = 40;
+export const MAX_MOOD_TAGS = 5;
 export const MAX_PENDING_TEXT_LENGTH = 300;
 export const MAX_PENDING_ENTITIES = 5;
 export const MAX_LABEL_LENGTH = 120;
@@ -42,7 +44,7 @@ const NO_RULES: readonly string[] = [];
 const DEFAULT_VISIBILITY = 'player';
 const FACT_LAYER = 'canon';
 const PROPOSAL_KEYS = {
-  [ENTITY_PROPOSAL]: ['kind', 'id', 'entityKind', 'name', 'facts', 'visibility'],
+  [ENTITY_PROPOSAL]: ['kind', 'id', 'entityKind', 'name', 'facts', 'visibility', 'locationKind', 'mood'],
   [PENDING_PROPOSAL]: ['kind', 'id', 'pendingKind', 'text', 'entityIds', 'visibility'],
   [CHECK_PROPOSAL]: ['kind', 'id', 'ruleId', 'target', 'label'],
   [OUTCOME_PROPOSAL]: ['kind', 'id', 'text'],
@@ -56,6 +58,8 @@ export type EntityProposal = {
   readonly entityKind: EntityKind;
   readonly name: string;
   readonly facts?: readonly string[];
+  readonly locationKind?: string;
+  readonly mood?: readonly string[];
   readonly visibility: ProposalVisibility;
 };
 
@@ -101,6 +105,8 @@ export const PROPOSALS_SCHEMA = {
           name: { type: 'string', maxLength: MAX_NAME_LENGTH },
           facts: { type: 'array', maxItems: MAX_FACTS, items: { type: 'string', maxLength: MAX_FACT_LENGTH } },
           visibility: visibilitySchema,
+          locationKind: { type: 'string', maxLength: MAX_TAG_LENGTH },
+          mood: { type: 'array', maxItems: MAX_MOOD_TAGS, items: { type: 'string', maxLength: MAX_TAG_LENGTH } },
         },
         required: ['kind', 'id', 'entityKind', 'name'],
         additionalProperties: false,
@@ -170,7 +176,24 @@ const entityOf = (value: Record<string, unknown>): EntityProposal | undefined =>
     value.facts === undefined ? [] : listOf(value.facts, MAX_FACTS, (fact) => textOf(fact, MAX_FACT_LENGTH));
   if (id === undefined || name === undefined || entityKind === undefined || visibility === undefined) return undefined;
   if (facts === undefined) return undefined;
-  return { kind: ENTITY_PROPOSAL, id, entityKind, name, ...(facts.length === 0 ? {} : { facts }), visibility };
+  const locationKind = value.locationKind === undefined ? undefined : textOf(value.locationKind, MAX_TAG_LENGTH);
+  const mood =
+    value.mood === undefined ? undefined : listOf(value.mood, MAX_MOOD_TAGS, (tag) => textOf(tag, MAX_TAG_LENGTH));
+  if (
+    (value.locationKind !== undefined && locationKind === undefined) ||
+    (value.mood !== undefined && mood === undefined)
+  )
+    return undefined;
+  return {
+    kind: ENTITY_PROPOSAL,
+    id,
+    entityKind,
+    name,
+    ...(facts.length === 0 ? {} : { facts }),
+    ...(locationKind === undefined ? {} : { locationKind }),
+    ...(mood === undefined ? {} : { mood }),
+    visibility,
+  };
 };
 
 const pendingOf = (value: Record<string, unknown>): PendingProposal | undefined => {

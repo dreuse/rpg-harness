@@ -76,7 +76,14 @@ export const selectSounds = (scene: SceneSoundInput, extension: SoundTableExtens
 
 const WORD_SEPARATOR = /[^\p{L}]+/u;
 
-export const sceneSoundOf = (title: string | undefined): SceneSoundInput => {
+export interface SceneSoundTags {
+  readonly locationKind?: string;
+  readonly moodTags?: readonly string[];
+}
+
+export const sceneSoundOf = (title: string | undefined, tags: SceneSoundTags = {}): SceneSoundInput => {
   const words = (title ?? '').toLowerCase().split(WORD_SEPARATOR).filter(Boolean);
-  return { location: words.find((word) => Object.hasOwn(BASE_SOUND_TABLE.locations, word)) ?? '', mood: words };
+  const fromTitle = words.find((word) => Object.hasOwn(BASE_SOUND_TABLE.locations, word)) ?? '';
+  if (tags.locationKind === undefined && tags.moodTags === undefined) return { location: fromTitle, mood: words };
+  return { location: tags.locationKind ?? fromTitle, mood: tags.moodTags ?? [] };
 };

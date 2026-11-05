@@ -7,8 +7,10 @@ import { budgetWarning, gmSettingsLines, gmUsageLines } from '../../../packages/
 import {
   type CampaignHealth,
   type CampaignSummary,
+  type ClientSession,
   type CreateCampaign,
   MAX_INPUT_LENGTH,
+  PROTOCOL_VERSION,
 } from '../../../packages/client-protocol/src/protocol.ts';
 import type { GmRoute } from '../../../packages/client-protocol/src/wire.ts';
 import {
@@ -119,7 +121,7 @@ export { FAKE_GM_REPLY } from './gm-api.ts';
 
 import { importRules } from './import-gateway.ts';
 import type { CampaignGateway } from './main.ts';
-import { LocalizedError } from './messages.ts';
+import { DEFAULT_LOCALE, LocalizedError, say } from './messages.ts';
 import {
   ClientUnsupported,
   commandConfig,
@@ -182,7 +184,6 @@ export const GENERIC_OPENING_NOTICE =
 const ARCHIVE_DIR = 'archive';
 const NONE = 'none';
 const SAVED_SETTINGS = 'Saved settings:';
-const SOUND_UNAVAILABLE = 'Background sound is unavailable: ';
 const CHARACTER_PROMPT = `Describe your character, or press Enter to play as ${HERO_NAME}.`;
 const CREATE_CHARACTER_INTENT = 'create character';
 const SUMMARY_SETTLE_MS = 10_000;
@@ -694,17 +695,33 @@ export const openClientSession = (
 const liveRuntimes = new Map<string, SpeechRuntime>();
 const liveSounds = new Map<string, SoundRuntime>();
 
-const startSound = async (dataDir: string, campaignName: string): Promise<string | undefined> => {
+export const startSound = async (
+  dataDir: string,
+  session: Pick<ClientSession, 'getSnapshot' | 'subscribeEvents'>,
+  campaignId: CampaignId,
+  locale: string,
+): Promise<string | undefined> => {
   if (!existsSync(join(dataDir, SOUND_SETTINGS_FILE))) return undefined;
   try {
     const { sceneSoundOf } = await import('../../../packages/voice/src/sound-selection.ts');
-    const sound = (await import('./sound-runtime.ts')).createSoundRuntime(dataDir, {
-      scene: sceneSoundOf(readCampaignState(dataDir, campaignName).currentScene?.title),
-    });
-    if (sound !== undefined) liveSounds.set(dataDir, sound);
+    const { createSoundRuntime, followScenes } = await import('./sound-runtime.ts');
+    const snapshot = session.getSnapshot({ version: PROTOCOL_VERSION, type: 'GetCampaignSnapshot', campaignId });
+    if (!snapshot.ok) throw new Error(snapshot.error.message);
+    const { currentScene } = snapshot.value;
+    const sound = createSoundRuntime(dataDir, { scene: sceneSoundOf(currentScene?.title, currentScene) });
+    if (sound !== undefined) {
+      const unfollow = followScenes(sound.controller, session, campaignId, snapshot.value);
+      liveSounds.set(dataDir, {
+        controller: sound.controller,
+        dispose: () => {
+          unfollow();
+          sound.dispose();
+        },
+      });
+    }
     return undefined;
   } catch (error) {
-    return `${SOUND_UNAVAILABLE}${error instanceof Error ? error.message : String(error)}`;
+    return say(locale, 'sound.unavailable', { reason: error instanceof Error ? error.message : String(error) });
   }
 };
 
@@ -772,7 +789,7 @@ const playTui = async (
   try {
     const locale = voiceLocale();
     const voiceNotice = locale === undefined ? undefined : await speechNotice(speech, locale).catch(() => undefined);
-    const soundNotice = await startSound(dataDir, name);
+    const soundNotice = await startSound(dataDir, session, campaignId, terminal.locale ?? DEFAULT_LOCALE);
     const notice = [gm.notice, voiceNotice, soundNotice].filter((line) => line !== undefined).join(NOTICE_JOIN);
     await runTui(session, campaignId, terminal, narrate, notice || undefined, playbackFor(dataDir));
   } finally {
@@ -831,6 +848,8 @@ const createCampaign = async (
       campaignId: campaign.id,
       actorName: HERO_NAME,
       sceneTitle: opening.title,
+      ...(opening.locationKind === undefined ? {} : { locationKind: opening.locationKind }),
+      ...(opening.moodTags === undefined ? {} : { moodTags: opening.moodTags }),
       narration: opening.narration,
       config,
     });
@@ -883,7 +902,12 @@ const starterFor =
         proposal.kind === ENTITY_PROPOSAL && proposal.entityKind === SETTING_KIND,
     );
     return {
-      opening: { title: place?.name ?? name, narration: reply.narration },
+      opening: {
+        title: place?.name ?? name,
+        narration: reply.narration,
+        ...(place?.locationKind === undefined ? {} : { locationKind: place.locationKind }),
+        ...(place?.mood === undefined ? {} : { moodTags: place.mood }),
+      },
       proposals: [...setting, ...proposals],
       generic: false,
     };

@@ -12,6 +12,8 @@ export interface SoundClock {
   every(fn: () => void, ms: number): () => void;
 }
 
+export const SCENE_EFFECT = 'bell';
+
 export interface SoundControllerDeps {
   readonly sink: AmbientSink;
   readonly clock: SoundClock;

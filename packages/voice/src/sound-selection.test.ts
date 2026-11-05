@@ -60,3 +60,22 @@ test('rpg-cm63.34 a scene title yields a location kind and mood tags', () => {
   assert.deepEqual(sceneSoundOf('The Rusty Tavern'), { location: 'tavern', mood: ['the', 'rusty', 'tavern'] });
   assert.deepEqual(sceneSoundOf(undefined), { location: '', mood: [] });
 });
+
+test('rpg-cm63.41 persisted location kind and mood tags replace the title words', () => {
+  assert.deepEqual(sceneSoundOf('The Rusty Tavern', { locationKind: 'forest', moodTags: ['tense'] }), {
+    location: 'forest',
+    mood: ['tense'],
+  });
+});
+
+test('rpg-cm63.41 a missing location kind falls back to the title and missing mood tags to none', () => {
+  assert.deepEqual(sceneSoundOf('The Rusty Tavern', { moodTags: ['combat'] }), {
+    location: 'tavern',
+    mood: ['combat'],
+  });
+  assert.deepEqual(sceneSoundOf('The Rusty Tavern', { locationKind: 'cave' }), { location: 'cave', mood: [] });
+});
+
+test('rpg-cm63.41 empty tags fall back to the title', () => {
+  assert.deepEqual(sceneSoundOf('The Rusty Tavern', {}), sceneSoundOf('The Rusty Tavern'));
+});

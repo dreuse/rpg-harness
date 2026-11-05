@@ -275,3 +275,22 @@ test('an action id older than the in-memory window still replays and still confl
   assert.throws(() => engine.submitAction({ ...actionAt(0), input: 'something else' }), ActionIdConflictError);
   close();
 });
+
+test('rpg-cm63.41 opening a scene records the location kind and mood tags on the scene and its event', () => {
+  const { store, close } = openCreatedStore();
+  const tags = { locationKind: 'tavern', moodTags: ['tense', 'rain'] };
+  const { events } = openScene(store, { ...OPENING, ...tags });
+  const { currentScene } = store.load(CAMPAIGN.id) ?? {};
+  assert.equal(currentScene?.locationKind, tags.locationKind);
+  assert.deepEqual(currentScene?.moodTags, tags.moodTags);
+  assert.equal(events[0]?.payload.locationKind, tags.locationKind);
+  assert.deepEqual(events[0]?.payload.moodTags, tags.moodTags);
+  close();
+});
+
+test('rpg-cm63.41 opening a scene without tags leaves them off the scene', () => {
+  const { store, close } = openCreatedStore();
+  openScene(store, OPENING);
+  assert.deepEqual(Object.keys(store.load(CAMPAIGN.id)?.currentScene ?? {}).sort(), ['campaignId', 'id', 'title']);
+  close();
+});

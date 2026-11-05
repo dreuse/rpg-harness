@@ -31,7 +31,7 @@ const ADVANCE_CAMPAIGN = 'UPDATE campaign SET revision = ?, current_scene_id = ?
 const UPSERT_CHARACTER =
   'INSERT INTO character (id, campaign_id, name) VALUES (?, ?, ?) ON CONFLICT (id) DO UPDATE SET name = excluded.name WHERE character.campaign_id = excluded.campaign_id';
 const UPSERT_SCENE =
-  'INSERT INTO scene (id, campaign_id, title) VALUES (?, ?, ?) ON CONFLICT (id) DO UPDATE SET title = excluded.title WHERE scene.campaign_id = excluded.campaign_id';
+  'INSERT INTO scene (id, campaign_id, title, location_kind, mood_tags) VALUES (?, ?, ?, ?, ?) ON CONFLICT (id) DO UPDATE SET title = excluded.title, location_kind = excluded.location_kind, mood_tags = excluded.mood_tags WHERE scene.campaign_id = excluded.campaign_id';
 const OWNED_CHARACTER = 'SELECT 1 FROM character WHERE id = ? AND campaign_id = ?';
 const OWNED_SCENE = 'SELECT 1 FROM scene WHERE id = ? AND campaign_id = ?';
 const OWNED_EVENT = 'SELECT 1 FROM event_log WHERE id = ? AND campaign_id = ?';
@@ -42,7 +42,7 @@ const APPEND_EVENT =
 const RECORD_NARRATION = 'UPDATE turn SET narration = ? WHERE id = ? AND campaign_id = ?';
 const SELECT_CHARACTERS = 'SELECT id, campaign_id, name FROM character WHERE campaign_id = ? ORDER BY rowid';
 const SELECT_CURRENT_SCENE =
-  'SELECT scene.id, scene.campaign_id, scene.title FROM scene JOIN campaign ON campaign.current_scene_id = scene.id WHERE campaign.id = ?';
+  'SELECT scene.id, scene.campaign_id, scene.title, scene.location_kind, scene.mood_tags FROM scene JOIN campaign ON campaign.current_scene_id = scene.id WHERE campaign.id = ?';
 const TURN_COLUMNS = 'SELECT id, campaign_id, scene_id, action_id, actor_id, input, narration, kind FROM turn';
 const SELECT_RECENT_TURNS = `${TURN_COLUMNS} WHERE campaign_id = ? ORDER BY revision DESC LIMIT ${RECENT_TURN_WINDOW}`;
 const SELECT_TURN_BY_ACTION = `${TURN_COLUMNS} WHERE campaign_id = ? AND action_id = ?`;
@@ -62,6 +62,8 @@ const toScene = (row: Row): Scene => ({
   id: String(row.id),
   campaignId: String(row.campaign_id),
   title: String(row.title),
+  ...(row.location_kind === null || row.location_kind === undefined ? {} : { locationKind: String(row.location_kind) }),
+  ...(typeof row.mood_tags === 'string' ? { moodTags: JSON.parse(row.mood_tags) as string[] } : {}),
 });
 
 const toTurn = (row: Row): Turn => ({
@@ -106,7 +108,7 @@ const requireInCampaign = (campaignId: string, reference: string, inCampaign: bo
 const ownedBy = (database: DatabaseSync, sql: string, id: string, campaignId: string) =>
   database.prepare(sql).get(id, campaignId) !== undefined;
 
-const upsertOwned = (database: DatabaseSync, sql: string, values: readonly string[]) =>
+const upsertOwned = (database: DatabaseSync, sql: string, values: readonly (string | null)[]) =>
   database.prepare(sql).run(...values).changes !== NO_CHANGES;
 
 const nextRevision = (database: DatabaseSync, campaignId: string, expectedRevision: number) => {
@@ -159,10 +161,20 @@ const writeTurn = (
     requireInCampaign(campaignId, reference, owner === campaignId);
     requireInCampaign(campaignId, reference, upsertOwned(database, UPSERT_CHARACTER, [id, owner, name]));
   }
-  for (const { id, campaignId: owner, title } of scenes) {
+  for (const { id, campaignId: owner, title, locationKind, moodTags } of scenes) {
     const reference = `scene ${id}`;
     requireInCampaign(campaignId, reference, owner === campaignId);
-    requireInCampaign(campaignId, reference, upsertOwned(database, UPSERT_SCENE, [id, owner, title]));
+    requireInCampaign(
+      campaignId,
+      reference,
+      upsertOwned(database, UPSERT_SCENE, [
+        id,
+        owner,
+        title,
+        locationKind ?? null,
+        moodTags === undefined ? null : JSON.stringify(moodTags),
+      ]),
+    );
   }
   requireInCampaign(campaignId, `scene ${turn.sceneId}`, ownedBy(database, OWNED_SCENE, turn.sceneId, campaignId));
   requireInCampaign(

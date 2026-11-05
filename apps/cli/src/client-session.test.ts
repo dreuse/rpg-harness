@@ -108,6 +108,8 @@ const setup = (config?: CampaignConfig) => {
     campaignId: campaign.id,
     actorName: 'The Wanderer',
     sceneTitle: 'The Crossroads Inn',
+    locationKind: 'tavern',
+    moodTags: ['rain'],
     narration: 'Rain drums on the roof.',
     ...(config === undefined ? {} : { config }),
   });
@@ -184,6 +186,8 @@ test('UI01: player snapshot never carries the seeded GM note', () => {
   assert.ok(snapshot.ok);
   assert.equal(snapshot.value.revision, OPENING_REVISION);
   assert.equal(snapshot.value.currentScene?.title, 'The Crossroads Inn');
+  assert.equal(snapshot.value.currentScene?.locationKind, 'tavern');
+  assert.deepEqual(snapshot.value.currentScene?.moodTags, ['rain']);
   assert.ok(Object.isFrozen(snapshot.value.campaign));
   assert.doesNotMatch(JSON.stringify(snapshot.value), /Duke Varn/);
 });

@@ -113,7 +113,9 @@ test('parses option values and rejects invalid ones', () => {
 test('rpg-cm63.34 the status and download lines speak pt-BR', async () => {
   const dir = await tempDir();
   const text = await collect(soundCommand(dir, none, { sounds: SOUNDS, locale: 'pt-BR' }));
-  assert.match(text, /música: desligado, volume 50%/);
+  assert.match(text, /^ambiência: desligada, volume 50%$/m);
+  assert.match(text, /^efeitos: desligados, volume 50%$/m);
+  assert.match(text, /^música: desligada, volume 50%$/m);
   assert.match(text, /sons instalados: não \(execute sound --download\)/);
   const offer = await collect(soundCommand(dir, { ...none, download: true }, { sounds: SOUNDS, locale: 'pt-BR' }));
   assert.match(offer, /Baixe .* MiB de sons CC0 de https:\/\/sounds\.example/);

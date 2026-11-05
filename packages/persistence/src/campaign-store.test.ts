@@ -18,7 +18,7 @@ import {
 } from '../../domain/src/campaign.ts';
 import { EMPTY_GM_USAGE_LEDGER } from '../../domain/src/gm.ts';
 import { createCampaignStore } from './campaign-store.ts';
-import { openDatabase } from './database.ts';
+import { MIGRATIONS, openDatabase } from './database.ts';
 import { createEventStore } from './event-store.ts';
 
 const IN_MEMORY = ':memory:';
@@ -481,4 +481,35 @@ test('record narration on a committed turn without changing revision or events',
   assert.throws(() => store.recordNarration(MISSING_ID, TURN.id, narration), CampaignBoundaryError);
   assert.throws(() => store.recordNarration(CAMPAIGN.id, MISSING_ID, narration), CampaignBoundaryError);
   connection.close();
+});
+
+const TAGGED_SCENE = { ...SCENE, locationKind: 'tavern', moodTags: ['tense', 'rain'] };
+const LEGACY_SCENE_VERSION = 9;
+
+test('rpg-cm63.41 a scene stores and returns its location kind and mood tags', () => {
+  const { connection, store } = openStore(IN_MEMORY);
+  create(store, CAMPAIGN);
+  store.commitTurn({ ...COMMIT, scenes: [TAGGED_SCENE] });
+  assert.deepEqual(store.load(CAMPAIGN.id)?.currentScene, TAGGED_SCENE);
+  connection.close();
+});
+
+test('rpg-cm63.41 a scene stored before the tags existed loads without them', async () => {
+  const dir = await mkdtemp(join(tmpdir(), TEMP_PREFIX));
+  try {
+    const path = join(dir, DATABASE_FILE);
+    const legacy = openDatabase(path, { migrations: MIGRATIONS.slice(0, LEGACY_SCENE_VERSION) });
+    const { database } = legacy;
+    database.prepare('INSERT INTO campaign (id, name) VALUES (?, ?)').run(CAMPAIGN.id, CAMPAIGN.name);
+    database
+      .prepare('INSERT INTO scene (id, campaign_id, title) VALUES (?, ?, ?)')
+      .run(SCENE.id, CAMPAIGN.id, SCENE.title);
+    database.prepare('UPDATE campaign SET current_scene_id = ? WHERE id = ?').run(SCENE.id, CAMPAIGN.id);
+    legacy.close();
+    const { connection, store } = openStore(path);
+    assert.deepEqual(store.load(CAMPAIGN.id)?.currentScene, SCENE);
+    connection.close();
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });

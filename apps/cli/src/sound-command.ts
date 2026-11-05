@@ -67,7 +67,7 @@ const statusLines = (settings: SoundSettings, installed: boolean, locale: string
   ...SOUND_CHANNELS.map((channel) =>
     say(locale, 'sound.status', {
       channel: say(locale, `sound.channel.${channel}`),
-      state: say(locale, settings[channel].enabled ? 'sound.on' : 'sound.off'),
+      state: say(locale, `sound.${settings[channel].enabled ? 'on' : 'off'}.${channel}`),
       percent: Math.round(settings[channel].volume * PERCENT),
     }),
   ),

@@ -81,6 +81,7 @@ export const OPENING_PROMPT = [
   'Write the opening scene in two to four sentences of plain prose that follows the pitch, with no player action and no dice.',
   'Start close to the action, with a named NPC or a hook from the pitch, and end on a clear prompt or choice.',
   'Propose the starting place as a location entity first, then one or two named npc entities who are in the scene, each with a short fact.',
+  'Give the location a one-word locationKind such as tavern, forest, city, cave, sea or stream, and up to five lowercase mood tags such as calm, tense, combat, exploration or rain.',
 ].join(' ');
 export const SUMMARY_PROMPT = [
   'You condense the story so far of a tabletop role-playing game into a short factual summary for later recall.',

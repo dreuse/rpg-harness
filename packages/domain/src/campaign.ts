@@ -30,7 +30,13 @@ export type Campaign = { readonly id: CampaignId; readonly name: string };
 
 export type Character = { readonly id: CharacterId; readonly campaignId: CampaignId; readonly name: string };
 
-export type Scene = { readonly id: SceneId; readonly campaignId: CampaignId; readonly title: string };
+export type Scene = {
+  readonly id: SceneId;
+  readonly campaignId: CampaignId;
+  readonly title: string;
+  readonly locationKind?: string;
+  readonly moodTags?: readonly string[];
+};
 
 export const OPENING_ACTION_ID = 'opening';
 

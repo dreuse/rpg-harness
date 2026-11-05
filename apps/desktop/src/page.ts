@@ -322,7 +322,11 @@ export const mountPage = ({
       (selector) => root.querySelector<HTMLDetailsElement>(selector)?.open === true,
     );
     localize(preferences.locale);
-    sound?.update(preferences.sound, model.playing ? sceneSoundInput(model.title.scene) : undefined);
+    sound?.update(
+      preferences.sound,
+      model.playing ? sceneSoundInput(model.scene?.title, model.scene) : undefined,
+      model.playing ? model.scene?.id : undefined,
+    );
     syncSpeaking();
     const setupView = setup.view();
     root.innerHTML = renderView(

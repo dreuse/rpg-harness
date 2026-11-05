@@ -71,6 +71,8 @@ export type OpeningScene = {
   readonly campaignId: CampaignId;
   readonly actorName: string;
   readonly sceneTitle: string;
+  readonly locationKind?: string;
+  readonly moodTags?: readonly string[];
   readonly narration: string;
   readonly config?: Readonly<Record<string, unknown>>;
 };
@@ -232,14 +234,18 @@ export const performAction = (
 };
 
 export const openScene = (store: CampaignStore, opening: OpeningScene): CommittedTurn => {
-  const { campaignId, actorName, sceneTitle, narration } = opening;
+  const { campaignId, actorName, sceneTitle, narration, locationKind, moodTags } = opening;
   const state = loadState(store, campaignId);
   requireValid(OPENING_ACTION_ID, state.currentScene === undefined, `campaign ${campaignId} already has a scene`);
   requireValid(OPENING_ACTION_ID, actorName.trim() !== '', 'actor name is blank');
   requireValid(OPENING_ACTION_ID, sceneTitle.trim() !== '', 'scene title is blank');
   requireValid(OPENING_ACTION_ID, narration.trim() !== '', 'narration is blank');
   const character = { id: randomUUID(), campaignId, name: actorName };
-  const scene = { id: randomUUID(), campaignId, title: sceneTitle };
+  const tags = {
+    ...(locationKind === undefined ? {} : { locationKind }),
+    ...(moodTags === undefined ? {} : { moodTags }),
+  };
+  const scene = { id: randomUUID(), campaignId, title: sceneTitle, ...tags };
   const turn: Turn = {
     id: randomUUID(),
     campaignId,
@@ -252,6 +258,7 @@ export const openScene = (store: CampaignStore, opening: OpeningScene): Committe
   const opened = turnEvent(turn, null, SCENE_OPENED, {
     sceneId: scene.id,
     title: sceneTitle,
+    ...tags,
     actorId: character.id,
     actorName,
   });
