@@ -365,7 +365,8 @@ type Session = {
   database: ReturnType<typeof openDatabase>['database'];
 };
 
-type SpeakTurn = (turnId: string) => Promise<TurnSpeech | undefined>;
+type SpokenTurn = { readonly voice?: TurnSpeech; readonly notice?: string };
+type SpeakTurn = (turnId: string) => Promise<SpokenTurn>;
 
 const streamOf = (voice: TurnSpeech | undefined, listener: StreamedSegment | undefined, turnId: string) => {
   const heard = voice?.streams ? voice.heard : undefined;
@@ -397,7 +398,7 @@ const narrateLatest = async (
   let usage: GmUsage | undefined;
   let segments: readonly GmSegment[] = NO_SEGMENTS;
   let proposals: readonly GmProposal[] = [];
-  const voice = await speak(committed.turn.id);
+  const { voice, notice: voiceNotice } = await speak(committed.turn.id);
   const enforced = enforcedStrictnessFor(state, defaults);
   const checkPending = enforced !== undefined && !committed.events.some(({ type }) => type === CHECK_RESOLVED);
   let reply: GmTurnReply | undefined;
@@ -426,9 +427,10 @@ const narrateLatest = async (
       reply = fitted.reply;
       sent = fitted.packet;
       usage = reply.usage;
-      segments = reply.segments;
+      segments = voiceNotice === undefined ? reply.segments : [{ text: voiceNotice }, ...reply.segments];
       proposals = reply.proposals ?? [];
-      return { narration: reply.narration, claims: [] };
+      const narration = voiceNotice === undefined ? reply.narration : `${voiceNotice} ${reply.narration}`;
+      return { narration, claims: [] };
     },
   };
   const facts = createFactStore(database).listFacts(campaignId);
@@ -516,14 +518,14 @@ const openSession = (
     const speakTurn: SpeakTurn = async (turnId) => {
       const { changes } = engine.getState(session.campaignId);
       const settings = voiceSettingsOf(changes);
-      if (speech === undefined || settings === undefined || settings.spokenOutput === SPOKEN_OFF) return undefined;
+      if (speech === undefined || settings === undefined || settings.spokenOutput === SPOKEN_OFF) return {};
       const { campaignId } = session;
       try {
         const [
           { createTurnSpeech, narratorProfileOf },
           { assignedNpcVoices, utterancesFor },
           { voiceLocaleFor },
-          { prepareVoice },
+          { prepareVoice, takePreloadFailureNotice },
           { installedVoices },
         ] = await Promise.all([
           import('./turn-speech.ts'),
@@ -541,7 +543,8 @@ const openSession = (
         const npcVoices = assignedNpcVoices({ entities, campaignId, narrator, assigned: settings.npcVoices ?? {} });
         const runtime = await speech();
         prepareVoice(runtime.providers, narrator.language);
-        return createTurnSpeech({
+        const notice = takePreloadFailureNotice(runtime.providers, narrator.language);
+        const voice = createTurnSpeech({
           speech: runtime.speech,
           turnId,
           mode: settings.spokenOutput,
@@ -557,8 +560,9 @@ const openSession = (
               installed: () => installedVoices(runtime.providers, narrator.language),
             }),
         });
+        return { voice, ...(notice === undefined ? {} : { notice }) };
       } catch {
-        return undefined;
+        return {};
       }
     };
     const narrate = async (onSegment?: StreamedSegment) => {

@@ -3,7 +3,13 @@ import { test } from 'node:test';
 import type { PlaybackSink } from '../../../packages/voice/src/playback.ts';
 import type { SpeechChunk, TtsProvider } from '../../../packages/voice/src/tts.ts';
 import type { CommittedUtterance, VoiceProfile } from '../../../packages/voice/src/voice.ts';
-import { createLiveSpeechRuntime, createSpeechRuntime, liveProviders, prepareVoice } from './speech-runtime.ts';
+import {
+  createLiveSpeechRuntime,
+  createSpeechRuntime,
+  liveProviders,
+  prepareVoice,
+  takePreloadFailureNotice,
+} from './speech-runtime.ts';
 
 const SECRET = 'secret campaign words';
 const tick = () => new Promise((resolve) => setImmediate(resolve));
@@ -159,4 +165,20 @@ test('an unhealthy mlx voice is not preloaded', () => {
   const mlx = { ...withPreload(MLX_ID, async () => void calls.push('preload')), healthy: () => false };
   prepareVoice([mlx], PT_BR);
   assert.deepEqual(calls, []);
+});
+
+test('a failed preload yields the voice notice once, on a later turn', async () => {
+  const failing = withPreload(MLX_ID, () => Promise.reject(new Error('cold start failed')));
+  assert.equal(takePreloadFailureNotice([failing], PT_BR), undefined);
+  prepareVoice([failing], PT_BR);
+  await tick();
+  assert.match(takePreloadFailureNotice([failing], PT_BR) ?? '', /not available on this computer/);
+  assert.equal(takePreloadFailureNotice([failing], PT_BR), undefined);
+});
+
+test('a healthy preload yields no failure notice', async () => {
+  const mlx = withPreload(MLX_ID, async () => undefined);
+  prepareVoice([mlx], PT_BR);
+  await tick();
+  assert.equal(takePreloadFailureNotice([mlx], PT_BR), undefined);
 });

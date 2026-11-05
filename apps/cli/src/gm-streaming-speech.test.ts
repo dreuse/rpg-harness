@@ -78,7 +78,11 @@ const setup = async (t: TestContext, providers: readonly TtsProvider[] = [kokoro
 const openWith = (dataDir: string, gm: GameMaster, runtime: ReturnType<typeof createSpeechRuntime>) =>
   openClientSession(dataDir, CAMPAIGN, gm, Math.random, () => runtime);
 
-const submit = (opened: ReturnType<typeof openClientSession>, voice: Partial<SavedVoiceSettings> | undefined) => {
+const submit = (
+  opened: ReturnType<typeof openClientSession>,
+  voice: Partial<SavedVoiceSettings> | undefined,
+  actionId = 'typed-1',
+) => {
   const { session, campaignId } = opened;
   const snapshot = session.getSnapshot({ version: PROTOCOL_VERSION, type: 'GetCampaignSnapshot', campaignId });
   assert.ok(snapshot.ok);
@@ -103,7 +107,7 @@ const submit = (opened: ReturnType<typeof openClientSession>, voice: Partial<Sav
     version: PROTOCOL_VERSION,
     type: 'SubmitPlayerAction',
     campaignId,
-    actionId: 'typed-1',
+    actionId,
     expectedRevision: latest.value.revision,
     sceneId: latest.value.currentScene?.id ?? '',
     actorId: latest.value.characters[0]?.id ?? '',
@@ -188,6 +192,26 @@ describe('rpg-cm63.17 streaming speech in the GM turn flow', () => {
     await opened.narrate();
     await runtime.speech.idle();
     assert.deepEqual(preloads, ['mlx']);
+  });
+
+  it('tells the player once, mid-session, that the pt-BR voice failed to load', async (t) => {
+    const mlx = { ...kokoro([], 'kokoro-mlx'), preload: () => Promise.reject(new Error('broken install')) };
+    const { dataDir, played, runtime } = await setup(t, [kokoro([]), mlx], 'pt-BR');
+    const gm: GameMaster = { request: async () => reply(FIRST), summarizer: FAKE_GAME_MASTER.summarizer };
+    const opened = openWith(dataDir, gm, runtime);
+    t.after(() => opened.close());
+    const narrations: string[] = [];
+    for (const turn of [1, 2, 3]) {
+      submit(opened, turn === 1 ? { locale: 'pt-BR' } : undefined, `typed-${turn}`);
+      await opened.narrate();
+      await runtime.speech.idle();
+      await settle();
+      narrations.push(readCampaignState(dataDir, CAMPAIGN).turns.at(-1)?.narration ?? '');
+    }
+    assert.equal(narrations[0], FIRST);
+    assert.match(narrations[1] ?? '', /^Brazilian Portuguese voices are not available on this computer\./);
+    assert.equal(narrations[2], FIRST);
+    assert.ok(played.every((text) => !text.includes('not available')));
   });
 
   it('reports speech metrics to the voice diagnostics without narration text', async (t) => {

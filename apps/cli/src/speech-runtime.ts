@@ -79,12 +79,31 @@ const preloadable = (provider: TtsProvider | undefined): provider is KokoroProvi
 
 const disposable = (provider: TtsProvider): provider is KokoroProvider => 'dispose' in provider;
 
+const failedPreloads = new WeakSet<TtsProvider>();
+const announcedFailures = new WeakSet<TtsProvider>();
+
+const unavailableNotice = (providers: readonly TtsProvider[], language: string) =>
+  noVoiceNotice(
+    language,
+    providers.filter((provider) => !failedPreloads.has(provider)),
+  );
+
 export const prepareVoice = (providers: readonly TtsProvider[], language: string): string | undefined => {
   if (voicesFor(language)?.providerId === MLX_KOKORO_PROVIDER_ID) {
     const provider = providers.find(({ id }) => id === MLX_KOKORO_PROVIDER_ID);
-    if (preloadable(provider)) provider.preload().catch(() => undefined);
+    if (preloadable(provider))
+      provider
+        .preload()
+        .then(() => failedPreloads.delete(provider))
+        .catch(() => failedPreloads.add(provider));
   }
-  return noVoiceNotice(language, providers);
+  return unavailableNotice(providers, language);
+};
+
+export const takePreloadFailureNotice = (providers: readonly TtsProvider[], language: string): string | undefined => {
+  const failed = providers.filter((provider) => failedPreloads.has(provider) && !announcedFailures.has(provider));
+  for (const provider of failed) announcedFailures.add(provider);
+  return failed.length === 0 ? undefined : unavailableNotice(providers, language);
 };
 
 export const createLiveSpeechRuntime = (
