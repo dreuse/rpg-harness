@@ -4,6 +4,8 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "@rpg/client-protocol": "workspace:*"
+    "@huggingface/transformers": "3.8.1",
+    "@rpg/client-protocol": "workspace:*",
+    "kokoro-js": "1.2.1"
   }
 }

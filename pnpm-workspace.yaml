@@ -1,6 +1,10 @@
 packages:
   - packages/*
   - apps/*
+allowBuilds:
+  onnxruntime-node: false
+  protobufjs: false
+  sharp: false
 engineStrict: true
 minimumReleaseAgeExclude:
   - '@biomejs/biome@2.6.5'
