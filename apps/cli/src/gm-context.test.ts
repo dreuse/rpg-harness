@@ -484,3 +484,17 @@ it('rpg-42a.76 the packet frames the closing sentences of recent GM narrations a
   );
   fixture.connection.close();
 });
+
+it('rpg-42a.79 the packet lists known npcs with their roles', () => {
+  const fixture = campaign();
+  const { store, entities, facts } = fixture;
+  introduceEntity(store, entities, facts, {
+    ...actionFor(store, 'meet-maren', 'I enter the inn'),
+    entity: { id: 'maren-oakhollow', kind: 'npc', name: 'Maren Oakhollow', data: {}, ...PUBLIC },
+    facts: [{ id: 'maren-role', statement: 'Innkeeper of the Hollow Lantern', layer: 'canon', ...PUBLIC }],
+    relationships: [],
+  });
+  const items = packetAt(fixture, play(store, 'turn-2')).sections.find(({ name }) => name === 'entities')?.items;
+  assert.ok(items?.includes('Maren Oakhollow (npc, maren-oakhollow): Innkeeper of the Hollow Lantern'));
+  fixture.connection.close();
+});

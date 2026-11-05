@@ -104,6 +104,12 @@ const pendingText = ({ kind, text }: { readonly kind: string; readonly text: str
 
 const entityLine = ({ name, kind }: CampaignEntity) => `${name} (${kind})`;
 
+const NPC_KIND = 'npc';
+const ROLE_LAYER = 'canon';
+
+const npcLine = ({ id, name }: CampaignEntity, roles: readonly string[]) =>
+  `${name} (${NPC_KIND}, ${id})${roles.length === NONE ? '' : `: ${roles.join('; ')}`}`;
+
 const configOf = (state: CampaignState) => {
   const parsed = parseCampaignConfig(campaignConfigOf(state.events));
   return parsed.ok ? parsed.config : undefined;
@@ -169,6 +175,7 @@ export const contextPacketOf = (
   const visibleEvents = new Set(visibleTo(resultScopes, viewer).map(({ id }) => id));
   const entityStore = createEntityStore(database);
   const entities = visibleTo(entityStore.listEntities(campaignId), viewer);
+  const facts = createFactStore(database).listFacts(campaignId);
   const pending = visibleTo(pendingOf(scoped), viewer);
   const turns = playTurns(state).filter(({ id }) => id !== committed.turn.id);
   const recentTurnIds = new Set([...turns.slice(-RECENT_TURN_LIMIT), committed.turn].map(({ id }) => id));
@@ -195,7 +202,7 @@ export const contextPacketOf = (
       nodes,
       entities,
       relationships: entityStore.listRelationships(campaignId),
-      facts: createFactStore(database).listFacts(campaignId),
+      facts,
       pending,
       touches,
     },
@@ -242,6 +249,16 @@ export const contextPacketOf = (
       ],
       entities: [
         ...entities.filter(({ id }) => present.has(id)).map(entityLine),
+        ...entities
+          .filter(({ kind }) => kind === NPC_KIND)
+          .map((npc) =>
+            npcLine(
+              npc,
+              visibleTo(facts, viewer)
+                .filter(({ subjectId, layer }) => subjectId === npc.id && layer === ROLE_LAYER)
+                .map(({ statement }) => statement),
+            ),
+          ),
         ...inventory.map(({ name }) => `carried: ${name}`),
       ],
       recentTurns: turns.map(turnText),

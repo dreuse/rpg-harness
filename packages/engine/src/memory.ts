@@ -11,6 +11,7 @@ import {
 import type {
   CampaignEntity,
   EntityId,
+  EntityKind,
   EntityStore,
   Fact,
   FactStore,
@@ -32,6 +33,7 @@ import {
   summarize,
 } from '../../memory/src/history.ts';
 import { CONTEXT_BUDGETS, type ContextBudgetPreset, DEFAULT_CONTEXT_BUDGET } from '../../memory/src/packet.ts';
+import { normalize } from '../../narrative/src/consistency.ts';
 import {
   commit,
   commitSystem,
@@ -83,6 +85,8 @@ export type ContextBudgetSave = CampaignChange & { readonly preset: string };
 
 const GM_ONLY: TurnVisibility = 'gm';
 const NONE = 0;
+const NPC_KIND: EntityKind = 'npc';
+const CANON_LAYER = 'canon';
 
 const turnVisibility = (visibility: Visibility): TurnVisibility =>
   (TURN_VISIBILITIES as readonly Visibility[]).includes(visibility) ? (visibility as TurnVisibility) : GM_ONLY;
@@ -125,6 +129,17 @@ export const introduceEntity = (
   const taken =
     entities.getEntity(campaignId, entity.id) !== undefined || state.characters.some(({ id }) => id === entity.id);
   requireValid(actionId, !taken, `entity ${entity.id} already exists`);
+  if (entity.kind === NPC_KIND) {
+    const npcIds = new Set(entities.listEntities(campaignId, NPC_KIND).map(({ id }) => id));
+    const roles = facts
+      .listFacts(campaignId)
+      .filter(({ layer, subjectId }) => layer === CANON_LAYER && subjectId !== null && npcIds.has(subjectId));
+    for (const { id, statement, layer } of input.facts) {
+      const holder =
+        layer === CANON_LAYER ? roles.find((role) => normalize(role.statement) === normalize(statement)) : undefined;
+      requireValid(actionId, holder === undefined, `fact ${id} repeats the role of existing npc ${holder?.subjectId}`);
+    }
+  }
   const known = (id: EntityId) => id === entity.id || entities.getEntity(campaignId, id) !== undefined;
   const factIds = new Set(facts.listFacts(campaignId).map(({ id }) => id));
   for (const { id, actorId } of input.facts) {

@@ -265,3 +265,23 @@ test('rpg-42a.36 the context budget preset is a per-campaign setting with a defa
   assert.equal(contextBudgetOf(list()), 'rich');
   connection.close();
 });
+
+const INNKEEPER_FACT = 'Innkeeper of the Hollow Lantern';
+const innkeeper = (store: CampaignStore, actionId: string, id: string, name: string) => ({
+  ...actionFor(store, actionId),
+  entity: { id, kind: 'npc' as const, name, data: {}, ...PUBLIC },
+  facts: [{ id: `${id}-role`, statement: INNKEEPER_FACT, layer: 'canon' as const, ...PUBLIC }],
+  relationships: [],
+});
+
+test('rpg-42a.79 a second npc claiming an existing role is rejected and names the existing entity', () => {
+  const { connection, store, entities, facts } = seeded();
+  introduceEntity(store, entities, facts, innkeeper(store, 'meet-maren', 'maren-oakhollow', 'Maren Oakhollow'));
+  const duplicate = innkeeper(store, 'meet-marta', 'marta-hollis', 'Marta Hollis');
+  assert.throws(
+    () => introduceEntity(store, entities, facts, duplicate),
+    (error: unknown) => error instanceof InvalidActionError && error.message.includes('maren-oakhollow'),
+  );
+  assert.equal(entities.getEntity(CAMPAIGN.id, 'marta-hollis'), undefined);
+  connection.close();
+});
