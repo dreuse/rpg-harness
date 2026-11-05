@@ -913,6 +913,69 @@ test('A21: SaveVoiceSettings commits through the engine and the snapshot reads i
   assert.equal(stale.ok ? undefined : stale.error.code, 'StaleRevision');
 });
 
+test('rpg-cm63.18: the snapshot lists the speaking npcs and keeps their assigned voices', () => {
+  const { database, campaignId, sessionFor, envelope } = setup();
+  const entities = createEntityStore(database);
+  const npc = (id: string, name: string) =>
+    entities.saveEntity({ id, campaignId, kind: 'npc', name, data: {}, visibility: 'player', actorId: null });
+  npc('guard', 'Guard');
+  npc('monk', 'Monk');
+  const session = sessionFor(PLAYER_VIEWER);
+  const read = () => {
+    const snapshot = session.getSnapshot({ ...envelope, type: 'GetCampaignSnapshot' });
+    assert.ok(snapshot.ok);
+    return snapshot.value;
+  };
+  assert.deepEqual(read().speakers, [
+    { id: 'guard', name: 'Guard' },
+    { id: 'monk', name: 'Monk' },
+  ]);
+  const asGm = sessionFor(GM_VIEWER).getSnapshot({ ...envelope, type: 'GetCampaignSnapshot' });
+  assert.ok(asGm.ok);
+  assert.equal(asGm.value.speakers?.length, 3);
+  const npcVoices = { Guard: { providerId: 'kokoro', voiceId: 'bm_george' } };
+  const settings = { microphone: 'off', spokenOutput: 'narrator', locale: 'en-US', speed: 1, npcVoices } as const;
+  const saved = session.saveVoiceSettings({
+    ...envelope,
+    type: 'SaveVoiceSettings',
+    actionId: 'voice-npc',
+    expectedRevision: read().revision,
+    ...settings,
+  });
+  assert.ok(saved.ok);
+  assert.deepEqual(read().voice?.npcVoices, npcVoices);
+  const invalid = session.saveVoiceSettings({
+    ...envelope,
+    type: 'SaveVoiceSettings',
+    actionId: 'voice-bad',
+    expectedRevision: read().revision,
+    ...settings,
+    npcVoices: { Guard: 'bm_george' } as never,
+  });
+  assert.equal(invalid.ok ? undefined : invalid.error.code, 'Rejected');
+});
+
+test('rpg-cm63.18: an actor-scoped npc is listed only to its own actor', () => {
+  const { database, campaignId, sessionFor, envelope } = setup();
+  createEntityStore(database).saveEntity({
+    id: 'scout',
+    campaignId,
+    kind: 'npc',
+    name: 'Scout',
+    data: {},
+    visibility: 'actor-scoped',
+    actorId: RIVAL,
+  });
+  const namesFor = (viewer: Viewer) => {
+    const snapshot = sessionFor(viewer).getSnapshot({ ...envelope, type: 'GetCampaignSnapshot' });
+    assert.ok(snapshot.ok);
+    return snapshot.value.speakers?.map(({ name }) => name) ?? [];
+  };
+  assert.ok(!namesFor(PLAYER_VIEWER).includes('Scout'));
+  assert.ok(namesFor(RIVAL_VIEWER).includes('Scout'));
+  assert.ok(!namesFor({ scope: 'actor', actorId: 'someone-else' }).includes('Scout'));
+});
+
 test('rpg-42a.37: SaveGmSettings persists per campaign and the snapshot shows session and campaign usage', () => {
   const { database, engine, campaignId, envelope } = setup();
   const store = createCampaignStore(database);

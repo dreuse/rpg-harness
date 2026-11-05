@@ -226,12 +226,15 @@ export type CampaignPlan = {
   readonly entries: readonly PlanEntry[];
 };
 
+export type SpeakingNpc = { readonly id: string; readonly name: string };
+
 export type CampaignSnapshot = {
   readonly version: ProtocolVersion;
   readonly campaignId: CampaignId;
   readonly revision: number;
   readonly campaign: Campaign;
   readonly characters: readonly Character[];
+  readonly speakers?: readonly SpeakingNpc[];
   readonly currentScene: Scene | undefined;
   readonly turns: readonly Turn[];
   readonly language?: string;
@@ -401,6 +404,7 @@ const COMMAND_FIELDS: Record<CommandType, Readonly<Record<string, FieldSpec>>> =
     locale: ID,
     speed: { kind: 'number' },
     consentGrantedAt: { kind: 'id', optional: true },
+    npcVoices: { kind: 'record', optional: true },
   },
   SaveGmSettings: {
     actionId: ID,

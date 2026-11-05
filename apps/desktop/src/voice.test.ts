@@ -333,3 +333,46 @@ test('rpg-cm63.5 desktop forwards validated playback commands to the speech cont
   assert.equal(voice.playback('format-disk'), false);
   assert.deepEqual(calls, ['pause', 'resume', 'skip', 'stop']);
 });
+
+test('rpg-cm63.18: assigned npc voices are saved with the voice settings and kept on later saves', async () => {
+  const saves: SavedVoiceSettings[] = [];
+  const voice = createDesktopVoice({
+    session,
+    providerIds: CONSENT.providerIds,
+    save: (settings) => saves.push(settings),
+    supportedLocales: SUPPORTED_LOCALES,
+    subtitles: { current: () => undefined },
+    openMicrophone: () => ({ start: async () => DENIED, stop: () => {} }),
+    submit: () => failure('Rejected', 'offline'),
+  });
+  const guard = { providerId: 'kokoro', voiceId: 'bm_george' };
+  voice.setNpcVoices({ Guard: guard });
+  assert.deepEqual(saves.at(-1)?.npcVoices, { Guard: guard });
+  await voice.say('set speed to 1.5');
+  assert.deepEqual(saves.at(-1)?.npcVoices, { Guard: guard });
+  voice.setNpcVoices({});
+  assert.equal(saves.at(-1)?.npcVoices, undefined);
+});
+
+test('rpg-cm63.18: loaded npc voices survive the next save', async () => {
+  const saves: SavedVoiceSettings[] = [];
+  const voice = createDesktopVoice({
+    session,
+    providerIds: CONSENT.providerIds,
+    save: (settings) => saves.push(settings),
+    supportedLocales: SUPPORTED_LOCALES,
+    subtitles: { current: () => undefined },
+    openMicrophone: () => ({ start: async () => DENIED, stop: () => {} }),
+    submit: () => failure('Rejected', 'offline'),
+  });
+  const guard = { providerId: 'kokoro', voiceId: 'bm_george' };
+  await voice.load({
+    microphone: 'off',
+    spokenOutput: 'narrator',
+    locale: 'en-US',
+    speed: 1,
+    npcVoices: { Guard: guard },
+  });
+  voice.change({ speed: 1.5 });
+  assert.deepEqual(saves.at(-1)?.npcVoices, { Guard: guard });
+});

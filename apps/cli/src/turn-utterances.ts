@@ -2,6 +2,7 @@ import { isDeepStrictEqual } from 'node:util';
 import type { CampaignStore } from '../../../packages/domain/src/campaign.ts';
 import { StaleRevisionError } from '../../../packages/domain/src/campaign.ts';
 import type { EntityStore } from '../../../packages/domain/src/entity.ts';
+import type { VoiceFallback } from '../../../packages/domain/src/voice.ts';
 import { InvalidActionError, loadState } from '../../../packages/engine/src/turn.ts';
 import { setVoiceProfile, voiceProfileOf } from '../../../packages/engine/src/voice-profile.ts';
 import { importantNpcProfile } from '../../../packages/voice/src/cinematic.ts';
@@ -50,6 +51,21 @@ const importantProfileOf = ({ store, entities, campaignId, turnId, narrator }: T
   }
 };
 
+export interface AssignedNpcVoices {
+  readonly entities: EntityStore;
+  readonly campaignId: string;
+  readonly narrator: VoiceProfile;
+  readonly assigned: Readonly<Record<string, VoiceFallback>>;
+}
+
+export const assignedNpcVoices = ({ entities, campaignId, narrator, assigned }: AssignedNpcVoices) => ({
+  profileOf: (speakerId: string): VoiceProfile | undefined => {
+    const name = entities.getEntity(campaignId, speakerId)?.name;
+    const voice = name !== undefined && Object.hasOwn(assigned, name) ? assigned[name] : undefined;
+    return voice === undefined ? undefined : { ...narrator, id: speakerId, fallbacks: [voice, ...narrator.fallbacks] };
+  },
+});
+
 export const utterancesFor = (turn: TurnUtterances): readonly CommittedUtterance[] => {
   const { store, campaignId, turnId, segments, narrator, npcVoices, important = new Set<string>() } = turn;
   const committed = { events: loadState(store, campaignId).events.filter((event) => event.turnId === turnId) };
@@ -61,11 +77,14 @@ export const utterancesFor = (turn: TurnUtterances): readonly CommittedUtterance
       hinted === true && speakerId !== undefined ? [speakerId] : [],
     ),
   ]);
-  const importantProfiles = new Map([...marked].map((id) => [id, importantProfileOf(turn, id)] as const));
+  const importantProfiles = new Map(
+    [...marked].map((id) => [id, npcVoices.profileOf(id) ?? importantProfileOf(turn, id)] as const),
+  );
   return routeSegments({
     committed,
     segments: outputSegmentsOf(eventId, segments),
     narrator,
-    profileOf: (speakerId) => importantProfiles.get(speakerId) ?? npcVoices.profileOf(speakerId),
+    profileOf: (speakerId) =>
+      importantProfiles.has(speakerId) ? importantProfiles.get(speakerId) : npcVoices.profileOf(speakerId),
   });
 };

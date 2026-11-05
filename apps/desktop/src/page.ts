@@ -192,6 +192,13 @@ const playbackOf = (bridge: VoiceBridge): PlaybackControl => ({
   stop: () => void bridge.playback('stop'),
 });
 
+const assignmentsOf = (speech: SpeechPreferences, campaignId: string | undefined, providerId: string | undefined) =>
+  campaignId === undefined || providerId === undefined || !Object.hasOwn(speech.npcVoices, campaignId)
+    ? {}
+    : Object.fromEntries(
+        Object.entries(speech.npcVoices[campaignId] ?? {}).map(([name, voiceId]) => [name, { providerId, voiceId }]),
+      );
+
 export const mountPage = ({
   elements: { root, form, input, keys },
   bridge,
@@ -231,10 +238,11 @@ export const mountPage = ({
     speech: saved.speech,
     language: () => voice.view().preferences.locale,
     campaign: () => loaded?.campaignId,
-    speakers: () => loaded?.characters.map(({ name }) => name) ?? [],
+    speakers: () => loaded?.speakers?.map(({ name }) => name) ?? [],
     speed: () => voice.view().preferences.speed,
     saveSpeech: (speech: SpeechPreferences) => {
       saved = { ...saved, speech };
+      voice.setNpcVoices(assignmentsOf(speech, loaded?.campaignId, setup.view().provider?.id));
       bridge.savePreferences?.(saved);
       preferences = withSystem();
     },

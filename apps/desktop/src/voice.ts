@@ -55,6 +55,9 @@ const CHUNK_MS = 250;
 export const { microphone: MICROPHONE_OFF } = DEFAULT_VOICE_SETTINGS;
 const SAVED_FIELDS = ['microphone', 'spokenOutput', 'locale', 'speed', 'consentGrantedAt'] as const;
 
+type NpcVoiceAssignments = NonNullable<SavedVoiceSettings['npcVoices']>;
+const NO_ASSIGNMENTS: NpcVoiceAssignments = {};
+
 export type OutputChange = Partial<Omit<VoicePreferences, 'microphone'>>;
 
 const canonical = (locale: string) => {
@@ -127,6 +130,7 @@ export const createDesktopVoice = (options: DesktopVoiceOptions) => {
   const { providerIds, supportedLocales, subtitles, openMicrophone, submit, save } = options;
   let session = options.session;
   let consentGrantedAt = options.consentGrantedAt;
+  let npcVoices: NpcVoiceAssignments = NO_ASSIGNMENTS;
   let asking: VoiceSession | undefined;
   let microphone: Microphone | undefined;
   let fallback: VoiceFallback | undefined;
@@ -145,7 +149,14 @@ export const createDesktopVoice = (options: DesktopVoiceOptions) => {
   const saved = (): SavedVoiceSettings => ({
     ...session.preferences,
     ...(consentGrantedAt === undefined ? {} : { consentGrantedAt }),
+    ...(Object.keys(npcVoices).length === 0 ? {} : { npcVoices }),
   });
+
+  const setNpcVoices = (assignments: NpcVoiceAssignments) => {
+    if (JSON.stringify(assignments) === JSON.stringify(npcVoices)) return;
+    npcVoices = assignments;
+    save(saved());
+  };
 
   const apply = (next: VoiceSession, grantedAt: string | undefined) => {
     session = next;
@@ -191,8 +202,9 @@ export const createDesktopVoice = (options: DesktopVoiceOptions) => {
   };
 
   const load = async (stored: SavedVoiceSettings) => {
+    npcVoices = stored.npcVoices ?? NO_ASSIGNMENTS;
     if (sameSettings(stored, saved())) return;
-    const { consentGrantedAt: grantedAt, ...preferences } = stored;
+    const { consentGrantedAt: grantedAt, npcVoices: _assigned, ...preferences } = stored;
     session = { ...session, preferences };
     consentGrantedAt = grantedAt;
     await listen();
@@ -234,6 +246,7 @@ export const createDesktopVoice = (options: DesktopVoiceOptions) => {
     say,
     change,
     playback,
+    setNpcVoices,
     heard,
     view,
     load,

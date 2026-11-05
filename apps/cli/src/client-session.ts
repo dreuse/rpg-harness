@@ -96,6 +96,13 @@ export const worldOf =
     return { entities: store.listEntities(campaignId), relationships };
   };
 
+const NPC_KIND = 'npc';
+
+const speakersOf = (entities: World['entities'], viewer: Viewer) =>
+  visibleTo(entities, viewer)
+    .filter(({ kind }) => kind === NPC_KIND)
+    .map(({ id, name }) => ({ id, name }));
+
 const savedConfig = (events: ViewSource['state']['events']) => {
   const saved = parseCampaignConfig(campaignConfigOf(events));
   return saved.ok ? saved.config : undefined;
@@ -285,7 +292,7 @@ export const createClientSessions = (
     }
   };
 
-  const snapshot = (): CampaignSnapshot => {
+  const snapshot = (viewer: Viewer): CampaignSnapshot => {
     sync();
     const state = engine.getState(campaignId);
     const { campaign, revision, characters, currentScene } = state;
@@ -300,6 +307,7 @@ export const createClientSessions = (
         revision,
         campaign,
         characters,
+        speakers: speakersOf(readWorld(campaignId, characters[0]?.id).entities, viewer),
         currentScene,
         turns: playTurns(state),
         ...(language === undefined ? {} : { language }),
@@ -395,7 +403,7 @@ export const createClientSessions = (
       },
       getSnapshot: (command) => {
         const accepted = accept(command, 'GetCampaignSnapshot');
-        return accepted.ok ? attempt(snapshot) : accepted;
+        return accepted.ok ? attempt(() => snapshot(viewer)) : accepted;
       },
       getPanels: (command) => {
         const accepted = accept(command, 'GetCampaignPanels');

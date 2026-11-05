@@ -57,18 +57,35 @@ export interface SavedVoiceSettings {
   readonly locale: string;
   readonly speed: number;
   readonly consentGrantedAt?: string;
+  readonly npcVoices?: Readonly<Record<string, VoiceFallback>>;
 }
 
 const isOneOf = <T extends string>(options: readonly T[], value: unknown): value is T =>
   options.some((option) => option === value);
 
+const toNpcVoices = (value: unknown): Record<string, VoiceFallback> | undefined => {
+  if (!isRecord(value)) return undefined;
+  const entries = Object.entries(value).map(([name, voice]) => [name, toFallback(voice)] as const);
+  if (entries.some(([name, voice]) => name === '' || voice === undefined)) return undefined;
+  return Object.fromEntries(entries.flatMap(([name, voice]) => (voice === undefined ? [] : [[name, voice]])));
+};
+
 export const toSavedVoiceSettings = (value: unknown): SavedVoiceSettings | undefined => {
   if (!isRecord(value)) return undefined;
-  const { microphone, spokenOutput, locale, speed, consentGrantedAt } = value;
+  const { microphone, spokenOutput, locale, speed, consentGrantedAt, npcVoices } = value;
   if (!isOneOf(MICROPHONE_MODES, microphone) || !isOneOf(SPOKEN_OUTPUT_MODES, spokenOutput)) return undefined;
   if (!isLocale(locale) || typeof speed !== 'number' || !(speed >= MIN_VOICE_SPEED && speed <= MAX_VOICE_SPEED))
     return undefined;
   if (consentGrantedAt !== undefined && !isFilled(consentGrantedAt)) return undefined;
   if (consentGrantedAt === undefined && microphone !== MICROPHONE_OFF) return undefined;
-  return { microphone, spokenOutput, locale, speed, ...(consentGrantedAt === undefined ? {} : { consentGrantedAt }) };
+  const voices = npcVoices === undefined ? {} : toNpcVoices(npcVoices);
+  if (voices === undefined) return undefined;
+  return {
+    microphone,
+    spokenOutput,
+    locale,
+    speed,
+    ...(consentGrantedAt === undefined ? {} : { consentGrantedAt }),
+    ...(Object.keys(voices).length === 0 ? {} : { npcVoices: voices }),
+  };
 };

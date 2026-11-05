@@ -990,17 +990,18 @@ test('rpg-cm63.15 page assigns a voice to a known character or to an Other name 
   });
   page.receive(READY);
   continueHarbor(page);
-  page.receive({ type: 'Snapshot', snapshot: SNAPSHOT });
+  page.receive({ type: 'Snapshot', snapshot: { ...SNAPSHOT, speakers: [{ id: 'guard', name: 'Guard' }] } });
   page.click({ 'data-voice-setup': 'on' });
   await settle();
   await settle();
   page.click({ 'data-voice-setup': 'finish' });
-  assert.match(page.root.innerHTML, /<select id="voice-npc-speaker"><option value="Ash" selected>Ash<\/option>/);
+  assert.match(page.root.innerHTML, /<select id="voice-npc-speaker"><option value="Guard" selected>Guard<\/option>/);
+  assert.doesNotMatch(page.root.innerHTML, /<option value="Ash"/);
   page.fields['#voice-npc-voice'] = 'am_adam';
   page.click({ 'data-voice-preview': 'character' });
   await settle();
   assert.equal((voice.previews.at(-1) as { voiceId: string }).voiceId, 'am_adam');
-  page.fields['#voice-npc-speaker'] = 'Ash';
+  page.fields['#voice-npc-speaker'] = 'Guard';
   page.fields['#voice-npc-name'] = 'Ignored';
   page.fields['#voice-npc-voice'] = 'am_adam';
   page.click({ 'data-voice-npc': 'add' });
@@ -1009,9 +1010,15 @@ test('rpg-cm63.15 page assigns a voice to a known character or to an Other name 
   page.fields['#voice-npc-voice'] = 'af_heart';
   page.click({ 'data-voice-npc': 'add' });
   assert.deepEqual((preferences.at(-1) as UiPreferences).speech.npcVoices, {
-    [CAMPAIGN]: { Ash: 'am_adam', Wren: 'af_heart' },
+    [CAMPAIGN]: { Guard: 'am_adam', Wren: 'af_heart' },
   });
   assert.doesNotMatch(page.root.innerHTML, /voice-npc-speaker/);
+  const assigned = saves(page).at(-1);
+  assert.ok(assigned?.type === 'SaveVoiceSettings');
+  assert.deepEqual(assigned.npcVoices, {
+    Guard: { providerId: 'kokoro', voiceId: 'am_adam' },
+    Wren: { providerId: 'kokoro', voiceId: 'af_heart' },
+  });
 });
 
 test('rpg-cm63.17 page sends pause, resume, skip and stop to the engine from the voice controls', async () => {

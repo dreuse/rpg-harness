@@ -12,7 +12,7 @@ import { openDatabase } from '../../../packages/persistence/src/database.ts';
 import { createEntityStore } from '../../../packages/persistence/src/entity-store.ts';
 import type { VoiceProfile } from '../../../packages/voice/src/voice.ts';
 import { createEngineGateway, FAKE_GAME_MASTER, openClientSession, readCampaignState } from './engine-gateway.ts';
-import { utterancesFor } from './turn-utterances.ts';
+import { assignedNpcVoices, utterancesFor } from './turn-utterances.ts';
 
 const TEMP_PREFIX = 'rpg-turn-utterances-';
 const CAMPAIGN = 'QuietTavern';
@@ -131,7 +131,18 @@ const setup = async (t: TestContext) => {
       opened.close();
     }
   };
-  return { speak, narrateAfterVoice, stateOf, profileSets, playSecondTurn, guardCalls, store };
+  return {
+    speak,
+    narrateAfterVoice,
+    stateOf,
+    profileSets,
+    playSecondTurn,
+    guardCalls,
+    store,
+    entities,
+    campaignId,
+    lastTurnId,
+  };
 };
 
 test('an important npc voice is persisted once and reused on the next turn', async (t: TestContext) => {
@@ -189,7 +200,7 @@ test('a player-chosen important set marks an npc without a GM hint', async (t: T
   const { speak, profileSets, guardCalls } = await setup(t);
   speak([{ speakerId: MONK_ID, text: MONK_LINE }], new Set([MONK_ID]));
   assert.equal(profileSets(MONK_ID).length, 1);
-  assert.deepEqual(guardCalls, []);
+  assert.deepEqual(guardCalls, [MONK_ID]);
 });
 
 test('an important speaker that is not an npc speaks with the narrator voice and does not crash the turn', async (t: TestContext) => {
@@ -203,4 +214,31 @@ test('an important speaker that is not an npc speaks with the narrator voice and
   assert.equal(utterances[0]?.speakerId, GHOST_ID);
   assert.equal(utterances[1]?.profile.id, MONK_ID);
   assert.equal(stateOf().revision, revision + 1);
+});
+
+test('rpg-cm63.18: an assigned character voice is used when that npc speaks', async (t: TestContext) => {
+  const { store, entities, campaignId, lastTurnId } = await setup(t);
+  const assigned = { providerId: 'fake-tts', voiceId: 'assigned' };
+  const npcVoices = assignedNpcVoices({ entities, campaignId, narrator: NARRATOR, assigned: { [GUARD_ID]: assigned } });
+  assert.deepEqual(npcVoices.profileOf(GUARD_ID), {
+    ...NARRATOR,
+    id: GUARD_ID,
+    fallbacks: [assigned, ...NARRATOR.fallbacks],
+  });
+  assert.equal(npcVoices.profileOf(MONK_ID), undefined);
+  assert.equal(npcVoices.profileOf('missing'), undefined);
+  const spoken = utterancesFor({
+    store,
+    entities,
+    campaignId,
+    turnId: lastTurnId(),
+    segments: [
+      { speakerId: GUARD_ID, text: GUARD_LINE },
+      { speakerId: MONK_ID, text: MONK_LINE },
+    ],
+    narrator: NARRATOR,
+    npcVoices,
+  });
+  assert.equal(spoken.find(({ text }) => text === GUARD_LINE)?.profile.fallbacks[0]?.voiceId, 'assigned');
+  assert.notEqual(spoken.find(({ text }) => text === MONK_LINE)?.profile.fallbacks[0]?.voiceId, 'assigned');
 });
