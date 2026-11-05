@@ -179,6 +179,13 @@ const OPEN_ADVANCED_VOICE = steps(
   `document.querySelector('[data-voice-advanced]').open = true;`,
   `document.querySelector('[data-voice-advanced]').scrollIntoView({ block: 'start' });`,
 );
+const OPEN_SOUND = steps(
+  `document.querySelector('[data-settings]').open = true;`,
+  click('#sound-music'),
+  `const volume = document.querySelector('#sound-music-volume'); volume.value = '0.25'; volume.dispatchEvent(new Event('change', { bubbles: true }));`,
+  `if (!document.querySelector('#sound-music').checked || document.querySelector('#sound-music-volume').value !== '0.25') throw new Error('the sound toggle or volume did not persist');`,
+  `document.querySelector('[data-sound]').scrollIntoView({ block: 'start' });`,
+);
 const SET_UP_VOICE = steps(
   `document.querySelector('[data-settings]').open = true;`,
   click('[data-voice-setup="on"]'),
@@ -313,6 +320,7 @@ export const JOURNEY: Readonly<Record<'first' | 'reopen' | 'portuguese' | 'dicel
     { script: DICELESS_TO_RULES, shot: 'diceless-rules' },
     { script: DICELESS_TO_SUMMARY, shot: 'diceless-summary' },
     { script: DICELESS_PLAY, shot: 'diceless-play' },
+    { script: OPEN_SOUND, shot: 'sound-settings' },
   ],
   portuguese: [
     { script: FIRST_HOME, shot: 'pt-BR-first-run-home' },

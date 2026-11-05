@@ -9,8 +9,10 @@ import type { GmSnapshot } from '../../../packages/client-protocol/src/protocol.
 import { MOTION_SETTINGS } from '../../../packages/client-protocol/src/visualization.ts';
 import type { GmSettings } from '../../../packages/domain/src/gm.ts';
 import { SPOKEN_OUTPUT_MODES } from '../../../packages/domain/src/voice.ts';
+import { MAX_CHANNEL_VOLUME, MIN_CHANNEL_VOLUME } from '../../../packages/voice/src/ambience.ts';
 import { MAX_PLAYBACK_SPEED, MIN_PLAYBACK_SPEED } from '../../../packages/voice/src/playback.ts';
 import { PLAYBACK_COMMANDS } from '../../../packages/voice/src/playback-controls.ts';
+import { SOUND_CHANNELS, SOUND_VOLUME_STEP, type SoundSettings } from '../../../packages/voice/src/sound-settings.ts';
 import { VOICE_STAGES } from '../../../packages/voice/src/voice-diagnostics.ts';
 import {
   actionForKey,
@@ -303,6 +305,19 @@ const voiceSettings = (voice: DesktopVoiceView | undefined, setup: VoiceSetupVie
           : `${basicVoice(voice, setup, locale)}${advancedVoice(setup, locale, voice.preferences.spokenOutput === 'off')}`
       }`;
 
+export const SOUND_FIELD_TOGGLE = 'data-sound-toggle';
+export const SOUND_FIELD_VOLUME = 'data-sound-volume';
+
+const soundRow = (settings: SoundSettings, channel: (typeof SOUND_CHANNELS)[number], locale: string) => {
+  const { enabled, volume } = settings[channel];
+  const toggleId = `sound-${channel}`;
+  const volumeId = `${toggleId}-volume`;
+  return `<div data-voice-row><label for="${toggleId}"><input id="${toggleId}" type="checkbox" ${SOUND_FIELD_TOGGLE}="${channel}"${enabled ? ' checked' : ''}> ${escapeHtml(translate(locale, `sound.${channel}`))}</label></div><div data-voice-row><label for="${volumeId}">${escapeHtml(translate(locale, `sound.volume.${channel}`))}</label><input id="${volumeId}" type="range" min="${MIN_CHANNEL_VOLUME}" max="${MAX_CHANNEL_VOLUME}" step="${SOUND_VOLUME_STEP}" value="${volume}" ${SOUND_FIELD_VOLUME}="${channel}"></div>`;
+};
+
+export const soundPanel = (settings: SoundSettings, locale: string) =>
+  `<fieldset data-sound><legend>${escapeHtml(translate(locale, 'sound.legend'))}</legend>${SOUND_CHANNELS.map((channel) => soundRow(settings, channel, locale)).join('')}</fieldset>`;
+
 export const GM_FORM = 'data-gm-form';
 export const GM_DEFAULTS_FORM = 'data-gm-defaults-form';
 const GM_MODELS_LIST = 'gm-models';
@@ -341,7 +356,7 @@ const settingsMenu = (
   voice: DesktopVoiceView | undefined,
   setup: VoiceSetupView | undefined,
 ) =>
-  `<details data-settings><summary id="settings-toggle">${escapeHtml(translate(locale, 'settings.label'))}</summary><div>${languageControl(locale)}${model.uses.dice ? motionControl(model.motion, locale) : ''}${voiceSettings(voice, setup, locale)}${gmSettings(model.gm, locale)}</div></details>`;
+  `<details data-settings><summary id="settings-toggle">${escapeHtml(translate(locale, 'settings.label'))}</summary><div>${languageControl(locale)}${model.uses.dice ? motionControl(model.motion, locale) : ''}${voiceSettings(voice, setup, locale)}${soundPanel(model.sound, locale)}${gmSettings(model.gm, locale)}</div></details>`;
 
 const setupBody = ({ step, provider, progress, error }: VoiceSetupView, locale: string): string => {
   const text = (key: string, values?: Record<string, string | number>) =>

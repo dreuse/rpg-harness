@@ -141,8 +141,8 @@ const fakePage = () => {
       listeners.get('keys:keydown')?.(event(attributes, key, keys)),
     submit: (attributes: Record<string, string>) => listeners.get('root:submit')?.(event(attributes)),
     type: () => listeners.get('root:input')?.(event({})),
-    change: (attributes: Record<string, string>, value: string) =>
-      listeners.get('root:change')?.({ ...event(attributes), target: { ...target(attributes), value } }),
+    change: (attributes: Record<string, string>, value: string, checked?: boolean) =>
+      listeners.get('root:change')?.({ ...event(attributes), target: { ...target(attributes), value, checked } }),
   };
 };
 
@@ -1033,4 +1033,40 @@ test('rpg-cm63.17 page sends pause, resume, skip and stop to the engine from the
   page.click({ 'data-voice-setup': 'finish' });
   for (const command of ['pause', 'resume', 'skip', 'stop']) page.click({ 'data-voice-playback': command });
   assert.deepEqual(voice.playbackCommands, ['pause', 'resume', 'skip', 'stop']);
+});
+
+test('rpg-cm63.13 page saves the sound toggle and volume per channel and shows them', () => {
+  const saved: UiPreferences[] = [];
+  const page = fakePage();
+  mount(page, {}, deniedMicrophone, undefined, WIDE_WIDTH, {
+    bridge: { ...page.bridge, savePreferences: (preferences: UiPreferences) => saved.push(preferences) },
+  });
+  page.receive(READY);
+  page.receive({ type: 'Campaigns', campaigns: [SNAPSHOT.campaign] });
+  continueHarbor(page);
+  assert.doesNotMatch(page.root.innerHTML, /data-sound-toggle="music" checked/);
+  page.change({ 'data-sound-toggle': 'music' }, 'on', true);
+  assert.deepEqual(saved.at(-1)?.sound.music, { enabled: true, volume: 0.5 });
+  assert.match(page.root.innerHTML, /data-sound-toggle="music" checked/);
+  page.change({ 'data-sound-volume': 'music' }, '0.25');
+  assert.deepEqual(saved.at(-1)?.sound.music, { enabled: true, volume: 0.25 });
+  assert.match(page.root.innerHTML, /id="sound-music-volume" type="range" min="0" max="1" step="0.05" value="0.25"/);
+  assert.equal(saved.at(-1)?.sound.ambience.enabled, false);
+  page.change({ 'data-sound-toggle': 'music' }, 'off', false);
+  assert.equal(saved.at(-1)?.sound.music.enabled, false);
+});
+
+test('rpg-cm63.13 page ignores an unknown sound channel and an out-of-range volume', () => {
+  const saved: UiPreferences[] = [];
+  const page = fakePage();
+  mount(page, {}, deniedMicrophone, undefined, WIDE_WIDTH, {
+    bridge: { ...page.bridge, savePreferences: (preferences: UiPreferences) => saved.push(preferences) },
+  });
+  page.receive(READY);
+  page.receive({ type: 'Campaigns', campaigns: [SNAPSHOT.campaign] });
+  continueHarbor(page);
+  page.change({ 'data-sound-toggle': 'thunder' }, 'on', true);
+  page.change({ 'data-sound-volume': 'music' }, '7');
+  page.change({ 'data-sound-volume': 'music' }, 'loud');
+  assert.deepEqual(saved, []);
 });

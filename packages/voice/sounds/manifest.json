@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "sounds": [
+    {
+      "kind": "music",
+      "key": "calm",
+      "file": "music/calm.ogg",
+      "mimeType": "audio/ogg",
+      "url": "https://upload.wikimedia.org/wikipedia/commons/3/3c/Komiku_-_02_-_Home.ogg",
+      "sourcePage": "https://commons.wikimedia.org/wiki/File:Komiku_-_02_-_Home.ogg",
+      "author": "Komiku",
+      "license": "CC0",
+      "sha256": "1a91b82935a7a690bd2a8d310a978942e722d898bb2a18c04f0dd3789256ed54",
+      "bytes": 1263699
+    },
+    {
+      "kind": "music",
+      "key": "exploration",
+      "file": "music/exploration.ogg",
+      "mimeType": "audio/ogg",
+      "url": "https://upload.wikimedia.org/wikipedia/commons/1/19/Komiku_-_13_-_The_Wind.ogg",
+      "sourcePage": "https://commons.wikimedia.org/wiki/File:Komiku_-_13_-_The_Wind.ogg",
+      "author": "Komiku",
+      "license": "CC0",
+      "sha256": "2ff1ee8269a958cff7eae8124538bd6efad59b6eb84982981cfef9b3f6fd5f52",
+      "bytes": 2401562
+    },
+    {
+      "kind": "music",
+      "key": "tension",
+      "file": "music/tension.ogg",
+      "mimeType": "audio/ogg",
+      "url": "https://upload.wikimedia.org/wikipedia/commons/d/df/Komiku_-_12_-_Tension.ogg",
+      "sourcePage": "https://commons.wikimedia.org/wiki/File:Komiku_-_12_-_Tension.ogg",
+      "author": "Komiku",
+      "license": "CC0",
+      "sha256": "bdd3a9d7fc134c72bddd3732c307b823ad3b16e80b36c5a3cc63a47f2a8d14db",
+      "bytes": 3896771
+    },
+    {
+      "kind": "music",
+      "key": "combat",
+      "file": "music/combat.ogg",
+      "mimeType": "audio/ogg",
+      "url": "https://upload.wikimedia.org/wikipedia/commons/3/34/Komiku_-_03_-_Battle_Theme.ogg",
+      "sourcePage": "https://commons.wikimedia.org/wiki/File:Komiku_-_03_-_Battle_Theme.ogg",
+      "author": "Komiku",
+      "license": "CC0",
+      "sha256": "53ddcfff86fb93d34a99d0ad659763d57e81098c8f7d944c3cf07b66a755ebce",
+      "bytes": 3452972
+    }
+  ]
+}

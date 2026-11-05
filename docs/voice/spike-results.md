@@ -127,3 +127,10 @@ RPG_VOICE_SAMPLES_DIR=/tmp/voice-samples RPG_KOKORO_MODEL_DIR=<dir> RPG_MLX_AUDI
 - Each English and pt-BR line is written twice: `<language>-<line>-before.wav` (no shaping) and `<language>-<line>-after.wav` (pauses, loudness, and a voice blend for NPC lines on mlx-audio).
 - The script writes only for engines whose model directory is set and ready. The unit test (`node --test scripts/voice-samples/run.test.ts`) uses a fake engine and never downloads or installs anything.
 - Not judged by listening yet.
+
+```bash
+RPG_VOICE_SAMPLES_DIR=/tmp/voice-samples node scripts/voice-samples/sound-demo.ts
+```
+
+- Writes `sound-demo-PLACEHOLDER-ambience.wav`: narration over ducked procedural noise. The ambience is a synthetic placeholder, not a CC0 recording.
+- Uses `en-US-narration-after.wav` from the same folder as narration when present, otherwise a tone placeholder.

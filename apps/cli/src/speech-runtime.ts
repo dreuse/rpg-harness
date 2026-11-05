@@ -1,4 +1,5 @@
 import { join } from 'node:path';
+import { duckingSink } from '../../../packages/voice/src/ducking-sink.ts';
 import { createKokoroJsEngine, KOKORO_MODEL_DIR_ENV } from '../../../packages/voice/src/kokoro-js-engine.ts';
 import { createKokoroProvider, type KokoroProvider } from '../../../packages/voice/src/kokoro-provider.ts';
 import { noVoiceNotice, voicesFor } from '../../../packages/voice/src/language-voices.ts';
@@ -86,5 +87,12 @@ export const prepareVoice = (providers: readonly TtsProvider[], language: string
   return noVoiceNotice(language, providers);
 };
 
-export const createLiveSpeechRuntime = (dataDir: string, env: NodeJS.ProcessEnv = process.env): SpeechRuntime =>
-  createSpeechRuntime({ providers: liveProviders(dataDir, env), sink: createProcessSink() });
+export const createLiveSpeechRuntime = (
+  dataDir: string,
+  env: NodeJS.ProcessEnv = process.env,
+  onSpeaking: (active: boolean) => void = () => undefined,
+): SpeechRuntime =>
+  createSpeechRuntime({
+    providers: liveProviders(dataDir, env),
+    sink: duckingSink(createProcessSink(), onSpeaking),
+  });

@@ -79,6 +79,10 @@ const setup = (input: readonly string[] = PLAYER_LINES) => {
       calls.push(`claude:${name ?? ''}`);
       return 0;
     },
+    sound: async function* (request) {
+      calls.push(`sound:${JSON.stringify(request)}`);
+      yield 'music: on, volume 50%';
+    },
   };
   const out: string[] = [];
   const err: string[] = [];
@@ -118,6 +122,7 @@ test('help lists every command with a one-line description in plain text', async
       'update',
       'settings',
       'claude',
+      'sound',
       'help',
     ]) {
       assert.match(text, new RegExp(`^  ${command}\\b.* - .+$`, 'm'));
@@ -300,6 +305,7 @@ test('gateway failures exit 1 and report the error on stderr', async () => {
     },
     settings: broken,
     claude: broken,
+    sound: broken,
   };
   for (const argv of [
     [],
@@ -476,4 +482,26 @@ test('rpg-42a.47 claude opens Claude Code for a campaign or the workspace and pa
   assert.equal(await main(['claude', 'Ember', 'extra'], misuse.io, misuse.gateway), EXIT_USAGE);
   assert.equal(await main(['claude', ' '], misuse.io, misuse.gateway), EXIT_USAGE);
   assert.deepEqual(misuse.calls, []);
+});
+test('sound turns channels on, sets volumes and passes the download consent to the gateway', async () => {
+  const { calls, gateway, io, out, err } = setup();
+  assert.equal(await main(['sound', '--music', '--no-effects', '--music-volume', '0.25'], io, gateway), 0);
+  assert.deepEqual(calls, [
+    'sound:{"enabled":{"effects":false,"music":true},"volume":{"music":0.25},"download":false,"accept":false}',
+  ]);
+  assert.deepEqual(out, ['music: on, volume 50%\n']);
+  assert.deepEqual(err, []);
+});
+
+test('sound rejects a volume outside 0 to 1, stray arguments and options for other commands', async () => {
+  for (const argv of [
+    ['sound', '--music-volume', '2'],
+    ['sound', 'extra'],
+    ['list', '--music'],
+    ['sound', '--yes'],
+  ]) {
+    const { calls, gateway, io } = setup();
+    assert.equal(await main(argv, io, gateway), EXIT_USAGE);
+    assert.deepEqual(calls, []);
+  }
 });

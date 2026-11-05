@@ -286,6 +286,7 @@ export const viewModel = (
     fontScale: preferences.fontScale,
     animate: motion === 'full',
     motion: preferences.motion,
+    sound: preferences.sound,
     panels: state.panels,
     rejected: state.rejected,
     gm: state.snapshot?.gm,

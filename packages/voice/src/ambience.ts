@@ -5,8 +5,8 @@ export const MAX_CHANNEL_VOLUME = 1;
 export const DEFAULT_CHANNEL_VOLUME = 1;
 export const DUCK_FACTOR = 0.3;
 
-export type AudioChannel = 'narration' | 'dialogue' | 'ambience' | 'effects';
-type BackgroundChannel = Extract<AudioChannel, 'ambience' | 'effects'>;
+export type AudioChannel = 'narration' | 'dialogue' | 'ambience' | 'effects' | 'music';
+type BackgroundChannel = Extract<AudioChannel, 'ambience' | 'effects' | 'music'>;
 
 export interface AmbientSink {
   setVolume(layerId: string, volume: number): void;
@@ -30,6 +30,7 @@ export interface AmbienceMixerDeps {
 export interface AmbienceMixer {
   selectAmbience(layerId: string): void;
   deselectAmbience(layerId: string): void;
+  selectMusic(layerId: string): void;
   enableEffects(enabled: boolean): void;
   effect(effectId: string): void;
   setVolume(channel: AudioChannel, volume: number): void;
@@ -51,6 +52,7 @@ export const createAmbienceMixer = (deps: AmbienceMixerDeps): AmbienceMixer => {
     dialogue: DEFAULT_CHANNEL_VOLUME,
     ambience: DEFAULT_CHANNEL_VOLUME,
     effects: DEFAULT_CHANNEL_VOLUME,
+    music: DEFAULT_CHANNEL_VOLUME,
   };
   const active = new Map<string, BackgroundChannel>();
   let silenced = false;
@@ -97,6 +99,7 @@ export const createAmbienceMixer = (deps: AmbienceMixerDeps): AmbienceMixer => {
 
   return {
     selectAmbience: (layerId) => start(layerId, 'ambience'),
+    selectMusic: (layerId) => start(layerId, 'music'),
     deselectAmbience(layerId) {
       stopWhere((id) => id === layerId);
       deps.onChange(state());

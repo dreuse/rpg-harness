@@ -123,6 +123,9 @@ import {
   UnknownEdition,
 } from './quickstart.ts';
 import { checkFor } from './roll-visualization.ts';
+import type { SoundRequest } from './sound-command.ts';
+import { SOUND_SETTINGS_FILE } from './sound-files.ts';
+import type { SoundRuntime } from './sound-runtime.ts';
 import type { SpeechRuntime } from './speech-runtime.ts';
 import { runTui, type Terminal, type TuiPlayback } from './tui.ts';
 import { runHome } from './tui-home.ts';
@@ -162,6 +165,7 @@ export const GENERIC_OPENING_NOTICE =
 const ARCHIVE_DIR = 'archive';
 const NONE = 'none';
 const SAVED_SETTINGS = 'Saved settings:';
+const SOUND_UNAVAILABLE = 'Background sound is unavailable: ';
 const CHARACTER_PROMPT = `Describe your character, or press Enter to play as ${HERO_NAME}.`;
 const CREATE_CHARACTER_INTENT = 'create character';
 const SUMMARY_SETTLE_MS = 10_000;
@@ -596,11 +600,30 @@ export const openClientSession = (
 };
 
 const liveRuntimes = new Map<string, SpeechRuntime>();
+const liveSounds = new Map<string, SoundRuntime>();
+
+const startSound = async (dataDir: string): Promise<string | undefined> => {
+  if (!existsSync(join(dataDir, SOUND_SETTINGS_FILE))) return undefined;
+  try {
+    const sound = (await import('./sound-runtime.ts')).createSoundRuntime(dataDir);
+    if (sound !== undefined) liveSounds.set(dataDir, sound);
+    return undefined;
+  } catch (error) {
+    return `${SOUND_UNAVAILABLE}${error instanceof Error ? error.message : String(error)}`;
+  }
+};
+
+const stopSound = (dataDir: string) => {
+  liveSounds.get(dataDir)?.dispose();
+  liveSounds.delete(dataDir);
+};
 
 export type MakeSpeech = (dataDir: string) => SpeechRuntime | Promise<SpeechRuntime>;
 
 const makeLiveSpeech: MakeSpeech = async (dataDir) =>
-  (await import('./speech-runtime.ts')).createLiveSpeechRuntime(dataDir);
+  (await import('./speech-runtime.ts')).createLiveSpeechRuntime(dataDir, process.env, (active) =>
+    liveSounds.get(dataDir)?.controller.speaking(active),
+  );
 
 export const liveSpeech =
   (dataDir: string, make: MakeSpeech = makeLiveSpeech): SpeechSource =>
@@ -651,9 +674,11 @@ const playTui = async (
   try {
     const locale = voiceLocale();
     const voiceNotice = locale === undefined ? undefined : await speechNotice(speech, locale).catch(() => undefined);
-    const notice = [gm.notice, voiceNotice].filter((line) => line !== undefined).join(NOTICE_JOIN);
+    const soundNotice = await startSound(dataDir);
+    const notice = [gm.notice, voiceNotice, soundNotice].filter((line) => line !== undefined).join(NOTICE_JOIN);
     await runTui(session, campaignId, terminal, narrate, notice || undefined, playbackFor(dataDir));
   } finally {
+    stopSound(dataDir);
     disposeSpeech(dataDir);
     await settle();
     close();
@@ -1229,6 +1254,9 @@ export const createEngineGateway = (
     }
   },
   settings: (name, changes) => gmSettingsCommand(dataDir, name, changes),
+  sound: async function* (request: SoundRequest) {
+    yield* (await import('./sound-command.ts')).soundCommand(dataDir, request);
+  },
 });
 
 const reportedInputOf = ({ inputTokens, cacheReadTokens, cacheWriteTokens }: GmUsage) =>

@@ -3,6 +3,7 @@ import { MOTION_SETTINGS } from '../../../packages/client-protocol/src/visualiza
 import { voiceLocaleFor } from '../../../packages/voice/src/language-voices.ts';
 import { createMicrophoneController } from '../../../packages/voice/src/microphone.ts';
 import type { PlaybackControl } from '../../../packages/voice/src/playback-controls.ts';
+import { type ChannelSetting, isVolume, SOUND_CHANNELS } from '../../../packages/voice/src/sound-settings.ts';
 import { createSubtitleTranscript } from '../../../packages/voice/src/subtitles.ts';
 import { type RendererAction, SUPPORTED_LOCALES, translate } from './accessibility.ts';
 import { SETTLE_MS } from './dice.ts';
@@ -32,6 +33,8 @@ import {
   SHEET_ACTION,
   SHEET_FORM,
   SHEET_INPUT,
+  SOUND_FIELD_TOGGLE,
+  SOUND_FIELD_VOLUME,
   START_CONTROL,
   START_CONTROLS,
   START_EDIT,
@@ -465,6 +468,15 @@ export const mountPage = ({
     void run(value(name) ?? '');
     return true;
   };
+  const changeSound = (name: string, patch: Partial<ChannelSetting>) => {
+    const channel = SOUND_CHANNELS.find((known) => known === name);
+    if (channel === undefined || (patch.volume !== undefined && !isVolume(patch.volume))) return;
+    const sound = { ...saved.sound, [channel]: { ...saved.sound[channel], ...patch } };
+    saved = { ...saved, sound };
+    bridge.savePreferences?.(saved);
+    preferences = withSystem();
+    render();
+  };
   const voiceField = (field: string, raw: unknown) => {
     const value = NUMBER_FIELDS.includes(field) ? Number(raw) : String(raw);
     if (OUTPUT_FIELDS.includes(field)) {
@@ -546,6 +558,12 @@ export const mountPage = ({
     if (query !== undefined && query !== client.state().home.query) client.search(query);
   });
   root.addEventListener(CHANGE, (event) => {
+    const soundTarget = closestTarget(event);
+    const toggled = soundTarget?.closest(`[${SOUND_FIELD_TOGGLE}]`)?.getAttribute(SOUND_FIELD_TOGGLE);
+    const sized = soundTarget?.closest(`[${SOUND_FIELD_VOLUME}]`)?.getAttribute(SOUND_FIELD_VOLUME);
+    const { checked, value } = event.target as { checked?: unknown; value?: unknown };
+    if (toggled !== undefined && toggled !== null) return changeSound(toggled, { enabled: checked === true });
+    if (sized !== undefined && sized !== null) return changeSound(sized, { volume: Number(value) });
     const field = closestTarget(event)?.closest(`[${VOICE_FIELD}]`)?.getAttribute(VOICE_FIELD);
     if (field !== undefined && field !== null) voiceField(field, (event.target as { value?: unknown }).value);
   });

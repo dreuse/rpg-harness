@@ -527,7 +527,7 @@ test('rpg-42a.22 the play view has a home button and a settings menu holding mot
   );
   assert.match(
     html,
-    /<details data-settings><summary id="settings-toggle">Settings<\/summary><div><fieldset data-language-control><legend>Language<\/legend>[\s\S]*<\/fieldset><fieldset data-motion-control><legend>Motion<\/legend>[\s\S]*<\/fieldset><p data-voice-summary>Voice off · English · normal speed<\/p><p>[^<]*set mic to push-to-talk[^<]*<\/p><form data-gm-form>[\s\S]*<\/form><\/div><\/details>/,
+    /<details data-settings><summary id="settings-toggle">Settings<\/summary><div><fieldset data-language-control><legend>Language<\/legend>[\s\S]*<\/fieldset><fieldset data-motion-control><legend>Motion<\/legend>[\s\S]*<\/fieldset><p data-voice-summary>Voice off · English · normal speed<\/p><p>[^<]*set mic to push-to-talk[^<]*<\/p><fieldset data-sound>[\s\S]*<\/fieldset><form data-gm-form>[\s\S]*<\/form><\/div><\/details>/,
   );
   assert.doesNotMatch(html, /data-region="voice"|data-region="campaigns"|data-start-open/);
   assert.ok(html.indexOf('data-settings') < html.indexOf('data-columns'));

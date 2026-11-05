@@ -3,6 +3,7 @@ import { CLIENTS } from '../../../packages/intent/src/intent.ts';
 import type { Ask } from './character-creation.ts';
 import type { GmSettingsChanges } from './engine-gateway.ts';
 import { DEFAULT_LOCALE, errorText, say as phrase, safeLocale } from './messages.ts';
+import type { SoundRequest } from './sound-command.ts';
 import { PLAIN_TERMINAL, type Terminal } from './tui.ts';
 import type { UpdateRequest } from './update.ts';
 import { printable, VIEW_NAMES, type ViewName } from './views.ts';
@@ -16,11 +17,32 @@ const VOICE_OPTION = '--voice';
 const CLIENT_OPTION = '--client';
 const UPDATE_OPTIONS = ['--check', '--auto-check', '--pre-release'];
 const SETTINGS_OPTIONS = ['--model', '--summary-model', '--session-budget'];
+const SOUND_OPTION_KEYS = [
+  'ambience',
+  'effects',
+  'music',
+  'ambience-volume',
+  'effects-volume',
+  'music-volume',
+  'download',
+  'yes',
+] as const;
 const VOICE_COMMAND = 'tui';
 const UPDATE_COMMAND = 'update';
 const CLIENT_COMMAND = 'new';
 const SETTINGS_COMMAND = 'settings';
 const CLAUDE_COMMAND = 'claude';
+const SOUND_COMMAND = 'sound';
+const SOUND_OPTIONS = [
+  '--ambience',
+  '--effects',
+  '--music',
+  '--ambience-volume',
+  '--effects-volume',
+  '--music-volume',
+  '--download',
+  '--yes',
+];
 const OPTIONS = {
   help: { type: 'boolean', short: 'h' },
   voice: { type: 'boolean' },
@@ -31,6 +53,14 @@ const OPTIONS = {
   model: { type: 'string' },
   'summary-model': { type: 'string' },
   'session-budget': { type: 'string' },
+  ambience: { type: 'boolean' },
+  effects: { type: 'boolean' },
+  music: { type: 'boolean' },
+  'ambience-volume': { type: 'string' },
+  'effects-volume': { type: 'string' },
+  'music-volume': { type: 'string' },
+  download: { type: 'boolean' },
+  yes: { type: 'boolean' },
 } as const;
 
 export type CampaignMode = 'play' | 'resume';
@@ -63,6 +93,7 @@ export type CampaignGateway = {
   update: (request: UpdateRequest) => AsyncIterable<string>;
   settings: (campaign: string | undefined, changes: GmSettingsChanges) => string;
   claude: (campaign: string | undefined) => number;
+  sound: (request: SoundRequest) => AsyncIterable<string>;
 };
 
 export type Io = {
@@ -121,6 +152,11 @@ const COMMANDS = [
     usage: 'settings [campaign] [--model <name>] [--summary-model <name>] [--session-budget <tokens>]',
   },
   { name: CLAUDE_COMMAND, usage: 'claude [campaign]' },
+  {
+    name: SOUND_COMMAND,
+    usage:
+      'sound [--ambience] [--effects] [--music] [--ambience-volume <0-1>] [--effects-volume <0-1>] [--music-volume <0-1>] [--download [--yes]]',
+  },
   { name: 'help', usage: 'help' },
 ] as const;
 
@@ -258,6 +294,12 @@ export const main = async (argv: readonly string[], io: Io, gateway: CampaignGat
       io,
       phrase(locale, 'cli.optionsOnlyWith', { options: list(SETTINGS_OPTIONS), command: SETTINGS_COMMAND }),
     );
+  const soundOption = SOUND_OPTION_KEYS.some((key) => parsed.values[key] !== undefined);
+  if (soundOption && command !== SOUND_COMMAND)
+    return usageError(
+      io,
+      phrase(locale, 'cli.optionsOnlyWith', { options: list(SOUND_OPTIONS), command: SOUND_COMMAND }),
+    );
   const wantsHelp = parsed.values.help === true || command === 'help';
   if (wantsHelp) {
     const extra = parsed.values.help === true ? parsed.positionals : rest;
@@ -357,6 +399,13 @@ export const main = async (argv: readonly string[], io: Io, gateway: CampaignGat
     } catch (error) {
       return fail(io, error);
     }
+  }
+  if (command === SOUND_COMMAND) {
+    if (rest.length > 0) return unexpectedArgument(rest[0]);
+    const { soundRequestOf } = await import('./sound-command.ts');
+    const request = soundRequestOf(parsed.values);
+    if (typeof request === 'string') return usageError(io, request);
+    return run(io, () => gateway.sound(request));
   }
   return usageError(io, phrase(locale, 'cli.unsupported', { command }));
 };

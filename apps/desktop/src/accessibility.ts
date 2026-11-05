@@ -13,6 +13,11 @@ import {
   MIN_PLAYBACK_SPEED,
 } from '../../../packages/voice/src/playback.ts';
 import {
+  DEFAULT_SOUND_SETTINGS,
+  type SoundSettings,
+  toSoundSettings,
+} from '../../../packages/voice/src/sound-settings.ts';
+import {
   DEFAULT_VOICE_SETTINGS,
   type MicrophoneMode,
   type SpokenOutputMode,
@@ -35,6 +40,7 @@ export type UiPreferences = {
   readonly keyboard: boolean;
   readonly voice: SavedVoice;
   readonly speech: SpeechPreferences;
+  readonly sound: SoundSettings;
 };
 
 export const DEFAULT_PREFERENCES: UiPreferences = {
@@ -51,6 +57,7 @@ export const DEFAULT_PREFERENCES: UiPreferences = {
     consent: DEFAULT_VOICE_SETTINGS.consent,
   },
   speech: DEFAULT_SPEECH,
+  sound: DEFAULT_SOUND_SETTINGS,
 };
 
 const MICROPHONE_MODES: readonly unknown[] = ['off', 'push-to-talk', 'hands-free'] satisfies MicrophoneMode[];
@@ -100,6 +107,7 @@ export const parsePreferences = (input: unknown, defaults = DEFAULT_PREFERENCES)
     keyboard,
     voice: savedVoice,
     speech: savedSpeech,
+    sound,
   } = { ...defaults, ...input };
   const speech = withoutFlatNpcVoices(savedSpeech);
   const voice = isRecord(savedVoice) ? { ...defaults.voice, ...savedVoice } : savedVoice;
@@ -128,6 +136,7 @@ export const parsePreferences = (input: unknown, defaults = DEFAULT_PREFERENCES)
         volume,
         npcVoices: Object.fromEntries(Object.entries(npcVoices).map(([id, voices]) => [id, { ...voices }])),
       },
+      sound: toSoundSettings(sound),
     },
   };
 };
@@ -274,6 +283,13 @@ export const CATALOG: Catalog = {
     'voice.speedLabel': 'Speed',
     'voice.volume': 'Volume',
     'voice.advanced': 'Advanced voice settings',
+    'sound.legend': 'Background sound',
+    'sound.ambience': 'Ambience',
+    'sound.effects': 'Effects',
+    'sound.music': 'Music',
+    'sound.volume.ambience': 'Ambience volume',
+    'sound.volume.effects': 'Effects volume',
+    'sound.volume.music': 'Music volume',
     'voice.provider': 'Voice provider',
     'voice.npcs': 'Character voices',
     'voice.npcName': 'Character name',
@@ -532,6 +548,13 @@ export const CATALOG: Catalog = {
     'voice.language': 'Idioma',
     'voice.speedLabel': 'Velocidad',
     'voice.volume': 'Volumen',
+    'sound.legend': 'Sonido de fondo',
+    'sound.ambience': 'Ambiente',
+    'sound.effects': 'Efectos',
+    'sound.music': 'Música',
+    'sound.volume.ambience': 'Volumen del ambiente',
+    'sound.volume.effects': 'Volumen de los efectos',
+    'sound.volume.music': 'Volumen de la música',
     'voice.advanced': 'Ajustes avanzados de voz',
     'voice.provider': 'Proveedor de voz',
     'voice.npcs': 'Voces de personajes',
@@ -746,6 +769,13 @@ export const CATALOG: Catalog = {
     'voice.language': 'Idioma',
     'voice.speedLabel': 'Velocidade',
     'voice.volume': 'Volume',
+    'sound.legend': 'Som de fundo',
+    'sound.ambience': 'Ambiência',
+    'sound.effects': 'Efeitos',
+    'sound.music': 'Música',
+    'sound.volume.ambience': 'Volume da ambiência',
+    'sound.volume.effects': 'Volume dos efeitos',
+    'sound.volume.music': 'Volume da música',
     'voice.advanced': 'Configurações avançadas de voz',
     'voice.provider': 'Provedor de voz',
     'voice.npcs': 'Vozes dos personagens',

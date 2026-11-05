@@ -164,3 +164,22 @@ test('silence mode blocks new layers and does not auto-restart them when lifted'
   assert.deepEqual(calls.slice(before), []);
   assert.deepEqual(mixer.state().active, []);
 });
+
+test('music is its own channel with its own volume and ducks under speech', () => {
+  const { mixer, lastVolume } = harness();
+  mixer.setVolume('music', HALF);
+  mixer.selectMusic('calm');
+  assert.equal(lastVolume('calm'), HALF);
+  mixer.onPlaybackEvent(subtitle('start'));
+  assert.equal(lastVolume('calm'), HALF * DUCK_FACTOR);
+  assert.equal(mixer.volume('ambience'), DEFAULT_CHANNEL_VOLUME);
+});
+
+test('silence mode stops music', () => {
+  const { mixer, calls } = harness();
+  mixer.selectMusic('calm');
+  mixer.setSilence(true);
+  assert.deepEqual(calls.at(-1), ['stop', 'calm']);
+  mixer.selectMusic('combat');
+  assert.deepEqual(mixer.state().active, []);
+});
