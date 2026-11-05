@@ -18,6 +18,7 @@ import type {
   Relationship,
   Visibility,
 } from '../../domain/src/entity.ts';
+import { toVoiceTraits, VOICE_TRAITS_FIELD } from '../../domain/src/voice.ts';
 import {
   PENDING_KINDS,
   PENDING_OPENED,
@@ -94,13 +95,21 @@ const turnVisibility = (visibility: Visibility): TurnVisibility =>
 const isPreset = (preset: unknown): preset is ContextBudgetPreset =>
   typeof preset === 'string' && Object.hasOwn(CONTEXT_BUDGETS, preset);
 
+const withValidTraits = (entity: EntityIntroduction['entity']): EntityIntroduction['entity'] => {
+  const { [VOICE_TRAITS_FIELD]: given, ...rest } = entity.data;
+  if (given === undefined) return entity;
+  const traits = toVoiceTraits(given);
+  return { ...entity, data: traits === undefined ? rest : { ...rest, [VOICE_TRAITS_FIELD]: traits } };
+};
+
 export const introduceEntity = (
   store: CampaignStore,
   entities: EntityStore,
   facts: FactStore,
   input: EntityIntroduction,
 ): CommittedTurn => {
-  const { campaignId, actionId, entity, relationships } = input;
+  const { campaignId, actionId, relationships } = input;
+  const entity = withValidTraits(input.entity);
   const state = loadState(store, campaignId);
   const factEvents = (committed: CommittedTurn) => committed.events.filter(({ type }) => type === FACT_RECORDED);
   const recordedFacts = input.facts.map((fact) => ({ ...fact, subjectId: entity.id }));

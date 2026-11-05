@@ -285,3 +285,27 @@ test('rpg-42a.79 a second npc claiming an existing role is rejected and names th
   assert.equal(entities.getEntity(CAMPAIGN.id, 'marta-hollis'), undefined);
   connection.close();
 });
+
+test('an introduced npc keeps valid voice traits and drops unknown values', () => {
+  const { connection, store, entities, facts } = seeded();
+  const input = introduction(store);
+  introduceEntity(store, entities, facts, {
+    ...input,
+    entity: { ...input.entity, data: { voiceTraits: { gender: 'female', age: 'ancient', manner: 'gruff', extra: 1 } } },
+  });
+  assert.deepEqual(entities.getEntity(CAMPAIGN.id, WARDEN.id)?.data, {
+    voiceTraits: { gender: 'female', manner: 'gruff' },
+  });
+  connection.close();
+});
+
+test('an introduced npc with unusable voice traits stores none', () => {
+  const { connection, store, entities, facts } = seeded();
+  const input = introduction(store);
+  introduceEntity(store, entities, facts, {
+    ...input,
+    entity: { ...input.entity, data: { voiceTraits: { gender: 'robot' } } },
+  });
+  assert.deepEqual(entities.getEntity(CAMPAIGN.id, WARDEN.id)?.data, {});
+  connection.close();
+});

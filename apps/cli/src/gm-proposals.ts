@@ -6,6 +6,14 @@ import {
   type EntityStore,
   type FactStore,
 } from '../../../packages/domain/src/entity.ts';
+import {
+  toVoiceTraits,
+  VOICE_AGES,
+  VOICE_GENDERS,
+  VOICE_MANNERS,
+  VOICE_TRAITS_FIELD,
+  type VoiceTraits,
+} from '../../../packages/domain/src/voice.ts';
 import { GM_PROPOSAL_INPUT, offerCheck } from '../../../packages/engine/src/check-offer.ts';
 import {
   GM_ROLL_VISIBILITIES,
@@ -21,6 +29,7 @@ import {
   loadState,
   type PlayerAction,
 } from '../../../packages/engine/src/turn.ts';
+import { setVoiceTraits } from '../../../packages/engine/src/voice-profile.ts';
 import { PENDING_KINDS, type PendingKind } from '../../../packages/memory/src/graph.ts';
 import type { NarrationClaim } from '../../../packages/narrative/src/consistency.ts';
 import type { Rng } from '../../../packages/rules/src/dice.ts';
@@ -44,6 +53,7 @@ export const PENDING_PROPOSAL = 'pending';
 export const CHECK_PROPOSAL = 'check';
 export const OUTCOME_PROPOSAL = 'outcome';
 export const GM_ROLL_PROPOSAL = 'gm-roll';
+export const VOICE_TRAITS_PROPOSAL = 'voice-traits';
 
 const ID_PATTERN = '^[a-z0-9][a-z0-9-]*$';
 const ID_REGEX = new RegExp(ID_PATTERN);
@@ -53,11 +63,22 @@ const NO_RULES: readonly string[] = [];
 const DEFAULT_VISIBILITY = 'player';
 const FACT_LAYER = 'canon';
 const PROPOSAL_KEYS = {
-  [ENTITY_PROPOSAL]: ['kind', 'id', 'entityKind', 'name', 'facts', 'visibility', 'locationKind', 'mood'],
+  [ENTITY_PROPOSAL]: [
+    'kind',
+    'id',
+    'entityKind',
+    'name',
+    'facts',
+    'visibility',
+    'locationKind',
+    'mood',
+    VOICE_TRAITS_FIELD,
+  ],
   [PENDING_PROPOSAL]: ['kind', 'id', 'pendingKind', 'text', 'entityIds', 'visibility'],
   [CHECK_PROPOSAL]: ['kind', 'id', 'ruleId', 'target', 'label'],
   [OUTCOME_PROPOSAL]: ['kind', 'id', 'text'],
   [GM_ROLL_PROPOSAL]: ['kind', 'id', 'roller', 'reason', 'visibility', 'ruleId', 'expression'],
+  [VOICE_TRAITS_PROPOSAL]: ['kind', 'id', 'entityId', VOICE_TRAITS_FIELD],
 } as const;
 
 type ProposalVisibility = (typeof PROPOSAL_VISIBILITIES)[number];
@@ -70,6 +91,7 @@ export type EntityProposal = {
   readonly facts?: readonly string[];
   readonly locationKind?: string;
   readonly mood?: readonly string[];
+  readonly voiceTraits?: VoiceTraits;
   readonly visibility: ProposalVisibility;
 };
 
@@ -106,10 +128,33 @@ export type GmRollProposal = {
   readonly expression?: string;
 };
 
-export type GmProposal = EntityProposal | PendingProposal | CheckProposal | OutcomeProposal | GmRollProposal;
+export type VoiceTraitsProposal = {
+  readonly kind: typeof VOICE_TRAITS_PROPOSAL;
+  readonly id: string;
+  readonly entityId: EntityId;
+  readonly voiceTraits: VoiceTraits;
+};
+
+export type GmProposal =
+  | EntityProposal
+  | PendingProposal
+  | CheckProposal
+  | OutcomeProposal
+  | GmRollProposal
+  | VoiceTraitsProposal;
 
 const idSchema = { type: 'string', maxLength: MAX_ID_LENGTH, pattern: ID_PATTERN } as const;
 const visibilitySchema = { type: 'string', enum: PROPOSAL_VISIBILITIES } as const;
+
+const voiceTraitsSchema = {
+  type: 'object',
+  properties: {
+    gender: { type: 'string', enum: VOICE_GENDERS },
+    age: { type: 'string', enum: VOICE_AGES },
+    manner: { type: 'string', enum: VOICE_MANNERS },
+  },
+  additionalProperties: false,
+} as const;
 
 export const PROPOSALS_SCHEMA = {
   type: 'array',
@@ -127,6 +172,7 @@ export const PROPOSALS_SCHEMA = {
           visibility: visibilitySchema,
           locationKind: { type: 'string', maxLength: MAX_TAG_LENGTH },
           mood: { type: 'array', maxItems: MAX_MOOD_TAGS, items: { type: 'string', maxLength: MAX_TAG_LENGTH } },
+          voiceTraits: voiceTraitsSchema,
         },
         required: ['kind', 'id', 'entityKind', 'name'],
         additionalProperties: false,
@@ -180,6 +226,17 @@ export const PROPOSALS_SCHEMA = {
         required: ['kind', 'id', 'roller', 'reason', 'visibility'],
         additionalProperties: false,
       },
+      {
+        type: 'object',
+        properties: {
+          kind: { const: VOICE_TRAITS_PROPOSAL },
+          id: idSchema,
+          entityId: idSchema,
+          voiceTraits: voiceTraitsSchema,
+        },
+        required: ['kind', 'id', 'entityId', 'voiceTraits'],
+        additionalProperties: false,
+      },
     ],
   },
 } as const;
@@ -213,6 +270,7 @@ const entityOf = (value: Record<string, unknown>): EntityProposal | undefined =>
   const locationKind = value.locationKind === undefined ? undefined : textOf(value.locationKind, MAX_TAG_LENGTH);
   const mood =
     value.mood === undefined ? undefined : listOf(value.mood, MAX_MOOD_TAGS, (tag) => textOf(tag, MAX_TAG_LENGTH));
+  const voiceTraits = toVoiceTraits(value.voiceTraits);
   if (
     (value.locationKind !== undefined && locationKind === undefined) ||
     (value.mood !== undefined && mood === undefined)
@@ -226,6 +284,7 @@ const entityOf = (value: Record<string, unknown>): EntityProposal | undefined =>
     ...(facts.length === 0 ? {} : { facts }),
     ...(locationKind === undefined ? {} : { locationKind }),
     ...(mood === undefined ? {} : { mood }),
+    ...(voiceTraits === undefined ? {} : { voiceTraits }),
     visibility,
   };
 };
@@ -276,12 +335,21 @@ const gmRollOf = (value: Record<string, unknown>): GmRollProposal | undefined =>
   };
 };
 
+const voiceTraitsOf = (value: Record<string, unknown>): VoiceTraitsProposal | undefined => {
+  const id = idOf(value.id);
+  const entityId = idOf(value.entityId);
+  const voiceTraits = toVoiceTraits(value.voiceTraits);
+  if (id === undefined || entityId === undefined || voiceTraits === undefined) return undefined;
+  return { kind: VOICE_TRAITS_PROPOSAL, id, entityId, voiceTraits };
+};
+
 const PARSERS = {
   [ENTITY_PROPOSAL]: entityOf,
   [PENDING_PROPOSAL]: pendingOf,
   [CHECK_PROPOSAL]: checkOf,
   [OUTCOME_PROPOSAL]: outcomeOf,
   [GM_ROLL_PROPOSAL]: gmRollOf,
+  [VOICE_TRAITS_PROPOSAL]: voiceTraitsOf,
 } as const;
 
 const proposalOf = (value: unknown): GmProposal | undefined => {
@@ -354,6 +422,12 @@ export const commitProposals = (
     if (proposal.kind === OUTCOME_PROPOSAL || proposal.kind === GM_ROLL_PROPOSAL) continue;
     const action = actionFor(committed, proposal, loadState(store, campaignId).revision);
     try {
+      if (proposal.kind === VOICE_TRAITS_PROPOSAL) {
+        results.push(
+          setVoiceTraits(store, entities, { ...action, speakerId: proposal.entityId, traits: proposal.voiceTraits }),
+        );
+        continue;
+      }
       if (proposal.kind === CHECK_PROPOSAL) {
         const { id: offerId, ruleId, target, label } = proposal;
         if (checkRules.includes(ruleId))
@@ -369,7 +443,7 @@ export const commitProposals = (
               id: proposal.id,
               kind: proposal.entityKind,
               name: proposal.name,
-              data: {},
+              data: proposal.voiceTraits === undefined ? {} : { [VOICE_TRAITS_FIELD]: proposal.voiceTraits },
               ...scope,
             },
             facts: (proposal.facts ?? []).map((statement, index) => ({

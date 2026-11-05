@@ -517,3 +517,30 @@ for (const target of PROVIDERS) {
     assert.deepEqual(seen, [undefined, undefined, undefined, undefined]);
   });
 }
+
+test('rpg-cm63.44 a manner changes the engine speed and lowers or raises the pitch', async () => {
+  const wav = encodeWav({
+    format: 1,
+    bits: 16,
+    channels: 1,
+    sampleRate: 24_000,
+    samples: Float32Array.from({ length: 4800 }, (_, i) => 0.5 * Math.sin((2 * Math.PI * i) / 24)),
+  });
+  const lengthWith = async (manner: VoiceProfile['manner']) => {
+    const engine = fakeEngine();
+    const speeds: number[] = [];
+    engine.synthesize = async (_sentence, _voice, _signal, speed) => {
+      speeds.push(speed);
+      return wav;
+    };
+    const profile = { ...PROFILE, ...(manner === undefined ? {} : { manner }) };
+    const [chunk] = await speak(createKokoroProvider({ engine }), { ...UTTERANCE, text: 'Hello there.', profile });
+    return { speed: speeds[0] ?? 0, samples: decodeWav(chunk?.audio ?? new Uint8Array())?.samples.length ?? 0 };
+  };
+  const plain = await lengthWith(undefined);
+  const menacing = await lengthWith('menacing');
+  const cheerful = await lengthWith('cheerful');
+  assert.equal(plain.speed, 1);
+  assert.ok(menacing.speed < cheerful.speed);
+  assert.ok(menacing.samples > plain.samples && plain.samples > cheerful.samples);
+});

@@ -2,7 +2,7 @@ import { isDeepStrictEqual } from 'node:util';
 import type { CampaignStore } from '../../../packages/domain/src/campaign.ts';
 import { StaleRevisionError } from '../../../packages/domain/src/campaign.ts';
 import type { EntityStore } from '../../../packages/domain/src/entity.ts';
-import type { VoiceFallback } from '../../../packages/domain/src/voice.ts';
+import { toVoiceTraits, VOICE_TRAITS_FIELD, type VoiceFallback } from '../../../packages/domain/src/voice.ts';
 import { InvalidActionError, loadState } from '../../../packages/engine/src/turn.ts';
 import { setVoiceProfile, voiceProfileOf } from '../../../packages/engine/src/voice-profile.ts';
 import { importantNpcProfile } from '../../../packages/voice/src/cinematic.ts';
@@ -93,8 +93,17 @@ const autoNpcVoices = (
     stored: (speakerId) => voiceProfileOf(loadState(store, campaignId).events, speakerId),
     assign,
     hintOf: (speakerId) => {
-      const gender = entities.getEntity(campaignId, speakerId)?.data[GENDER_FIELD];
-      return typeof gender === 'string' ? { gender } : undefined;
+      const data = entities.getEntity(campaignId, speakerId)?.data;
+      const traits = toVoiceTraits(data?.[VOICE_TRAITS_FIELD]);
+      const gender = traits?.gender ?? data?.[GENDER_FIELD];
+      return { ...traits, ...(typeof gender === 'string' ? { gender } : {}) };
+    },
+    takenBy: (speakerId) => {
+      const { events } = loadState(store, campaignId);
+      return entities.listEntities(campaignId, NPC_KIND).flatMap(({ id }) => {
+        const voice = id === speakerId ? undefined : voiceProfileOf(events, id)?.fallbacks[0];
+        return voice === undefined ? [] : [voice];
+      });
     },
     notify: IGNORE_NOTICE,
   });

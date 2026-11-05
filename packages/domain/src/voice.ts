@@ -12,6 +12,7 @@ export interface VoiceProfile {
   readonly style: string;
   readonly pronunciations: Readonly<Record<string, string>>;
   readonly fallbacks: readonly VoiceFallback[];
+  readonly manner?: VoiceManner;
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -40,7 +41,46 @@ export const toVoiceProfile = (value: unknown): VoiceProfile | undefined => {
   if (!isPronunciations(pronunciations) || !Array.isArray(fallbacks)) return undefined;
   const picked = fallbacks.map(toFallback);
   if (!picked.every((fallback) => fallback !== undefined)) return undefined;
-  return { id, language, pace, style, pronunciations: { ...pronunciations }, fallbacks: picked };
+  const manner = oneOf(VOICE_MANNERS, value.manner);
+  return {
+    id,
+    language,
+    pace,
+    style,
+    pronunciations: { ...pronunciations },
+    fallbacks: picked,
+    ...(manner === undefined ? {} : { manner }),
+  };
+};
+
+export const VOICE_GENDERS = ['female', 'male', 'neutral'] as const;
+export const VOICE_AGES = ['child', 'young', 'adult', 'old'] as const;
+export const VOICE_MANNERS = ['warm', 'gruff', 'nervous', 'calm', 'menacing', 'cheerful'] as const;
+export const VOICE_TRAITS_FIELD = 'voiceTraits';
+export type VoiceGender = (typeof VOICE_GENDERS)[number];
+export type VoiceAge = (typeof VOICE_AGES)[number];
+export type VoiceManner = (typeof VOICE_MANNERS)[number];
+
+export interface VoiceTraits {
+  readonly gender?: VoiceGender;
+  readonly age?: VoiceAge;
+  readonly manner?: VoiceManner;
+}
+
+const oneOf = <T extends string>(options: readonly T[], value: unknown): T | undefined =>
+  options.find((option) => option === value);
+
+export const toVoiceTraits = (value: unknown): VoiceTraits | undefined => {
+  if (!isRecord(value)) return undefined;
+  const gender = oneOf(VOICE_GENDERS, value.gender);
+  const age = oneOf(VOICE_AGES, value.age);
+  const manner = oneOf(VOICE_MANNERS, value.manner);
+  const traits = {
+    ...(gender === undefined ? {} : { gender }),
+    ...(age === undefined ? {} : { age }),
+    ...(manner === undefined ? {} : { manner }),
+  };
+  return Object.keys(traits).length === 0 ? undefined : traits;
 };
 
 export const MICROPHONE_MODES = ['off', 'push-to-talk', 'hands-free'] as const;

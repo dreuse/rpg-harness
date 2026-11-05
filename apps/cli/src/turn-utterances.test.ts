@@ -353,3 +353,44 @@ test('rpg-cm63.27: the saved speed paces an automatic npc voice without being pe
   assert.equal(utterance?.profile.pace, FAST);
   assert.equal(voiceProfileOf(stateOf().events, GUARD_ID)?.pace, NARRATOR.pace);
 });
+
+const SECOND_FEMALE_VOICE = { providerId: 'fake-tts', voiceId: 'af_soft' };
+const FEMALE_TRAITS = { voiceTraits: { gender: 'female', age: 'old', manner: 'warm' } };
+
+test('rpg-cm63.44: stored voice traits pick a matching voice and keep the manner', async (t: TestContext) => {
+  const { speakAuto, entities, campaignId, stateOf } = await autoSpeech(t);
+  entities.saveEntity({ ...npc(MONK_ID, campaignId), data: FEMALE_TRAITS });
+  const [utterance] = speakAuto([{ speakerId: MONK_ID, text: MONK_LINE }]);
+  assert.deepEqual(utterance?.profile.fallbacks, [FEMALE_VOICE]);
+  assert.equal(utterance?.profile.manner, 'warm');
+  assert.equal(voiceProfileOf(stateOf().events, MONK_ID)?.manner, 'warm');
+});
+
+test('rpg-cm63.44: two npcs with the same traits get different voices', async (t: TestContext) => {
+  const { speakAuto, entities, campaignId } = await autoSpeech(t, [FEMALE_VOICE, SECOND_FEMALE_VOICE, MALE_VOICE]);
+  for (const id of [MONK_ID, GUARD_ID]) entities.saveEntity({ ...npc(id, campaignId), data: FEMALE_TRAITS });
+  const [monk, guard] = speakAuto([
+    { speakerId: MONK_ID, text: MONK_LINE },
+    { speakerId: GUARD_ID, text: GUARD_LINE },
+  ]);
+  assert.ok(monk && guard);
+  assert.notDeepEqual(monk.profile.fallbacks, guard.profile.fallbacks);
+  assert.ok([monk, guard].every(({ profile }) => profile.fallbacks[0]?.voiceId.startsWith('af_')));
+});
+
+test('rpg-cm63.44: a manual assignment overrides the traits', async (t: TestContext) => {
+  const { speakAuto, entities, campaignId, profileSets } = await autoSpeech(t);
+  entities.saveEntity({ ...npc(MONK_ID, campaignId), data: FEMALE_TRAITS });
+  const assigned = { providerId: 'fake-tts', voiceId: 'am_chosen' };
+  const [utterance] = speakAuto([{ speakerId: MONK_ID, text: MONK_LINE }], { [MONK_ID]: assigned });
+  assert.equal(utterance?.profile.fallbacks[0]?.voiceId, 'am_chosen');
+  assert.equal(profileSets(MONK_ID).length, 0);
+});
+
+test('rpg-cm63.44: junk traits in the entity data fall back to the old pick', async (t: TestContext) => {
+  const { speakAuto, entities, campaignId } = await autoSpeech(t);
+  entities.saveEntity({ ...npc(MONK_ID, campaignId), data: { voiceTraits: 'female' } });
+  const [utterance] = speakAuto([{ speakerId: MONK_ID, text: MONK_LINE }]);
+  assert.ok(INSTALLED.some((voice) => voice.voiceId === utterance?.profile.fallbacks[0]?.voiceId));
+  assert.equal(utterance?.profile.manner, undefined);
+});

@@ -9,7 +9,13 @@ import { createCampaignStore } from '../../persistence/src/campaign-store.ts';
 import { openDatabase } from '../../persistence/src/database.ts';
 import { createEntityStore } from '../../persistence/src/entity-store.ts';
 import { InvalidActionError, type PlayerAction } from './turn.ts';
-import { setVoiceProfile, VOICE_PROFILE_SET, voiceProfileOf } from './voice-profile.ts';
+import {
+  setVoiceProfile,
+  setVoiceTraits,
+  VOICE_PROFILE_SET,
+  VOICE_TRAITS_SET,
+  voiceProfileOf,
+} from './voice-profile.ts';
 
 const TEMP_PREFIX = 'rpg-voice-profile-';
 const DATABASE_FILE = 'campaign.sqlite';
@@ -186,6 +192,55 @@ test('reject a malformed profile or a speaker that is neither the narrator nor a
           InvalidActionError,
         );
       assert.equal(eventsOf(store).filter(({ type }) => type === VOICE_PROFILE_SET).length, 0);
+    } finally {
+      close();
+    }
+  }));
+
+test('voice traits are stored once in the npc entity data and replay commits once', () =>
+  withFile((path) => {
+    const { store, entities, close } = seed(path);
+    try {
+      const input = {
+        ...actionFor(store, 'traits'),
+        speakerId: WARDEN_ID,
+        traits: { gender: 'female', age: 'old', manner: 'warm', volume: 11 },
+      };
+      const committed = setVoiceTraits(store, entities, input);
+      assert.equal(setVoiceTraits(store, entities, input).turn.id, committed.turn.id);
+      assert.deepEqual(entities.getEntity(CAMPAIGN.id, WARDEN_ID)?.data, {
+        voiceTraits: { gender: 'female', age: 'old', manner: 'warm' },
+      });
+      assert.equal(eventsOf(store).filter(({ type }) => type === VOICE_TRAITS_SET).length, 1);
+      assert.throws(
+        () =>
+          setVoiceTraits(store, entities, {
+            ...actionFor(store, 'again'),
+            speakerId: WARDEN_ID,
+            traits: { gender: 'male' },
+          }),
+        InvalidActionError,
+      );
+    } finally {
+      close();
+    }
+  }));
+
+test('voice traits without a usable value or for a non-npc commit nothing', () =>
+  withFile((path) => {
+    const { store, entities, close } = seed(path);
+    try {
+      for (const [speakerId, traits] of [
+        [WARDEN_ID, { gender: 'robot' }],
+        [WARDEN_ID, 'female'],
+        [PIER_ID, { gender: 'female' }],
+        ['npc-missing', { gender: 'female' }],
+      ] as const)
+        assert.throws(
+          () => setVoiceTraits(store, entities, { ...actionFor(store, 'bad'), speakerId, traits }),
+          InvalidActionError,
+        );
+      assert.equal(eventsOf(store).filter(({ type }) => type === VOICE_TRAITS_SET).length, 0);
     } finally {
       close();
     }

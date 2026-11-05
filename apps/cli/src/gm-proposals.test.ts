@@ -131,6 +131,24 @@ describe('rpg-42a.43 GM proposals', () => {
     assert.deepEqual(proposalsOf({ proposals: [place] }), [{ ...place, visibility: 'player' }]);
   });
 
+  it('rpg-cm63.44 parses voice traits on an npc proposal and a traits proposal for an existing npc', () => {
+    const voiceTraits = { gender: 'female', age: 'old', manner: 'warm' };
+    const traited = { ...STRANGER, voiceTraits };
+    const later = { kind: 'voice-traits', id: 'stranger-voice', entityId: 'stranger', voiceTraits };
+    assert.deepEqual(proposalsOf({ proposals: [traited, later] }), [{ ...traited, visibility: 'player' }, later]);
+  });
+
+  it('rpg-cm63.44 drops unknown trait values and junk instead of rejecting the proposal', () => {
+    const mixed = { ...STRANGER, voiceTraits: { gender: 'robot', age: 'old', manner: 'sleepy', volume: 11 } };
+    assert.deepEqual(proposalsOf({ proposals: [mixed] }), [
+      { ...STRANGER, voiceTraits: { age: 'old' }, visibility: 'player' },
+    ]);
+    for (const junk of ['female', 7, [], { gender: 'robot' }])
+      assert.deepEqual(proposalsOf({ proposals: [{ ...STRANGER, voiceTraits: junk }] }), [
+        { ...STRANGER, visibility: 'player' },
+      ]);
+  });
+
   it('ignores an absent or empty proposal list', () => {
     assert.equal(proposalsOf({}), undefined);
     assert.equal(proposalsOf({ proposals: [] }), undefined);
@@ -180,6 +198,14 @@ describe('rpg-42a.43 GM proposals', () => {
     ['unknown pending kind', [{ ...DEBT, pendingKind: 'curse' }]],
     ['pending without entities', [{ ...DEBT, entityIds: [] }]],
     ['too many proposals', Array.from({ length: MAX_PROPOSALS + 1 }, (_, index) => ({ ...STRANGER, id: `n${index}` }))],
+    [
+      'traits proposal without usable traits',
+      [{ kind: 'voice-traits', id: 'v', entityId: 'stranger', voiceTraits: {} }],
+    ],
+    [
+      'traits proposal with a bad entity id',
+      [{ kind: 'voice-traits', id: 'v', entityId: 'Bad Id', voiceTraits: { gender: 'male' } }],
+    ],
     ['one bad proposal among good ones', [STRANGER, { ...DEBT, text: '' }]],
   ];
   for (const [name, proposals] of invalid)
@@ -207,6 +233,23 @@ describe('rpg-42a.43 GM proposals', () => {
     assert.ok(snapshot.ok);
     assert.equal(snapshot.value.turns.at(-1)?.narration, NARRATION);
     assert.equal(state.turns.length, snapshot.value.turns.length + 2);
+  });
+
+  it('rpg-cm63.44 stores voice traits in the npc entity data, for new and existing npcs', async (t) => {
+    const voiceTraits = { gender: 'female', age: 'old', manner: 'warm' };
+    const { entities } = await narratedWith(t, [
+      { ...STRANGER, voiceTraits },
+      { ...STRANGER, id: 'innkeeper', name: 'Marta', facts: ['Keeps the inn.'] },
+      { kind: 'voice-traits', id: 'marta-voice', entityId: 'innkeeper', voiceTraits: { gender: 'male' } },
+      { kind: 'voice-traits', id: 'ghost-voice', entityId: 'ghost', voiceTraits: { gender: 'male' } },
+    ]);
+    assert.deepEqual(
+      entities.map(({ id, data }) => [id, data]),
+      [
+        ['stranger', { voiceTraits }],
+        ['innkeeper', { voiceTraits: { gender: 'male' } }],
+      ],
+    );
   });
 
   it('skips a pending item that links an unknown entity and keeps the narration', async (t) => {

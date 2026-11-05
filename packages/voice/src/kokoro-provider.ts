@@ -1,7 +1,8 @@
-import { clamp, finiteOr, shapeAudio, shapeSentences } from './delivery-shaping.ts';
+import { clamp, finiteOr, pitchRatio, shapeAudio, shapeSentences, shiftPitch } from './delivery-shaping.ts';
 import { MAX_RATE, MIN_RATE } from './prosody.ts';
 import type { SpeechChunk, TtsProvider } from './tts.ts';
 import type { CommittedUtterance, Delivery } from './voice.ts';
+import { mannerDelivery } from './voice-catalog.ts';
 
 export interface VoiceBlend {
   readonly first: string;
@@ -274,13 +275,15 @@ export const createKokoroProvider = ({
     async *synthesize(utterance, voiceId, signal): AsyncGenerator<SpeechChunk> {
       if (!supports(capabilities, utterance, voiceId)) return;
       const sentences = shapeSentences(utterance.text, utterance.delivery);
-      const speed = kokoroSpeed(utterance.delivery, utterance.profile.pace);
+      const manner = mannerDelivery(utterance.profile.manner);
+      const speed = kokoroSpeed(utterance.delivery, (utterance.profile.pace * manner.pace) / pitchRatio(manner.pitch));
       const blend = engine.blends
         ? usableBlend(capabilities, voiceId, voiceBlend?.(utterance.speakerId, voiceId))
         : undefined;
       for (const [sequence, { sentence, pauseMs }] of sentences.entries()) {
-        const audio = await synthesizeSentence(sentence, voiceId, signal, speed, blend);
-        if (!audio || signal.aborted) return;
+        const synthesized = await synthesizeSentence(sentence, voiceId, signal, speed, blend);
+        if (!synthesized || signal.aborted) return;
+        const audio = shiftPitch(synthesized, manner.pitch);
         yield {
           utteranceEventId: utterance.eventId,
           sequence,

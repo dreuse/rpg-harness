@@ -53,6 +53,7 @@ const NO_INTENSITY = 0;
 const SILENCE_RMS = 0.001;
 const MAX_GAIN = 8;
 const MS_PER_SECOND = 1000;
+const SEMITONES_PER_OCTAVE = 12;
 
 const PCM_FORMAT = 1;
 const FLOAT_FORMAT = 3;
@@ -235,4 +236,31 @@ const withSilence = (wav: Wav, pauseMs: number): Wav => {
 export const shapeAudio = (bytes: Uint8Array, pauseMs: number): Uint8Array => {
   const levelled = decodeWav(normaliseLoudness(bytes));
   return levelled ? encodeWav(pauseMs > 0 ? withSilence(levelled, pauseMs) : levelled) : bytes;
+};
+
+export const pitchRatio = (semitones: number): number =>
+  Number.isFinite(semitones)
+    ? 2 ** (clamp(semitones, -SEMITONES_PER_OCTAVE, SEMITONES_PER_OCTAVE) / SEMITONES_PER_OCTAVE)
+    : NEUTRAL;
+
+const resampled = ({ samples, channels }: Wav, ratio: number): Float32Array => {
+  const frames = Math.floor(samples.length / channels);
+  const shifted = new Float32Array(Math.floor(frames / ratio) * channels);
+  for (let frame = 0; frame * channels < shifted.length; frame += 1) {
+    const position = frame * ratio;
+    const before = Math.floor(position);
+    const after = Math.min(before + 1, frames - 1);
+    for (let channel = 0; channel < channels; channel += 1) {
+      const from = samples[before * channels + channel] ?? 0;
+      const to = samples[after * channels + channel] ?? 0;
+      shifted[frame * channels + channel] = from + (to - from) * (position - before);
+    }
+  }
+  return shifted;
+};
+
+export const shiftPitch = (bytes: Uint8Array, semitones: number): Uint8Array => {
+  const ratio = pitchRatio(semitones);
+  const wav = ratio === NEUTRAL ? undefined : decodeWav(bytes);
+  return wav ? encodeWav({ ...wav, samples: resampled(wav, ratio) }) : bytes;
 };

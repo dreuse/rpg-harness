@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { KOKORO_CAPABILITIES, KOKORO_PROVIDER_ID } from './kokoro-provider.ts';
+import { KOKORO_CAPABILITIES, KOKORO_PROVIDER_ID, MLX_KOKORO_CAPABILITIES } from './kokoro-provider.ts';
 import { narratorFallback } from './language-voices.ts';
-import { createNpcVoices, type InstalledVoice, installedVoices, pickVoice } from './npc-voice.ts';
+import { createNpcVoices, type InstalledVoice, installedVoices, pickVoice, type VoiceHint } from './npc-voice.ts';
 import type { TtsProvider } from './tts.ts';
 import type { VoiceProfile } from './voice.ts';
+import { VOICE_CATALOG } from './voice-catalog.ts';
 
 const CAMPAIGN = 'camp-1';
 const OTHER_CAMPAIGN = 'camp-2';
@@ -37,7 +38,7 @@ interface Harness {
   readonly npcVoices: ReturnType<typeof createNpcVoices>;
 }
 
-const harness = (store = new Map<string, VoiceProfile>(), hints: Record<string, { gender?: string }> = {}): Harness => {
+const harness = (store = new Map<string, VoiceProfile>(), hints: Record<string, VoiceHint> = {}): Harness => {
   const state: Harness = {
     notices: [],
     store,
@@ -56,6 +57,7 @@ const harness = (store = new Map<string, VoiceProfile>(), hints: Record<string, 
       store.set(id, profile);
     },
     hintOf: (id) => hints[id],
+    takenBy: (id) => [...store].filter(([other]) => other !== id).flatMap(([, { fallbacks }]) => fallbacks.slice(0, 1)),
     notify: (message) => state.notices.push(message),
   });
   return Object.assign(state, { npcVoices });
@@ -212,4 +214,124 @@ test('the player is told once per speaker per session', () => {
 test('narrator defaults resolve per language', () => {
   assert.equal(narratorFallback('en')?.voiceId, 'af_heart');
   assert.equal(narratorFallback('pt-BR')?.voiceId, 'pf_dora');
+});
+
+const PORTUGUESE_VOICES = MLX_KOKORO_CAPABILITIES.voices.map(voice);
+const NPC_IDS = Array.from({ length: 24 }, (_, index) => `npc-${index}`);
+
+test('rpg-cm63.44 a female or male trait never gets a voice of the other gender', () => {
+  for (const voices of [ENGLISH_VOICES, PORTUGUESE_VOICES])
+    for (const [gender, marker] of [
+      [FEMALE, 'f'],
+      [MALE, 'm'],
+    ] as const)
+      for (const entityId of NPC_IDS)
+        for (const [age, manner] of [
+          ['old', 'gruff'],
+          ['young', 'cheerful'],
+          [undefined, undefined],
+        ] as const)
+          assert.equal(
+            pickVoice({ campaignId: CAMPAIGN, entityId, voices, hint: { gender, age, manner } })?.voiceId.charAt(1),
+            marker,
+          );
+});
+
+test('rpg-cm63.44 a neutral gender does not limit the pick', () => {
+  const picked = new Set(
+    NPC_IDS.map((entityId) =>
+      pickVoice({
+        campaignId: CAMPAIGN,
+        entityId,
+        voices: ENGLISH_VOICES,
+        hint: { gender: 'neutral' },
+      })?.voiceId.charAt(1),
+    ),
+  );
+  assert.deepEqual([...picked].sort(), ['f', 'm']);
+});
+
+test('rpg-cm63.44 age and manner steer the pick to a matching voice', () => {
+  for (const entityId of NPC_IDS) {
+    const old = pickVoice({
+      campaignId: CAMPAIGN,
+      entityId,
+      voices: ENGLISH_VOICES,
+      hint: { gender: MALE, age: 'old' },
+    });
+    assert.ok(VOICE_CATALOG[old?.voiceId ?? '']?.ages.includes('old'));
+    const gruff = pickVoice({
+      campaignId: CAMPAIGN,
+      entityId,
+      voices: ENGLISH_VOICES,
+      hint: { gender: MALE, manner: 'gruff' },
+    });
+    assert.ok(VOICE_CATALOG[gruff?.voiceId ?? '']?.timbre.some((word) => word === 'deep' || word === 'rough'));
+  }
+});
+
+test('rpg-cm63.44 the pick is deterministic for the same campaign, entity and traits', () => {
+  const hint = { gender: FEMALE, age: 'young', manner: 'warm' };
+  const first = pickVoice({ campaignId: CAMPAIGN, entityId: NPC, voices: ENGLISH_VOICES, hint });
+  assert.deepEqual(
+    first,
+    pickVoice({ campaignId: CAMPAIGN, entityId: NPC, voices: [...ENGLISH_VOICES].reverse(), hint }),
+  );
+});
+
+test('rpg-cm63.44 a voice another npc in the scene uses is avoided while others exist', () => {
+  const hint = { gender: FEMALE, age: 'young', manner: 'warm' };
+  const taken: InstalledVoice[] = [];
+  for (const entityId of NPC_IDS.slice(0, 8)) {
+    const picked = pickVoice({ campaignId: CAMPAIGN, entityId, voices: ENGLISH_VOICES, hint, taken });
+    assert.ok(picked);
+    assert.equal(
+      taken.some(({ voiceId }) => voiceId === picked.voiceId),
+      false,
+    );
+    taken.push(picked);
+  }
+});
+
+test('rpg-cm63.44 gender still wins over avoiding a taken voice', () => {
+  const only = [voice('pf_dora'), voice('pm_alex')];
+  const picked = pickVoice({
+    campaignId: CAMPAIGN,
+    entityId: NPC,
+    voices: only,
+    hint: { gender: FEMALE },
+    taken: [voice('pf_dora')],
+  });
+  assert.equal(picked?.voiceId, 'pf_dora');
+});
+
+test('rpg-cm63.44 npcs created in turn get different voices and a known manner is stored', () => {
+  const store = new Map<string, VoiceProfile>();
+  const hints = Object.fromEntries(NPC_IDS.slice(0, 6).map((id) => [id, { gender: FEMALE, manner: 'warm' }]));
+  const { npcVoices } = harness(store, hints);
+  const voices = NPC_IDS.slice(0, 6).map((id) => voiceOf(npcVoices.profileOf(id)));
+  assert.equal(new Set(voices).size, voices.length);
+  assert.equal(store.get(NPC_IDS[0] ?? '')?.manner, 'warm');
+});
+
+test('rpg-cm63.44 an unknown manner and an npc without traits keep the old behaviour', () => {
+  const { npcVoices, store } = harness(undefined, { [NPC]: { gender: FEMALE, manner: 'sleepy' } });
+  assert.equal(npcVoices.profileOf(NPC)?.manner, undefined);
+  const plain = harness();
+  const hashed = pickVoice({ campaignId: CAMPAIGN, entityId: NPC, voices: ENGLISH_VOICES });
+  assert.equal(voiceOf(plain.npcVoices.profileOf(NPC)), hashed?.voiceId);
+  assert.ok(store.has(NPC));
+});
+
+test('rpg-cm63.44 two portuguese men get different voices and the woman gets the woman voice', () => {
+  const store = new Map<string, VoiceProfile>();
+  const hints = { a: { gender: MALE }, b: { gender: MALE }, c: { gender: FEMALE } };
+  const portuguese = harness(store, hints);
+  const { npcVoices } = portuguese;
+  portuguese.installed = PORTUGUESE_VOICES;
+  npcVoices.profileOf('a');
+  npcVoices.profileOf('b');
+  npcVoices.profileOf('c');
+  assert.notEqual(voiceOf(store.get('a')), voiceOf(store.get('b')));
+  assert.match(voiceOf(store.get('c')) ?? '', /^pf_/);
 });

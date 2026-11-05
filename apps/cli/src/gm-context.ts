@@ -11,6 +11,7 @@ import type {
 import { CHECK_SKIPPED, OPENING_ACTION_ID } from '../../../packages/domain/src/campaign.ts';
 import type { CampaignEntity } from '../../../packages/domain/src/entity.ts';
 import type { GmSettings } from '../../../packages/domain/src/gm.ts';
+import { toVoiceTraits, VOICE_TRAITS_FIELD } from '../../../packages/domain/src/voice.ts';
 import { playTurns } from '../../../packages/engine/src/character.ts';
 import { campaignLanguageOf } from '../../../packages/engine/src/engine.ts';
 import {
@@ -63,6 +64,7 @@ import {
   RULES_STRICTNESS_PROMPTS,
   repetitionRetryPrompt,
   SYSTEM_PROMPT,
+  voiceTraitsPrompt,
 } from './gm-api.ts';
 import { budgetOf } from './gm-limits.ts';
 import { COMPARED_NARRATIONS, closingSentencesOf } from './gm-repetition.ts';
@@ -107,6 +109,7 @@ const entityLine = ({ name, kind }: CampaignEntity) => `${name} (${kind})`;
 
 const NPC_KIND = 'npc';
 const ROLE_LAYER = 'canon';
+const MAX_TRAIT_REQUESTS = 5;
 
 const npcLine = ({ id, name }: CampaignEntity, roles: readonly string[]) =>
   `${name} (${NPC_KIND}, ${id})${roles.length === NONE ? '' : `: ${roles.join('; ')}`}`;
@@ -218,6 +221,13 @@ export const contextPacketOf = (
   const eventScopes = [...known].map(([id, scope]) => ({ id, ...scope }));
   const { inventory, quests } = panelsOf({ state, eventScopes, ...world }, viewer);
   const budget = budgetOf(preset, ratio);
+  const untraited = entities
+    .filter(
+      ({ id, kind, data }) =>
+        kind === NPC_KIND && present.has(id) && toVoiceTraits(data[VOICE_TRAITS_FIELD]) === undefined,
+    )
+    .slice(NONE, MAX_TRAIT_REQUESTS)
+    .map(({ id }) => id);
   return buildContextPacket(
     {
       instructions: [
@@ -229,6 +239,7 @@ export const contextPacketOf = (
         ...committed.events
           .filter(({ type }) => type === CHECK_SKIPPED)
           .map(({ payload }) => noCheckPrompt(String(payload.reason))),
+        ...(untraited.length === NONE ? [] : [voiceTraitsPrompt(untraited)]),
         ...(retry ? [RULES_RETRY_PROMPT] : []),
         ...(repeated.length === NONE ? [] : [repetitionRetryPrompt(repeated)]),
       ],

@@ -9,6 +9,7 @@ import {
   SCENE_BREAK_PAUSE_MS,
   shapeAudio,
   shapeSentences,
+  shiftPitch,
   type Wav,
 } from './delivery-shaping.ts';
 import { KOKORO_DELIVERY_SPEED } from './kokoro-provider.ts';
@@ -171,4 +172,23 @@ test('shapeAudio appends exactly the requested silence as a valid WAV', () => {
   assert.equal(view.getUint32(4, true), bytes.byteLength - 8);
   assert.equal(view.getUint32(40, true), bytes.byteLength - HEADER_BYTES);
   assert.equal(shapeAudio(encodeWav(tone(QUIET)), 0).byteLength, encodeWav(tone(QUIET)).byteLength);
+});
+
+const OCTAVE = 12;
+
+test('rpg-cm63.44 shifting pitch up an octave halves the duration and zero changes nothing', () => {
+  const bytes = encodeWav(tone(LOUD));
+  assert.equal(shiftPitch(bytes, 0), bytes);
+  const shifted = decodeWav(shiftPitch(bytes, OCTAVE));
+  assert.ok(shifted);
+  assert.ok(Math.abs(shifted.samples.length - TONE_SAMPLES / 2) <= 1);
+  const lower = decodeWav(shiftPitch(bytes, -OCTAVE));
+  assert.ok(lower && Math.abs(lower.samples.length - TONE_SAMPLES * 2) <= 1);
+});
+
+test('rpg-cm63.44 shifting pitch leaves undecodable audio and non-finite shifts alone', () => {
+  const junk = new TextEncoder().encode('not audio');
+  assert.equal(shiftPitch(junk, 1), junk);
+  const bytes = encodeWav(tone(LOUD));
+  assert.equal(shiftPitch(bytes, Number.NaN), bytes);
 });

@@ -5,6 +5,7 @@ import { saveGmSettings } from '../../../packages/engine/src/gm-settings.ts';
 import { introduceEntity, openPending, saveContextBudget } from '../../../packages/engine/src/memory.ts';
 import { proposeClaims } from '../../../packages/engine/src/story-memory.ts';
 import { openScene, type PlayerAction, performAction } from '../../../packages/engine/src/turn.ts';
+import { setVoiceTraits } from '../../../packages/engine/src/voice-profile.ts';
 import { PENDING_HOP_LIMIT } from '../../../packages/memory/src/graph.ts';
 import { summariesOf } from '../../../packages/memory/src/history.ts';
 import {
@@ -26,6 +27,7 @@ import {
   RULES_STRICTNESS_PROMPTS,
   repetitionRetryPrompt,
   SYSTEM_PROMPT,
+  voiceTraitsPrompt,
 } from './gm-api.ts';
 import {
   CHAPTER_SCENE_COUNT,
@@ -516,5 +518,30 @@ it('rpg-42a.89 a packet carries the engine GM rolls under results and the GM rol
   assert.ok(packet.sections.find(({ name }) => name === 'instructions')?.items.includes(GM_ROLL_PROMPT));
   chooseStrictness(fixture.store, 'off', 'off');
   assert.ok(!instructionsOf(fixture, committed)?.includes(GM_ROLL_PROMPT));
+  fixture.connection.close();
+});
+
+const TRAIT_INPUT = 'I hail Captain Ilse';
+
+it('rpg-cm63.44 a present npc without voice traits makes the packet ask for them, until they are set', () => {
+  const fixture = campaign();
+  meetIlse(fixture);
+  const asked = instructionsOf(fixture, play(fixture.store, 'greet-ilse', TRAIT_INPUT));
+  assert.ok(asked?.includes(voiceTraitsPrompt([ILSE])));
+  setVoiceTraits(fixture.store, fixture.entities, {
+    ...actionFor(fixture.store, 'ilse-traits'),
+    speakerId: ILSE,
+    traits: { gender: 'female', age: 'adult', manner: 'calm' },
+  });
+  const answered = instructionsOf(fixture, play(fixture.store, 'greet-ilse-again', TRAIT_INPUT));
+  assert.ok(!answered?.some((line) => line.includes('voice traits')));
+  fixture.connection.close();
+});
+
+it('rpg-cm63.44 no voice-traits request without a present npc and the base prompt explains the traits', () => {
+  const fixture = campaign();
+  const quiet = instructionsOf(fixture, play(fixture.store, 'quiet'));
+  assert.ok(!quiet?.some((line) => line.includes('voice traits')));
+  assert.match(SYSTEM_PROMPT, /voiceTraits/);
   fixture.connection.close();
 });
