@@ -13,6 +13,7 @@ import {
   PROTOCOL_VERSION,
   toClientEvent,
 } from '../../../packages/client-protocol/src/protocol.ts';
+import { matchSlash } from '../../../packages/client-protocol/src/slash-commands.ts';
 import { toVisualizationEvent, type VisualizationEvent } from '../../../packages/client-protocol/src/visualization.ts';
 import { MAIN_BRANCH } from '../../../packages/domain/src/campaign.ts';
 import { createEngine } from '../../../packages/engine/src/engine.ts';
@@ -35,6 +36,7 @@ import {
   renderScreen,
   rollFrames,
   runTui,
+  type Terminal,
   type TuiData,
   type TuiState,
 } from './tui.ts';
@@ -335,6 +337,89 @@ test('UI06: control sequences in campaign text never reach the terminal', async 
   });
   const printed = output.join('');
   assert.ok(!printed.includes(ESCAPE) && !printed.includes(BELL), JSON.stringify(printed));
+});
+
+test('rpg-42a.93: Tab completes slash command names and lists the matches', () => {
+  assert.equal(press([key('i'), ...typed('/ro'), TAB]).draft, '/roll ');
+  assert.equal(press([key('i'), ...typed('/rol'), TAB, ...typed('now')]).draft, '/roll now');
+  const listed = press([key('i'), ...typed('/'), TAB]);
+  assert.equal(listed.draft, '/');
+  assert.match(listed.notice ?? '', /\/gm \/roll \/edit \/language \/voice \/help/);
+  assert.equal(press([key('i'), ...typed('/l'), TAB]).draft, '/language ');
+  assert.equal(press([key('i'), ...typed('hello'), TAB]).draft, 'hello');
+  assert.equal(press([key('i'), ...typed('/zzz'), TAB]).notice, undefined);
+});
+
+const UNKNOWN_COMMAND = /Unknown\s+command|Comando\s+\S+\s+desconoc|Comando\s+\S+\s+desconhec/;
+
+const LISTED_LOCALES = ['en', 'es', 'pt-BR'];
+
+const runListedCommands = async (withAudio: boolean) => {
+  for (const locale of LISTED_LOCALES) {
+    const names = matchSlash(locale, 'tui', '/').map(({ name }) => name);
+    assert.ok(names.length > 0);
+    const { engine, campaignId, session } = engineSession();
+    const turns = engine.getState(campaignId).turns.length;
+    const output: string[] = [];
+    const audio: Terminal['audio'] = (_session, _campaignId, given) =>
+      createTuiAudio(
+        {
+          campaignId,
+          turn: 0,
+          pendingInput: [],
+          preferences: { microphone: 'off', spokenOutput: 'off', locale: 'en-US', speed: 1 },
+        },
+        ['en-US'],
+        () => undefined,
+        undefined,
+        given,
+      );
+    await runTui(
+      session,
+      campaignId,
+      {
+        capabilities: PLAIN_WIDE,
+        locale,
+        ...(withAudio ? { audio } : {}),
+        lines: each([...names, 'q']),
+        write: (text) => output.push(text),
+      },
+      undefined,
+      undefined,
+      withAudio ? { pause() {}, resume() {}, skip() {}, stop() {}, diagnostics: () => undefined } : undefined,
+    );
+    assert.doesNotMatch(output.join(''), UNKNOWN_COMMAND, locale);
+    assert.equal(engine.getState(campaignId).turns.length, turns, locale);
+  }
+};
+
+test('rpg-42a.93: every command the interactive TUI lists runs, in every locale', () => runListedCommands(true));
+
+test('rpg-42a.93: without --voice every listed command runs and /voice says voice is off', async () => {
+  await runListedCommands(false);
+  const { campaignId, session } = engineSession();
+  const output: string[] = [];
+  await runTui(session, campaignId, {
+    capabilities: PLAIN_WIDE,
+    locale: 'pt-BR',
+    lines: each(['/voz', 'q']),
+    write: (text) => output.push(text),
+  });
+  assert.match(output.join(''), /--voice/);
+});
+
+test('rpg-42a.93: an unknown slash command is not sent to the GM as story text', async () => {
+  const { engine, campaignId, session } = engineSession();
+  const turns = engine.getState(campaignId).turns.length;
+  const output: string[] = [];
+  await runTui(session, campaignId, {
+    capabilities: PLAIN,
+    lines: each(['/x marks the spot', '/zzz', 'q']),
+    write: (text) => output.push(text),
+  });
+  assert.equal(engine.getState(campaignId).turns.length, turns);
+  assert.match(output.join(''), /Unknown command \/x\.\s+It was not sent to\s+the GM/);
+  assert.match(output.join(''), /Unknown command\s+\/zzz\./);
 });
 
 test('UI06: the sheet and mechanics panes show what the session serves', async () => {
@@ -976,7 +1061,7 @@ test('rpg-cm63.21: a narration failure ends the run with its error', { timeout: 
   assert.equal(narrations, 1);
 });
 
-test('rpg-cm63.21: an unknown slash input is queued and narrated like an action', {
+test('rpg-cm63.21: a second typed line is queued and narrated like an action', {
   timeout: NARRATION_TIMEOUT_MS,
 }, async () => {
   let release = () => {};
@@ -987,7 +1072,7 @@ test('rpg-cm63.21: an unknown slash input is queued and narrated like an action'
   let narrated = 0;
   const seen: string[][] = [];
   const submitted = await typedAhead(
-    ['first', '/look around'],
+    ['first', 'look around'],
     () => {
       narrated += 1;
       return narrations.shift() ?? Promise.resolve();
@@ -999,7 +1084,7 @@ test('rpg-cm63.21: an unknown slash input is queued and narrated like an action'
   );
   assert.deepEqual(seen, [['first']]);
   assert.equal(narrated, 2);
-  assert.deepEqual(submitted, ['first', '/look around']);
+  assert.deepEqual(submitted, ['first', 'look around']);
 });
 
 const ROLL_OFFER = {

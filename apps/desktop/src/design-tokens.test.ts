@@ -170,8 +170,10 @@ test('rpg-42a.18 the action form has a labelled input and a Send button that Ent
   assert.match(page, /<label for="action-input">[^<]+<\/label>/);
   assert.match(
     page,
-    /<input id="action-input" name="action" autocomplete="off" enterkeyhint="send" placeholder="[^"]+">/,
+    /<input id="action-input" name="action" autocomplete="off" enterkeyhint="send" placeholder="[^"]+" role="combobox" aria-autocomplete="list" aria-haspopup="listbox" aria-expanded="false" aria-controls="slash-menu">/,
   );
+  assert.match(page, /<div id="slash-menu" role="listbox" aria-label="[^"]+" hidden><\/div>/);
+  assert.match(page, /<p id="slash-status" role="status" aria-live="polite" data-visually-hidden><\/p>/);
   assert.match(page, /<button type="submit" aria-keyshortcuts="Enter">Send<\/button>/);
   assert.doesNotMatch(page, />Act</);
 });

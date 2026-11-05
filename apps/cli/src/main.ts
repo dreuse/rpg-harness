@@ -1,4 +1,5 @@
 import { parseArgs } from 'node:util';
+import { resolveSlash, SLASH_PREFIX, type SlashClient } from '../../../packages/client-protocol/src/slash-commands.ts';
 import { CLIENTS } from '../../../packages/intent/src/intent.ts';
 import type { Ask } from './character-creation.ts';
 import type { GmSettingsChanges } from './engine-gateway.ts';
@@ -204,7 +205,8 @@ const withAsk = async function* (io: Io, create: (ask: Ask) => AsyncIterable<str
   }
 };
 
-const CONTROL_PREFIX = '/';
+const CONTROL_PREFIX = SLASH_PREFIX;
+const SLASH_CLIENT: SlashClient = 'line';
 const QUIT_CONTROL = '/quit';
 const HELP_CONTROL = '/help';
 const HISTORY_CONTROL = '/history';
@@ -221,7 +223,8 @@ const sessionHelp = (views: readonly ViewName[], locale: string) =>
 const withControls = async function* (io: Io, show?: (view: ViewName) => string): AsyncGenerator<string> {
   const history: string[] = [];
   for await (const line of io.lines) {
-    const text = line.trim();
+    const slash = resolveSlash(localeOf(io), SLASH_CLIENT, line);
+    const text = slash.kind === 'command' && slash.args === '' ? `${CONTROL_PREFIX}${slash.id}` : line.trim();
     const control = text.slice(CONTROL_PREFIX.length);
     if (!text.startsWith(CONTROL_PREFIX)) {
       if (text !== '') history.push(text);

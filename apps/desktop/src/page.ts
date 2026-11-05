@@ -1,5 +1,13 @@
 import type { StartVoices } from '../../../packages/client-protocol/src/guided-start.ts';
 import type { CampaignSnapshot } from '../../../packages/client-protocol/src/protocol.ts';
+import {
+  matchSlash,
+  resolveSlash,
+  SLASH_PREFIX,
+  type SlashClient,
+  type SlashOption,
+  slashText,
+} from '../../../packages/client-protocol/src/slash-commands.ts';
 import { MOTION_SETTINGS } from '../../../packages/client-protocol/src/visualization.ts';
 import { DUCK_RELEASE_MS } from '../../../packages/voice/src/ducking-sink.ts';
 import { voiceLocaleFor } from '../../../packages/voice/src/language-voices.ts';
@@ -45,6 +53,8 @@ import {
   SHEET_ACTION,
   SHEET_FORM,
   SHEET_INPUT,
+  SLASH_OPTION_ATTRIBUTE,
+  SLASH_OPTION_ID,
   SOUND_FIELD_TOGGLE,
   SOUND_FIELD_VOLUME,
   SOUND_SETUP,
@@ -60,6 +70,7 @@ import {
   START_VOICE,
   STORY_LANGUAGE_ATTRIBUTE,
   type StartControl,
+  slashMenuHtml,
   VOICE_ATTRIBUTE,
   VOICE_CLEAR,
   VOICE_FIELD,
@@ -95,8 +106,25 @@ export const ROOT_ID = 'app';
 export const FORM_ID = 'action-form';
 export const INPUT_ID = 'action-input';
 export const OOC_TOGGLE_ID = 'ooc-toggle';
+export const SLASH_MENU_ID = 'slash-menu';
+export const SLASH_STATUS_ID = 'slash-status';
+export const SLASH_HINT_ID = 'slash-hint';
 
+const SLASH_CLIENT: SlashClient = 'desktop';
+const NO_OPTION = -1;
+const ARIA_EXPANDED = 'aria-expanded';
+const ARIA_ACTIVE = 'aria-activedescendant';
+const OPTION_STEP = 1;
+const OPTION_SELECTOR = `[${SLASH_OPTION_ATTRIBUTE}]`;
+const KEY_DOWN = 'ArrowDown';
+const KEY_UP = 'ArrowUp';
+const KEY_TAB = 'Tab';
+const KEY_ENTER = 'Enter';
+const KEY_ESCAPE = 'Escape';
 const CLICK = 'click';
+const MOUSEDOWN = 'mousedown';
+const BLUR = 'blur';
+const KEYDOWN = 'keydown';
 const TOGGLE = 'toggle';
 const SUBMIT = 'submit';
 const RESIZE = 'resize';
@@ -180,7 +208,11 @@ type ClickTarget = { closest(selector: string): { getAttribute(name: string): st
 export type PageElements = {
   readonly root: Pick<HTMLElement, 'innerHTML' | 'style' | 'addEventListener' | 'querySelector'>;
   readonly form: Pick<HTMLFormElement, 'addEventListener' | 'requestSubmit'>;
-  readonly input: Pick<HTMLInputElement, 'value'> & Partial<Pick<HTMLInputElement, 'placeholder'>>;
+  readonly input: Pick<HTMLInputElement, 'value'> &
+    Partial<Pick<HTMLInputElement, 'placeholder' | 'addEventListener' | 'setAttribute' | 'removeAttribute'>>;
+  readonly slashMenu?: Pick<HTMLElement, 'innerHTML' | 'hidden' | 'addEventListener'>;
+  readonly slashStatus?: Pick<HTMLElement, 'textContent'>;
+  readonly slashHint?: Pick<HTMLElement, 'textContent'>;
   readonly oocToggle?: Pick<HTMLButtonElement, 'addEventListener' | 'setAttribute' | 'textContent'>;
   readonly keys: KeyTarget;
 };
@@ -231,7 +263,7 @@ const assignmentsOf = (speech: SpeechPreferences, campaignId: string | undefined
       );
 
 export const mountPage = ({
-  elements: { root, form, input, oocToggle, keys },
+  elements: { root, form, input, oocToggle, keys, slashMenu, slashStatus, slashHint },
   bridge,
   search,
   width,
@@ -786,6 +818,71 @@ export const mountPage = ({
     event.preventDefault();
     client.startAction({ kind: 'enter', text: entryValue() ?? '' });
   });
+  let slashOptions: readonly SlashOption[] = [];
+  let slashActive = NO_OPTION;
+  const paintSlash = (typed = '') => {
+    const open = slashOptions.length > 0;
+    const { locale } = preferences;
+    if (slashMenu !== undefined) {
+      slashMenu.innerHTML = open ? slashMenuHtml(slashOptions, slashActive) : '';
+      slashMenu.hidden = !open;
+    }
+    input.setAttribute?.(ARIA_EXPANDED, String(open));
+    const active = slashOptions[slashActive];
+    if (active === undefined) input.removeAttribute?.(ARIA_ACTIVE);
+    else input.setAttribute?.(ARIA_ACTIVE, `${SLASH_OPTION_ID}${active.id}`);
+    if (slashStatus === undefined) return;
+    if (open) slashStatus.textContent = slashText(locale, 'slash.options', { count: slashOptions.length });
+    else slashStatus.textContent = typed.startsWith(SLASH_PREFIX) ? slashText(locale, 'slash.none') : '';
+  };
+  const closeSlash = () => {
+    slashOptions = [];
+    slashActive = NO_OPTION;
+    paintSlash();
+  };
+  const refreshSlash = () => {
+    if (slashHint !== undefined) slashHint.textContent = '';
+    slashOptions = client.state().ooc.active ? [] : matchSlash(preferences.locale, SLASH_CLIENT, input.value);
+    slashActive = slashOptions.length > 0 ? 0 : NO_OPTION;
+    paintSlash(input.value);
+  };
+  const completeSlash = (option: SlashOption | undefined) => {
+    if (option === undefined) return;
+    input.value = `${option.name} `;
+    closeSlash();
+  };
+  const chooseSlash = (option: SlashOption | undefined) => {
+    completeSlash(option);
+    if (option?.args === '') form.requestSubmit();
+  };
+  const moveSlash = (step: number) => {
+    slashActive = (slashActive + step + slashOptions.length) % slashOptions.length;
+    paintSlash();
+  };
+  const SLASH_KEYS: Readonly<Record<string, () => void>> = {
+    [KEY_DOWN]: () => moveSlash(OPTION_STEP),
+    [KEY_UP]: () => moveSlash(-OPTION_STEP),
+    [KEY_TAB]: () => completeSlash(slashOptions[slashActive]),
+    [KEY_ENTER]: () => chooseSlash(slashOptions[slashActive]),
+    [KEY_ESCAPE]: closeSlash,
+  };
+  if (input.addEventListener !== undefined && slashMenu !== undefined) {
+    input.addEventListener(INPUT, refreshSlash);
+    input.addEventListener(BLUR, closeSlash);
+    input.addEventListener(KEYDOWN, (event) => {
+      const handle = slashOptions.length === 0 ? undefined : SLASH_KEYS[event.key];
+      if (handle === undefined) return;
+      event.preventDefault();
+      event.stopPropagation();
+      handle();
+    });
+    slashMenu.addEventListener(MOUSEDOWN, (event) => event.preventDefault());
+    slashMenu.addEventListener(CLICK, (event) => {
+      const id = closestTarget(event)?.closest(OPTION_SELECTOR)?.getAttribute(SLASH_OPTION_ATTRIBUTE);
+      const option = slashOptions.find((candidate) => candidate.id === id);
+      chooseSlash(option);
+    });
+  }
   form.addEventListener(SUBMIT, (event) => {
     event.preventDefault();
     if (input.value.trim() === '') return;
@@ -793,7 +890,15 @@ export const mountPage = ({
       if (client.submit(input.value).ok) input.value = '';
       return render();
     }
-    voice.say(input.value).then((route) => {
+    const slash = resolveSlash(preferences.locale, SLASH_CLIENT, input.value);
+    if (slash.kind === 'unknown') {
+      if (slashHint !== undefined)
+        slashHint.textContent = slashText(preferences.locale, 'slash.unknown', { name: slash.name });
+      return closeSlash();
+    }
+    closeSlash();
+    const typed = slash.kind === 'command' ? `${SLASH_PREFIX}${slash.id} ${slash.args}`.trim() : input.value;
+    voice.say(typed).then((route) => {
       if (route.kind !== 'action' || route.result.ok) input.value = '';
       render();
     });
@@ -821,6 +926,7 @@ const localizeDocument = (locale: string) => {
   if (label !== null) label.textContent = translate(locale, 'action.label');
   if (send !== null) send.textContent = translate(locale, 'action.send');
   if (input !== null) input.placeholder = translate(locale, 'action.placeholder');
+  document.getElementById(SLASH_MENU_ID)?.setAttribute('aria-label', slashText(locale, 'slash.list'));
 };
 
 const bridgeOf = (scope: object) => (scope as Record<string, PageOptions['bridge'] | undefined>)[BRIDGE_KEY];
@@ -835,6 +941,9 @@ const boot = () => {
       form: byId<HTMLFormElement>(FORM_ID),
       input: byId<HTMLInputElement>(INPUT_ID),
       oocToggle: byId<HTMLButtonElement>(OOC_TOGGLE_ID),
+      slashMenu: byId(SLASH_MENU_ID),
+      slashStatus: byId(SLASH_STATUS_ID),
+      slashHint: byId(SLASH_HINT_ID),
       keys: document,
     },
     bridge,

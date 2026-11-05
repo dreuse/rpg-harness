@@ -11,7 +11,10 @@
     <div id="app"></div>
     <form id="action-form">
       <label for="action-input">Your action</label>
-      <input id="action-input" name="action" autocomplete="off" enterkeyhint="send" placeholder="What do you do?">
+      <input id="action-input" name="action" autocomplete="off" enterkeyhint="send" placeholder="What do you do?" role="combobox" aria-autocomplete="list" aria-haspopup="listbox" aria-expanded="false" aria-controls="slash-menu">
+      <div id="slash-menu" role="listbox" aria-label="Commands" hidden></div>
+      <p id="slash-hint" role="alert"></p>
+      <p id="slash-status" role="status" aria-live="polite" data-visually-hidden></p>
       <button type="button" id="ooc-toggle" aria-pressed="false">Talk to the GM</button>
       <button type="submit" aria-keyshortcuts="Enter">Send</button>
     </form>

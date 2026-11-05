@@ -43,6 +43,7 @@ export const CLI_CATALOG: Catalog = {
     'tui.rollOfferPhysical':
       'Roll offered: {label}. Roll {expression} yourself and type the result, for example "I rolled 17".',
     'tui.noRoll': 'No roll is offered right now.',
+    'tui.voiceOff': 'Voice is off. Start the TUI with --voice to use it.',
     'noRoll.no-rulebook': 'No roll: this campaign has no rulebook. The GM decides the outcome.',
     'noRoll.dice-off': 'No roll: dice are off. The GM decides the outcome.',
     'noRoll.unsupported-rulebook': 'No roll: this rulebook has no built-in checks. The GM decides the outcome.',
@@ -237,6 +238,7 @@ export const CLI_CATALOG: Catalog = {
     'tui.rollOfferPhysical':
       'Rolagem oferecida: {label}. Role {expression} você mesmo e digite o resultado, por exemplo "tirei 17".',
     'tui.noRoll': 'Nenhuma rolagem é oferecida agora.',
+    'tui.voiceOff': 'A voz está desligada. Inicie o TUI com --voice para usá-la.',
     'noRoll.no-rulebook': 'Sem rolagem: esta campanha não tem livro de regras. O mestre decide o resultado.',
     'noRoll.dice-off': 'Sem rolagem: os dados estão desligados. O mestre decide o resultado.',
     'noRoll.unsupported-rulebook':

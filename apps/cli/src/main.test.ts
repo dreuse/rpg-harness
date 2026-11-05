@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { matchSlash, slashText } from '../../../packages/client-protocol/src/slash-commands.ts';
 import { type CampaignGateway, EXIT_FAILURE, EXIT_USAGE, main } from './main.ts';
 import type { Terminal } from './tui.ts';
 import { defaultTuiAudio } from './tui-audio.ts';
@@ -357,6 +358,27 @@ test('cli accepts freeform turns and supports keyboard-friendly history, help an
   assert.ok(text.includes('I sit.'));
   assert.ok(!text.includes('never seen'));
   assert.ok(!text.includes('/bogus'));
+});
+
+test('rpg-42a.93: session controls answer to their localized name and to the English name', async () => {
+  const { gateway, io, out, err } = setup(['/ajuda', '/historico', '/quit', 'never seen']);
+  assert.equal(await main(['play', 'Ember'], { ...io, locale: 'pt-BR' }, gateway), 0);
+  assert.match(out.join(''), /Controles:/);
+  assert.match(out.join(''), /Nenhuma entrada ainda\./);
+  assert.deepEqual(err, []);
+});
+
+test('rpg-42a.93: every command the line session lists runs, in every locale', async () => {
+  for (const locale of ['en', 'es', 'pt-BR']) {
+    const names = matchSlash(locale, 'line', '/').map(({ name }) => name);
+    const quit = `/${slashText(locale, 'slash.quit.name')}`;
+    const { calls, gateway, io, out, err } = setup([...names.filter((name) => name !== quit), quit, 'never seen']);
+    assert.equal(await main(['play', 'Ember'], { ...io, locale }, gateway), 0);
+    assert.deepEqual(err, [], locale);
+    assert.ok(names.includes(quit));
+    assert.ok(calls.includes('sheet:Ember') && calls.includes('encounter:Ember'), locale);
+    assert.ok(!out.join('').includes('never seen'));
+  }
 });
 
 test('gameplay does not require commands for normal actions', async () => {

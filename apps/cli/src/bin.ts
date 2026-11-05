@@ -3,6 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { on } from 'node:events';
 import { createInterface, emitKeypressEvents, type Key } from 'node:readline';
 import { localeOf } from '../../../packages/client-protocol/src/locale.ts';
+import { slashCompletion } from '../../../packages/client-protocol/src/slash-commands.ts';
 import { CLI_LOCALES } from './messages.ts';
 import { dataDirFromEnv, firstRunProblem } from './setup-check.ts';
 import { capabilitiesOf, motionOf } from './tui.ts';
@@ -10,6 +11,7 @@ import { capabilitiesOf, motionOf } from './tui.ts';
 const KEYPRESS = 'keypress';
 const EXIT_SETUP_FAILURE = 1;
 const UPDATE_COMMAND = 'update';
+const SLASH_CLIENT = 'line';
 
 const lines: AsyncIterable<string> = {
   [Symbol.asyncIterator]: () => {
@@ -18,6 +20,10 @@ const lines: AsyncIterable<string> = {
       input: process.stdin,
       output: isTerminal ? process.stdout : undefined,
       terminal: isTerminal,
+      completer: (line: string) => [
+        slashCompletion(localeOf(process.env, CLI_LOCALES), SLASH_CLIENT, line).matches,
+        line,
+      ],
     });
     const iterator = readline[Symbol.asyncIterator]();
     return {

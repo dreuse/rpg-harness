@@ -50,6 +50,7 @@ const fakePage = () => {
   const fields: Record<string, string> = {};
   const selections: Record<string, [number, number]> = {};
   let prevented = 0;
+  const inputAttributes: Record<string, string> = {};
   let onLine = (_line: string) => {};
   const bridge: PageOptions['bridge'] = {
     connect: () => {},
@@ -116,7 +117,19 @@ const fakePage = () => {
       querySelector: (selector: string) => (selector === FOCUSED ? active : node(selector)),
     },
     form: { addEventListener: on('form:'), requestSubmit: () => listeners.get('form:submit')?.(event({})) },
-    input: { value: '' },
+    input: {
+      value: '',
+      addEventListener: on('input:'),
+      setAttribute: (name: string, value: string) => {
+        inputAttributes[name] = value;
+      },
+      removeAttribute: (name: string) => {
+        delete inputAttributes[name];
+      },
+    },
+    slashMenu: { innerHTML: '', hidden: true, addEventListener: on('menu:') },
+    slashStatus: { textContent: '' },
+    slashHint: { textContent: '' },
     keys: { addEventListener: on('keys:') },
   };
   const event = (attributes: Record<string, string>, key?: string, keys: Partial<KeyEventLike> = {}) => ({
@@ -130,6 +143,20 @@ const fakePage = () => {
     elements: elements as unknown as PageElements,
     root: elements.root,
     input: elements.input,
+    menu: elements.slashMenu,
+    status: elements.slashStatus,
+    hint: elements.slashHint,
+    inputAttributes,
+    typeAction: (text: string) => {
+      elements.input.value = text;
+      listeners.get('input:input')?.(event({}));
+    },
+    keyInInput: (key: string) => {
+      const pressed = { ...event({}), key, stopPropagation: () => {} };
+      listeners.get('input:keydown')?.(pressed);
+      return pressed;
+    },
+    clickOption: (id: string) => listeners.get('menu:click')?.(event({ 'data-slash': id })),
     bridge,
     sent,
     style,
@@ -1438,6 +1465,112 @@ test('rpg-42a.74 page accepts the roll offer from its button', () => {
   const command = page.sent.findLast(({ type }) => type === 'SubmitPlayerAction');
   assert.ok(command && 'rollOfferId' in command);
   assert.equal(command.rollOfferId, 'tam-attack');
+});
+
+const startPlay = (
+  page: ReturnType<typeof fakePage>,
+  snapshot: object = SNAPSHOT,
+  saved: Partial<UiPreferences> = {},
+) => {
+  mount(page, saved);
+  page.receive(READY);
+  page.receive({ type: 'Campaigns', campaigns: [SNAPSHOT.campaign] });
+  continueHarbor(page);
+  page.receive({ type: 'Snapshot', snapshot });
+};
+
+const OFFER_SNAPSHOT = {
+  ...SNAPSHOT,
+  rollOffer: { offerId: 'tam-attack', ruleId: 'attack.melee', target: 'Old Tam', label: 'Attack' },
+};
+
+test('rpg-42a.93 typing a slash opens an ARIA listbox that filters as you type and announces the count', () => {
+  const page = fakePage();
+  startPlay(page);
+  page.typeAction('/');
+  assert.equal(page.inputAttributes['aria-expanded'], 'true');
+  assert.equal(page.inputAttributes['aria-activedescendant'], 'slash-option-gm');
+  assert.equal(page.menu.hidden, false);
+  assert.match(page.menu.innerHTML, /role="option" id="slash-option-gm" aria-selected="true"/);
+  assert.match(page.menu.innerHTML, /\/gm[\s\S]*&lt;message&gt;[\s\S]*Talk to the GM out of character\./);
+  assert.match(page.menu.innerHTML, /id="slash-option-roll" aria-selected="false"/);
+  assert.equal(page.status.textContent, '2 commands available');
+  page.typeAction('/ro');
+  assert.doesNotMatch(page.menu.innerHTML, /slash-option-gm/);
+  assert.equal(page.inputAttributes['aria-activedescendant'], 'slash-option-roll');
+  assert.equal(page.status.textContent, '1 command available');
+  page.typeAction('/zzz');
+  assert.equal(page.status.textContent, 'No matching command');
+  assert.equal(page.inputAttributes['aria-expanded'], 'false');
+  page.typeAction('look around');
+  assert.equal(page.menu.hidden, true);
+  assert.equal(page.status.textContent, '');
+  assert.equal(page.inputAttributes['aria-activedescendant'], undefined);
+});
+
+test('rpg-42a.93 Up and Down move the active option, Tab completes and Escape closes', () => {
+  const page = fakePage();
+  startPlay(page);
+  page.typeAction('/');
+  assert.equal(page.keyInInput('ArrowDown').key, 'ArrowDown');
+  assert.equal(page.inputAttributes['aria-activedescendant'], 'slash-option-roll');
+  page.keyInInput('ArrowDown');
+  assert.equal(page.inputAttributes['aria-activedescendant'], 'slash-option-gm');
+  page.keyInInput('ArrowUp');
+  assert.equal(page.inputAttributes['aria-activedescendant'], 'slash-option-roll');
+  page.keyInInput('Tab');
+  assert.equal(page.input.value, '/roll ');
+  assert.equal(page.menu.hidden, true);
+  page.typeAction('/');
+  page.keyInInput('Escape');
+  assert.equal(page.inputAttributes['aria-expanded'], 'false');
+  assert.equal(page.input.value, '/');
+  assert.equal(page.keyInInput('Escape').key, 'Escape');
+});
+
+test('rpg-42a.93 Enter or a click on an option runs a command without arguments and completes one with arguments', () => {
+  const page = fakePage();
+  startPlay(page, OFFER_SNAPSHOT);
+  page.typeAction('/ro');
+  page.keyInInput('Enter');
+  const roll = page.sent.findLast(({ type }) => type === 'SubmitPlayerAction');
+  assert.ok(roll && 'rollOfferId' in roll);
+  assert.equal(roll.rollOfferId, 'tam-attack');
+  page.typeAction('/');
+  page.keyInInput('Enter');
+  assert.equal(page.input.value, '/gm ');
+  assert.equal(page.sent.filter(({ type }) => type === 'SubmitOocMessage').length, 0);
+  page.typeAction('/');
+  page.clickOption('gm');
+  assert.equal(page.input.value, '/gm ');
+});
+
+test('rpg-42a.93 an unknown slash command shows a localized hint and is never sent to the GM', async () => {
+  const page = fakePage();
+  startPlay(page);
+  page.input.value = '/x marks the spot';
+  page.elements.form.requestSubmit();
+  await settle();
+  assert.match(page.hint.textContent, /Unknown command \/x\. It was not sent to the GM/);
+  assert.equal(page.input.value, '/x marks the spot');
+  assert.deepEqual(submitted(page), []);
+  assert.equal(page.sent.filter(({ type }) => type === 'SubmitOocMessage').length, 0);
+  page.typeAction('look');
+  assert.equal(page.hint.textContent, '');
+});
+
+test('rpg-42a.93 the localized command name works and the English name works in every locale', async () => {
+  const page = fakePage();
+  startPlay(page, OFFER_SNAPSHOT, { locale: 'pt-BR' });
+  page.typeAction('/');
+  assert.match(page.menu.innerHTML, /\/rolar/);
+  assert.equal(page.status.textContent, '2 comandos disponíveis');
+  for (const typed of ['/rolar', '/roll']) {
+    page.input.value = typed;
+    page.elements.form.requestSubmit();
+    await settle();
+  }
+  assert.equal(page.sent.filter((command) => 'rollOfferId' in command).length, 2);
 });
 
 test('rpg-42a.88 page lists the installed narrator voices on the begin step, previews one and keeps the pick', async () => {

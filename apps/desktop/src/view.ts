@@ -6,6 +6,7 @@ import {
 } from '../../../packages/client-protocol/src/gm-usage.ts';
 import { loadStartDraft, type StartScreen } from '../../../packages/client-protocol/src/guided-start.ts';
 import type { GmSnapshot } from '../../../packages/client-protocol/src/protocol.ts';
+import type { SlashOption } from '../../../packages/client-protocol/src/slash-commands.ts';
 import { MOTION_SETTINGS } from '../../../packages/client-protocol/src/visualization.ts';
 import type { GmSettings } from '../../../packages/domain/src/gm.ts';
 import { RULES_STRICTNESSES, type RulesStrictness } from '../../../packages/domain/src/rules-usage.ts';
@@ -84,6 +85,18 @@ const MODIFIERS = [
 ] as const;
 
 export const escapeHtml = (text: string) => text.replace(MARKUP, (character) => ENTITIES[character] ?? character);
+
+export const SLASH_OPTION_ID = 'slash-option-';
+export const SLASH_OPTION_ATTRIBUTE = 'data-slash';
+
+export const slashMenuHtml = (options: readonly SlashOption[], active: number) =>
+  options
+    .map(({ id, name, args, description }, index) => {
+      const safeId = escapeHtml(id);
+      const hint = args === '' ? '' : ` <span data-slash-args>${escapeHtml(args)}</span>`;
+      return `<div role="option" id="${SLASH_OPTION_ID}${safeId}" aria-selected="${index === active}" ${SLASH_OPTION_ATTRIBUTE}="${safeId}"><span data-slash-name>${escapeHtml(name)}</span>${hint} <span data-slash-description>${escapeHtml(description)}</span></div>`;
+    })
+    .join('');
 
 const CSS_UNSAFE = /^\d|[^\w-]/gu;
 const HEX = 16;

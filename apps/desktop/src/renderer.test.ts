@@ -1035,3 +1035,13 @@ test('rpg-42a.89: a roll tray entry names the NPC that rolled and escapes the la
   assert.match(hostile, /rolled by &lt;b&gt;Tam&lt;\/b&gt;/);
   assert.match(hostile, /<details data-roll-history>[\s\S]*rolled by Old Tam/);
 });
+
+test('rpg-42a.93: the client rejects an unknown slash command instead of sending it as story text', () => {
+  const { wire, client } = connectedClient();
+  const sentBefore = wire.sent.length;
+  const result = client.submit('/x marks the spot');
+  assert.equal(result.ok, false);
+  assert.equal(wire.sent.length, sentBefore);
+  assert.equal(client.submit('/sheet').ok, false);
+  assert.equal(client.submit('/gm hello there').ok, true);
+});

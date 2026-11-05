@@ -11,6 +11,13 @@ import {
   type ViewComponent,
   type ViewValue,
 } from '../../../packages/client-protocol/src/protocol.ts';
+import {
+  resolveSlash,
+  SLASH_PREFIX,
+  type SlashClient,
+  slashCompletion,
+  slashText,
+} from '../../../packages/client-protocol/src/slash-commands.ts';
 import { SHEET_VIEW } from '../../../packages/client-protocol/src/view-registry.ts';
 import {
   breakdownLines,
@@ -210,7 +217,23 @@ export const capabilitiesOf = (env: NodeJS.ProcessEnv, input: Stream, output: St
 export const motionOf = (env: NodeJS.ProcessEnv, { interactive, colors }: Capabilities) =>
   interactive && ANIMATED_COLORS.has(colors) && env.NO_COLOR === undefined;
 
-const typing = (state: TuiState, draft: string, key: Key): TuiState => {
+const SLASH_CLIENT: SlashClient = 'tui';
+const HELP_COMMAND = 'help';
+const USAGE_KEYS: Readonly<Record<string, string>> = {
+  edit: 'help.edit',
+  language: 'help.language',
+  voice: 'tui.voiceOff',
+};
+const SLASH_LIST_SEPARATOR = ' ';
+
+const completing = (state: TuiState, draft: string, locale: string): TuiState => {
+  const { text, matches } = slashCompletion(locale, SLASH_CLIENT, draft);
+  const listed = text === draft && matches.length > 1 ? matches.join(SLASH_LIST_SEPARATOR) : undefined;
+  return { ...state, draft: text, notice: listed };
+};
+
+const typing = (state: TuiState, draft: string, key: Key, locale: string): TuiState => {
+  if (key.name === TAB) return completing(state, draft, locale);
   if (key.name === RETURN) return { ...state, draft: undefined, submitted: draft.trim() || undefined };
   if (key.name === ESCAPE) return { ...state, draft: undefined };
   if (key.name === BACKSPACE) return { ...state, draft: [...draft].slice(0, -NEXT).join('') };
@@ -219,11 +242,11 @@ const typing = (state: TuiState, draft: string, key: Key): TuiState => {
 };
 
 export const nextStateIn =
-  (panes: readonly Pane[]) =>
+  (panes: readonly Pane[], locale = DEFAULT_LOCALE) =>
   (state: TuiState, key: Key): TuiState => {
     const ready = { ...state, submitted: undefined, notice: undefined };
     if (key.ctrl && key.name === INTERRUPT) return { ...ready, quit: true };
-    if (state.draft !== undefined) return typing(ready, state.draft, key);
+    if (state.draft !== undefined) return typing(ready, state.draft, key, locale);
     if (key.name === TAB) {
       const step = key.shift ? panes.length - NEXT : NEXT;
       return { ...ready, pane: (state.pane + step) % panes.length, help: false };
@@ -650,7 +673,7 @@ const interactive = async (
   await narration.guard(async () => {
     for await (const key of keys) {
       narration.raise();
-      state = nextStateIn(panesFor(data().snapshot.rules))(state, key);
+      state = nextStateIn(panesFor(data().snapshot.rules), localeOf(data()))(state, key);
       generation += 1;
       if (state.quit) return;
       const { submitted } = state;
@@ -733,20 +756,33 @@ export const runTui = async (
   const audio = terminal.audio?.(session, campaignId, playback);
   const data = () => read(session, campaignId, events, audio, terminal.locale ?? DEFAULT_LOCALE);
   const held: OocProposal[] = [];
-  const send: Act = (input) => {
+  const canonical = (typed: string) => {
+    const slash = resolveSlash(localeOf(data()), SLASH_CLIENT, typed);
+    return slash.kind === 'command' ? `${SLASH_PREFIX}${slash.id} ${slash.args}`.trim() : typed;
+  };
+  const send: Act = (typed) => {
+    const locale = localeOf(data());
+    const slash = resolveSlash(locale, SLASH_CLIENT, typed);
+    if (slash.kind === 'unknown') return slashText(locale, 'slash.unknown', { name: printable(slash.name) });
+    const input = canonical(typed);
     if (parseOocInput(input) !== undefined) return talkToGm(session, data, held, input);
     const [, language] = LANGUAGE_PATTERN.exec(input.trim()) ?? [];
     if (language !== undefined) return setLanguage(session, data(), language);
     if (ROLL_PATTERN.test(input.trim())) return roll(session, data());
     const [, name, text] = EDIT_PATTERN.exec(input) ?? [];
-    return name === undefined || text === undefined
-      ? submit(session, data(), input)
-      : editField(session, data(), name, text);
+    if (name !== undefined && text !== undefined) return editField(session, data(), name, text);
+    if (slash.kind === 'none') return submit(session, data(), input);
+    if (slash.id === HELP_COMMAND) return helpLines(data()).join(NEWLINE);
+    const usage = USAGE_KEYS[slash.id];
+    return usage === undefined
+      ? slashText(locale, 'slash.unknown', { name: `${SLASH_PREFIX}${slash.id}` })
+      : say(locale, usage);
   };
-  const act: Act = audio === undefined ? send : (input) => audio.input(input, send);
+  const act: Act = audio === undefined ? send : (input) => audio.input(canonical(input), send);
   const immediate: Immediate = (input) => {
-    const text = input.trim();
+    const text = canonical(input.trim());
     if (parseOocInput(text) !== undefined) return true;
+    if (resolveSlash(localeOf(data()), SLASH_CLIENT, text).kind === 'unknown') return true;
     if (playback === undefined || !text.startsWith(PLAYBACK_PREFIX)) return false;
     const command = text.slice(PLAYBACK_PREFIX.length);
     return (

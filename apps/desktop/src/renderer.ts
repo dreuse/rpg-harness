@@ -33,6 +33,7 @@ import {
   type ViewComponent,
   type ViewDescriptor,
 } from '../../../packages/client-protocol/src/protocol.ts';
+import { resolveSlash, type SlashClient, slashText } from '../../../packages/client-protocol/src/slash-commands.ts';
 import { parseViewDescriptor } from '../../../packages/client-protocol/src/view-registry.ts';
 import { VISUALIZATION_EVENT, type VisualizationEvent } from '../../../packages/client-protocol/src/visualization.ts';
 import { NARRATION, type Ready } from '../../../packages/client-protocol/src/wire.ts';
@@ -58,6 +59,7 @@ type ConversationTurn = {
   readonly noRoll?: NoCheckReason | undefined;
 };
 const ROLL_PATTERN = /^\/roll$/i;
+const DESKTOP_SLASH_CLIENT: SlashClient = 'desktop';
 const PLAIN_ROLL = 'roll';
 const SEGMENT_JOIN = ' ';
 const CAMPAIGNS = 'Campaigns';
@@ -910,6 +912,9 @@ export const createDesktopClient = ({
     },
     submit: (input: string): Result<SubmitPlayerAction | SubmitOocMessage> => {
       if (state.ooc.active || parseOocInput(input) !== undefined) return talkToGm(input);
+      const slash = resolveSlash(locale(), DESKTOP_SLASH_CLIENT, input);
+      if (slash.kind === 'unknown')
+        return failure('Rejected', slashText(locale(), 'slash.unknown', { name: slash.name }));
       return ROLL_PATTERN.test(input.trim()) ? rollNow() : submitAction(input);
     },
     toggleOoc: () => update({ ooc: { ...state.ooc, active: !state.ooc.active } }),
