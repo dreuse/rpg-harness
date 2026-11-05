@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { createVoiceDiagnostics } from './voice-diagnostics.ts';
+import { createVoiceDiagnostics, streamingMetricsSink } from './voice-diagnostics.ts';
 
 const CAMPAIGN_TEXT = 'The dragon Vyrnax guards the vault under Emberfall';
 
@@ -52,4 +52,29 @@ test('rpg-cm63.7 diagnostics never carry campaign text from samples or errors', 
     errors: { 'provider-error': 2 },
     stages: { synthesis: 80 },
   });
+});
+
+test('rpg-cm63.5 streaming metrics feed diagnostics: first audio, synthesis stage, peak queue depth', () => {
+  const diagnostics = createVoiceDiagnostics();
+  const sink = streamingMetricsSink(diagnostics);
+  sink({ kind: 'queue-depth', depth: 3 });
+  sink({ kind: 'queue-depth', depth: 1 });
+  sink({ kind: 'synthesis', ms: 80 });
+  sink({ kind: 'first-audio', ms: 250 });
+  assert.deepEqual(diagnostics.summary(), {
+    samples: 1,
+    firstAudioMs: 250,
+    cacheHitRate: 0,
+    errors: {},
+    stages: { synthesis: 80 },
+    peakQueueDepth: 3,
+  });
+  diagnostics.reset();
+  assert.equal(diagnostics.summary().peakQueueDepth, undefined);
+});
+
+test('rpg-cm63.5 streaming error metrics count as provider errors', () => {
+  const diagnostics = createVoiceDiagnostics();
+  streamingMetricsSink(diagnostics)({ kind: 'error' });
+  assert.deepEqual(diagnostics.summary().errors, { 'provider-error': 1 });
 });

@@ -9,6 +9,8 @@ export const DEFAULT_PLAYBACK_SPEED = 1;
 
 export interface PlaybackSink {
   play(chunk: SpeechChunk, speed: number, signal: AbortSignal): Promise<void>;
+  pause?(): void;
+  resume?(): void;
 }
 
 interface SubtitleFields {

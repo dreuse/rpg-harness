@@ -1,4 +1,5 @@
 import { type AudioFailure, classifyAudioFailure } from './fallback.ts';
+import type { SpeechMetrics } from './streaming-speech.ts';
 
 export const VOICE_STAGES = ['synthesis', 'transfer', 'decode'] as const;
 export type VoiceStage = (typeof VOICE_STAGES)[number];
@@ -15,11 +16,13 @@ export interface VoiceDiagnosticsSummary {
   readonly cacheHitRate: number;
   readonly errors: Partial<Record<AudioFailure, number>>;
   readonly stages: Partial<Record<VoiceStage, number>>;
+  readonly peakQueueDepth?: number;
 }
 
 export interface VoiceDiagnostics {
   record(sample: SpeechSample): void;
   fail(error: unknown): void;
+  observeQueueDepth(depth: number): void;
   summary(): VoiceDiagnosticsSummary;
   reset(): void;
 }
@@ -46,6 +49,7 @@ const stagesOf = (stages: unknown): Partial<Record<VoiceStage, number>> => {
 export const createVoiceDiagnostics = (): VoiceDiagnostics => {
   let samples: SpeechSample[] = [];
   let errors: Partial<Record<AudioFailure, number>> = {};
+  let peakQueueDepth: number | undefined;
   return {
     record: ({ firstAudioMs, cacheHit, stages }) => {
       if (!isDuration(firstAudioMs) || typeof cacheHit !== 'boolean') return;
@@ -54,6 +58,9 @@ export const createVoiceDiagnostics = (): VoiceDiagnostics => {
     fail: (error) => {
       const code = classifyAudioFailure(error);
       errors = { ...errors, [code]: (errors[code] ?? 0) + 1 };
+    },
+    observeQueueDepth: (depth) => {
+      if (isDuration(depth)) peakQueueDepth = Math.max(peakQueueDepth ?? depth, depth);
     },
     summary: () => {
       const firstAudioMs = median(samples.map((sample) => sample.firstAudioMs));
@@ -70,11 +77,33 @@ export const createVoiceDiagnostics = (): VoiceDiagnostics => {
           samples.length === 0 ? NO_RATE : samples.filter(({ cacheHit }) => cacheHit).length / samples.length,
         errors: { ...errors },
         stages: Object.fromEntries(stages),
+        ...(peakQueueDepth === undefined ? {} : { peakQueueDepth }),
       };
     },
     reset: () => {
       samples = [];
       errors = {};
+      peakQueueDepth = undefined;
     },
+  };
+};
+
+const NO_CACHE_HIT = false;
+const SYNTHESIS_FAILED = 'synthesis-failed';
+
+export const streamingMetricsSink = (diagnostics: VoiceDiagnostics): ((metrics: SpeechMetrics) => void) => {
+  let synthesisMs: number | undefined;
+  return (metrics) => {
+    if (metrics.kind === 'error') diagnostics.fail(new Error(SYNTHESIS_FAILED));
+    else if (metrics.kind === 'queue-depth') diagnostics.observeQueueDepth(metrics.depth);
+    else if (metrics.kind === 'synthesis') synthesisMs = metrics.ms;
+    else {
+      diagnostics.record({
+        firstAudioMs: metrics.ms,
+        cacheHit: NO_CACHE_HIT,
+        stages: synthesisMs === undefined ? {} : { synthesis: synthesisMs },
+      });
+      synthesisMs = undefined;
+    }
   };
 };

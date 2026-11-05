@@ -156,6 +156,8 @@ export const transcribeTurn = (options: TurnTranscriptionOptions): Promise<TurnT
 };
 
 export const reportSinkFailures = (sink: PlaybackSink, onEvent: (event: RecoveryEvent) => void): PlaybackSink => ({
+  ...(sink.pause && { pause: sink.pause.bind(sink) }),
+  ...(sink.resume && { resume: sink.resume.bind(sink) }),
   play: async (chunk, speed, signal) => {
     try {
       await sink.play(chunk, speed, signal);

@@ -6,6 +6,7 @@ import {
 } from '../../../packages/client-protocol/src/protocol.ts';
 import type { CampaignId } from '../../../packages/domain/src/campaign.ts';
 import { DEFAULT_PLAYBACK_SPEED } from '../../../packages/voice/src/playback.ts';
+import { applyPlaybackCommand, type PlaybackControl } from '../../../packages/voice/src/playback-controls.ts';
 import { DEFAULT_VOICE_SETTINGS } from '../../../packages/voice/src/voice.ts';
 import { routeVoiceInput, type VoiceSession } from '../../../packages/voice/src/voice-settings.ts';
 import type { TuiAudio } from './tui.ts';
@@ -21,6 +22,8 @@ const ALLOWED = 'Microphone allowed.';
 const DECLINED = 'Microphone stays off. Type to play.';
 const YES = /^\s*y(?:es)?\s*$/i;
 const LIST = ', ';
+const COMMAND_PREFIX = '/';
+const PLAYBACK = 'Playback: ';
 const NEWLINE = '\n';
 const FIRST_TURN = 0;
 const { microphone: MICROPHONE_OFF } = DEFAULT_VOICE_SETTINGS;
@@ -33,6 +36,7 @@ export const createTuiAudio = (
   supportedLocales: readonly string[],
   save: SaveVoice,
   grantedAt?: string,
+  playback?: PlaybackControl,
 ): TuiAudio => {
   let session = initial;
   let consentGrantedAt = grantedAt;
@@ -60,6 +64,9 @@ export const createTuiAudio = (
     },
     input: (text, act) => {
       if (pending !== undefined) return answer(text, pending);
+      const command = text.trim().slice(COMMAND_PREFIX.length);
+      if (playback !== undefined && text.trim().startsWith(COMMAND_PREFIX) && applyPlaybackCommand(playback, command))
+        return `${PLAYBACK}${command}`;
       const route = routeVoiceInput(session, { source: TYPED, text }, supportedLocales, act);
       if (route.kind === 'action') return route.result;
       if (route.kind === 'settings-rejected')

@@ -7,6 +7,7 @@ import type {
   TypedFallbackReason,
 } from '../../../packages/voice/src/microphone.ts';
 import { MAX_PLAYBACK_SPEED, MIN_PLAYBACK_SPEED } from '../../../packages/voice/src/playback.ts';
+import { applyPlaybackCommand, type PlaybackControl } from '../../../packages/voice/src/playback-controls.ts';
 import type { SttFallbackReason } from '../../../packages/voice/src/stt.ts';
 import type { SubtitleTranscript } from '../../../packages/voice/src/subtitles.ts';
 import {
@@ -38,6 +39,7 @@ export type DesktopVoiceOptions = {
   readonly openMicrophone: (settings: VoiceSettings) => Microphone;
   readonly submit: (input: string) => Result<SubmitPlayerAction>;
   readonly save: (settings: SavedVoiceSettings) => void;
+  readonly playback?: PlaybackControl;
 };
 
 const TYPED: RequestSource = 'typed';
@@ -225,7 +227,20 @@ export const createDesktopVoice = (options: DesktopVoiceOptions) => {
     asking: asking !== undefined,
   });
 
-  return { say, change, heard, view, load, start: listen, allow: () => answer(true), decline: () => answer(false) };
+  const playback = (command: unknown): boolean =>
+    options.playback !== undefined && applyPlaybackCommand(options.playback, command);
+
+  return {
+    say,
+    change,
+    playback,
+    heard,
+    view,
+    load,
+    start: listen,
+    allow: () => answer(true),
+    decline: () => answer(false),
+  };
 };
 
 export type DesktopVoiceView = ReturnType<ReturnType<typeof createDesktopVoice>['view']>;

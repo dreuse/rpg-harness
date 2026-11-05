@@ -101,3 +101,20 @@ test('A21: tui voice settings survive a restart through the engine', async (t: T
     second.close();
   }
 });
+
+test('rpg-cm63.5 tui binds pause, resume, skip and stop to the playback control', () => {
+  const calls: string[] = [];
+  const playback = {
+    pause: () => void calls.push('pause'),
+    resume: () => void calls.push('resume'),
+    skip: () => void calls.push('skip'),
+    stop: () => void calls.push('stop'),
+  };
+  const audio = createTuiAudio(session, SUPPORTED_LOCALES, saver().save, undefined, playback);
+  const { acted, act } = recorder();
+  for (const name of ['pause', 'resume', 'skip', 'stop'])
+    assert.equal(audio.input(`/${name}`, act), `Playback: ${name}`);
+  assert.deepEqual(calls, ['pause', 'resume', 'skip', 'stop']);
+  assert.deepEqual(acted, []);
+  assert.equal(audio.input('/dance', act), undefined);
+});

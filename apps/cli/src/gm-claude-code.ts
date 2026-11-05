@@ -51,7 +51,7 @@ const DATABASE_ENV = 'RPG_DATABASE_PATH';
 const TEMP_PREFIX = 'rpg-gm-';
 const MCP_CONFIG_FILE = 'mcp.json';
 const PRIVATE_FILE_MODE = 0o600;
-const MAX_OUTPUT_BYTES = 1_048_576;
+export const MAX_OUTPUT_BYTES = 1_048_576;
 const ABORT_ERROR = 'AbortError';
 const TOOL_SEPARATOR = ',';
 const NO_BUILT_IN_TOOLS = '';
@@ -114,7 +114,7 @@ const gameMcpConfig = (databasePath: string) => ({
   },
 });
 
-type Exit = { readonly code: number | null; readonly stdout: string };
+export type Exit = { readonly code: number | null; readonly stdout: string };
 
 const run = ({ bin, env, timeoutMs }: ClaudeCodeRoute, args: string[], input: string, cwd: string) =>
   new Promise<Exit>((resolve, reject) => {
@@ -153,7 +153,7 @@ const parsed = (stdout: string): unknown => {
   }
 };
 
-const replyOf = ({ code, stdout }: Exit, model: string | undefined): GmReply => {
+export const replyOf = ({ code, stdout }: Exit, model: string | undefined): GmReply => {
   if (code !== 0) throw new ProviderError(`Claude Code stopped with exit code ${code}.`);
   const body = parsed(stdout);
   if (!isRecord(body)) throw new ProviderError('Claude Code sent a malformed reply.');

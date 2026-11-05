@@ -310,3 +310,26 @@ test('rpg-cm63.7 mode, language and speed change mid-campaign without restart an
   await voice.say('I open the door');
   assert.deepEqual(submitted, ['I open the door']);
 });
+
+test('rpg-cm63.5 desktop forwards validated playback commands to the speech control', () => {
+  const calls: string[] = [];
+  const playback = {
+    pause: () => void calls.push('pause'),
+    resume: () => void calls.push('resume'),
+    skip: () => void calls.push('skip'),
+    stop: () => void calls.push('stop'),
+  };
+  const voice = createDesktopVoice({
+    session,
+    providerIds: CONSENT.providerIds,
+    save: () => {},
+    supportedLocales: SUPPORTED_LOCALES,
+    subtitles: { current: () => SUBTITLE },
+    openMicrophone: () => ({ start: async () => DENIED, stop: () => {} }),
+    submit: () => failure('Rejected', 'offline'),
+    playback,
+  });
+  for (const name of ['pause', 'resume', 'skip', 'stop']) assert.equal(voice.playback(name), true);
+  assert.equal(voice.playback('format-disk'), false);
+  assert.deepEqual(calls, ['pause', 'resume', 'skip', 'stop']);
+});
