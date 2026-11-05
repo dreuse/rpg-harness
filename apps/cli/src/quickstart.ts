@@ -20,8 +20,8 @@ import type { StoryKit } from '../../../packages/content/src/story.ts';
 import { type CampaignConfig, type ConfigIssue, generateCampaignConfig } from '../../../packages/intent/src/config.ts';
 import {
   type CampaignIntent,
+  type CampaignIntentInput,
   type CapabilityMode,
-  createCampaignIntent,
   type IntentIssue,
   type Provenance,
   parseCampaignIntent,
@@ -77,6 +77,8 @@ const PLAN_FIELDS = [
 const LIGHT_RULES = 'Light rules. The GM decides what happens from your story.';
 const LIST = new Intl.ListFormat('en', { type: 'conjunction' });
 
+type Choices = Readonly<Record<string, unknown>>;
+
 export class UnknownEdition extends Error {}
 
 const listed = (items: readonly string[]) => (items.length === 0 ? NONE : items.join(', '));
@@ -104,13 +106,20 @@ const canonicalGenre = (intent: CampaignIntent): CampaignIntent => {
   return match.ok ? { ...intent, genre: { value: match.genre.id, provenance: intent.genre.provenance } } : intent;
 };
 
-const intentFrom = (text: string): CampaignIntent => {
+const chosenIntent = (choices: Choices, derived: CampaignIntentInput = {}): CampaignIntent => {
+  const chosen = Object.entries(choices).map(([field, value]) => [field, { value, provenance: CHOSEN }]);
+  const parsed = parseCampaignIntent({ ...derived, ...Object.fromEntries(chosen) });
+  if (!parsed.ok) throw new Error(parsed.issues.map(issueLine).join('\n'));
+  return resolvedIntent(parsed.intent);
+};
+
+const intentFrom = (text: string, choices: Choices): CampaignIntent => {
   const proposed = proposeCampaignIntent(text);
   if (!proposed.ok) throw new Error(`Campaign intent must be at most ${MAX_INTENT_TEXT_LENGTH} characters.`);
   const { conflicts, input } = proposed.proposal;
   if (conflicts.length > 0)
     throw new Error(`Your intent gives conflicting choices for ${listed(conflicts.map(({ field }) => field))}.`);
-  return resolvedIntent(createCampaignIntent(input));
+  return chosenIntent(choices, input);
 };
 
 const resolvedIntent = (choices: CampaignIntent): CampaignIntent => {
@@ -128,15 +137,8 @@ const configFor = (intent: CampaignIntent): CampaignConfig => {
   return result.config;
 };
 
-export const planCampaign = (text?: string): CampaignConfig =>
-  configFor(text === undefined ? createCampaignIntent({}) : intentFrom(text));
-
-export const planCampaignFrom = (choices: Readonly<Record<string, unknown>>): CampaignConfig => {
-  const chosen = Object.entries(choices).map(([field, value]) => [field, { value, provenance: CHOSEN }]);
-  const parsed = parseCampaignIntent(Object.fromEntries(chosen));
-  if (!parsed.ok) throw new Error(parsed.issues.map(issueLine).join('\n'));
-  return configFor(resolvedIntent(parsed.intent));
-};
+export const planCampaign = (text?: string, choices: Choices = {}): CampaignConfig =>
+  configFor(text === undefined ? chosenIntent(choices) : intentFrom(text, choices));
 
 export type Opening = { title: string; narration: string };
 
@@ -226,8 +228,13 @@ export const startingCharacter = ({ rulepack, values: { character } }: CampaignC
   throw new Error(`Your character does not fit the rules: ${result.issues.map(({ message }) => message).join('; ')}.`);
 };
 
-export const planStart = ({ intent, choices }: PlanCampaign): CampaignPlan => {
-  const config = choices === undefined ? planCampaign(intent) : planCampaignFrom(choices);
+export const commandConfig = (
+  { intent, choices }: Pick<PlanCampaign, 'intent' | 'choices'>,
+  client?: string,
+): CampaignConfig => planCampaign(intent, client === undefined ? choices : { ...choices, client });
+
+export const planStart = (command: PlanCampaign, client?: string): CampaignPlan => {
+  const config = commandConfig(command, client);
   const character = startingCharacter(config);
   const entries: PlanEntry[] = PLAN_FIELDS.map((field) =>
     field === 'character'
@@ -247,9 +254,9 @@ export const failureOf = (error: unknown) =>
     error instanceof Error ? error.message : String(error),
   );
 
-export const planResult = (command: PlanCampaign): Result<CampaignPlan> => {
+export const planResult = (command: PlanCampaign, client?: string): Result<CampaignPlan> => {
   try {
-    return { ok: true, value: planStart(command) };
+    return { ok: true, value: planStart(command, client) };
   } catch (error) {
     return failureOf(error);
   }

@@ -58,12 +58,12 @@ import {
 import { importRules } from './import-gateway.ts';
 import type { CampaignGateway } from './main.ts';
 import {
+  commandConfig,
   creationRulesFor,
   describeConfig,
   type Opening,
   openingFor,
   planCampaign,
-  planCampaignFrom,
   startingCharacter,
 } from './quickstart.ts';
 import { checkFor } from './roll-visualization.ts';
@@ -592,8 +592,9 @@ export const deleteCampaign = (dataDir: string, name: string, confirm: string, a
   rmSync(path);
 };
 
-export const createCampaignFrom = (dataDir: string, { name, intent, choices }: CreateCampaign): CampaignSummary => {
-  const config = choices === undefined ? planCampaign(intent) : planCampaignFrom(choices);
+export const createCampaignFrom = (dataDir: string, command: CreateCampaign, client?: string): CampaignSummary => {
+  const { name } = command;
+  const config = commandConfig(command, client);
   const character = startingCharacter(config);
   createCampaign(dataDir, name, openingFor(config, DEFAULT_OPENING), config);
   try {

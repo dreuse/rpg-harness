@@ -80,12 +80,16 @@ const actionFor = (screen: StartScreen, text: string): StartAction | undefined =
 export const guidedStart = async function* (
   dataDir: string,
   lines: AsyncIterable<string>,
-  createCampaignFrom: (dataDir: string, command: CreateCampaign) => CampaignSummary,
+  createCampaignFrom: (dataDir: string, command: CreateCampaign, client?: string) => CampaignSummary,
 ): AsyncGenerator<string> {
   const options = startOptions();
   let draft = loadStartDraft(() => readFileSync(draftPath(dataDir), TEXT));
   const screenOf = () =>
-    startScreen(draft, options, stepOf(draft) === 'summary' ? planResult(planCommand(draft, TUI_CLIENT)) : undefined);
+    startScreen(
+      draft,
+      options,
+      stepOf(draft) === 'summary' ? planResult(planCommand(draft, TUI_CLIENT), TUI_CLIENT) : undefined,
+    );
   let screen = screenOf();
   yield render(screen);
   for await (const line of lines) {
@@ -101,7 +105,7 @@ export const guidedStart = async function* (
     }
     if (action.kind === 'start') {
       try {
-        const { name } = createCampaignFrom(dataDir, createCommand(draft, TUI_CLIENT));
+        const { name } = createCampaignFrom(dataDir, createCommand(draft, TUI_CLIENT), TUI_CLIENT);
         rmSync(draftPath(dataDir), { force: true });
         yield `Created campaign ${name}. Run rpg play ${JSON.stringify(name)} to begin.`;
         return;

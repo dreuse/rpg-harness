@@ -18,6 +18,7 @@ import {
   type Request,
   type RequestType,
 } from '../../../packages/client-protocol/src/wire.ts';
+import type { Client } from '../../../packages/intent/src/intent.ts';
 import {
   archiveCampaign,
   createCampaignFrom,
@@ -47,6 +48,7 @@ export const MAX_RESTARTS = 3;
 export const SHUTDOWN_TIMEOUT_MS = 2000;
 
 const EXIT_OK = 0;
+const DESKTOP_CLIENT: Client = 'desktop';
 const KILL = 'SIGKILL';
 const MEMORY_DATABASE = ':memory:';
 const SQLITE_PROBE = 'SELECT 1 AS ok';
@@ -148,7 +150,7 @@ const replyCampaigns = (id: number) => {
 const changeCampaign = (command: Lifecycle, served: string | undefined, serveCampaign: (name: string) => void) => {
   const dataDir = dataDirFromEnv();
   if (command.type === 'CreateCampaign') {
-    const created = createCampaignFrom(dataDir, command);
+    const created = createCampaignFrom(dataDir, command, DESKTOP_CLIENT);
     serveCampaign(command.name);
     return created;
   }
@@ -196,7 +198,8 @@ const replier = ({ name, campaign, problem }: Served, gm: GameMaster) => {
     if (!parsed.ok) return send({ id, type: 'Error', message: parsed.error.message });
     const command = parsed.value;
     if (command.type === 'ListCampaigns') return replyCampaigns(id);
-    if (command.type === 'PlanCampaign') return send({ id, type: 'Result', result: planResult(command) });
+    if (command.type === 'PlanCampaign')
+      return send({ id, type: 'Result', result: planResult(command, DESKTOP_CLIENT) });
     if (!('campaignId' in command)) return replyChange(id, command, name, serveCampaign);
     if (campaign === undefined) return send({ id, type: 'Error', message: problem });
     const { session, campaignId, narrate } = campaign;

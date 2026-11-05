@@ -46,6 +46,7 @@ import {
 import { createEngineGateway, FAKE_GM_REPLY, NO_KEY_NOTICE, readCampaignState } from './engine-gateway.ts';
 import { FAKE_ROUTE, GM_API_URL_ENV, GM_ROUTE_ENV } from './gm-api.ts';
 import { hermeticGmEnv } from './gm-test-env.ts';
+import { visualizationPreferenceOf } from './roll-visualization.ts';
 import { DATA_DIR_ENV } from './setup-check.ts';
 
 const SPIKE_DOC = new URL('../../../docs/product/ui07-desktop-packaging-spike.md', import.meta.url);
@@ -85,6 +86,7 @@ const UNINSTALLED_INTENT = 'D&D 1.9';
 const NARRATIVE_CHOICES = { ruleset: { id: 'narrative', edition: 'original' }, genre: 'fantasy' };
 const GUIDED_CAMPAIGN = 'Ashfall';
 const DESKTOP_CLIENT = 'desktop';
+const DICE_ANIMATION_INTENT = 'A fantasy story using the d20-lite rules with dice animation';
 const DESCRIBE_ACTIONS: readonly StartAction[] = [
   { kind: 'path', path: 'describe' },
   { kind: 'enter', text: FANTASY_INTENT },
@@ -625,6 +627,20 @@ describe('serve client-protocol commands over the desktop engine daemon', () => 
       const before = await snapshotOf(served, campaignId);
       acceptedValue<Accepted>(await served.command(actionCommand(before, ACTION)));
     }
+  });
+
+  it('rpg-42a.8: the describe path turns dice animation on from free text', async (t) => {
+    const dataDir = tempDataDir(t);
+    const daemon = supervise(t, { env: { ...baseEnv(), [DATA_DIR_ENV]: dataDir } });
+    const actions: readonly StartAction[] = [
+      { kind: 'path', path: 'describe' },
+      { kind: 'enter', text: DICE_ANIMATION_INTENT },
+    ];
+    const described = actions.reduce(nextDraft, { ...INITIAL_DRAFT, name: CAMPAIGN });
+    const plan = acceptedValue<CampaignPlan>(await daemon.command(planCommand(described, DESKTOP_CLIENT)));
+    assert.ok(plan.entries.some(({ field, value }) => field === 'diceVisualization' && value === 'on'));
+    acceptedValue(await daemon.command(createCommand(described, DESKTOP_CLIENT)));
+    assert.deepEqual(visualizationPreferenceOf(readCampaignState(dataDir, CAMPAIGN).events), { enabled: true });
   });
 
   it('rpg-42a.14: plans an uninstalled edition as unknown and never substitutes another', async (t) => {

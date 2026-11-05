@@ -185,6 +185,27 @@ test('N02 a negation earlier in the same clause negates the cue', () => {
   }
 });
 
+test('rpg-42a.8 dice visualization phrases turn diceVisualization on and negation turns it off', () => {
+  const probes: [string, Partial<Record<ProposedSetting['field'], unknown>>][] = [
+    ['with dice animations', { diceVisualization: true }],
+    ['animated dice please', { diceVisualization: true }],
+    ['dice visualisation', { diceVisualization: true }],
+    ['dice visualization', { diceVisualization: true }],
+    ['show the dice rolls', { diceVisualization: true }],
+    ['show dice rolls', { diceVisualization: true }],
+    ['visible dice', { diceVisualization: true }],
+    ['no dice animation', { diceVisualization: false }],
+    ["I don't want animated dice", { diceVisualization: false }],
+    ['no dice', { dice: 'off' }],
+    ['my friend Tui hacks the terminal interface', {}],
+  ];
+  for (const [text, expected] of probes) {
+    const { settings, conflicts } = proposalOf(text);
+    assert.deepEqual(conflicts, [], text);
+    assert.deepEqual(Object.fromEntries(settings.map((setting) => [setting.field, setting.value])), expected, text);
+  }
+});
+
 test('N02 multi-word ruleset names keep connectors and colons', () => {
   assert.deepEqual(settingFor(proposalOf('a mystery in Call of Cthulhu 7th edition').settings, 'ruleset')?.value, {
     id: 'Call of Cthulhu',

@@ -6,6 +6,7 @@ import { type TestContext, test } from 'node:test';
 import { DEFAULT_ADVENTURE_NAME, START_DRAFT_FILE } from '../../../packages/client-protocol/src/guided-start.ts';
 import { FANTASY_PACK } from '../../../packages/content/src/packs.ts';
 import { createCampaignFrom, createEngineGateway, listCampaignSummaries, readCampaignState } from './engine-gateway.ts';
+import { visualizationPreferenceOf } from './roll-visualization.ts';
 import { guidedStart } from './tui-start.ts';
 
 const TEMP_PREFIX = 'rpg-guided-start-';
@@ -18,6 +19,7 @@ const START = 'y';
 const FIRST = '1';
 const NARRATIVE = '3';
 const HORROR_INTENT = 'A horror story using the Narrative rules';
+const DICE_ANIMATION_INTENT = 'A fantasy story using the d20-lite rules with dice animation';
 const GUIDED_NAME = 'Ashfall';
 const PLAYER_ACTION = 'I look around';
 const SKIPPED_SUMMARY = [
@@ -63,6 +65,14 @@ test('rpg-42a.14 tui describe it path creates a playable campaign from one sente
   assert.equal(summaryOf(dataDir, DEFAULT_ADVENTURE_NAME)?.genre?.id, 'horror');
   assert.ok((await playOneTurn(dataDir, DEFAULT_ADVENTURE_NAME)).length > 1);
   assert.ok(!existsSync(join(dataDir, START_DRAFT_FILE)));
+});
+
+test('rpg-42a.8 tui describe it path saves dice animation on from free text', async (t) => {
+  const dataDir = tempDataDir(t);
+  const out = await answer(dataDir, [DESCRIBE, DICE_ANIMATION_INTENT, START]);
+  assert.match(out.at(-2) ?? '', /Dice animation: on/);
+  const { events } = readCampaignState(dataDir, DEFAULT_ADVENTURE_NAME);
+  assert.deepEqual(visualizationPreferenceOf(events), { enabled: true });
 });
 
 test('rpg-42a.14 tui guide me path walks numbered steps and creates a playable campaign', async (t) => {

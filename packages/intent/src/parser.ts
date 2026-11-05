@@ -68,6 +68,12 @@ const INTENT_CUES: Cue[] = [
   fixed('combat', 'on', /\b(?:with|lots[ ]of|plenty[ ]of|tactical)[ ]combat\b/gi),
   fixed('dice', 'off', /\b(?:(?:no|without)[ ]dice|diceless)\b/gi),
   fixed('dice', 'on', /\bwith[ ]dice\b/gi),
+  fixed(
+    'diceVisualization',
+    true,
+    /\b(?:animated[ ]dice|dice[ ](?:animations?|visuali[sz]ations?)|show[ ](?:the[ ])?dice[ ]rolls?|visible[ ]dice)\b/gi,
+    false,
+  ),
   fixed('attributes', 'off', /\b(?:no|without)[ ](?:stats|attributes|character[ ]sheets?)\b/gi),
   fixed('voiceOutput', true, /\b(?:voice|spoken|voiced)[ ]narration\b|\btext[ -]to[ -]speech\b/gi, false),
   fixed('voiceInput', true, /\bvoice[ ](?:input|commands?|control)\b/gi, false),

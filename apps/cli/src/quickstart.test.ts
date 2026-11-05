@@ -4,6 +4,7 @@ import { mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
+import { INITIAL_DRAFT, nextDraft, planCommand } from '../../../packages/client-protocol/src/guided-start.ts';
 import { PROTOCOL_VERSION } from '../../../packages/client-protocol/src/protocol.ts';
 import { FANTASY_PACK, HORROR_PACK } from '../../../packages/content/src/packs.ts';
 import { readCampaignState } from './engine-gateway.ts';
@@ -171,6 +172,21 @@ test('rpg-42a.14 skipping every step plans the documented defaults with default 
   const chosen = planStart({ ...PLAN, choices: { genre: 'fantasy', voiceOutput: true, client: 'desktop' } }).entries;
   assert.deepEqual(chosen[1], { field: 'genre', value: 'fantasy', provenance: 'explicit' });
   assert.deepEqual(chosen[5], { field: 'voiceOutput', value: 'on', provenance: 'explicit' });
+});
+
+const DICE_ANIMATION_INTENT = 'A fantasy story using the d20-lite rules with dice animation';
+const TUI_CLIENT = 'tui';
+
+test('rpg-42a.8 free text turns dice animation on for the tui client', () => {
+  assert.equal(planCampaign(DICE_ANIMATION_INTENT, { client: TUI_CLIENT }).values.diceVisualization, true);
+  const described = nextDraft(nextDraft(INITIAL_DRAFT, { kind: 'path', path: 'describe' }), {
+    kind: 'enter',
+    text: DICE_ANIMATION_INTENT,
+  });
+  const entry = planStart(planCommand(described, TUI_CLIENT), TUI_CLIENT).entries.find(
+    ({ field }) => field === 'diceVisualization',
+  );
+  assert.deepEqual(entry, { field: 'diceVisualization', value: 'on', provenance: 'derived' });
 });
 
 test('rpg-42a.14 an uninstalled or invalid edition is reported as unknown and never substituted', () => {
