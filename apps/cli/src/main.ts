@@ -17,7 +17,7 @@ const OPTIONS = {
 export type CampaignMode = 'play' | 'resume';
 
 export type CampaignGateway = {
-  launch: () => string;
+  home: (terminal: Terminal) => Promise<void>;
   create: (name: string, intent: string | undefined, ask: Ask) => AsyncIterable<string>;
   list: () => string;
   archive: (campaign: string) => string;
@@ -45,7 +45,11 @@ export type Io = {
 };
 
 const COMMANDS = [
-  { name: 'launch', usage: 'launch', description: 'Open the launcher. This is the default.' },
+  {
+    name: 'launch',
+    usage: 'launch',
+    description: 'Open your adventures to continue, start, archive or delete one. This is the default.',
+  },
   { name: 'start', usage: 'start', description: 'Start a new adventure with a few short questions you can skip.' },
   {
     name: 'new',
@@ -81,8 +85,9 @@ const COMMANDS = [
   },
   {
     name: 'tui',
-    usage: 'tui <campaign> [--voice]',
-    description: 'Play with keyboard panes for talk, sheet, log and mechanics. --voice adds voice settings.',
+    usage: 'tui [campaign] [--voice]',
+    description:
+      'Play with keyboard panes for talk, sheet, log and mechanics. Opens your adventures without a campaign. --voice adds voice settings.',
   },
   { name: 'recap', usage: 'recap <campaign>', description: 'Show the current scene and the latest event.' },
   { name: 'help', usage: 'help', description: 'Show this help.' },
@@ -195,10 +200,10 @@ export const main = async (argv: readonly string[], io: Io, gateway: CampaignGat
     io.stdout(helpText());
     return EXIT_OK;
   }
-  if (command === 'launch' || command === 'list' || command === 'start') {
+  if (command === 'list' || command === 'start') {
     if (rest.length > 0) return usageError(io, `Unexpected argument: ${rest[0]}.`);
     if (command === 'start') return run(io, () => gateway.start(io.lines));
-    return run(io, () => [command === 'launch' ? gateway.launch() : gateway.list()]);
+    return run(io, () => [gateway.list()]);
   }
   if (command === 'archive' || command === 'delete') {
     const [name, ...extra] = rest;
@@ -222,14 +227,14 @@ export const main = async (argv: readonly string[], io: Io, gateway: CampaignGat
           ),
     );
   }
-  if (command === 'tui') {
-    const [name, ...extra] = rest;
-    if (name === undefined || name.trim() === '') return usageError(io, 'Missing campaign name for tui.');
+  if (command === 'tui' || command === 'launch') {
+    const [name, ...extra] = command === 'launch' ? [undefined, ...rest] : rest;
+    if (name !== undefined && name.trim() === '') return usageError(io, 'Missing campaign name for tui.');
     if (extra.length > 0) return usageError(io, `Unexpected argument: ${extra[0]}.`);
     const base = io.terminal ?? { capabilities: PLAIN_TERMINAL, lines: io.lines, write: io.stdout };
     try {
       const terminal = voice ? { ...base, audio: await loadTuiAudio() } : base;
-      await gateway.tui(name, terminal);
+      await (name === undefined ? gateway.home(terminal) : gateway.tui(name, terminal));
       return EXIT_OK;
     } catch (error) {
       return fail(io, error);

@@ -22,6 +22,8 @@ const DESKTOP_ACTIONS = ['I greet the stranger', 'I sit by the fire'];
 const TUI_ACTION = 'I ask about the road north';
 const RECONNECT_ACTION = 'I check the door';
 const RESTART_ACTION = 'I count my coins';
+const OTHER_CAMPAIGN = 'Frost';
+const HOME_ACTIONS = ['I light the lantern', 'I open the map'];
 const LOG_PANE = '3';
 const QUIT = 'q';
 const LOST_REPLY = 'Connection lost before the reply.';
@@ -99,12 +101,12 @@ const openDesktop = async (t: TestContext, env: NodeJS.ProcessEnv) => {
   const wire = daemonWire(daemon);
   const client = createDesktopClient({ transport: wire, newActionId: actionIds() });
   await wire.settled();
-  const [campaign] = client.state().campaigns;
-  assert.ok(campaign);
-  client.select(campaign.id);
+  const id = client.state().campaigns[0]?.id;
+  assert.ok(id);
+  client.select(id);
   await wire.settled();
   const refresh = async () => {
-    client.select(campaign.id);
+    client.select(id);
     await wire.settled();
     const { snapshot } = client.state();
     assert.ok(snapshot);
@@ -116,6 +118,15 @@ const openDesktop = async (t: TestContext, env: NodeJS.ProcessEnv) => {
     return refresh();
   };
   return { daemon, wire, client, refresh, play, crashed: crashed.promise };
+};
+
+const continueThrough = async (client: ReturnType<typeof createDesktopClient>, wire: Wire, name: string) => {
+  client.continueCampaign(name);
+  await wire.settled();
+  const { snapshot } = client.state();
+  assert.ok(snapshot);
+  assert.equal(snapshot.campaign.name, name);
+  return snapshot;
 };
 
 const viaJson = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
@@ -215,5 +226,42 @@ describe('UI12: cross-client end-to-end gameplay', () => {
     const back = viaJson(await switched.refresh());
     assert.deepEqual(back, viaJson(restarted));
     assertNoDuplicateTurns(back);
+  });
+
+  it('rpg-42a.13 continue from the home resumes each adventure at its exact last turn', async (t) => {
+    const { dataDir } = await campaignDir(t);
+    for await (const _ of createEngineGateway(dataDir).create(OTHER_CAMPAIGN, undefined, NO_CHARACTER));
+    const env: NodeJS.ProcessEnv = { ...process.env, [DATA_DIR_ENV]: dataDir };
+    delete env[API_KEY_ENV];
+    const daemon = startDaemon({ env, onCrash: IGNORE });
+    t.after(() => daemon.stop());
+    const wire = daemonWire(daemon);
+    const client = createDesktopClient({ transport: wire, newActionId: actionIds() });
+    await wire.settled();
+    assert.deepEqual(
+      client
+        .state()
+        .campaigns.map(({ name }) => name)
+        .sort(),
+      [CAMPAIGN, OTHER_CAMPAIGN],
+    );
+    const opened = await continueThrough(client, wire, CAMPAIGN);
+    for (const action of HOME_ACTIONS) {
+      assert.equal(client.submit(action).ok, true);
+      await wire.settled();
+      client.select(opened.campaignId);
+      await wire.settled();
+    }
+    const played = await continueThrough(client, wire, CAMPAIGN);
+    assert.deepEqual(inputs(played).slice(-HOME_ACTIONS.length), HOME_ACTIONS);
+    const other = await continueThrough(client, wire, OTHER_CAMPAIGN);
+    assert.equal(
+      other.turns.some(({ input }) => HOME_ACTIONS.includes(input)),
+      false,
+    );
+    const resumed = await continueThrough(client, wire, CAMPAIGN);
+    assert.equal(resumed.revision, played.revision);
+    assert.deepEqual(resumed.turns.at(-1), played.turns.at(-1));
+    assert.equal(await daemon.stop(), 0);
   });
 });

@@ -15,9 +15,9 @@ const lines = async function* (input: readonly string[]) {
 const setup = (input: readonly string[] = PLAYER_LINES) => {
   const calls: string[] = [];
   const gateway: CampaignGateway = {
-    launch: () => {
-      calls.push('launch');
-      return 'Launched.';
+    home: async (terminal) => {
+      calls.push('home');
+      terminal.write('Home.\n');
     },
     create: async function* (name, intent) {
       calls.push(intent === undefined ? `create:${name}` : `create:${name}:${intent}`);
@@ -158,8 +158,9 @@ test('new releases the input lines exactly once whether or not it asks anything'
 
 test('launch, new, play and resume dispatch to the gateway and confirm', async () => {
   const cases: [string[], string][] = [
-    [[], 'launch'],
-    [['launch'], 'launch'],
+    [[], 'home'],
+    [['launch'], 'home'],
+    [['tui'], 'home'],
     [['new', 'Ember'], 'create:Ember'],
     [['new', 'Ember', 'A spooky tale'], 'create:Ember:A spooky tale'],
     [['play', 'Ember'], 'play:Ember'],
@@ -250,7 +251,7 @@ test('gateway failures exit 1 and report the error on stderr', async () => {
     throw new Error(FAILURE);
   };
   const failing: CampaignGateway = {
-    launch: broken,
+    home: async () => broken(),
     create: broken,
     list: broken,
     archive: broken,
@@ -290,6 +291,7 @@ test('gateway failures exit 1 and report the error on stderr', async () => {
     ['restore', 'ember.json'],
     ['sheet', 'Ember'],
     ['tui', 'Ember'],
+    ['tui'],
     ['start'],
   ]) {
     const { io, err } = setup();
@@ -363,13 +365,22 @@ test('A18 tui gets voice controls only with --voice', async () => {
       0,
     );
   }
-  const [plain, voiced] = terminals;
+  const voicedHome = setup();
+  assert.equal(
+    await main(['tui', '--voice'], voicedHome.io, {
+      ...voicedHome.gateway,
+      home: async (terminal) => void terminals.push(terminal),
+    }),
+    0,
+  );
+  const [plain, voiced, home] = terminals;
   assert.equal(plain?.audio, undefined);
   assert.equal(voiced?.audio, defaultTuiAudio);
+  assert.equal(home?.audio, defaultTuiAudio);
   const { gateway, io, err } = setup();
   assert.equal(await main(['play', 'Ember', '--voice'], io, gateway), EXIT_USAGE);
   assert.match(err.join(''), /--voice/);
   const help = setup();
   await main(['help'], help.io, help.gateway);
-  assert.match(help.out.join(''), /tui <campaign> \[--voice\]/);
+  assert.match(help.out.join(''), /tui \[campaign\] \[--voice\]/);
 });

@@ -117,10 +117,13 @@ test('UI08: provide responsive desktop conversation, sheets, panels and campaign
   const wide = viewModel(client.state(), WIDE_WIDTH);
   assert.equal(wide.layout.name, 'wide');
   assert.deepEqual(wide.layout.columns, [['campaigns'], ['status', 'conversation'], ['sheet', 'panels']]);
-  assert.deepEqual(wide.campaigns, [
-    { id: CAMPAIGN, name: 'Harbor', selected: true },
-    { id: OTHER, name: 'Spire', selected: false },
-  ]);
+  assert.deepEqual(
+    wide.home.cards.map(({ name, selected }) => [name, selected]),
+    [
+      ['Harbor', true],
+      ['Spire', false],
+    ],
+  );
   assert.deepEqual(wide.conversation, [
     { actionId: 'old', input: 'input old', narration: 'narration old', pending: false },
   ]);
@@ -172,7 +175,7 @@ test('UI08: provide responsive desktop conversation, sheets, panels and campaign
 
   client.select(OTHER);
   const switched = viewModel(client.state(), WIDE_WIDTH);
-  assert.equal(switched.campaigns.find(({ selected }) => selected)?.id, OTHER);
+  assert.equal(switched.home.cards.find(({ selected }) => selected)?.name, 'Spire');
   assert.deepEqual(switched.conversation, []);
   assert.equal(switched.sheet, undefined);
   wire.receive({ type: 'View', campaignId: CAMPAIGN, view: SHEET_VIEW });
@@ -344,4 +347,129 @@ test('A21 a disconnect clears pending voice saves', () => {
   assert.equal(client.voicePending(), true);
   wire.close('Engine 42 exited (1).');
   assert.equal(client.voicePending(), false);
+});
+
+const NOW = Date.parse('2026-11-04T12:00:00.000Z');
+const HOUR_MS = 3_600_000;
+const HARBOR = {
+  id: CAMPAIGN,
+  name: 'Harbor',
+  health: 'ok',
+  lastPlayedAt: new Date(NOW - HOUR_MS).toISOString(),
+  sceneTitle: 'Docks',
+  characters: [{ id: 'hero', name: 'Ash' }],
+  ruleset: { id: 'narrative', edition: 'original', revision: 'r1', provenance: 'explicit' },
+  genre: { id: 'fantasy', version: '1.0.0', provenance: 'derived' },
+  lastNarration: 'The tide turns.',
+  turnCount: 1,
+};
+const BROKEN = { id: null, name: 'Junk', health: 'unreadable' };
+const homeClient = () => {
+  const wire = fakeTransport();
+  const client = createDesktopClient({ transport: wire.transport, newActionId: ids() });
+  wire.receive(READY);
+  wire.receive({
+    type: 'Campaigns',
+    campaigns: [BROKEN, HARBOR, { name: 7 }],
+    archived: [{ ...HARBOR, name: 'Spire' }],
+  });
+  return { wire, client };
+};
+const changed = (command: object, result: object) => ({ type: 'Changed', command, result });
+const OK = { ok: true, value: { version: PROTOCOL_VERSION, name: 'Harbor' } };
+
+test('rpg-42a.13 the home lists every campaign by last played, keeps unhealthy ones and shows where play stopped', () => {
+  const { client } = homeClient();
+  const { home, playing } = viewModel(client.state(), WIDE_WIDTH, DEFAULT_PREFERENCES, NOW);
+  assert.equal(playing, false);
+  assert.deepEqual(
+    home.cards.map(({ name, playable, when }) => [name, playable, when]),
+    [
+      ['Harbor', true, '1 hour ago'],
+      ['Junk', false, undefined],
+    ],
+  );
+  assert.deepEqual(
+    [home.cards[0]?.characters, home.cards[0]?.rules, home.cards[0]?.scene, home.cards[0]?.narration],
+    ['Ash', 'narrative original, fantasy', 'Docks', 'The tide turns.'],
+  );
+  assert.deepEqual(
+    home.archived.map(({ name }) => name),
+    ['Spire'],
+  );
+  assert.equal(home.search, false);
+});
+
+test('rpg-42a.13 continue opens the campaign in the engine and follows it once the engine serves it', () => {
+  const { wire, client } = homeClient();
+  client.continueCampaign('Harbor');
+  const open = { version: PROTOCOL_VERSION, type: 'OpenCampaign', name: 'Harbor' };
+  assert.deepEqual(wire.sent.at(-1), open);
+  assert.equal(client.state().selected, undefined);
+  wire.receive(changed(open, { ok: true, value: HARBOR }));
+  assert.equal(client.state().selected, CAMPAIGN);
+  assert.deepEqual(
+    wire.sent.slice(-4).map(({ type }) => type),
+    ['SubscribeEvents', 'GetCampaignSnapshot', 'RequestView', 'ListCampaigns'],
+  );
+  wire.receive(
+    changed(
+      { ...open, name: 'Nowhere' },
+      { ok: false, error: { code: 'Rejected', message: 'No campaign named Nowhere.' } },
+    ),
+  );
+  assert.equal(viewModel(client.state(), WIDE_WIDTH).home.error, 'No campaign named Nowhere.');
+});
+
+test('rpg-42a.13 archive and delete wait for confirmation and archive can be undone', () => {
+  const { wire, client } = homeClient();
+  const sentBefore = wire.sent.length;
+  client.askHome('archive', 'Harbor');
+  assert.deepEqual(viewModel(client.state(), WIDE_WIDTH).home.confirm, { kind: 'archive', name: 'Harbor' });
+  client.cancelHome();
+  assert.equal(viewModel(client.state(), WIDE_WIDTH).home.confirm, undefined);
+  assert.equal(wire.sent.length, sentBefore);
+  client.askHome('archive', 'Harbor');
+  client.confirmHome();
+  const archive = { version: PROTOCOL_VERSION, type: 'ArchiveCampaign', name: 'Harbor' };
+  assert.deepEqual(wire.sent.at(-1), archive);
+  wire.receive(changed(archive, OK));
+  assert.equal(viewModel(client.state(), WIDE_WIDTH).home.undo, 'Harbor');
+  assert.equal(wire.sent.at(-1)?.type, 'ListCampaigns');
+  client.undoArchive();
+  const unarchive = { version: PROTOCOL_VERSION, type: 'UnarchiveCampaign', name: 'Harbor' };
+  assert.deepEqual(wire.sent.at(-1), unarchive);
+  wire.receive(changed(unarchive, OK));
+  assert.equal(viewModel(client.state(), WIDE_WIDTH).home.undo, undefined);
+  client.askHome('delete', 'Junk');
+  client.confirmHome();
+  assert.deepEqual(wire.sent.at(-1), {
+    version: PROTOCOL_VERSION,
+    type: 'DeleteCampaign',
+    name: 'Junk',
+    confirm: 'Junk',
+  });
+  client.unarchive('Spire');
+  assert.deepEqual(wire.sent.at(-1), { ...unarchive, name: 'Spire' });
+});
+
+test('rpg-42a.13 search shows only after more than five campaigns and filters the cards', () => {
+  const wire = fakeTransport();
+  const client = createDesktopClient({ transport: wire.transport, newActionId: ids() });
+  wire.receive(READY);
+  const many = Array.from({ length: 5 }, (_, index) => ({
+    ...HARBOR,
+    id: `c${index + 10}`,
+    name: `Tale ${index}`,
+    characters: [],
+  }));
+  wire.receive({ type: 'Campaigns', campaigns: [...many, HARBOR] });
+  assert.equal(viewModel(client.state(), WIDE_WIDTH).home.search, true);
+  client.search('ash');
+  const { home } = viewModel(client.state(), WIDE_WIDTH);
+  assert.equal(home.query, 'ash');
+  assert.deepEqual(
+    home.cards.map(({ name }) => name),
+    ['Harbor'],
+  );
 });

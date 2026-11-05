@@ -101,6 +101,22 @@ test('UI08 daemon transport maps engine replies to renderer lines', async () => 
   assert.deepEqual(closes, []);
 });
 
+test('rpg-42a.13 daemon transport relays home lifecycle results, including rejections', async () => {
+  const opened = { version: PROTOCOL_VERSION, type: 'OpenCampaign', name: 'Harbor' };
+  const archived = { version: PROTOCOL_VERSION, type: 'ArchiveCampaign', name: 'Harbor' };
+  const rejected = { ok: false, error: { code: 'Rejected', message: 'open' } };
+  const { transport, lines } = collect(
+    fakeDaemon({ OpenCampaign: { ok: true, value: { id: CAMPAIGN } }, ArchiveCampaign: rejected }),
+  );
+  transport.send(JSON.stringify(opened));
+  transport.send(JSON.stringify(archived));
+  await flush();
+  assert.deepEqual(lines, [
+    { type: 'Changed', command: opened, result: { ok: true, value: { id: CAMPAIGN } } },
+    { type: 'Changed', command: archived, result: rejected },
+  ]);
+});
+
 test('rpg-42a.7 daemon transport relays SubscribeEvents and keeps one subscription', async () => {
   const daemon = fakeDaemon();
   const { transport, lines, closes } = collect(daemon);

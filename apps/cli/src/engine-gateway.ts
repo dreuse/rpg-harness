@@ -41,6 +41,7 @@ import {
 } from './quickstart.ts';
 import { checkFor } from './roll-visualization.ts';
 import { runTui, type Terminal } from './tui.ts';
+import { runHome } from './tui-home.ts';
 import { guidedStart } from './tui-start.ts';
 import { editableSheet, renderView, type ViewName } from './views.ts';
 
@@ -77,7 +78,6 @@ const NONE = 'none';
 const SAVED_SETTINGS = 'Saved settings:';
 const CHARACTER_PROMPT = `Describe your character, or press Enter to play as ${HERO_NAME}.`;
 const CREATE_CHARACTER_INTENT = 'create character';
-const LAUNCH_TEXT = 'Run rpg new <name> "<one sentence>" to start a campaign, or rpg resume <name> to continue one.';
 
 const databasePath = (dataDir: string, name: string) =>
   join(dataDir, `${encodeURIComponent(name)}${DATABASE_EXTENSION}`);
@@ -329,7 +329,7 @@ const readSummary = (path: string, lastPlayedAt: string): CampaignSummary | Camp
   }
 };
 
-const summaryOf = (dataDir: string, name: string): CampaignSummary => {
+export const summaryOf = (dataDir: string, name: string): CampaignSummary => {
   let lastPlayedAt: string | null = null;
   try {
     const path = databasePath(dataDir, name);
@@ -344,10 +344,8 @@ const summaryOf = (dataDir: string, name: string): CampaignSummary => {
 export const listCampaignSummaries = (dataDir: string): CampaignSummary[] =>
   savedCampaigns(dataDir).map((name) => summaryOf(dataDir, name));
 
-const launch = (dataDir: string) => {
-  const names = savedCampaigns(dataDir);
-  return names.length === 0 ? LAUNCH_TEXT : `Campaigns: ${names.join(', ')}\n${LAUNCH_TEXT}`;
-};
+export const listArchivedSummaries = (dataDir: string): CampaignSummary[] =>
+  listCampaignSummaries(join(dataDir, ARCHIVE_DIR));
 
 const listed = (names: readonly string[]) => (names.length === 0 ? NONE : names.join(', '));
 
@@ -367,6 +365,18 @@ export const archiveCampaign = (dataDir: string, name: string) => {
   }
   rmSync(from);
   return `Archived campaign ${name}. Its saved state is kept in ${to}.`;
+};
+
+export const unarchiveCampaign = (dataDir: string, name: string) => {
+  const from = archivePath(dataDir, name);
+  if (!existsSync(from)) throw new Error(`No archived campaign named ${name}.`);
+  try {
+    linkSync(from, databasePath(dataDir, name));
+  } catch (error) {
+    if (isFileExists(error)) throw new Error(`A campaign named ${name} already exists.`);
+    throw error;
+  }
+  rmSync(from);
 };
 
 const deletionGuidance = (name: string, path: string, archived: boolean) =>
@@ -395,8 +405,9 @@ export const isSameCampaignFile = (dataDir: string, name: string, other: string)
   return identity !== undefined && identity === fileIdentity(dataDir, other);
 };
 
-export const deleteCampaign = (dataDir: string, name: string, confirm: string) => {
-  const { path } = savedFile(dataDir, name);
+export const deleteCampaign = (dataDir: string, name: string, confirm: string, archived = false) => {
+  const path = archived ? archivePath(dataDir, name) : savedFile(dataDir, name).path;
+  if (!existsSync(path)) throw missingCampaign(dataDir, name);
   if (confirm !== name) throw new Error(`Kept campaign ${name}: send its name as the confirm token to delete it.`);
   rmSync(path);
 };
@@ -453,7 +464,19 @@ const restore = (dataDir: string, file: string) => {
 };
 
 export const createEngineGateway = (dataDir: string): CampaignGateway => ({
-  launch: () => launch(dataDir),
+  home: (terminal) =>
+    runHome(
+      {
+        list: () => listCampaignSummaries(dataDir),
+        archived: () => listArchivedSummaries(dataDir),
+        archive: (name) => void archiveCampaign(dataDir, name),
+        unarchive: (name) => unarchiveCampaign(dataDir, name),
+        remove: (name, confirm, archived) => deleteCampaign(dataDir, name, confirm, archived),
+        play: (name, playing) => playTui(dataDir, name, playing),
+        start: (lines) => guidedStart(dataDir, lines, createCampaignFrom),
+      },
+      terminal,
+    ),
   list: () => list(dataDir),
   archive: (name) => archiveCampaign(dataDir, name),
   remove: (name, lines) => remove(dataDir, name, lines),

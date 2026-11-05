@@ -68,6 +68,13 @@ const parseCommandLine = (line: string): ClientCommand | undefined => {
   }
 };
 
+const HOME_CHANGES: ReadonlySet<string> = new Set([
+  'OpenCampaign',
+  'ArchiveCampaign',
+  'UnarchiveCampaign',
+  'DeleteCampaign',
+]);
+
 export const daemonTransport = (daemon: Pick<Daemon, 'ready' | 'command' | 'subscribe'>): Transport => {
   let onLine = (_line: string) => {};
   let onClose = (_error: string) => {};
@@ -97,6 +104,8 @@ export const daemonTransport = (daemon: Pick<Daemon, 'ready' | 'command' | 'subs
         command,
         result: result ?? failure('Rejected', String(message)),
       });
+    if (HOME_CHANGES.has(command.type))
+      return emit({ type: 'Changed', command, result: result ?? failure('Rejected', String(message)) });
     if (!result?.ok) return;
     if (command.type === 'ListCampaigns') return emit({ type: 'Campaigns', ...(result.value as object) });
     if (command.type === 'GetCampaignSnapshot') return emit({ type: 'Snapshot', snapshot: result.value });

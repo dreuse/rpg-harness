@@ -17,7 +17,9 @@ const fakeWindow = () => {
         sendCommand: async (method, params) => calls.push(`${method} ${JSON.stringify(params)}`),
       },
       executeJavaScript: async (code) =>
-        calls.push(code.includes('[data-campaign]') ? 'select' : `settle ${/data-layout="(\w+)"/.exec(code)?.[1]}`),
+        calls.push(
+          code.includes('[data-home="continue"]') ? 'select' : `settle ${/data-layout="(\w+)"/.exec(code)?.[1]}`,
+        ),
       capturePage: async () => ({ toPNG: () => PNG }),
     },
   };
@@ -32,23 +34,27 @@ test('rpg-42a.11 capture layouts match the renderer breakpoints', () => {
   );
 });
 
-test('rpg-42a.11 captureScreens writes one screenshot per layout and theme', async () => {
+const shots = (prefix: string) =>
+  CAPTURE_THEMES.flatMap((theme) =>
+    CAPTURE_LAYOUTS.map((layout) => join(DIR, `${prefix}${layout.name}-${theme.name}.png`)),
+  );
+
+test('rpg-42a.11 captureScreens writes the home, then one screenshot per layout and theme', async () => {
   const { window, calls } = fakeWindow();
   const written = new Map<string, Uint8Array>();
   const files = await captureScreens(window, DIR, (path, data) => written.set(path, data));
-  const expected = CAPTURE_THEMES.flatMap((theme) =>
-    CAPTURE_LAYOUTS.map((layout) => join(DIR, `${layout.name}-${theme.name}.png`)),
-  );
+  const expected = [...shots('home-'), ...shots('')];
   assert.deepEqual(files, expected);
   assert.deepEqual([...written.keys()], expected);
   assert.ok([...written.values()].every((data) => data === PNG));
-  assert.deepEqual(calls.slice(0, 2), ['select', 'attach']);
-  const media = calls.filter((call) => call.startsWith('Emulation.setEmulatedMedia'));
+  assert.equal(calls[0], 'attach');
+  assert.equal(calls.filter((call) => call === 'select').length, 1);
+  const media = calls.filter((call) => call.startsWith('Emulation.setEmulatedMedia')).slice(CAPTURE_THEMES.length);
   assert.equal(media.length, CAPTURE_THEMES.length);
   assert.match(media[3] ?? '', /"prefers-color-scheme","value":"dark".*"prefers-contrast","value":"more"/);
   assert.ok(media.every((call) => call.includes('"prefers-reduced-motion","value":"reduce"')));
   assert.deepEqual(
-    calls.filter((call) => call.startsWith('settle')),
+    calls.slice(calls.indexOf('select')).filter((call) => call.startsWith('settle')),
     CAPTURE_THEMES.flatMap(() => CAPTURE_LAYOUTS.map(({ name }) => `settle ${name}`)),
   );
 });

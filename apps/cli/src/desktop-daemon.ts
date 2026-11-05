@@ -25,8 +25,11 @@ import {
   createCampaignFrom,
   deleteCampaign,
   isSameCampaignFile,
+  listArchivedSummaries,
   listCampaignSummaries,
   openClientSession,
+  summaryOf,
+  unarchiveCampaign,
 } from './engine-gateway.ts';
 import { failureOf, planResult } from './quickstart.ts';
 import { dataDirFromEnv } from './setup-check.ts';
@@ -102,24 +105,35 @@ const serve = (env: NodeJS.ProcessEnv): Served => {
 
 const replyCampaigns = (id: number) => {
   try {
-    const campaigns = listCampaignSummaries(dataDirFromEnv());
-    return send({ id, type: 'Result', result: { ok: true, value: { version: PROTOCOL_VERSION, campaigns } } });
+    const dataDir = dataDirFromEnv();
+    const value = {
+      version: PROTOCOL_VERSION,
+      campaigns: listCampaignSummaries(dataDir),
+      archived: listArchivedSummaries(dataDir),
+    };
+    return send({ id, type: 'Result', result: { ok: true, value } });
   } catch (error) {
     return send({ id, type: 'Error', message: messageOf(error) });
   }
 };
 
-const changeCampaign = (command: Lifecycle, served: string | undefined, serveCreated: (name: string) => void) => {
+const changeCampaign = (command: Lifecycle, served: string | undefined, serveCampaign: (name: string) => void) => {
   const dataDir = dataDirFromEnv();
   if (command.type === 'CreateCampaign') {
     const created = createCampaignFrom(dataDir, command);
-    serveCreated(command.name);
+    serveCampaign(command.name);
     return created;
   }
-  if (served !== undefined && isSameCampaignFile(dataDir, command.name, served))
+  if (command.type === 'OpenCampaign') {
+    serveCampaign(command.name);
+    return summaryOf(dataDir, command.name);
+  }
+  const archived = command.type === 'DeleteCampaign' && command.archived === true;
+  if (!archived && served !== undefined && isSameCampaignFile(dataDir, command.name, served))
     throw new Error(`Campaign ${command.name} is open in this engine.`);
   if (command.type === 'ArchiveCampaign') archiveCampaign(dataDir, command.name);
-  else deleteCampaign(dataDir, command.name, command.confirm);
+  else if (command.type === 'UnarchiveCampaign') unarchiveCampaign(dataDir, command.name);
+  else deleteCampaign(dataDir, command.name, command.confirm, archived);
   return { version: PROTOCOL_VERSION, name: command.name };
 };
 
@@ -127,10 +141,10 @@ const replyChange = (
   id: number,
   command: Lifecycle,
   served: string | undefined,
-  serveCreated: (name: string) => void,
+  serveCampaign: (name: string) => void,
 ) => {
   try {
-    return send({ id, type: 'Result', result: { ok: true, value: changeCampaign(command, served, serveCreated) } });
+    return send({ id, type: 'Result', result: { ok: true, value: changeCampaign(command, served, serveCampaign) } });
   } catch (error) {
     return send({ id, type: 'Result', result: failureOf(error) });
   }
@@ -139,7 +153,7 @@ const replyChange = (
 const replier = ({ name, campaign, problem }: Served) => {
   const subscriptions = new Map<number, Unsubscribe>();
 
-  const serveCreated = (next: string) => {
+  const serveCampaign = (next: string) => {
     const opened = openClientSession(dataDirFromEnv(), next);
     for (const unsubscribe of subscriptions.values()) unsubscribe();
     subscriptions.clear();
@@ -154,7 +168,7 @@ const replier = ({ name, campaign, problem }: Served) => {
     const command = parsed.value;
     if (command.type === 'ListCampaigns') return replyCampaigns(id);
     if (command.type === 'PlanCampaign') return send({ id, type: 'Result', result: planResult(command) });
-    if (!('campaignId' in command)) return replyChange(id, command, name, serveCreated);
+    if (!('campaignId' in command)) return replyChange(id, command, name, serveCampaign);
     if (campaign === undefined) return send({ id, type: 'Error', message: problem });
     const { session, campaignId } = campaign;
     if (command.campaignId !== campaignId)

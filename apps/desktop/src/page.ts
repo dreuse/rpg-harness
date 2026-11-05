@@ -8,6 +8,9 @@ import {
   ALLOW,
   bindKeys,
   DECLINE,
+  HOME_ATTRIBUTE,
+  HOME_NAME,
+  HOME_SEARCH,
   KEEP_DEFAULT,
   type KeyEventLike,
   type KeyTarget,
@@ -36,7 +39,7 @@ export const INPUT_ID = 'action-input';
 const CLICK = 'click';
 const SUBMIT = 'submit';
 const RESIZE = 'resize';
-const CAMPAIGN_ATTRIBUTE = 'data-campaign';
+const INPUT = 'input';
 const RETRY_SELECTOR = '[data-action="retry"]';
 const TABINDEX = 'tabindex';
 const PROGRAMMATIC_FOCUS = '-1';
@@ -47,7 +50,11 @@ const ENTRY_SELECTOR = `#${START_ENTRY}`;
 const TITLE_SELECTOR = `[${START_TITLE}]`;
 const OPEN_SELECTOR = `[${START_OPEN}]`;
 const FOCUSED_SELECTOR = ':focus';
-const DIAGNOSTICS_SELECTOR = '[data-diagnostics]';
+const ARCHIVED_SELECTOR = '[data-archived]';
+const DISCLOSURE_SELECTORS = ['[data-diagnostics]', ARCHIVED_SELECTOR];
+const HOME_REGION = '[data-region="campaigns"]';
+const SEARCH_SELECTOR = `#${HOME_SEARCH}`;
+const CANCEL_SELECTOR = '#home-cancel';
 const LOG_SELECTOR = '[data-region="conversation"] > ol';
 const FOCUS_ATTRIBUTES = [START_TITLE, START_OPTION, START_CONTROL, START_OPEN, PANE_ATTRIBUTE];
 const FOCUS_REGIONS: Partial<Record<RendererAction, Region>> = {
@@ -121,11 +128,15 @@ export const mountPage = ({
     const model = viewModel(client.state(), width(), preferences);
     const focused = selectorOf(root.querySelector<HTMLElement>(FOCUSED_SELECTOR));
     const typed = entryValue();
-    const diagnosticsOpen = root.querySelector<HTMLDetailsElement>(DIAGNOSTICS_SELECTOR)?.open === true;
+    const opened = DISCLOSURE_SELECTORS.map(
+      (selector) => root.querySelector<HTMLDetailsElement>(selector)?.open === true,
+    );
     root.innerHTML = renderView(model, preferences.locale, shownPane) + renderVoice(voice.view(), preferences.locale);
     root.style.setProperty(FONT_SCALE_PROPERTY, String(model.fontScale));
-    const details = root.querySelector<HTMLDetailsElement>(DIAGNOSTICS_SELECTOR);
-    if (details !== null) details.open = diagnosticsOpen;
+    DISCLOSURE_SELECTORS.forEach((selector, index) => {
+      const details = root.querySelector<HTMLDetailsElement>(selector);
+      if (details !== null) details.open = opened[index] === true;
+    });
     const log = root.querySelector<HTMLElement>(LOG_SELECTOR);
     if (log !== null) log.scrollTop = log.scrollHeight;
     if (model.start?.step !== shownStep) {
@@ -135,6 +146,8 @@ export const mountPage = ({
     const entry = root.querySelector<HTMLInputElement>(ENTRY_SELECTOR);
     if (entry !== null && typed !== undefined) entry.value = typed;
     if (focused !== undefined) root.querySelector<HTMLElement>(focused)?.focus();
+    const search = focused === SEARCH_SELECTOR ? root.querySelector<HTMLInputElement>(SEARCH_SELECTOR) : null;
+    search?.setSelectionRange?.(search.value.length, search.value.length);
   };
   const startControl = (control: StartControl) => {
     if (control === 'close') return client.closeStart();
@@ -150,10 +163,26 @@ export const mountPage = ({
     client.startAction(option.action);
     if (shownStep === step) root.querySelector<HTMLElement>(`[${START_OPTION}="${index}"]`)?.focus();
   };
+  const continueCampaign = (name: string) => {
+    shownPane = undefined;
+    client.continueCampaign(name);
+  };
   const nextCampaign = () => {
     const { campaigns, selected } = client.state();
-    const next = campaigns[(campaigns.findIndex(({ id }) => id === selected) + 1) % campaigns.length];
-    if (next !== undefined) client.select(next.id);
+    const playable = campaigns.filter(({ id, health }) => id !== null && health === 'ok');
+    const next = playable[(playable.findIndex(({ id }) => id === selected) + 1) % playable.length];
+    if (next !== undefined) continueCampaign(next.name);
+  };
+  const homeAction = (action: string | null, name: string | null, archived: boolean) => {
+    if (action === 'confirm') return client.confirmHome();
+    if (action === 'cancel') return client.cancelHome();
+    if (action === 'undo') return client.undoArchive();
+    if (name === null) return;
+    if (action === 'continue') return continueCampaign(name);
+    if (action === 'unarchive') return client.unarchive(name);
+    if (action !== 'archive' && action !== 'delete') return;
+    client.askHome(action, name, archived);
+    root.querySelector<HTMLElement>(CANCEL_SELECTOR)?.focus();
   };
   const showPane = (region: Region) => {
     shownPane = region;
@@ -169,7 +198,8 @@ export const mountPage = ({
     const region = FOCUS_REGIONS[action];
     if (region !== undefined) return focusRegion(region);
     if (action === 'newAdventure') return client.openStart();
-    if (action === 'submit' && (event.target as ClickTarget | undefined)?.closest(START_REGION)) return KEEP_DEFAULT;
+    const target = event.target as ClickTarget | undefined;
+    if (action === 'submit' && (target?.closest(START_REGION) || target?.closest(HOME_REGION))) return KEEP_DEFAULT;
     if (action === 'submit') return form.requestSubmit();
     if (action === 'retry') return client.retry();
     if (action === 'nextCampaign') return nextCampaign();
@@ -183,8 +213,13 @@ export const mountPage = ({
   client.subscribe(render);
   root.addEventListener(CLICK, (event) => {
     const target = closestTarget(event);
-    const campaign = target?.closest(`[${CAMPAIGN_ATTRIBUTE}]`)?.getAttribute(CAMPAIGN_ATTRIBUTE);
-    if (campaign) return client.select(campaign);
+    const home = target?.closest(`[${HOME_ATTRIBUTE}]`);
+    if (home)
+      return homeAction(
+        home.getAttribute(HOME_ATTRIBUTE),
+        home.getAttribute(HOME_NAME),
+        !!target?.closest(ARCHIVED_SELECTOR),
+      );
     const pane = target?.closest(`[${PANE_ATTRIBUTE}]`)?.getAttribute(PANE_ATTRIBUTE);
     if (isRegion(pane)) return showPane(pane);
     const answer = target?.closest(`[${VOICE_ATTRIBUTE}]`)?.getAttribute(VOICE_ATTRIBUTE);
@@ -196,6 +231,10 @@ export const mountPage = ({
     const control = target?.closest(`[${START_CONTROL}]`)?.getAttribute(START_CONTROL);
     if (isStartControl(control)) return startControl(control);
     if (target?.closest(RETRY_SELECTOR)) client.retry();
+  });
+  root.addEventListener(INPUT, () => {
+    const query = root.querySelector<HTMLInputElement>(SEARCH_SELECTOR)?.value;
+    if (query !== undefined && query !== client.state().home.query) client.search(query);
   });
   root.addEventListener(SUBMIT, (event) => {
     if (!closestTarget(event)?.closest(`[${START_FORM}]`)) return;

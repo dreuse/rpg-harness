@@ -98,3 +98,31 @@ test('UI10 dynamic fichas are readable without animation or color semantics', ()
   assert.equal(componentLabel({ kind: 'journal', id: 'j', label: 'Notes', value: 'a' }), 'Notes: a');
   assert.equal(componentLabel({ kind: 'mystery' as never, id: 'm', label: 'Odd', value: 1 }), 'Odd: 1');
 });
+
+const HOME_KEYS = [
+  'home.search',
+  'home.noMatch',
+  'home.continueLabel',
+  'home.archiveLabel',
+  'home.deleteLabel',
+  'home.unarchiveLabel',
+  'home.cancel',
+  'home.undo',
+  'home.ask.archive',
+  'home.ask.delete',
+  'home.archivedNotice',
+  'home.archived',
+  'home.problem.needs-migration',
+  'home.problem.unreadable',
+  'home.restoreHint',
+] as const;
+
+test('rpg-42a.13 every home label reads in each supported locale and names the adventure', () => {
+  for (const key of HOME_KEYS) {
+    const english = translate('en', key, { name: 'Harbor', count: 1 });
+    assert.notEqual(english, key);
+    assert.notEqual(translate('es', key, { name: 'Harbor', count: 1 }), english, key);
+  }
+  assert.equal(translate('en', 'home.continueLabel', { name: 'Harbor' }), 'Continue Harbor');
+  assert.equal(translate('es', 'home.deleteLabel', { name: 'Harbor' }), 'Borrar Harbor');
+});

@@ -86,13 +86,13 @@ const openDesktop = async (t: TestContext, env: NodeJS.ProcessEnv, startDraft?: 
 
 const playOneTurn = async (t: TestContext, dataDir: string, name: string) => {
   const { client, settled } = await openDesktop(t, envFor(dataDir, name));
-  const [campaign] = client.state().campaigns.filter((item) => item.name === name);
-  assert.ok(campaign);
-  client.select(campaign.id);
+  const id = client.state().campaigns.find((item) => item.name === name)?.id;
+  assert.ok(id);
+  client.select(id);
   await settled();
   assert.equal(client.submit(PLAYER_ACTION).ok, true);
   await settled();
-  client.select(campaign.id);
+  client.select(id);
   await settled();
   return client.state().snapshot?.turns.at(-1)?.input;
 };

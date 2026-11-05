@@ -56,7 +56,7 @@ test('new users can start with default choices or one-sentence campaign intent',
 
     const launcher = succeed(dataDir, []);
     assert.ok(launcher.includes(DEFAULT_CAMPAIGN) && launcher.includes(INTENT_CAMPAIGN));
-    assert.ok(launcher.includes('rpg resume'));
+    assert.match(launcher, /Type a number to continue/);
 
     const saved = readCampaignState(dataDir, INTENT_CAMPAIGN);
     assert.ok(succeed(dataDir, ['resume', INTENT_CAMPAIGN]).trim().length > 0);
@@ -117,7 +117,8 @@ test('the launcher skips saved files whose names cannot be decoded', () =>
     succeed(dataDir, ['new', DEFAULT_CAMPAIGN]);
     writeFileSync(join(dataDir, UNDECODABLE_FILE), '');
     const launcher = succeed(dataDir, []);
-    assert.ok(launcher.includes(`Campaigns: ${DEFAULT_CAMPAIGN}\n`), launcher);
+    assert.match(launcher, new RegExp(`^ {2}1\\. ${DEFAULT_CAMPAIGN}\\b.*$`, 'm'));
+    assert.doesNotMatch(launcher, /^ {2}2\./m);
   }));
 
 test('plain-English genre names resolve to installed genre ids', () => {

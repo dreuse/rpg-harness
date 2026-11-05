@@ -9,10 +9,13 @@ import {
   startScreen,
   stepOf,
 } from '../../../packages/client-protocol/src/guided-start.ts';
+import { hasSearch, homeCards, relativeTime } from '../../../packages/client-protocol/src/home.ts';
 import {
+  CAMPAIGN_HEALTHS,
   type CampaignPanels,
   type CampaignPlan,
   type CampaignSnapshot,
+  type CampaignSummary,
   type ClientCommand,
   EVENT_COMMITTED,
   failure,
@@ -27,7 +30,7 @@ import {
 } from '../../../packages/client-protocol/src/protocol.ts';
 import { parseViewDescriptor } from '../../../packages/client-protocol/src/view-registry.ts';
 import type { Ready } from '../../../packages/client-protocol/src/wire.ts';
-import type { Campaign, CampaignId } from '../../../packages/domain/src/campaign.ts';
+import type { CampaignId } from '../../../packages/domain/src/campaign.ts';
 import { componentLabel, DEFAULT_PREFERENCES, translate, type UiPreferences } from './accessibility.ts';
 
 export const COMPACT_MAX_WIDTH = 720;
@@ -45,6 +48,7 @@ const ACCEPTED = 'Accepted';
 const REJECTED = 'Rejected';
 const PLANNED = 'Planned';
 const CREATED = 'Created';
+const CHANGED = 'Changed';
 const DESKTOP_CLIENT = 'desktop';
 const OPTIONS_REQUEST = planCommand(INITIAL_DRAFT);
 const NO_REVISION = -1;
@@ -67,9 +71,18 @@ export type StartState = {
   readonly plan?: Result<CampaignPlan> | undefined;
   readonly created?: string | undefined;
 };
+export type HomeConfirm = { readonly kind: 'archive' | 'delete'; readonly name: string; readonly archived?: boolean };
+export type HomeState = {
+  readonly query: string;
+  readonly confirm?: HomeConfirm | undefined;
+  readonly undo?: string | undefined;
+  readonly error?: string | undefined;
+};
 export type DesktopState = {
   readonly connection: Connection;
-  readonly campaigns: readonly Campaign[];
+  readonly campaigns: readonly CampaignSummary[];
+  readonly archived: readonly CampaignSummary[];
+  readonly home: HomeState;
   readonly selected?: CampaignId;
   readonly snapshot?: CampaignSnapshot;
   readonly panels?: CampaignPanels;
@@ -107,6 +120,8 @@ export const layoutFor = (width: number): Layout => {
 export const initialState: DesktopState = {
   connection: { status: 'connecting', attempts: 0 },
   campaigns: [],
+  archived: [],
+  home: { query: '' },
   views: {},
   outbox: [],
   rejected: [],
@@ -116,7 +131,31 @@ export const initialState: DesktopState = {
 const statusLabel = ({ status, attempts }: Connection, locale: string) =>
   translate(locale, `status.${status}`, { attempts });
 
-export const viewModel = (state: DesktopState, width: number, preferences: UiPreferences = DEFAULT_PREFERENCES) => {
+const homeOf = ({ campaigns, archived, selected, home }: DesktopState, locale: string, now: number) => {
+  const timed = (list: readonly CampaignSummary[], query?: string) =>
+    homeCards(list, query).map((card) => ({
+      ...card,
+      selected: list.find(({ name }) => name === card.name)?.id === selected,
+      when: relativeTime(card.lastPlayedAt, now, locale),
+    }));
+  return {
+    cards: timed(campaigns, home.query),
+    total: campaigns.length,
+    search: hasSearch(campaigns),
+    query: home.query,
+    archived: timed(archived),
+    confirm: home.confirm,
+    undo: home.undo,
+    error: home.error,
+  };
+};
+
+export const viewModel = (
+  state: DesktopState,
+  width: number,
+  preferences: UiPreferences = DEFAULT_PREFERENCES,
+  now = Date.now(),
+) => {
   const committed = state.snapshot?.turns ?? [];
   const pending = state.outbox.filter(
     ({ campaignId, actionId }) =>
@@ -137,7 +176,8 @@ export const viewModel = (state: DesktopState, width: number, preferences: UiPre
       attempts: state.connection.attempts,
     },
     title: { campaign: state.snapshot?.campaign.name, scene: state.snapshot?.currentScene?.title },
-    campaigns: state.campaigns.map(({ id, name }) => ({ id, name, selected: id === state.selected })),
+    playing: state.selected !== undefined,
+    home: homeOf(state, preferences.locale, now),
     conversation: [
       ...committed.map(({ actionId, input, narration }) => ({ actionId, input, narration, pending: false })),
       ...pending.map(({ actionId, input }) => ({ actionId, input, narration: '', pending: true })),
@@ -162,8 +202,36 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 const isResult = (value: unknown): value is Result<unknown> => isRecord(value) && typeof value.ok === 'boolean';
 const sameCommand = (left: unknown, right: unknown) => JSON.stringify(left) === JSON.stringify(right);
 
-const isCampaign = (value: unknown): value is Campaign =>
-  isRecord(value) && typeof value.id === 'string' && typeof value.name === 'string';
+const textOrNull = (value: unknown) => (typeof value === 'string' ? value : null);
+const pinOf = <T>(value: unknown, field: string) =>
+  isRecord(value) && typeof value.id === 'string' && typeof value[field] === 'string' ? (value as T) : null;
+
+const summariesFrom = (value: unknown): CampaignSummary[] =>
+  (Array.isArray(value) ? value : []).flatMap((item): CampaignSummary[] => {
+    if (!isRecord(item) || typeof item.name !== 'string') return [];
+    const id = textOrNull(item.id);
+    const health = CAMPAIGN_HEALTHS.find((known) => known === item.health) ?? (id === null ? 'unreadable' : 'ok');
+    const characters = Array.isArray(item.characters)
+      ? item.characters.filter(
+          (character): character is CampaignSummary['characters'][number] =>
+            isRecord(character) && typeof character.id === 'string' && typeof character.name === 'string',
+        )
+      : [];
+    return [
+      {
+        id,
+        name: item.name,
+        health,
+        lastPlayedAt: textOrNull(item.lastPlayedAt),
+        sceneTitle: textOrNull(item.sceneTitle),
+        characters,
+        ruleset: pinOf<CampaignSummary['ruleset']>(item.ruleset, 'edition'),
+        genre: pinOf<CampaignSummary['genre']>(item.genre, 'version'),
+        lastNarration: textOrNull(item.lastNarration),
+        turnCount: typeof item.turnCount === 'number' ? item.turnCount : 0,
+      },
+    ];
+  });
 
 const parseLine = (line: string): Record<string, unknown> | undefined => {
   try {
@@ -295,6 +363,26 @@ export const createDesktopClient = ({
     send(LIST_CAMPAIGNS);
   };
 
+  const select = (campaignId: CampaignId) => {
+    const { snapshot, panels, ...rest } = state;
+    state = { ...rest, selected: campaignId, views: {} };
+    update({});
+    follow();
+  };
+
+  const onChanged = (command: unknown, result: Result<unknown>) => {
+    if (!isRecord(command)) return;
+    if (!result.ok) return update({ home: { ...state.home, error: result.error.message } });
+    if (command.type === 'OpenCampaign' && isRecord(result.value) && typeof result.value.id === 'string')
+      select(result.value.id);
+    const undo = command.type === 'ArchiveCampaign' ? (textOrNull(command.name) ?? undefined) : undefined;
+    update({ home: { ...state.home, error: undefined, undo } });
+    send(LIST_CAMPAIGNS);
+  };
+
+  const sendNamed = (type: 'OpenCampaign' | 'ArchiveCampaign' | 'UnarchiveCampaign', name: string) =>
+    send({ version: PROTOCOL_VERSION, type, name });
+
   const onSnapshot = (snapshot: CampaignSnapshot) => {
     const outbox = state.outbox.map((action) =>
       action.campaignId === snapshot.campaignId && action.expectedRevision < snapshot.revision
@@ -320,7 +408,7 @@ export const createDesktopClient = ({
     if (message.type === READY) return onReady(message);
     if (!connected()) return;
     if (message.type === CAMPAIGNS && Array.isArray(message.campaigns))
-      return update({ campaigns: message.campaigns.filter(isCampaign) });
+      return update({ campaigns: summariesFrom(message.campaigns), archived: summariesFrom(message.archived) });
     if (message.type === SNAPSHOT && forSelected(message.snapshot))
       return onSnapshot(message.snapshot as CampaignSnapshot);
     if (message.type === PANELS && forSelected(message.panels))
@@ -333,6 +421,7 @@ export const createDesktopClient = ({
     }
     if (message.type === PLANNED && isResult(message.result)) return onPlanned(message.command, message.result);
     if (message.type === CREATED && isResult(message.result)) return onCreated(message.result);
+    if (message.type === CHANGED && isResult(message.result)) return onChanged(message.command, message.result);
     if (message.type === ACCEPTED) return settle(message.actionId);
     if (message.type === REJECTED) {
       const error = isRecord(message.error) ? String(message.error.message) : String(message.error);
@@ -358,12 +447,37 @@ export const createDesktopClient = ({
       listeners.add(listener);
       return () => listeners.delete(listener);
     },
-    select: (campaignId: CampaignId) => {
-      const { snapshot, panels, ...rest } = state;
-      state = { ...rest, selected: campaignId, views: {} };
-      update({});
-      follow();
+    select,
+    continueCampaign: (name: string) => {
+      update({ home: { ...state.home, confirm: undefined, error: undefined } });
+      sendNamed('OpenCampaign', name);
     },
+    askHome: (kind: HomeConfirm['kind'], name: string, archived = false) =>
+      update({
+        home: { ...state.home, confirm: archived ? { kind, name, archived } : { kind, name }, error: undefined },
+      }),
+    cancelHome: () => update({ home: { ...state.home, confirm: undefined } }),
+    confirmHome: () => {
+      const { confirm } = state.home;
+      if (confirm === undefined) return;
+      update({ home: { ...state.home, confirm: undefined } });
+      if (confirm.kind === 'archive') return sendNamed('ArchiveCampaign', confirm.name);
+      send({
+        version: PROTOCOL_VERSION,
+        type: 'DeleteCampaign',
+        name: confirm.name,
+        confirm: confirm.name,
+        ...(confirm.archived ? { archived: true } : {}),
+      });
+    },
+    undoArchive: () => {
+      const { undo } = state.home;
+      if (undo === undefined) return;
+      update({ home: { ...state.home, undo: undefined } });
+      sendNamed('UnarchiveCampaign', undo);
+    },
+    unarchive: (name: string) => sendNamed('UnarchiveCampaign', name),
+    search: (query: string) => update({ home: { ...state.home, query } }),
     submit: (input: string): Result<SubmitPlayerAction> => {
       const { snapshot } = state;
       const sceneId = snapshot?.currentScene?.id;

@@ -34,6 +34,7 @@ const ISSUE_SEPARATOR = ', ';
 const HEADING_ID = 'heading-';
 const STATUS: Region = 'status';
 const DEFAULT_PANE: Region = 'conversation';
+const HOME_PANE: Region = 'campaigns';
 export const PANE_ATTRIBUTE = 'data-pane';
 const MODIFIERS = [
   ['ctrlKey', 'Ctrl'],
@@ -70,13 +71,67 @@ const diagnostics = ({ diagnostics: { pid, gm, error, attempts } }: ViewModel, l
 const header = ({ title }: ViewModel, locale: string) =>
   `<hgroup><h1 id="${HEADING_ID}status">${escapeHtml(title.campaign ?? translate(locale, 'title.none'))}</h1>${title.scene === undefined ? '' : `<p>${escapeHtml(title.scene)}</p>`}</hgroup>`;
 
+export const HOME_ATTRIBUTE = 'data-home';
+export const HOME_NAME = 'data-name';
+export const HOME_SEARCH = 'home-search';
+const HOME_FIELD_SEPARATOR = ' - ';
+
+type HomeModel = ViewModel['home'];
+type HomeCardModel = HomeModel['cards'][number];
+
+const homeButton = (action: string, locale: string, { id, name }: { id: string; name?: string }) =>
+  `<button type="button" id="${id}" ${HOME_ATTRIBUTE}="${action}"${name === undefined ? '' : ` ${HOME_NAME}="${escapeHtml(name)}" aria-label="${escapeHtml(translate(locale, `home.${action}Label`, { name }))}"`}>${escapeHtml(translate(locale, `home.${action}`))}</button>`;
+
+const cardFields = (card: HomeCardModel) =>
+  [card.characters, card.rules, card.scene, card.when].filter((field) => field !== undefined && field !== '');
+
+const cardDetails = (card: HomeCardModel, locale: string) =>
+  card.health === 'ok'
+    ? `${cardFields(card).length === 0 ? '' : `<p>${escapeHtml(cardFields(card).join(HOME_FIELD_SEPARATOR))}</p>`}${card.narration === undefined ? '' : `<p data-narration>${escapeHtml(card.narration)}</p>`}`
+    : `<p data-problem>${escapeHtml(`${translate(locale, `home.problem.${card.health}`)} ${translate(locale, 'home.restoreHint')}`)}</p>`;
+
+const homeCard = (prefix: string, actions: readonly string[], locale: string) => (card: HomeCardModel, index: number) =>
+  `<li><article aria-labelledby="${prefix}-${index}"${card.selected ? ' aria-current="true"' : ''}><h3 id="${prefix}-${index}">${escapeHtml(card.name)}</h3>${cardDetails(card, locale)}${actions
+    .filter((action) => action !== 'continue' || card.playable)
+    .map((action) =>
+      homeButton(action, locale, {
+        id: `home-${prefix === 'home-archived' && action === 'delete' ? 'archived-' : ''}${action}-${index}`,
+        name: card.name,
+      }),
+    )
+    .join('')}</article></li>`;
+
+const homeNotices = ({ error, undo, confirm }: HomeModel, locale: string) =>
+  [
+    error === undefined ? '' : alert(error),
+    undo === undefined
+      ? ''
+      : `<p role="status">${escapeHtml(translate(locale, 'home.archivedNotice', { name: undo }))} ${homeButton('undo', locale, { id: 'home-undo' })}</p>`,
+    confirm === undefined
+      ? ''
+      : `<div role="alertdialog" aria-labelledby="home-confirm-text"><p id="home-confirm-text">${escapeHtml(translate(locale, `home.ask.${confirm.kind}`, { name: confirm.name }))}</p><button type="button" id="home-confirm" ${HOME_ATTRIBUTE}="confirm">${escapeHtml(translate(locale, `home.${confirm.kind}`))}</button>${homeButton('cancel', locale, { id: 'home-cancel' })}</div>`,
+  ].join('');
+
+const homeList = (home: HomeModel, locale: string) => {
+  if (home.total === 0)
+    return `${empty(locale, 'campaigns')}${button(START_OPEN, 'home', translate(locale, 'start.open'))}`;
+  const search = home.search
+    ? `<label for="${HOME_SEARCH}">${escapeHtml(translate(locale, 'home.search'))}</label><input id="${HOME_SEARCH}" type="search" value="${escapeHtml(home.query)}">`
+    : '';
+  const cards =
+    home.cards.length === 0
+      ? `<p data-empty>${escapeHtml(translate(locale, 'home.noMatch'))}</p>`
+      : `<ul>${home.cards.map(homeCard('home-card', ['continue', 'archive', 'delete'], locale)).join('')}</ul>`;
+  return search + cards;
+};
+
+const archivedList = ({ archived }: HomeModel, locale: string) =>
+  archived.length === 0
+    ? ''
+    : `<details data-archived><summary>${escapeHtml(translate(locale, 'home.archived', { count: archived.length }))}</summary><ul>${archived.map(homeCard('home-archived', ['unarchive', 'delete'], locale)).join('')}</ul></details>`;
+
 const REGION_BODIES: Readonly<Record<Region, (model: ViewModel, locale: string) => string>> = {
-  campaigns: ({ campaigns }, locale) =>
-    orEmpty(
-      campaigns.map(({ id, name, selected }) => button('data-campaign', id, name, selected)),
-      locale,
-      'campaigns',
-    ),
+  campaigns: ({ home }, locale) => homeNotices(home, locale) + homeList(home, locale) + archivedList(home, locale),
   status: (model, locale) =>
     `${header(model, locale)}<p role="status" data-connection="${model.status.connection}">${escapeHtml(model.status.label)}</p>${model.status.canRetry ? button('data-action', 'retry', translate(locale, 'action.retry')) : ''}${diagnostics(model, locale)}`,
   conversation: ({ conversation }, locale) =>
@@ -205,7 +260,11 @@ const paneSwitcher = (regions: readonly Region[], shown: Region, locale: string)
     .map((region) => button(PANE_ATTRIBUTE, region, translate(locale, `region.${region}`), region === shown))
     .join('')}</nav>`;
 
-export const renderView = (model: ViewModel, locale: string, shown: Region = DEFAULT_PANE): string => {
+export const renderView = (
+  model: ViewModel,
+  locale: string,
+  shown: Region = model.playing ? DEFAULT_PANE : HOME_PANE,
+): string => {
   const [single, ...rest] = model.layout.columns;
   const tabbed = single !== undefined && rest.length === 0;
   return `<main data-layout="${model.layout.name}" data-animate="${model.animate}" style="--font-scale: ${model.fontScale}">${renderStart(model, locale)}${tabbed ? paneSwitcher(single, shown, locale) : ''}<div data-columns>${model.layout.columns

@@ -73,8 +73,10 @@ const LIST_CAMPAIGNS = { version: PROTOCOL_VERSION, type: 'ListCampaigns' } as c
 const CREATE = { version: PROTOCOL_VERSION, type: 'CreateCampaign', name: 'Ashfall' } as const;
 const ARCHIVE = { version: PROTOCOL_VERSION, type: 'ArchiveCampaign', name: 'Ashfall' } as const;
 const DELETE = { version: PROTOCOL_VERSION, type: 'DeleteCampaign', name: 'Ashfall', confirm: 'Ashfall' } as const;
+const OPEN = { version: PROTOCOL_VERSION, type: 'OpenCampaign', name: 'Ashfall' } as const;
+const UNARCHIVE = { version: PROTOCOL_VERSION, type: 'UnarchiveCampaign', name: 'Ashfall' } as const;
 const PLAN = { version: PROTOCOL_VERSION, type: 'PlanCampaign' } as const;
-const CAMPAIGN_COMMANDS = [CREATE, ARCHIVE, DELETE];
+const CAMPAIGN_COMMANDS = [CREATE, ARCHIVE, DELETE, OPEN, UNARCHIVE];
 const UNSCOPED_TYPES: readonly string[] = [
   LIST_CAMPAIGNS.type,
   PLAN.type,
@@ -100,6 +102,8 @@ const VALID_COMMANDS = [
   { ...CREATE, choices: { genre: 'fantasy', ruleset: { id: 'd20-lite', edition: null } } },
   ARCHIVE,
   DELETE,
+  OPEN,
+  UNARCHIVE,
   PLAN,
   { ...PLAN, intent: 'D&D 1.9' },
   { ...PLAN, choices: { genre: 'fantasy' } },
@@ -215,6 +219,8 @@ test('UI01: clients cannot bypass the engine or trust unsolicited model state wr
     'CreateCampaign',
     'ArchiveCampaign',
     'DeleteCampaign',
+    'OpenCampaign',
+    'UnarchiveCampaign',
     'PlanCampaign',
     'GetCampaignSnapshot',
     'GetCampaignPanels',
@@ -278,6 +284,8 @@ test('rpg-42a.12: campaign lifecycle commands reject malformed or unexpected fie
   const { confirm: _, ...unconfirmed } = DELETE;
   assert.equal(code(parseCommand(unconfirmed)), 'MalformedCommand');
   assert.equal(code(parseCommand({ ...DELETE, confirm: '' })), 'MalformedCommand');
+  assert.deepEqual(parseCommand({ ...DELETE, archived: true }), { ok: true, value: { ...DELETE, archived: true } });
+  assert.equal(code(parseCommand({ ...DELETE, archived: 'yes' })), 'MalformedCommand');
 });
 
 test('UI01: rejects inherited envelope fields and symbol-keyed extra fields', () => {

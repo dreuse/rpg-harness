@@ -57,6 +57,7 @@ const ELECTRON_VERSIONS = { electron: '43.7.7' };
 const ENABLED = '1';
 const CAMPAIGN = 'Ember';
 const SECOND_CAMPAIGN = 'Frost';
+const UNKNOWN_CAMPAIGN = 'Nowhere';
 const MISSING_DIR = 'missing';
 const EMPTY_FILE = 'Stray';
 const GARBAGE_FILE = 'Junk';
@@ -609,6 +610,66 @@ describe('serve client-protocol commands over the desktop engine daemon', () => 
     assert.equal(rejectionOf(await daemon.command(remove)), 'Rejected');
     assert.ok(existsSync(campaignFile(dataDir, SECOND_CAMPAIGN)));
     acceptedValue(await daemon.command(lifecycle('ArchiveCampaign', { name: CAMPAIGN })));
+  });
+
+  it('rpg-42a.13: opens another campaign, drops old subscriptions and rejects an unknown name', async (t) => {
+    const { env, campaignId } = await campaignEnv(t);
+    await createCampaigns(String(env[DATA_DIR_ENV]), [SECOND_CAMPAIGN]);
+    const daemon = supervise(t, { env });
+    const events: ClientEvent[] = [];
+    await daemon.subscribe(subscribeCommand(campaignId, (await snapshotOf(daemon, campaignId)).revision), (event) =>
+      events.push(event),
+    );
+    const opened = acceptedValue<CampaignSummary>(
+      await daemon.command(lifecycle('OpenCampaign', { name: SECOND_CAMPAIGN })),
+    );
+    assert.equal(opened.name, SECOND_CAMPAIGN);
+    assert.ok(opened.id !== null);
+    assert.equal((await daemon.command(snapshotCommand(campaignId))).type, 'Error');
+    acceptedValue<Accepted>(await daemon.command(actionCommand(await snapshotOf(daemon, opened.id), ACTION)));
+    acceptedValue(await daemon.command(lifecycle('OpenCampaign', { name: CAMPAIGN })));
+    acceptedValue<Accepted>(await daemon.command(actionCommand(await snapshotOf(daemon, campaignId), ACTION)));
+    assert.equal((await daemon.request('Ping')).type, 'Pong');
+    assert.deepEqual(events, []);
+    const unknown = await daemon.command(lifecycle('OpenCampaign', { name: UNKNOWN_CAMPAIGN }));
+    assert.equal(rejectionOf(unknown), 'Rejected');
+    assert.match(String(unknown.result?.ok === false && unknown.result.error.message), /No campaign named/);
+    await snapshotOf(daemon, campaignId);
+  });
+
+  it('rpg-42a.13: lists archived campaigns and unarchives one to undo an archive', async (t) => {
+    const dataDir = tempDataDir(t);
+    await createCampaigns(dataDir, [CAMPAIGN, SECOND_CAMPAIGN]);
+    const daemon = supervise(t, { env: { ...baseEnv(), [DATA_DIR_ENV]: dataDir } });
+    const list = async () =>
+      acceptedValue<CampaignList>(await daemon.command({ version: PROTOCOL_VERSION, type: 'ListCampaigns' }));
+    acceptedValue(await daemon.command(lifecycle('ArchiveCampaign', { name: CAMPAIGN })));
+    const archived = await list();
+    assert.deepEqual(
+      [archived.campaigns.map(({ name }) => name), archived.archived?.map(({ name }) => name)],
+      [[SECOND_CAMPAIGN], [CAMPAIGN]],
+    );
+    assert.equal(archived.archived?.[0]?.health, 'ok');
+    const restored = acceptedValue(await daemon.command(lifecycle('UnarchiveCampaign', { name: CAMPAIGN })));
+    assert.deepEqual(restored, { version: PROTOCOL_VERSION, name: CAMPAIGN });
+    const listed = await list();
+    assert.deepEqual([listed.campaigns.map(({ name }) => name), listed.archived], [[CAMPAIGN, SECOND_CAMPAIGN], []]);
+    assert.equal(rejectionOf(await daemon.command(lifecycle('UnarchiveCampaign', { name: CAMPAIGN }))), 'Rejected');
+  });
+
+  it('rpg-42a.13: deleting an archived campaign keeps the active campaign with the same name', async (t) => {
+    const dataDir = tempDataDir(t);
+    await createCampaigns(dataDir, [CAMPAIGN]);
+    const daemon = supervise(t, { env: { ...baseEnv(), [DATA_DIR_ENV]: dataDir } });
+    acceptedValue(await daemon.command(lifecycle('ArchiveCampaign', { name: CAMPAIGN })));
+    await createCampaigns(dataDir, [CAMPAIGN]);
+    const remove = lifecycle('DeleteCampaign', { name: CAMPAIGN, confirm: CAMPAIGN, archived: true });
+    acceptedValue(await daemon.command(remove));
+    const listed = acceptedValue<CampaignList>(
+      await daemon.command({ version: PROTOCOL_VERSION, type: 'ListCampaigns' }),
+    );
+    assert.deepEqual([listed.campaigns.map(({ name }) => name), listed.archived], [[CAMPAIGN], []]);
+    assert.ok(existsSync(campaignFile(dataDir, CAMPAIGN)));
   });
 
   it('rpg-42a.12: refuses to archive or delete the campaign the engine serves', async (t) => {

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { INITIAL_DRAFT, START_STEPS, type StartDraft } from '../../../packages/client-protocol/src/guided-start.ts';
-import { PROTOCOL_VERSION } from '../../../packages/client-protocol/src/protocol.ts';
+import { type CampaignSummary, PROTOCOL_VERSION } from '../../../packages/client-protocol/src/protocol.ts';
 import { DEFAULT_PREFERENCES, MAX_FONT_SCALE, type RendererAction } from './accessibility.ts';
 import { PREFERENCES_QUERY, START_QUERY } from './preload.ts';
 import { type DesktopState, initialState, REGIONS, viewModel } from './renderer.ts';
@@ -20,7 +20,20 @@ const ESCAPED = '&lt;img src=x onerror=&quot;alert(1)&quot;&gt;&amp;&#39;';
 const state: DesktopState = {
   ...initialState,
   connection: { status: 'disconnected', attempts: 1, lastError: HOSTILE },
-  campaigns: [{ id: CAMPAIGN, name: HOSTILE }],
+  campaigns: [
+    {
+      id: CAMPAIGN,
+      name: HOSTILE,
+      health: 'ok',
+      lastPlayedAt: null,
+      sceneTitle: null,
+      characters: [],
+      ruleset: null,
+      genre: null,
+      lastNarration: null,
+      turnCount: 0,
+    },
+  ],
   selected: CAMPAIGN,
   snapshot: {
     version: PROTOCOL_VERSION,
@@ -61,7 +74,7 @@ test('UI08 escapeHtml neutralises markup characters', () => {
 test('UI08 renderView escapes every untrusted text and labels regions', () => {
   const html = renderView(viewModel(state, WIDE_WIDTH), DEFAULT_PREFERENCES.locale);
   assert.doesNotMatch(html, /<img/);
-  assert.equal(html.split(ESCAPED).length - 1, 11);
+  assert.equal(html.split(ESCAPED).length - 1, 17);
   for (const [region, heading] of [
     ['campaigns', 'Campaigns'],
     ['conversation', 'Conversation'],
@@ -306,4 +319,110 @@ test('rpg-42a.14 keyName reads letter and digit keys from the physical key when 
   assert.equal(keyName({ ...alt, key: 'n', code: 'KeyN' }), 'Alt+N');
   assert.equal(keyName({ ...alt, key: '¡', code: 'Digit1' }), 'Alt+1');
   assert.equal(keyName({ ...alt, altKey: false, key: 'Enter', code: 'Enter' }), 'Enter');
+});
+
+const NOW = Date.parse('2026-11-04T12:00:00.000Z');
+const HOUR_MS = 3_600_000;
+const summary = (name: string, overrides: Partial<CampaignSummary> = {}): CampaignSummary => ({
+  id: `id-${name}`,
+  name,
+  health: 'ok',
+  lastPlayedAt: null,
+  sceneTitle: null,
+  characters: [],
+  ruleset: null,
+  genre: null,
+  lastNarration: null,
+  turnCount: 0,
+  ...overrides,
+});
+const HARBOR = summary('Harbor', {
+  lastPlayedAt: new Date(NOW - HOUR_MS).toISOString(),
+  sceneTitle: 'Docks',
+  characters: [{ id: 'hero', name: 'Ash' }],
+  genre: { id: 'fantasy', version: '1.0.0', provenance: 'derived' },
+  lastNarration: 'The tide turns.',
+});
+const home = (overrides: Partial<DesktopState> = {}, width = WIDE_WIDTH) =>
+  renderView(viewModel({ ...initialState, ...overrides }, width, DEFAULT_PREFERENCES, NOW), 'en');
+
+test('rpg-42a.13 the home shows one line and the guided start when there are no adventures', () => {
+  const html = home();
+  assert.ok(html.includes('<p data-empty>No adventures yet. Start a new adventure to play.</p>'));
+  assert.match(
+    html,
+    /data-region="campaigns"[^>]*><h2[^>]*>Campaigns<\/h2><p data-empty>[^<]*<\/p><button type="button" data-start-open="home">New adventure<\/button>/,
+  );
+  assert.doesNotMatch(html, /home-search|data-archived/);
+});
+
+test('rpg-42a.13 a home card shows where the adventure stopped and continues it', () => {
+  const html = home({ campaigns: [HARBOR] });
+  assert.match(html, /<article aria-labelledby="home-card-0"><h3 id="home-card-0">Harbor<\/h3>/);
+  assert.ok(html.includes('<p>Ash - fantasy - Docks - 1 hour ago</p><p data-narration>The tide turns.</p>'));
+  assert.match(
+    html,
+    /<button type="button" id="home-continue-0" data-home="continue" data-name="Harbor" aria-label="Continue Harbor">Continue<\/button>/,
+  );
+  assert.match(html, /id="home-archive-0" data-home="archive"/);
+  assert.match(html, /id="home-delete-0" data-home="delete"/);
+  assert.doesNotMatch(html, /home-search/);
+});
+
+test('rpg-42a.13 the compact home opens on the campaigns pane until an adventure is playing', () => {
+  assert.match(
+    home({ campaigns: [HARBOR] }, COMPACT_WIDTH),
+    /data-region="campaigns" aria-labelledby="heading-campaigns">/,
+  );
+  assert.match(
+    home({ campaigns: [HARBOR], selected: 'id-Harbor' }, COMPACT_WIDTH),
+    /data-region="campaigns" aria-labelledby="heading-campaigns" hidden>/,
+  );
+});
+
+test('rpg-42a.13 many adventures get a labelled search box and a no-match line', () => {
+  const many = [...Array.from({ length: 5 }, (_, index) => summary(`Tale ${index}`)), HARBOR];
+  const html = home({ campaigns: many, home: { query: 'zzz' } });
+  assert.match(
+    html,
+    /<label for="home-search">Search adventures<\/label><input id="home-search" type="search" value="zzz">/,
+  );
+  assert.match(html, /<p data-empty>No adventures match your search\.<\/p>/);
+  assert.doesNotMatch(html, /home-card-/);
+});
+
+test('rpg-42a.13 unhealthy adventures show the problem and a backup hint instead of continue', () => {
+  const html = home({
+    campaigns: [summary('Junk', { id: null, health: 'unreadable' }), summary('Old', { health: 'needs-migration' })],
+  });
+  assert.match(
+    html,
+    /<h3 id="home-card-0">Junk<\/h3><p data-problem>This save cannot be read\. Restore it from a backup with rpg restore &lt;file&gt;\.<\/p>/,
+  );
+  assert.match(html, /<h3 id="home-card-1">Old<\/h3><p data-problem>This save needs a newer version of the app\./);
+  assert.doesNotMatch(html, /data-home="continue"/);
+  assert.match(html, /id="home-delete-0" data-home="delete" data-name="Junk"/);
+});
+
+test('rpg-42a.13 archive and delete ask first, archive offers undo and archived adventures stay collapsed', () => {
+  const asking = home({ campaigns: [HARBOR], home: { query: '', confirm: { kind: 'delete', name: 'Harbor' } } });
+  assert.match(
+    asking,
+    /<div role="alertdialog" aria-labelledby="home-confirm-text"><p id="home-confirm-text">Delete Harbor for good\? This cannot be undone\.<\/p><button type="button" id="home-confirm" data-home="confirm">Delete<\/button><button type="button" id="home-cancel" data-home="cancel">Cancel<\/button><\/div>/,
+  );
+  const undo = home({ campaigns: [], archived: [summary('Spire')], home: { query: '', undo: 'Spire' } });
+  assert.match(
+    undo,
+    /<p role="status">Archived Spire\. <button type="button" id="home-undo" data-home="undo">Undo<\/button><\/p>/,
+  );
+  assert.match(
+    undo,
+    /<details data-archived><summary>Archived adventures \(1\)<\/summary><ul><li><article aria-labelledby="home-archived-0"><h3 id="home-archived-0">Spire<\/h3>/,
+  );
+  assert.match(
+    undo,
+    /id="home-unarchive-0" data-home="unarchive" data-name="Spire" aria-label="Restore Spire">Restore</,
+  );
+  const failed = home({ campaigns: [HARBOR], home: { query: '', error: 'Campaign Harbor is open in this engine.' } });
+  assert.match(failed, /<p role="alert">Campaign Harbor is open in this engine\.<\/p>/);
 });

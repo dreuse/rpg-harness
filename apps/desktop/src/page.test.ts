@@ -121,6 +121,7 @@ const fakePage = () => {
     press: (key: string, attributes: Record<string, string> = {}, keys: Partial<KeyEventLike> = {}) =>
       listeners.get('keys:keydown')?.(event(attributes, key, keys)),
     submit: (attributes: Record<string, string>) => listeners.get('root:submit')?.(event(attributes)),
+    type: () => listeners.get('root:input')?.(event({})),
   };
 };
 
@@ -159,6 +160,14 @@ const mount = (
   });
 };
 
+const HARBOR = SNAPSHOT.campaign.name;
+
+const continueHarbor = (page: ReturnType<typeof fakePage>) => {
+  page.click({ 'data-home': 'continue', 'data-name': HARBOR });
+  const command = page.sent.findLast(({ type }) => type === 'OpenCampaign');
+  page.receive({ type: 'Changed', command, result: { ok: true, value: SNAPSHOT.campaign } });
+};
+
 const submitted = (page: ReturnType<typeof fakePage>) =>
   page.sent.filter(({ type }) => type === 'SubmitPlayerAction').map((command) => 'input' in command && command.input);
 
@@ -169,8 +178,8 @@ test('rpg-42a.7 page renders the view and drives the client through the bridge',
   assert.equal(page.style[FONT_SCALE_PROPERTY], String(MAX_FONT_SCALE));
   page.receive(READY);
   page.receive({ type: 'Campaigns', campaigns: [SNAPSHOT.campaign] });
-  assert.match(page.root.innerHTML, /data-campaign="c1"/);
-  page.click({ 'data-campaign': CAMPAIGN });
+  assert.match(page.root.innerHTML, /data-home="continue" data-name="Harbor"/);
+  continueHarbor(page);
   assert.ok(page.sent.some((command) => command.type === 'SubscribeEvents'));
   page.receive({ type: 'Snapshot', snapshot: SNAPSHOT });
   page.input.value = 'look around';
@@ -213,7 +222,7 @@ test('A18 page renders voice and opens the mic at startup when saved settings en
 
   page.receive(READY);
   page.receive({ type: 'Campaigns', campaigns: [SNAPSHOT.campaign] });
-  page.click({ 'data-campaign': CAMPAIGN });
+  continueHarbor(page);
   page.receive({ type: 'Snapshot', snapshot: { ...SNAPSHOT, voice: SAVED_VOICE } });
   await settle();
   assert.deepEqual(opened, ['push-to-talk']);
@@ -239,7 +248,7 @@ test('A21 page asks for microphone consent, saves the answer through the engine 
   });
   page.receive(READY);
   page.receive({ type: 'Campaigns', campaigns: [SNAPSHOT.campaign] });
-  page.click({ 'data-campaign': CAMPAIGN });
+  continueHarbor(page);
   page.receive({ type: 'Snapshot', snapshot: SNAPSHOT });
   page.input.value = 'set mic to push-to-talk';
   page.press('Enter');
@@ -295,7 +304,7 @@ test('A21 page retries a voice save rejected as stale and keeps the mic off', as
   });
   page.receive(READY);
   page.receive({ type: 'Campaigns', campaigns: [SNAPSHOT.campaign] });
-  page.click({ 'data-campaign': CAMPAIGN });
+  continueHarbor(page);
   page.receive({ type: 'Snapshot', snapshot: { ...SNAPSHOT, voice: SAVED_VOICE } });
   await settle();
   assert.deepEqual(opened, ['push-to-talk']);
@@ -427,8 +436,12 @@ test('rpg-42a.18 page switches the compact pane from the pane buttons and the fo
   const page = fakePage();
   mount(page, {}, deniedMicrophone, undefined, COMPACT_WIDTH);
   page.receive(READY);
+  assert.ok(shownPane(page.root.innerHTML, 'campaigns'));
+  assert.ok(!shownPane(page.root.innerHTML, 'conversation'));
+  page.receive({ type: 'Campaigns', campaigns: [SNAPSHOT.campaign] });
+  continueHarbor(page);
   assert.ok(shownPane(page.root.innerHTML, 'conversation'));
-  assert.ok(!shownPane(page.root.innerHTML, 'sheet'));
+  assert.ok(!shownPane(page.root.innerHTML, 'campaigns'));
   page.root.querySelector('[data-pane="sheet"]')?.focus();
   page.click({ 'data-pane': 'sheet' });
   assert.ok(shownPane(page.root.innerHTML, 'sheet'));
@@ -439,4 +452,59 @@ test('rpg-42a.18 page switches the compact pane from the pane buttons and the fo
   page.press('3', {}, { altKey: true });
   assert.ok(shownPane(page.root.innerHTML, 'panels'));
   assert.equal(page.focused.at(-1), '[data-region="panels"]');
+});
+
+const MANY_CAMPAIGNS = 6;
+const HOME_SEARCH = '#home-search';
+
+test('rpg-42a.13 page archives after confirmation with focus on the choice, then undoes it', () => {
+  const page = fakePage();
+  mount(page);
+  page.receive(READY);
+  page.receive({ type: 'Campaigns', campaigns: [SNAPSHOT.campaign] });
+  page.click({ 'data-home': 'archive', 'data-name': HARBOR });
+  assert.match(page.root.innerHTML, /role="alertdialog"/);
+  assert.equal(page.focused.at(-1), '#home-cancel');
+  page.click({ 'data-home': 'cancel' });
+  assert.doesNotMatch(page.root.innerHTML, /role="alertdialog"/);
+  assert.deepEqual(sentOf(page, 'ArchiveCampaign'), []);
+  page.click({ 'data-home': 'archive', 'data-name': HARBOR });
+  page.click({ 'data-home': 'confirm' });
+  const archive = sentOf(page, 'ArchiveCampaign').at(-1);
+  assert.ok(archive?.type === 'ArchiveCampaign' && archive.name === HARBOR);
+  page.receive({ type: 'Changed', command: archive, result: { ok: true, value: true } });
+  page.receive({ type: 'Campaigns', campaigns: [], archived: [SNAPSHOT.campaign] });
+  assert.match(page.root.innerHTML, /<details data-archived>/);
+  page.click({ 'data-home': 'undo' });
+  assert.equal(sentOf(page, 'UnarchiveCampaign').length, 1);
+  page.click({ 'data-home': 'unarchive', 'data-name': HARBOR });
+  assert.equal(sentOf(page, 'UnarchiveCampaign').length, 2);
+  page.click({ 'data-home': 'delete', 'data-name': HARBOR });
+  page.click({ 'data-home': 'confirm' });
+  const remove = sentOf(page, 'DeleteCampaign').at(-1);
+  assert.ok(remove?.type === 'DeleteCampaign' && remove.confirm === HARBOR && remove.archived === undefined);
+  page.click({ 'data-home': 'delete', 'data-name': HARBOR, 'data-archived': '' });
+  page.click({ 'data-home': 'confirm' });
+  const archivedRemove = sentOf(page, 'DeleteCampaign').at(-1);
+  assert.ok(archivedRemove?.type === 'DeleteCampaign' && archivedRemove.archived === true);
+});
+
+test('rpg-42a.13 page searches as the player types and keeps Enter on the home controls', async () => {
+  const page = fakePage();
+  mount(page);
+  page.receive(READY);
+  const many = Array.from({ length: MANY_CAMPAIGNS }, (_, index) => ({ id: `c${index}`, name: `Tale ${index}` }));
+  page.receive({ type: 'Campaigns', campaigns: many });
+  page.root.querySelector(HOME_SEARCH)?.focus();
+  page.fields[HOME_SEARCH] = 'tale 3';
+  page.type();
+  assert.match(page.root.innerHTML, /<input id="home-search" type="search" value="tale 3">/);
+  assert.doesNotMatch(page.root.innerHTML, /Tale 2/);
+  assert.equal(page.focused.at(-1), HOME_SEARCH);
+  const before = page.prevented();
+  page.press('Enter', { 'data-region': 'campaigns' });
+  await settle();
+  assert.equal(page.prevented(), before);
+  page.press('Alt+ArrowDown');
+  assert.ok(sentOf(page, 'OpenCampaign').length === 1);
 });

@@ -32,10 +32,12 @@ export const CAPTURE_THEMES = [
 const DEBUGGER_VERSION = '1.3';
 const EMULATE_MEDIA = 'Emulation.setEmulatedMedia';
 const PNG_EXTENSION = '.png';
+const HOME_PREFIX = 'home-';
+const PLAYING_PREFIX = '';
 const SETTLE_TIMEOUT_MS = 5000;
 const SETTLE_POLL_MS = 50;
-const SELECT_FIRST_CAMPAIGN = `new Promise((resolve) => {
-  document.querySelector('[data-campaign]')?.click();
+const CONTINUE_FIRST_CAMPAIGN = `new Promise((resolve) => {
+  document.querySelector('[data-home="continue"]')?.click();
   const deadline = Date.now() + ${SETTLE_TIMEOUT_MS};
   const poll = () => (document.querySelector('[data-region="conversation"] li') || Date.now() > deadline ? resolve() : setTimeout(poll, ${SETTLE_POLL_MS}));
   poll();
@@ -65,18 +67,22 @@ export const captureScreens = async (
   write: (path: string, data: Uint8Array) => void,
 ): Promise<string[]> => {
   const { webContents } = window;
-  await webContents.executeJavaScript(SELECT_FIRST_CAMPAIGN);
   webContents.debugger.attach(DEBUGGER_VERSION);
   const files: string[] = [];
-  for (const { name: themeName, features } of CAPTURE_THEMES) {
-    await webContents.debugger.sendCommand(EMULATE_MEDIA, { features });
-    for (const { name, width } of CAPTURE_LAYOUTS) {
-      window.setContentSize(width, WINDOW_HEIGHT);
-      await webContents.executeJavaScript(settleProbe(name));
-      const file = join(dir, `${name}-${themeName}${PNG_EXTENSION}`);
-      write(file, (await webContents.capturePage()).toPNG());
-      files.push(file);
+  const shoot = async (prefix: string) => {
+    for (const { name: themeName, features } of CAPTURE_THEMES) {
+      await webContents.debugger.sendCommand(EMULATE_MEDIA, { features });
+      for (const { name, width } of CAPTURE_LAYOUTS) {
+        window.setContentSize(width, WINDOW_HEIGHT);
+        await webContents.executeJavaScript(settleProbe(name));
+        const file = join(dir, `${prefix}${name}-${themeName}${PNG_EXTENSION}`);
+        write(file, (await webContents.capturePage()).toPNG());
+        files.push(file);
+      }
     }
-  }
+  };
+  await shoot(HOME_PREFIX);
+  await webContents.executeJavaScript(CONTINUE_FIRST_CAMPAIGN);
+  await shoot(PLAYING_PREFIX);
   return files;
 };

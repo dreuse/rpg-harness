@@ -320,9 +320,47 @@ main > nav button {
   white-space: nowrap;
 }
 
-[data-region="campaigns"] button {
+[data-region="campaigns"] ul {
+  display: grid;
+  gap: var(--space-3);
+  padding: 0;
+  list-style: none;
+}
+
+[data-region="campaigns"] article {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+  padding: var(--space-3);
+  border: var(--border-width) solid var(--border-strong);
+  border-radius: var(--radius-1);
+}
+
+[data-region="campaigns"] article[aria-current="true"] {
+  border-color: var(--accent);
+  box-shadow: inset var(--marker-width) 0 0 var(--accent);
+}
+
+[data-region="campaigns"] article > h3,
+[data-region="campaigns"] article > p {
+  flex-basis: 100%;
+  margin: 0;
+}
+
+[data-narration],
+[data-archived] {
+  color: var(--text-muted);
+}
+
+[data-problem] {
+  color: var(--danger);
+}
+
+[data-region="campaigns"] input[type="search"] {
   width: 100%;
-  text-align: start;
+  min-height: var(--target-min);
+  font: inherit;
 }
 
 #action-form {

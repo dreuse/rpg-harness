@@ -73,14 +73,17 @@ test('rpg-42a.7 Electron launches, loads the page, connects to the engine and qu
   assert.match(await launch(), new RegExp(`^${SMOKE_STATUS}Connected$`, 'm'));
 });
 
+const SHOT_PREFIXES = ['home-', ''];
+
 test('rpg-42a.11 Electron captures a screenshot of each desktop view in each theme', { skip }, async (t) => {
   const dir = process.env[CAPTURE_ENV] || mkdtempSync(join(tmpdir(), 'rpg-desktop-screens-'));
   const stdout = await launch({ [CAPTURE_ENV]: dir, [CAMPAIGN_ENV]: CAMPAIGN }, seedCampaign);
-  for (const theme of CAPTURE_THEMES)
-    for (const layout of CAPTURE_LAYOUTS) {
-      const file = join(dir, `${layout.name}-${theme.name}.png`);
-      assert.ok(stdout.includes(`${CAPTURE_STATUS}${file}`), file);
-      assert.equal(readFileSync(file).subarray(0, SIGNATURE_BYTES).toString(HEX), PNG_SIGNATURE, file);
-    }
+  for (const prefix of SHOT_PREFIXES)
+    for (const theme of CAPTURE_THEMES)
+      for (const layout of CAPTURE_LAYOUTS) {
+        const file = join(dir, `${prefix}${layout.name}-${theme.name}.png`);
+        assert.ok(stdout.includes(`${CAPTURE_STATUS}${file}`), file);
+        assert.equal(readFileSync(file).subarray(0, SIGNATURE_BYTES).toString(HEX), PNG_SIGNATURE, file);
+      }
   t.diagnostic(`screenshots in ${dir}`);
 });
