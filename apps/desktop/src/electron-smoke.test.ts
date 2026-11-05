@@ -70,7 +70,7 @@ const launch = async (extra: NodeJS.ProcessEnv = {}, seed = async (_dataDir: str
 };
 
 test('rpg-42a.7 Electron launches, loads the page, connects to the engine and quits', { skip }, async () => {
-  assert.match(await launch(), new RegExp(`${SMOKE_STATUS}Connected to engine \\d+ \\(fake GM\\)`));
+  assert.match(await launch(), new RegExp(`^${SMOKE_STATUS}Connected$`, 'm'));
 });
 
 test('rpg-42a.11 Electron captures a screenshot of each desktop view in each theme', { skip }, async (t) => {

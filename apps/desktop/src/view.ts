@@ -31,6 +31,10 @@ const ENTITIES: Readonly<Record<string, string>> = {
   "'": '&#39;',
 };
 const ISSUE_SEPARATOR = ', ';
+const HEADING_ID = 'heading-';
+const STATUS: Region = 'status';
+const DEFAULT_PANE: Region = 'conversation';
+export const PANE_ATTRIBUTE = 'data-pane';
 const MODIFIERS = [
   ['ctrlKey', 'Ctrl'],
   ['altKey', 'Alt'],
@@ -44,33 +48,69 @@ const list = (items: readonly string[]) => `<ul>${items.map((item) => `<li>${ite
 const button = (attribute: string, value: string, label: string, current = false) =>
   `<button type="button" ${attribute}="${escapeHtml(value)}"${current ? ' aria-current="true"' : ''}>${escapeHtml(label)}</button>`;
 
-const REGIONS: Readonly<Record<Region, (model: ViewModel, locale: string) => string>> = {
-  campaigns: ({ campaigns }) =>
-    list(campaigns.map(({ id, name, selected }) => button('data-campaign', id, name, selected))),
-  status: ({ status }, locale) =>
-    `<p role="status">${escapeHtml(status.label)}</p>${status.canRetry ? button('data-action', 'retry', translate(locale, 'action.retry')) : ''}`,
+const empty = (locale: string, region: Region) =>
+  `<p data-empty>${escapeHtml(translate(locale, `empty.${region}`))}</p>`;
+const orEmpty = (items: readonly string[], locale: string, region: Region) =>
+  items.length === 0 ? empty(locale, region) : list(items);
+const speaker = (locale: string, who: 'player' | 'gm', text: string) =>
+  `<p data-speaker="${who}"><span data-speaker-label>${escapeHtml(translate(locale, `speaker.${who}`))}</span>${escapeHtml(text)}</p>`;
+const systemLine = (text: string) => `<p data-speaker="system">${escapeHtml(text)}</p>`;
+
+const diagnostics = ({ diagnostics: { pid, gm, error, attempts } }: ViewModel, locale: string) =>
+  `<details data-diagnostics><summary>${escapeHtml(translate(locale, 'diagnostics.summary'))}</summary><dl>${Object.entries(
+    { pid, gm, error, attempts },
+  )
+    .filter(([, value]) => value !== undefined)
+    .map(
+      ([name, value]) =>
+        `<dt>${escapeHtml(translate(locale, `diagnostics.${name}`))}</dt><dd>${escapeHtml(String(value))}</dd>`,
+    )
+    .join('')}</dl></details>`;
+
+const header = ({ title }: ViewModel, locale: string) =>
+  `<hgroup><h1 id="${HEADING_ID}status">${escapeHtml(title.campaign ?? translate(locale, 'title.none'))}</h1>${title.scene === undefined ? '' : `<p>${escapeHtml(title.scene)}</p>`}</hgroup>`;
+
+const REGION_BODIES: Readonly<Record<Region, (model: ViewModel, locale: string) => string>> = {
+  campaigns: ({ campaigns }, locale) =>
+    orEmpty(
+      campaigns.map(({ id, name, selected }) => button('data-campaign', id, name, selected)),
+      locale,
+      'campaigns',
+    ),
+  status: (model, locale) =>
+    `${header(model, locale)}<p role="status" data-connection="${model.status.connection}">${escapeHtml(model.status.label)}</p>${model.status.canRetry ? button('data-action', 'retry', translate(locale, 'action.retry')) : ''}${diagnostics(model, locale)}`,
   conversation: ({ conversation }, locale) =>
     `<ol aria-live="polite">${conversation
       .map(
         ({ actionId, input, narration, pending }) =>
-          `<li data-action-id="${escapeHtml(actionId)}"${pending ? ' aria-busy="true"' : ''}><p>${escapeHtml(input)}</p><p>${escapeHtml(pending ? translate(locale, 'label.pending') : narration)}</p></li>`,
+          `<li data-action-id="${escapeHtml(actionId)}"${pending ? ' aria-busy="true"' : ''}>${speaker(locale, 'player', input)}${pending ? systemLine(translate(locale, 'label.pending')) : speaker(locale, 'gm', narration)}</li>`,
       )
-      .join('')}</ol>`,
-  sheet: ({ sheetLabels }) => list(sheetLabels.map(({ label }) => escapeHtml(label))),
-  panels: ({ panels }) =>
-    panels === undefined
-      ? ''
-      : list(
-          [
+      .join('')}</ol>${conversation.length === 0 ? empty(locale, 'conversation') : ''}`,
+  sheet: ({ sheetLabels }, locale) =>
+    orEmpty(
+      sheetLabels.map(({ label }) => escapeHtml(label)),
+      locale,
+      'sheet',
+    ),
+  panels: ({ panels }, locale) =>
+    orEmpty(
+      panels === undefined
+        ? []
+        : [
             ...panels.inventory.map(({ name }) => name),
             ...panels.quests.map(({ title }) => title),
             ...(panels.recap.scene === undefined ? [] : [panels.recap.scene]),
           ].map(escapeHtml),
-        ),
+      locale,
+      'panels',
+    ),
 };
 
 const section = (name: string, locale: string, body: string) =>
   `<section data-region="${name}" aria-label="${escapeHtml(translate(locale, `region.${name}`))}">${body}</section>`;
+
+const pane = (region: Region, locale: string, body: string, hidden: boolean) =>
+  `<section data-region="${region}" aria-labelledby="${HEADING_ID}${region}"${hidden ? ' hidden' : ''}>${region === STATUS ? '' : `<h2 id="${HEADING_ID}${region}">${escapeHtml(translate(locale, `region.${region}`))}</h2>`}${body}</section>`;
 
 const rejectedAlert = ({ rejected }: ViewModel, locale: string) =>
   rejected.length === 0
@@ -159,13 +199,22 @@ const renderStart = ({ start, created }: ViewModel, locale: string) =>
         ].join(''),
   );
 
-export const renderView = (model: ViewModel, locale: string): string =>
-  `<main data-layout="${model.layout.name}" data-animate="${model.animate}" style="--font-scale: ${model.fontScale}">${renderStart(model, locale)}${model.layout.columns
+const paneSwitcher = (regions: readonly Region[], shown: Region, locale: string) =>
+  `<nav aria-label="${escapeHtml(translate(locale, 'nav.panes'))}">${regions
+    .filter((region) => region !== STATUS)
+    .map((region) => button(PANE_ATTRIBUTE, region, translate(locale, `region.${region}`), region === shown))
+    .join('')}</nav>`;
+
+export const renderView = (model: ViewModel, locale: string, shown: Region = DEFAULT_PANE): string => {
+  const [single, ...rest] = model.layout.columns;
+  const tabbed = single !== undefined && rest.length === 0;
+  return `<main data-layout="${model.layout.name}" data-animate="${model.animate}" style="--font-scale: ${model.fontScale}">${renderStart(model, locale)}${tabbed ? paneSwitcher(single, shown, locale) : ''}<div data-columns>${model.layout.columns
     .map(
       (column) =>
-        `<div>${column.map((region) => section(region, locale, REGIONS[region](model, locale))).join('')}</div>`,
+        `<div>${column.map((region) => pane(region, locale, REGION_BODIES[region](model, locale), tabbed && region !== STATUS && region !== shown)).join('')}</div>`,
     )
-    .join('')}${rejectedAlert(model, locale)}</main>`;
+    .join('')}</div>${rejectedAlert(model, locale)}</main>`;
+};
 
 export const keyName = (event: KeyEventLike) =>
   [

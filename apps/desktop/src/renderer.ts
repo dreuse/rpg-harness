@@ -86,18 +86,19 @@ export type Transport = {
   onClose(listener: (error: string) => void): void;
 };
 
-export type Region = 'campaigns' | 'status' | 'conversation' | 'sheet' | 'panels';
+export const REGIONS = ['campaigns', 'status', 'conversation', 'sheet', 'panels'] as const;
+export type Region = (typeof REGIONS)[number];
 export type Layout = { readonly name: 'compact' | 'medium' | 'wide'; readonly columns: readonly (readonly Region[])[] };
 
 export const layoutFor = (width: number): Layout => {
   if (!(width > COMPACT_MAX_WIDTH))
-    return { name: 'compact', columns: [['status', 'conversation', 'sheet', 'panels']] };
+    return { name: 'compact', columns: [['status', 'conversation', 'sheet', 'panels', 'campaigns']] };
   if (width <= MEDIUM_MAX_WIDTH)
     return {
       name: 'medium',
       columns: [
         ['status', 'conversation'],
-        ['sheet', 'panels'],
+        ['sheet', 'panels', 'campaigns'],
       ],
     };
   return { name: 'wide', columns: [['campaigns'], ['status', 'conversation'], ['sheet', 'panels']] };
@@ -112,8 +113,8 @@ export const initialState: DesktopState = {
   start: { open: false, draft: INITIAL_DRAFT },
 };
 
-const statusLabel = ({ status, attempts, lastError, engine }: Connection, locale: string) =>
-  translate(locale, `status.${status}`, { pid: engine?.pid, gm: engine?.gm, error: lastError, attempts });
+const statusLabel = ({ status, attempts }: Connection, locale: string) =>
+  translate(locale, `status.${status}`, { attempts });
 
 export const viewModel = (state: DesktopState, width: number, preferences: UiPreferences = DEFAULT_PREFERENCES) => {
   const committed = state.snapshot?.turns ?? [];
@@ -129,6 +130,13 @@ export const viewModel = (state: DesktopState, width: number, preferences: UiPre
       canRetry: state.connection.status === 'disconnected',
       queued: state.outbox.length,
     },
+    diagnostics: {
+      pid: state.connection.engine?.pid,
+      gm: state.connection.engine?.gm,
+      error: state.connection.lastError,
+      attempts: state.connection.attempts,
+    },
+    title: { campaign: state.snapshot?.campaign.name, scene: state.snapshot?.currentScene?.title },
     campaigns: state.campaigns.map(({ id, name }) => ({ id, name, selected: id === state.selected })),
     conversation: [
       ...committed.map(({ actionId, input, narration }) => ({ actionId, input, narration, pending: false })),

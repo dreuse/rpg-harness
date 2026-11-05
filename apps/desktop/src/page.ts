@@ -3,7 +3,7 @@ import { createMicrophoneController } from '../../../packages/voice/src/micropho
 import { createSubtitleTranscript } from '../../../packages/voice/src/subtitles.ts';
 import { type RendererAction, SUPPORTED_LOCALES } from './accessibility.ts';
 import { BRIDGE_KEY, type Bridge } from './preload.ts';
-import { createDesktopClient, type DesktopState, type Region, type Transport, viewModel } from './renderer.ts';
+import { createDesktopClient, type DesktopState, REGIONS, type Region, type Transport, viewModel } from './renderer.ts';
 import {
   ALLOW,
   bindKeys,
@@ -11,6 +11,7 @@ import {
   KEEP_DEFAULT,
   type KeyEventLike,
   type KeyTarget,
+  PANE_ATTRIBUTE,
   queryPreferences,
   queryStart,
   renderView,
@@ -46,7 +47,9 @@ const ENTRY_SELECTOR = `#${START_ENTRY}`;
 const TITLE_SELECTOR = `[${START_TITLE}]`;
 const OPEN_SELECTOR = `[${START_OPEN}]`;
 const FOCUSED_SELECTOR = ':focus';
-const FOCUS_ATTRIBUTES = [START_TITLE, START_OPTION, START_CONTROL, START_OPEN];
+const DIAGNOSTICS_SELECTOR = '[data-diagnostics]';
+const LOG_SELECTOR = '[data-region="conversation"] > ol';
+const FOCUS_ATTRIBUTES = [START_TITLE, START_OPTION, START_CONTROL, START_OPEN, PANE_ATTRIBUTE];
 const FOCUS_REGIONS: Partial<Record<RendererAction, Region>> = {
   focusConversation: 'conversation',
   focusSheet: 'sheet',
@@ -77,6 +80,8 @@ const selectorOf = (element: Focusable | null) => {
   const attribute = FOCUS_ATTRIBUTES.find((name) => element.hasAttribute(name));
   return attribute === undefined ? undefined : `[${attribute}="${element.getAttribute(attribute)}"]`;
 };
+
+const isRegion = (value: string | null | undefined): value is Region => REGIONS.some((region) => region === value);
 
 const isStartControl = (value: string | null | undefined): value is StartControl =>
   START_CONTROLS.some((control) => control === value);
@@ -110,13 +115,19 @@ export const mountPage = ({
   });
   let loaded: CampaignSnapshot | undefined;
   let shownStep: string | undefined;
+  let shownPane: Region | undefined;
   const entryValue = () => root.querySelector<HTMLInputElement>(ENTRY_SELECTOR)?.value;
   const render = () => {
     const model = viewModel(client.state(), width(), preferences);
     const focused = selectorOf(root.querySelector<HTMLElement>(FOCUSED_SELECTOR));
     const typed = entryValue();
-    root.innerHTML = renderView(model, preferences.locale) + renderVoice(voice.view(), preferences.locale);
+    const diagnosticsOpen = root.querySelector<HTMLDetailsElement>(DIAGNOSTICS_SELECTOR)?.open === true;
+    root.innerHTML = renderView(model, preferences.locale, shownPane) + renderVoice(voice.view(), preferences.locale);
     root.style.setProperty(FONT_SCALE_PROPERTY, String(model.fontScale));
+    const details = root.querySelector<HTMLDetailsElement>(DIAGNOSTICS_SELECTOR);
+    if (details !== null) details.open = diagnosticsOpen;
+    const log = root.querySelector<HTMLElement>(LOG_SELECTOR);
+    if (log !== null) log.scrollTop = log.scrollHeight;
     if (model.start?.step !== shownStep) {
       shownStep = model.start?.step;
       return root.querySelector<HTMLElement>(shownStep === undefined ? OPEN_SELECTOR : TITLE_SELECTOR)?.focus();
@@ -144,7 +155,12 @@ export const mountPage = ({
     const next = campaigns[(campaigns.findIndex(({ id }) => id === selected) + 1) % campaigns.length];
     if (next !== undefined) client.select(next.id);
   };
+  const showPane = (region: Region) => {
+    shownPane = region;
+    render();
+  };
   const focusRegion = (region: Region) => {
+    showPane(region);
     const section = root.querySelector<HTMLElement>(`[data-region="${region}"]`);
     section?.setAttribute(TABINDEX, PROGRAMMATIC_FOCUS);
     section?.focus();
@@ -169,6 +185,8 @@ export const mountPage = ({
     const target = closestTarget(event);
     const campaign = target?.closest(`[${CAMPAIGN_ATTRIBUTE}]`)?.getAttribute(CAMPAIGN_ATTRIBUTE);
     if (campaign) return client.select(campaign);
+    const pane = target?.closest(`[${PANE_ATTRIBUTE}]`)?.getAttribute(PANE_ATTRIBUTE);
+    if (isRegion(pane)) return showPane(pane);
     const answer = target?.closest(`[${VOICE_ATTRIBUTE}]`)?.getAttribute(VOICE_ATTRIBUTE);
     if (answer === ALLOW) return void voice.allow().then(render);
     if (answer === DECLINE) return void voice.decline().then(render);

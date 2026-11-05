@@ -10,6 +10,7 @@ import type { KeyEventLike } from './view.ts';
 
 const CAMPAIGN = 'c1';
 const WIDE_WIDTH = 1600;
+const COMPACT_WIDTH = 480;
 const READY = { type: 'Ready', version: PROTOCOL_VERSION, pid: 42, node: 'v24', sqlite: true, gm: 'fake' };
 const SNAPSHOT = {
   version: PROTOCOL_VERSION,
@@ -141,6 +142,7 @@ const mount = (
   saved: Partial<UiPreferences> = {},
   openMicrophone = deniedMicrophone,
   startDraft?: StartDraft,
+  width = WIDE_WIDTH,
 ) => {
   const preferences = { ...DEFAULT_PREFERENCES, fontScale: MAX_FONT_SCALE, ...saved };
   let actions = 0;
@@ -151,7 +153,7 @@ const mount = (
       [PREFERENCES_QUERY]: JSON.stringify(preferences),
       ...(startDraft === undefined ? {} : { [START_QUERY]: JSON.stringify(startDraft) }),
     })}`,
-    width: () => WIDE_WIDTH,
+    width: () => width,
     newActionId: () => `a${actions++}`,
     openMicrophone,
   });
@@ -163,7 +165,7 @@ const submitted = (page: ReturnType<typeof fakePage>) =>
 test('rpg-42a.7 page renders the view and drives the client through the bridge', async () => {
   const page = fakePage();
   mount(page);
-  assert.match(page.root.innerHTML, /Connecting to engine/);
+  assert.match(page.root.innerHTML, /role="status" data-connection="connecting">Connecting</);
   assert.equal(page.style[FONT_SCALE_PROPERTY], String(MAX_FONT_SCALE));
   page.receive(READY);
   page.receive({ type: 'Campaigns', campaigns: [SNAPSHOT.campaign] });
@@ -416,4 +418,25 @@ test('rpg-42a.14 page keeps focus and the typed name when an engine reply redraw
   });
   assert.equal(page.focused.at(-1), ENTRY);
   assert.equal(page.fields[ENTRY], GUIDED_NAME);
+});
+
+const shownPane = (html: string, region: string) =>
+  new RegExp(`data-region="${region}" aria-labelledby="heading-${region}">`).test(html);
+
+test('rpg-42a.18 page switches the compact pane from the pane buttons and the focus shortcuts', () => {
+  const page = fakePage();
+  mount(page, {}, deniedMicrophone, undefined, COMPACT_WIDTH);
+  page.receive(READY);
+  assert.ok(shownPane(page.root.innerHTML, 'conversation'));
+  assert.ok(!shownPane(page.root.innerHTML, 'sheet'));
+  page.root.querySelector('[data-pane="sheet"]')?.focus();
+  page.click({ 'data-pane': 'sheet' });
+  assert.ok(shownPane(page.root.innerHTML, 'sheet'));
+  assert.ok(!shownPane(page.root.innerHTML, 'conversation'));
+  assert.equal(page.focused.at(-1), '[data-pane="sheet"]');
+  page.click({ 'data-pane': 'nowhere' });
+  assert.ok(shownPane(page.root.innerHTML, 'sheet'));
+  page.press('3', {}, { altKey: true });
+  assert.ok(shownPane(page.root.innerHTML, 'panels'));
+  assert.equal(page.focused.at(-1), '[data-region="panels"]');
 });

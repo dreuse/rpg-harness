@@ -82,7 +82,7 @@ test('UI10 keyboard controls map keys to renderer actions and can be disabled', 
 });
 
 test('UI10 locale strings fall back to default locale and then to the key', () => {
-  assert.equal(translate('es', 'status.connecting'), 'Conectando con el motor');
+  assert.equal(translate('es', 'status.connecting'), 'Conectando');
   assert.equal(translate('fr', 'status.connecting'), translate('en', 'status.connecting'));
   assert.equal(translate('es', 'no.such.key'), 'no.such.key');
 });

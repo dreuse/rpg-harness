@@ -4,11 +4,15 @@ import { INITIAL_DRAFT, START_STEPS, type StartDraft } from '../../../packages/c
 import { PROTOCOL_VERSION } from '../../../packages/client-protocol/src/protocol.ts';
 import { DEFAULT_PREFERENCES, MAX_FONT_SCALE, type RendererAction } from './accessibility.ts';
 import { PREFERENCES_QUERY, START_QUERY } from './preload.ts';
-import { type DesktopState, initialState, viewModel } from './renderer.ts';
+import { type DesktopState, initialState, REGIONS, viewModel } from './renderer.ts';
 import { bindKeys, escapeHtml, KEEP_DEFAULT, keyName, queryPreferences, queryStart, renderView } from './view.ts';
 
 const WIDE_WIDTH = 1600;
+const MEDIUM_WIDTH = 1000;
 const COMPACT_WIDTH = 480;
+const PID = 4242;
+const DIAGNOSTICS = /<details data-diagnostics>[\s\S]*?<\/details>/;
+const INTERNALS = /engine|process|\bpid\b|fake|4242/i;
 const CAMPAIGN = 'c1';
 const HOSTILE = '<img src=x onerror="alert(1)">&\'';
 const ESCAPED = '&lt;img src=x onerror=&quot;alert(1)&quot;&gt;&amp;&#39;';
@@ -57,9 +61,20 @@ test('UI08 escapeHtml neutralises markup characters', () => {
 test('UI08 renderView escapes every untrusted text and labels regions', () => {
   const html = renderView(viewModel(state, WIDE_WIDTH), DEFAULT_PREFERENCES.locale);
   assert.doesNotMatch(html, /<img/);
-  assert.equal(html.split(ESCAPED).length - 1, 10);
-  for (const region of ['Campaigns', 'Engine status', 'Conversation', 'Character sheet', 'Panels'])
-    assert.match(html, new RegExp(`aria-label="${region}"`));
+  assert.equal(html.split(ESCAPED).length - 1, 11);
+  for (const [region, heading] of [
+    ['campaigns', 'Campaigns'],
+    ['conversation', 'Conversation'],
+    ['sheet', 'Character sheet'],
+    ['panels', 'Journal'],
+  ])
+    assert.match(
+      html,
+      new RegExp(
+        `<section data-region="${region}" aria-labelledby="heading-${region}"><h2 id="heading-${region}">${heading}</h2>`,
+      ),
+    );
+  assert.match(html, /<section data-region="status" aria-labelledby="heading-status"><hgroup><h1 id="heading-status">/);
   assert.match(html, /data-layout="wide"/);
   assert.match(html, /role="status"/);
   assert.match(html, /role="alert"/);
@@ -75,7 +90,90 @@ test('UI08 renderView follows layout, font scale and reduced motion', () => {
   assert.match(html, /data-layout="compact"/);
   assert.match(html, new RegExp(`--font-scale: ${MAX_FONT_SCALE}`));
   assert.match(html, /data-animate="false"/);
-  assert.doesNotMatch(html, /aria-label="Campaigns"/);
+  assert.match(html, /<section data-region="campaigns" aria-labelledby="heading-campaigns" hidden>/);
+});
+
+const connected = (status: DesktopState['connection']['status'], lastError?: string): DesktopState => ({
+  ...initialState,
+  connection: { status, attempts: 1, engine: { pid: PID, gm: 'fake' }, ...(lastError ? { lastError } : {}) },
+});
+
+test('rpg-42a.18 player-facing text has no PID, process or engine wording; details stay in diagnostics', () => {
+  for (const status of ['connecting', 'connected', 'disconnected', 'reconnecting'] as const)
+    for (const locale of ['en', 'es']) {
+      const html = renderView(viewModel(connected(status, `Engine ${PID} exited.`), WIDE_WIDTH), locale);
+      assert.doesNotMatch(html.replace(DIAGNOSTICS, ''), INTERNALS, `${status} ${locale}`);
+    }
+  const html = renderView(viewModel(connected('disconnected', 'boom'), WIDE_WIDTH), 'en');
+  assert.match(html, /<p role="status" data-connection="disconnected">Offline<\/p>/);
+  const diagnostics = DIAGNOSTICS.exec(html)?.[0] ?? '';
+  assert.match(diagnostics, /<summary>Connection details<\/summary>/);
+  assert.match(diagnostics, new RegExp(`<dd>${PID}</dd>`));
+  assert.match(diagnostics, /<dd>fake<\/dd>/);
+  assert.match(diagnostics, /<dd>boom<\/dd>/);
+});
+
+test('rpg-42a.18 every pane has a heading and an empty state', () => {
+  const html = renderView(viewModel(initialState, WIDE_WIDTH), 'en');
+  for (const region of REGIONS)
+    assert.match(html, new RegExp(`aria-labelledby="heading-${region}"><(hgroup><)?h[12] id="heading-${region}">`));
+  assert.match(html, /<h1 id="heading-status">No adventure selected<\/h1>/);
+  for (const text of [
+    'No adventures yet. Start a new adventure to play.',
+    'Your story starts here. Type what your character does, then press Send.',
+    'No character sheet yet.',
+    'Nothing in your journal yet.',
+  ])
+    assert.ok(html.includes(`<p data-empty>${text}</p>`), text);
+  const filled = renderView(viewModel(state, WIDE_WIDTH), 'en');
+  assert.doesNotMatch(filled, /data-empty/);
+});
+
+test('rpg-42a.18 the header shows the campaign name and scene title', () => {
+  const snapshot = state.snapshot as NonNullable<DesktopState['snapshot']>;
+  const scene = {
+    ...state,
+    snapshot: { ...snapshot, currentScene: { id: 's1', campaignId: CAMPAIGN, title: 'Docks' } },
+  };
+  const html = renderView(viewModel(scene, WIDE_WIDTH), 'en');
+  assert.ok(html.includes(`<hgroup><h1 id="heading-status">${ESCAPED}</h1><p>Docks</p></hgroup>`));
+});
+
+test('rpg-42a.18 player, narrator and system lines have distinct speakers', () => {
+  const pending = {
+    ...state,
+    outbox: [{ campaignId: CAMPAIGN, actionId: 'a1', input: 'wait' }],
+  } as unknown as DesktopState;
+  const html = renderView(viewModel(pending, WIDE_WIDTH), 'en');
+  assert.ok(html.includes(`<p data-speaker="player"><span data-speaker-label>You</span>${ESCAPED}</p>`));
+  assert.ok(html.includes(`<p data-speaker="gm"><span data-speaker-label>Narrator</span>${ESCAPED}</p>`));
+  assert.match(
+    html,
+    /<li data-action-id="a1" aria-busy="true"><p data-speaker="player">.*wait<\/p><p data-speaker="system">pending<\/p><\/li>/,
+  );
+});
+
+test('rpg-42a.18 compact width shows one pane at a time with a pane switcher, wider widths show every pane', () => {
+  const compact = renderView(viewModel(state, COMPACT_WIDTH), 'en', 'sheet');
+  assert.match(compact, /<nav aria-label="Panes">/);
+  for (const region of ['conversation', 'sheet', 'panels', 'campaigns'])
+    assert.match(
+      compact,
+      new RegExp(`<button type="button" data-pane="${region}"${region === 'sheet' ? ' aria-current="true"' : ''}>`),
+    );
+  assert.match(compact, /data-region="sheet" aria-labelledby="heading-sheet">/);
+  assert.match(compact, /data-region="status" aria-labelledby="heading-status">/);
+  for (const region of ['conversation', 'panels', 'campaigns'])
+    assert.match(compact, new RegExp(`data-region="${region}" aria-labelledby="heading-${region}" hidden>`));
+  assert.match(
+    renderView(viewModel(state, COMPACT_WIDTH), 'en'),
+    /data-region="sheet" aria-labelledby="heading-sheet" hidden>/,
+  );
+  for (const width of [MEDIUM_WIDTH, WIDE_WIDTH]) {
+    const html = renderView(viewModel(state, width), 'en', 'sheet');
+    assert.doesNotMatch(html, /<nav|hidden>/);
+    for (const region of REGIONS) assert.match(html, new RegExp(`data-region="${region}"`));
+  }
 });
 
 test('UI08 keyName joins modifiers in binding order', () => {

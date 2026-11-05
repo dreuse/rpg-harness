@@ -13,6 +13,7 @@ import {
   type DesktopState,
   initialState,
   layoutFor,
+  REGIONS,
   type Transport,
   viewModel,
 } from './renderer.ts';
@@ -125,11 +126,13 @@ test('UI08: provide responsive desktop conversation, sheets, panels and campaign
   ]);
   assert.deepEqual(wide.sheet, SHEET_VIEW);
   assert.deepEqual(wide.panels?.inventory, PANELS.inventory);
-  assert.equal(wide.status.label, 'Connected to engine 42 (fake GM)');
+  assert.equal(wide.status.label, 'Connected');
+  assert.deepEqual(wide.title, { campaign: 'Harbor', scene: 'Docks' });
+  assert.deepEqual(wide.diagnostics, { pid: 42, gm: 'fake', error: undefined, attempts: 0 });
 
   assert.equal(viewModel(client.state(), MEDIUM_WIDTH).layout.name, 'medium');
   const compact = viewModel(client.state(), COMPACT_WIDTH).layout;
-  assert.deepEqual(compact, { name: 'compact', columns: [['status', 'conversation', 'sheet', 'panels']] });
+  assert.deepEqual(compact, { name: 'compact', columns: [['status', 'conversation', 'sheet', 'panels', 'campaigns']] });
   assert.equal(layoutFor(Number.NaN).name, 'compact');
 
   const submitted = client.submit('look around');
@@ -183,7 +186,7 @@ test('UI08: offline / disconnected engine state is shown accurately with safe re
   assert.equal(wire.connects(), 1);
   assert.deepEqual(viewModel(client.state(), WIDE_WIDTH).status, {
     connection: 'connecting',
-    label: 'Connecting to engine',
+    label: 'Connecting',
     canRetry: false,
     queued: 0,
   });
@@ -203,7 +206,7 @@ test('UI08: offline / disconnected engine state is shown accurately with safe re
   wire.close('Engine 42 exited (1).');
   assert.deepEqual(viewModel(client.state(), WIDE_WIDTH).status, {
     connection: 'disconnected',
-    label: 'Engine offline: Engine 42 exited (1).',
+    label: 'Offline',
     canRetry: true,
     queued: 1,
   });
@@ -216,7 +219,7 @@ test('UI08: offline / disconnected engine state is shown accurately with safe re
   assert.equal(wire.connects(), 2);
   assert.deepEqual(viewModel(client.state(), WIDE_WIDTH).status, {
     connection: 'reconnecting',
-    label: 'Reconnecting to engine (attempt 1)',
+    label: 'Reconnecting (attempt 1)',
     canRetry: false,
     queued: 2,
   });
@@ -278,13 +281,27 @@ test('UI10 status label follows the locale preference', () => {
   const es = { ...DEFAULT_PREFERENCES, locale: 'es' };
   const label = (connection: DesktopState['connection']) =>
     viewModel({ ...initialState, connection }, WIDE_WIDTH, es).status.label;
-  assert.equal(label({ status: 'connecting', attempts: 0 }), 'Conectando con el motor');
-  assert.equal(
-    label({ status: 'connected', attempts: 0, engine: { pid: 42, gm: 'fake' } }),
-    'Conectado al motor 42 (GM fake)',
-  );
-  assert.equal(label({ status: 'disconnected', attempts: 0, lastError: 'boom' }), 'Motor sin conexión: boom');
-  assert.equal(label({ status: 'reconnecting', attempts: 2 }), 'Reconectando con el motor (intento 2)');
+  assert.equal(label({ status: 'connecting', attempts: 0 }), 'Conectando');
+  assert.equal(label({ status: 'connected', attempts: 0, engine: { pid: 42, gm: 'fake' } }), 'Conectado');
+  assert.equal(label({ status: 'disconnected', attempts: 0, lastError: 'boom' }), 'Sin conexión');
+  assert.equal(label({ status: 'reconnecting', attempts: 2 }), 'Reconectando (intento 2)');
+});
+
+test('rpg-42a.18 every pane is in the layout at every width', () => {
+  for (const width of [COMPACT_WIDTH, MEDIUM_WIDTH, WIDE_WIDTH])
+    assert.deepEqual(layoutFor(width).columns.flat().toSorted(), [...REGIONS].toSorted(), String(width));
+  assert.deepEqual(layoutFor(MEDIUM_WIDTH).columns, [
+    ['status', 'conversation'],
+    ['sheet', 'panels', 'campaigns'],
+  ]);
+});
+
+test('rpg-42a.18 the disconnect error stays in diagnostics, not in the status label', () => {
+  const connection = { status: 'disconnected', attempts: 3, lastError: 'Engine 42 exited (1).' } as const;
+  const model = viewModel({ ...initialState, connection }, WIDE_WIDTH);
+  assert.equal(model.status.label, 'Offline');
+  assert.deepEqual(model.diagnostics, { pid: undefined, gm: undefined, error: connection.lastError, attempts: 3 });
+  assert.deepEqual(model.title, { campaign: undefined, scene: undefined });
 });
 
 test('rpg-p5p5: queued actions rebase onto a newer snapshot revision and keep their action id', () => {

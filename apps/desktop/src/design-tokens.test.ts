@@ -161,3 +161,37 @@ test('rpg-42a.11 tokens follow the OS theme, reduce motion and expose one accent
   assert.doesNotMatch(view, /outline:\s*(none|0)\b/);
   assert.doesNotMatch(view, /--accent:/);
 });
+
+test('rpg-42a.18 the action form has a labelled input and a Send button that Enter submits', () => {
+  const page = read(PAGE_HTML);
+  assert.match(page, /<form id="action-form">/);
+  assert.match(page, /<label for="action-input">[^<]+<\/label>/);
+  assert.match(
+    page,
+    /<input id="action-input" name="action" autocomplete="off" enterkeyhint="send" placeholder="[^"]+">/,
+  );
+  assert.match(page, /<button type="submit" aria-keyshortcuts="Enter">Send<\/button>/);
+  assert.doesNotMatch(page, />Act</);
+});
+
+test('rpg-42a.18 the play screen fills the window height and keeps the action input pinned', () => {
+  const view = read(VIEW_CSS);
+  assert.match(view, /body \{[^}]*display: flex;[^}]*flex-direction: column;[^}]*height: 100dvh;/);
+  assert.match(view, /#app \{[^}]*flex: 1;[^}]*min-height: 0;/);
+  assert.match(view, /#action-form \{[^}]*flex: none;/);
+  assert.match(view, /\[data-region="conversation"\] > ol \{[^}]*overflow-y: auto;/);
+  assert.match(view, /section\[hidden\] \{[^}]*display: none;/);
+  for (const layout of ['medium', 'wide'])
+    assert.match(view, new RegExp(`main\\[data-layout="${layout}"\\] \\[data-columns\\]`));
+});
+
+test('rpg-42a.18 narration reads at a comfortable measure in its own font', () => {
+  const tokens = read(TOKENS_CSS);
+  assert.match(tokens, /--measure: 70ch;/);
+  assert.match(tokens, /--font-narration: [^;]*serif;/);
+  assert.match(tokens, /--leading-reading: 1\.[6-9]/);
+  const view = read(VIEW_CSS);
+  assert.match(view, /\[data-speaker="gm"\] \{[^}]*font-family: var\(--font-narration\);/);
+  for (const speaker of ['player', 'gm', 'system'])
+    assert.match(view, new RegExp(`\\[data-speaker="${speaker}"\\] \\{`));
+});
