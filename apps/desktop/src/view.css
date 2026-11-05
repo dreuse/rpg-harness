@@ -507,6 +507,7 @@ main > nav button {
 [data-voice-basic] legend,
 [data-voice-npcs] legend,
 [data-voice-advanced] > summary,
+[data-voice-troubleshooting] > summary,
 [data-voice-advanced] h3 {
   padding: 0;
   font-size: inherit;
@@ -515,17 +516,40 @@ main > nav button {
 
 [data-voice-row] {
   display: grid;
-  grid-template-columns: minmax(0, 2fr) minmax(0, 3fr) auto;
-  align-items: center;
-  gap: var(--space-2);
+  gap: var(--space-1);
 }
 
 [data-voice-row] > :is(select, input) {
   min-block-size: var(--target-min);
+  font: inherit;
 }
 
-[data-voice-row] > :is(select, input):last-child {
-  grid-column: 2 / -1;
+[data-voice-row] > button,
+[data-voice-basic] > button {
+  justify-self: start;
+}
+
+[data-voice-actions] {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+[data-voice-npcs] li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+[data-voice-npcs]:has(#voice-npc-speaker option:checked:not([value=""])) [data-voice-npc-other] {
+  display: none;
+}
+
+button:disabled {
+  color: var(--text-muted);
+  cursor: not-allowed;
 }
 
 [data-voice-advanced] > div {

@@ -1,9 +1,13 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
+import { KOKORO_CAPABILITIES } from '../../../packages/voice/src/kokoro-provider.ts';
+import { MLX_KOKORO_CAPABILITIES, MLX_KOKORO_PROVIDER_ID } from '../../../packages/voice/src/mlx-audio-engine.ts';
 import { initialState, viewModel } from './renderer.ts';
 import { renderView } from './view.ts';
 import type { DesktopVoiceView } from './voice.ts';
 import type { VoiceProviderStatus } from './voice-host.ts';
+import { BRAZILIAN_PROVIDER_ID, VOICE_NAMES } from './voice-names.ts';
 import { DEFAULT_SPEECH, type VoiceSetupView } from './voice-setup.ts';
 
 const WIDE_WIDTH = 1600;
@@ -42,6 +46,7 @@ const ready: VoiceSetupView = {
   error: undefined,
   speech: { ...DEFAULT_SPEECH, volume: 0.5, npcVoices: { [CAMPAIGN]: { [HOSTILE]: 'af_heart' } } },
   npcVoices: { [HOSTILE]: 'af_heart' },
+  speakers: ['Wren'],
   diagnostics: {
     samples: 2,
     firstAudioMs: 243,
@@ -50,10 +55,10 @@ const ready: VoiceSetupView = {
     stages: { synthesis: 200, transfer: 13, decode: 30 },
   },
 };
-const html = (setup: VoiceSetupView, preferences = voice.preferences) =>
+const html = (setup: VoiceSetupView, preferences = voice.preferences, locale = 'en') =>
   renderView(
     viewModel({ ...initialState, selected: 'c1' }, WIDE_WIDTH),
-    'en',
+    locale,
     undefined,
     { ...voice, preferences },
     setup,
@@ -68,9 +73,10 @@ test('rpg-cm63.7 basic voice settings: on/off, mode, narrator voice with preview
   for (const mode of ['off', 'narrator', 'dialogue', 'full', 'cinematic'])
     assert.match(page, new RegExp(`<option value="${mode}"${mode === 'dialogue' ? ' selected' : ''}>`));
   labelled(page, 'voice-narrator', 'Narrator voice');
-  assert.match(page, /<option value="am_adam" selected>am_adam<\/option>/);
-  assert.match(page, /data-voice-preview="narrator"/);
+  assert.match(page, /<option value="am_adam" selected>Adam, male, US English<\/option>/);
+  assert.match(page, /data-voice-preview="narrator" aria-label="Preview the narrator voice">Preview<\/button>/);
   labelled(page, 'voice-language', 'Language');
+  assert.match(page, /<option value="en" selected>English<\/option>/);
   labelled(page, 'voice-speed', 'Speed');
   assert.match(page, /id="voice-speed" type="range" min="0.5" max="2" step="0.1" value="1.2"/);
   labelled(page, 'voice-volume', 'Volume');
@@ -86,15 +92,20 @@ test('rpg-cm63.7 advanced voice settings: provider, NPC voices, installed models
   const page = html(ready);
   assert.match(page, /<details data-voice-advanced><summary>Advanced voice settings<\/summary>/);
   labelled(page, 'voice-provider', 'Voice provider');
+  assert.match(page, /<option value="kokoro" selected>Built-in voice<\/option>/);
   assert.ok(page.includes('&lt;b&gt;Guard&lt;/b&gt;'));
   assert.ok(!page.includes(HOSTILE));
   assert.match(page, /data-voice-npc-preview="&lt;b&gt;Guard&lt;\/b&gt;"/);
   assert.match(page, /data-voice-npc-remove="&lt;b&gt;Guard&lt;\/b&gt;"/);
-  labelled(page, 'voice-npc-name', 'Character name');
+  assert.ok(page.includes('&lt;b&gt;Guard&lt;/b&gt; · Heart, female, US English'));
   labelled(page, 'voice-npc-voice', 'Character voice');
   assert.match(page, /data-voice-npc="add"/);
-  assert.match(page, /<li>kokoro · 310 MiB <button type="button" data-voice-remove="kokoro">Remove<\/button><\/li>/);
-  assert.match(page, /Audio cache: 2 KiB <button type="button" data-voice-clear="cache">Clear cache<\/button>/);
+  assert.match(page, /<li>Built-in voice pack, 310 MB<\/li>/);
+  assert.match(page, /<p>Audio cache: 2 KB<\/p>/);
+  assert.match(
+    page,
+    /<div data-voice-actions><button type="button" data-voice-remove="kokoro" aria-label="Remove voice pack: Built-in voice pack, 310 MB">Remove voice pack<\/button><button type="button" data-voice-clear="cache">Clear cache<\/button><\/div>/,
+  );
   const diagnostics = /<dl data-voice-diagnostics>[\s\S]*?<\/dl>/.exec(page)?.[0] ?? '';
   for (const text of [
     'Time to first audio',
@@ -102,7 +113,7 @@ test('rpg-cm63.7 advanced voice settings: provider, NPC voices, installed models
     'Cache hit rate',
     '50%',
     'Errors',
-    'timeout: 1',
+    'timed out: 1',
     'Speech synthesis',
     '200 ms',
     'Transfer',
@@ -121,15 +132,16 @@ test('rpg-cm63.7 setup flow dialog shows consent with size and source, progress,
   assert.equal(dialog({ step: 'closed' }), '');
   assert.match(dialog({ step: 'checking' }), /Checking voices on this computer/);
   const consent = dialog({ step: 'consent', provider: { ...KOKORO, installed: false } });
-  assert.match(consent, /Use the kokoro voice on this computer/);
-  assert.match(consent, /310 MiB/);
-  assert.match(consent, /huggingface\.co/);
+  assert.match(
+    consent,
+    /Voice needs a one-time download to this computer: Built-in voice pack, 310 MB\. Source: huggingface\.co\./,
+  );
   assert.match(consent, /data-voice-setup="accept" data-primary>Download and continue/);
   assert.match(consent, /data-voice-setup="decline">Not now/);
   const downloading = dialog({ step: 'downloading', progress: { bytes: 155 * MIB, total: 310 * MIB } });
   assert.match(
     downloading,
-    /<div data-voice-progress><progress value="162529280" max="325058560"[^>]*><\/progress><span>155 of 310 MiB<\/span>/,
+    /<div data-voice-progress><progress value="162529280" max="325058560"[^>]*><\/progress><span>155 of 310 MB<\/span>/,
   );
   assert.match(dialog({ step: 'previewing' }), /Playing the narrator/);
   const done = dialog({ step: 'ready' });
@@ -141,6 +153,117 @@ test('rpg-cm63.7 setup flow dialog shows consent with size and source, progress,
     /No voice speaks this language on this computer yet\. The story stays in text\./,
   );
   const failed = dialog({ step: 'failed', error: 'timeout' });
-  assert.match(failed, /role="alert">Voice could not start \(timeout\)\. The story stays in text\./);
+  assert.match(failed, /role="alert">Voice could not start \(timed out\)\. The story stays in text\./);
   assert.match(failed, /data-voice-setup="on">Try again/);
+});
+
+const RAW_IDS = ['kokoro', 'af_heart', ...Object.keys(VOICE_NAMES)];
+const MLX: VoiceProviderStatus = {
+  ...KOKORO,
+  id: BRAZILIAN_PROVIDER_ID,
+  languages: ['pt-BR'],
+  voices: [...MLX_KOKORO_CAPABILITIES.voices],
+};
+const everyVoice: VoiceSetupView = {
+  ...ready,
+  provider: { ...KOKORO, voices: [...KOKORO_CAPABILITIES.voices] },
+  providers: [KOKORO, MLX],
+  speaking: [KOKORO, MLX],
+};
+const visibleText = (page: string) =>
+  `${page.replace(/<[^>]*>/g, ' ')} ${[...page.matchAll(/aria-label="([^"]*)"/g)].map(([, label]) => label).join(' ')}`;
+
+test('rpg-cm63.15 the voice panel never shows a raw provider, voice or model id in English or Portuguese', () => {
+  const steps: Partial<VoiceSetupView>[] = [
+    {},
+    { step: 'consent', provider: { ...KOKORO, installed: false } },
+    { step: 'downloading', progress: { bytes: MIB, total: 310 * MIB } },
+    { step: 'ready' },
+    { step: 'failed', error: 'provider-error' },
+  ];
+  for (const locale of ['en', 'es', 'pt-BR'])
+    for (const step of steps) {
+      const text = visibleText(html({ ...everyVoice, ...step }, voice.preferences, locale)).toLowerCase();
+      for (const id of RAW_IDS) assert.ok(!text.includes(id.toLowerCase()), `${locale} ${step.step ?? 'closed'} ${id}`);
+    }
+});
+
+test('rpg-cm63.15 every hosted provider and voice has a readable name and unknown ids get a neutral label', () => {
+  assert.equal(BRAZILIAN_PROVIDER_ID, MLX_KOKORO_PROVIDER_ID);
+  for (const id of [...KOKORO_CAPABILITIES.voices, ...MLX_KOKORO_CAPABILITIES.voices, MLX_KOKORO_PROVIDER_ID])
+    assert.ok(Object.hasOwn(VOICE_NAMES, id), id);
+  const page = html(everyVoice);
+  assert.match(page, /<option value="kokoro-mlx">Brazilian Portuguese voice<\/option>/);
+  assert.match(page, /<option value="bf_emma">Emma, female, UK English<\/option>/);
+  const strange = html({
+    ...ready,
+    provider: { ...KOKORO, id: 'zz-engine', voices: ['zz_one', 'am_adam'] },
+    speaking: [{ ...KOKORO, id: 'zz-engine' }],
+    providers: [{ ...KOKORO, id: 'zz-engine' }],
+    npcVoices: { Wren: 'zz_gone' },
+  });
+  assert.match(strange, /<option value="zz_one">Voice 1<\/option>/);
+  assert.match(strange, /<option value="zz-engine" selected>Voice provider 1<\/option>/);
+  assert.match(strange, /<li>Voice pack, 310 MB<\/li>/);
+  assert.ok(strange.includes('Wren · Another voice'));
+  assert.doesNotMatch(visibleText(strange), /zz/);
+  assert.match(
+    html(everyVoice, voice.preferences, 'pt-BR'),
+    /<option value="bf_emma">Emma, feminina, inglês britânico<\/option>/,
+  );
+});
+
+test('rpg-cm63.15 the character picker lists known speaking characters plus Other with a free name field', () => {
+  const page = html(ready);
+  labelled(page, 'voice-npc-speaker', 'Character');
+  assert.match(
+    page,
+    /<select id="voice-npc-speaker"><option value="Wren" selected>Wren<\/option><option value="">Other…<\/option><\/select>/,
+  );
+  assert.match(
+    page,
+    /<div data-voice-row data-voice-npc-other><label for="voice-npc-name">Other character name<\/label>/,
+  );
+  const none = html({ ...ready, speakers: [] });
+  assert.doesNotMatch(none, /voice-npc-speaker/);
+  labelled(none, 'voice-npc-name', 'Character name');
+});
+
+test('rpg-cm63.15 each voice choice has a labelled Preview that is disabled while voice is off', () => {
+  const on = html(ready);
+  assert.match(
+    on,
+    /data-voice-preview="character" aria-label="Preview the selected character voice">Preview<\/button>/,
+  );
+  assert.match(
+    on,
+    /data-voice-npc-preview="&lt;b&gt;Guard&lt;\/b&gt;" aria-label="Preview the voice of &lt;b&gt;Guard&lt;\/b&gt;">/,
+  );
+  const off = html(ready, { ...voice.preferences, spokenOutput: 'off' });
+  for (const preview of ['data-voice-preview="narrator"', 'data-voice-preview="character"', 'data-voice-npc-preview='])
+    assert.match(off, new RegExp(`${preview}[^>]* disabled>`), preview);
+  assert.doesNotMatch(on, /data-voice-(npc-)?preview=[^>]* disabled>/);
+});
+
+test('rpg-cm63.15 diagnostics sit in a collapsed Troubleshooting section', () => {
+  const page = html(ready);
+  assert.match(
+    page,
+    /<details data-voice-troubleshooting><summary>Troubleshooting<\/summary><dl data-voice-diagnostics>/,
+  );
+  assert.doesNotMatch(page, /Voice diagnostics/);
+  assert.match(
+    html(ready, voice.preferences, 'pt-BR'),
+    /<details data-voice-troubleshooting><summary>Solução de problemas<\/summary>/,
+  );
+});
+
+test('rpg-cm63.15 voice controls share the body font and one button alignment', () => {
+  const css = readFileSync(new URL('./view.css', import.meta.url), 'utf8');
+  assert.match(css, /\[data-voice-row\] > :is\(select, input\) \{[^}]*font: inherit;/);
+  assert.match(css, /\[data-voice-actions\] \{[^}]*display: flex;/);
+  assert.match(
+    css,
+    /\[data-voice-npcs\]:has\(#voice-npc-speaker option:checked:not\(\[value=""\]\)\) \[data-voice-npc-other\] \{\s*display: none;/,
+  );
 });

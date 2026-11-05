@@ -7,6 +7,7 @@ import {
   browserAudio,
   createVoiceSetup,
   DEFAULT_SPEECH,
+  MAX_NPC_NAME_LENGTH,
   type SpeechPreferences,
   VOICE_ON_MODE,
   type VoiceBridge,
@@ -32,6 +33,7 @@ type Options = {
   providers?: VoiceProviderStatus[];
   failPreview?: unknown;
   failDownload?: unknown;
+  speakers?: string[];
 };
 
 const fakeBridge = ({ installed = false, providers, failPreview, failDownload }: Options = {}) => {
@@ -98,6 +100,7 @@ const setup = (options: Options = {}, speech: SpeechPreferences = DEFAULT_SPEECH
     speech,
     language: () => language,
     campaign: () => campaign,
+    speakers: () => options.speakers ?? [],
     saveSpeech: (next) => saved.push(next),
     setOutput: (mode) => outputs.push(mode),
     changed: () => {
@@ -243,6 +246,24 @@ test('rpg-cm63.7 character voice overrides belong to one campaign and never leak
   const before = saved.length;
   controller.setNpcVoice('Wren', 'am_adam');
   assert.equal(saved.length, before);
+});
+
+test('rpg-cm63.15 offers the known speaking characters that have no voice yet', async () => {
+  const tooLong = 'x'.repeat(MAX_NPC_NAME_LENGTH + 1);
+  const { controller } = setup({ installed: true, speakers: ['Wren', ' ', tooLong, 'Guard', 'Wren'] });
+  await controller.refresh();
+  assert.deepEqual(controller.view().speakers, ['Wren', 'Guard']);
+  controller.setNpcVoice('Guard', 'bf_emma');
+  assert.deepEqual(controller.view().speakers, ['Wren']);
+});
+
+test('rpg-cm63.15 previews a voice choice before it is assigned and ignores voices the provider lacks', async () => {
+  const { controller, calls } = setup({ installed: true });
+  await controller.refresh();
+  await controller.previewVoice('bf_emma');
+  await controller.previewVoice('not-a-voice');
+  const voices = calls.filter(([kind]) => kind === 'preview').map(([, request]) => (request as PreviewRequest).voiceId);
+  assert.deepEqual(voices, ['bf_emma']);
 });
 
 test('rpg-cm63.7 rejects speech settings outside what the provider offers', async () => {

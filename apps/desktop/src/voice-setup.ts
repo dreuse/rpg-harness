@@ -94,6 +94,7 @@ export type VoiceSetupOptions = {
   readonly speech: SpeechPreferences;
   readonly language: () => string;
   readonly campaign: () => string | undefined;
+  readonly speakers?: () => readonly string[];
   readonly speed?: () => number;
   readonly saveSpeech: (speech: SpeechPreferences) => void;
   readonly setOutput: (mode: SpokenOutputMode) => void;
@@ -140,6 +141,7 @@ export const createVoiceSetup = ({
   speech: initial,
   language,
   campaign,
+  speakers = () => [],
   speed = () => DEFAULT_PLAYBACK_SPEED,
   saveSpeech,
   setOutput,
@@ -295,6 +297,20 @@ export const createVoiceSetup = ({
     );
   };
 
+  const previewVoice = async (voiceId: string) => {
+    const provider = active();
+    if (provider === undefined || !provider.voices.includes(voiceId)) return;
+    await play(provider, voiceId);
+  };
+
+  const unvoiced = (voices: NpcVoices) => [
+    ...new Set(
+      speakers()
+        .map((name) => name.trim())
+        .filter((name) => name !== '' && name.length <= MAX_NPC_NAME_LENGTH && !Object.hasOwn(voices, name)),
+    ),
+  ];
+
   const removeModel = async (providerId: string) => {
     if (bridge === undefined) return;
     try {
@@ -317,6 +333,7 @@ export const createVoiceSetup = ({
 
   const view = () => {
     const provider = active();
+    const npcVoices = npcVoicesOf(campaign());
     return {
       step,
       provider,
@@ -327,7 +344,8 @@ export const createVoiceSetup = ({
       progress,
       error,
       speech,
-      npcVoices: npcVoicesOf(campaign()),
+      npcVoices,
+      speakers: unvoiced(npcVoices),
       diagnostics: diagnostics.summary(),
     };
   };
@@ -342,6 +360,7 @@ export const createVoiceSetup = ({
       go('closed');
     },
     preview,
+    previewVoice,
     refresh,
     update,
     setNpcVoice,

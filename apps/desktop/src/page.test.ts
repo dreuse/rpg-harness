@@ -963,3 +963,48 @@ test('rpg-42a.40 desktop voice locale defaults to the campaign language when it 
   await settle();
   assert.match(page.root.innerHTML, /<p data-voice-summary>[^<]*(pt-BR|Portuguese)/);
 });
+
+const installedVoiceBridge = () => {
+  const voice = fakeVoiceBridge();
+  return {
+    ...voice,
+    bridge: {
+      ...voice.bridge,
+      check: async () => ({ providers: [{ ...VOICE_PROVIDER, installed: true }], cacheBytes: 0 }),
+    },
+  };
+};
+
+test('rpg-cm63.15 page assigns a voice to a known character or to an Other name and previews a choice', async () => {
+  const page = fakePage();
+  const voice = installedVoiceBridge();
+  const preferences: unknown[] = [];
+  mount(page, {}, deniedMicrophone, undefined, WIDE_WIDTH, {
+    bridge: { ...page.bridge, voice: voice.bridge, savePreferences: (saved) => preferences.push(saved) },
+    audio: { play: async () => ({ decodeMs: 1 }) },
+  });
+  page.receive(READY);
+  continueHarbor(page);
+  page.receive({ type: 'Snapshot', snapshot: SNAPSHOT });
+  page.click({ 'data-voice-setup': 'on' });
+  await settle();
+  await settle();
+  page.click({ 'data-voice-setup': 'finish' });
+  assert.match(page.root.innerHTML, /<select id="voice-npc-speaker"><option value="Ash" selected>Ash<\/option>/);
+  page.fields['#voice-npc-voice'] = 'am_adam';
+  page.click({ 'data-voice-preview': 'character' });
+  await settle();
+  assert.equal((voice.previews.at(-1) as { voiceId: string }).voiceId, 'am_adam');
+  page.fields['#voice-npc-speaker'] = 'Ash';
+  page.fields['#voice-npc-name'] = 'Ignored';
+  page.fields['#voice-npc-voice'] = 'am_adam';
+  page.click({ 'data-voice-npc': 'add' });
+  page.fields['#voice-npc-speaker'] = '';
+  page.fields['#voice-npc-name'] = 'Wren';
+  page.fields['#voice-npc-voice'] = 'af_heart';
+  page.click({ 'data-voice-npc': 'add' });
+  assert.deepEqual((preferences.at(-1) as UiPreferences).speech.npcVoices, {
+    [CAMPAIGN]: { Ash: 'am_adam', Wren: 'af_heart' },
+  });
+  assert.doesNotMatch(page.root.innerHTML, /voice-npc-speaker/);
+});

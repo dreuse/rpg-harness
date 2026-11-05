@@ -169,6 +169,24 @@ const SHEET_VALUE = `document.querySelector('[data-stat="${JOURNEY_EDIT.fieldId}
 
 type JourneyStep = { readonly script: string; readonly shot?: string };
 
+const FINISH_VOICE_SETUP = steps(
+  click('[data-voice-setup="finish"]'),
+  `await ${until(`!document.querySelector('[data-voice-step]')`)};`,
+  `document.querySelector('[data-settings]').open = true;`,
+  `document.querySelector('[data-voice-basic]').scrollIntoView({ block: 'start' });`,
+);
+const OPEN_ADVANCED_VOICE = steps(
+  `document.querySelector('[data-voice-advanced]').open = true;`,
+  `document.querySelector('[data-voice-advanced]').scrollIntoView({ block: 'start' });`,
+);
+const SET_UP_VOICE = steps(
+  `document.querySelector('[data-settings]').open = true;`,
+  click('[data-voice-setup="on"]'),
+  `await ${until(`document.querySelector('[data-voice-step="consent"]')`)};`,
+  click('[data-voice-setup="accept"]'),
+  `await ${until(`document.querySelector('[data-voice-step="ready"]')`)};`,
+);
+
 const FIRST_HOME = until(`${CONNECTED} && document.querySelector('main[data-screen="home"] [data-start-open]')`);
 const OPEN_START = steps(
   click('[data-start-open]'),
@@ -267,16 +285,8 @@ export const JOURNEY: Readonly<Record<'first' | 'reopen' | 'portuguese' | 'dicel
       script: until(`document.querySelector('[data-voice-step="ready"]')`),
       shot: 'voice-ready',
     },
-    {
-      script: steps(
-        click('[data-voice-setup="finish"]'),
-        `await ${until(`!document.querySelector('[data-voice-step]')`)};`,
-        `document.querySelector('[data-settings]').open = true;`,
-        `document.querySelector('[data-voice-advanced]').open = true;`,
-        `document.querySelector('[data-voice-advanced]').scrollIntoView({ block: 'start' });`,
-      ),
-      shot: 'voice-settings',
-    },
+    { script: FINISH_VOICE_SETUP, shot: 'voice-basic' },
+    { script: OPEN_ADVANCED_VOICE, shot: 'voice-settings' },
     {
       script: steps(
         click('[data-voice-setup="off"]'),
@@ -309,6 +319,9 @@ export const JOURNEY: Readonly<Record<'first' | 'reopen' | 'portuguese' | 'dicel
     { script: OPEN_START, shot: 'pt-BR-guided-start' },
     { script: guide(PORTUGUESE_GUIDE, PORTUGUESE_FEATURE) },
     { script: FIRST_TURN, shot: 'pt-BR-play' },
+    { script: SET_UP_VOICE },
+    { script: FINISH_VOICE_SETUP, shot: 'pt-BR-voice-basic' },
+    { script: OPEN_ADVANCED_VOICE, shot: 'pt-BR-voice-settings' },
   ],
 };
 

@@ -10,6 +10,7 @@ import { createDesktopClient, type DesktopState, REGIONS, type Region, type Tran
 import {
   ALLOW,
   bindKeys,
+  CHARACTER_PREVIEW,
   cssEscape,
   DECLINE,
   GM_DEFAULTS_FORM,
@@ -46,6 +47,7 @@ import {
   VOICE_NPC_NAME,
   VOICE_NPC_PREVIEW,
   VOICE_NPC_REMOVE,
+  VOICE_NPC_SPEAKER,
   VOICE_NPC_VOICE,
   VOICE_PREVIEW,
   VOICE_REMOVE,
@@ -86,7 +88,13 @@ const FOCUSED_SELECTOR = ':focus';
 const STEP_INDEX = /^\d+$/;
 const ARCHIVED_SELECTOR = '[data-archived]';
 const SETTINGS_SELECTOR = '[data-settings]';
-const DISCLOSURE_SELECTORS = ['[data-diagnostics]', ARCHIVED_SELECTOR, SETTINGS_SELECTOR, '[data-voice-advanced]'];
+const DISCLOSURE_SELECTORS = [
+  '[data-diagnostics]',
+  ARCHIVED_SELECTOR,
+  SETTINGS_SELECTOR,
+  '[data-voice-advanced]',
+  '[data-voice-troubleshooting]',
+];
 const HOME_REGION = '[data-region="campaigns"]';
 const KEEP_ENTER_REGIONS = [START_REGION, HOME_REGION, '[data-region="status"]', '[data-region="sheet"]'];
 const SHEET_INPUT_SELECTOR = `#${SHEET_INPUT}`;
@@ -204,6 +212,7 @@ export const mountPage = ({
     speech: saved.speech,
     language: () => voice.view().preferences.locale,
     campaign: () => loaded?.campaignId,
+    speakers: () => loaded?.characters.map(({ name }) => name) ?? [],
     speed: () => voice.view().preferences.speed,
     saveSpeech: (speech: SpeechPreferences) => {
       saved = { ...saved, speech };
@@ -415,17 +424,17 @@ export const mountPage = ({
     decline: setup.decline,
     finish: setup.finish,
   };
+  const fieldValue = (id: string) => root.querySelector<HTMLInputElement | HTMLSelectElement>(`#${id}`)?.value ?? '';
   const voiceClicks: readonly [string, (value: string) => unknown][] = [
     [VOICE_SETUP, (action) => setupActions[action]?.()],
-    [VOICE_PREVIEW, () => setup.preview()],
+    [
+      VOICE_PREVIEW,
+      (value) => (value === CHARACTER_PREVIEW ? setup.previewVoice(fieldValue(VOICE_NPC_VOICE)) : setup.preview()),
+    ],
     [VOICE_NPC_PREVIEW, setup.preview],
     [
       VOICE_NPC,
-      () =>
-        setup.setNpcVoice(
-          root.querySelector<HTMLInputElement>(`#${VOICE_NPC_NAME}`)?.value ?? '',
-          root.querySelector<HTMLSelectElement>(`#${VOICE_NPC_VOICE}`)?.value ?? '',
-        ),
+      () => setup.setNpcVoice(fieldValue(VOICE_NPC_SPEAKER) || fieldValue(VOICE_NPC_NAME), fieldValue(VOICE_NPC_VOICE)),
     ],
     [VOICE_NPC_REMOVE, setup.removeNpcVoice],
     [VOICE_REMOVE, setup.removeModel],
