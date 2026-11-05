@@ -1,11 +1,17 @@
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { CAPTURE_LAYOUTS, CAPTURE_THEMES, type CaptureWindow, captureScreens } from './capture.ts';
+import { runInNewContext } from 'node:vm';
+import { CAPTURE_LAYOUTS, CAPTURE_THEMES, type CaptureWindow, captureJourney, captureScreens } from './capture.ts';
 import { layoutFor } from './renderer.ts';
 
 const DIR = '/shots';
-const PNG = new Uint8Array([1, 2, 3]);
+const BASE64 = 'base64';
+const PNG = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
+  BASE64,
+);
+const SCREENSHOT = 'Page.captureScreenshot';
 
 const fakeWindow = () => {
   const calls: string[] = [];
@@ -14,13 +20,15 @@ const fakeWindow = () => {
     webContents: {
       debugger: {
         attach: () => calls.push('attach'),
-        sendCommand: async (method, params) => calls.push(`${method} ${JSON.stringify(params)}`),
+        sendCommand: async (method, params) => {
+          calls.push(`${method} ${JSON.stringify(params)}`);
+          return method === SCREENSHOT ? { data: PNG.toString(BASE64) } : {};
+        },
       },
       executeJavaScript: async (code) =>
         calls.push(
           code.includes('[data-home="continue"]') ? 'select' : `settle ${/data-layout="(\w+)"/.exec(code)?.[1]}`,
         ),
-      capturePage: async () => ({ toPNG: () => PNG }),
     },
   };
   return { window, calls };
@@ -46,7 +54,7 @@ test('rpg-42a.11 captureScreens writes the home, then one screenshot per layout 
   const expected = [...shots('home-'), ...shots('')];
   assert.deepEqual(files, expected);
   assert.deepEqual([...written.keys()], expected);
-  assert.ok([...written.values()].every((data) => data === PNG));
+  assert.ok([...written.values()].every((data) => PNG.equals(data)));
   assert.equal(calls[0], 'attach');
   assert.equal(calls.filter((call) => call === 'select').length, 1);
   const media = calls.filter((call) => call.startsWith('Emulation.setEmulatedMedia')).slice(CAPTURE_THEMES.length);
@@ -80,4 +88,48 @@ test('rpg-42a.30 capture waits until the page matches the emulated theme before 
       `matchMedia(${JSON.stringify('(prefers-color-scheme: dark) and (prefers-contrast: more) and (prefers-reduced-motion: reduce)')}).matches`,
     ),
   );
+});
+
+const NEVER_READY = {
+  document: { querySelector: () => null },
+  matchMedia: () => ({ matches: false }),
+  setTimeout: (callback: () => void) => queueMicrotask(callback),
+  requestAnimationFrame: (callback: () => void) => queueMicrotask(callback),
+};
+
+test('rpg-42a.32 capture fails instead of shooting when the page never reaches the emulated theme', async () => {
+  const scripts: string[] = [];
+  const { window } = fakeWindow();
+  const executeJavaScript = window.webContents.executeJavaScript;
+  const recorded: CaptureWindow = {
+    ...window,
+    webContents: {
+      ...window.webContents,
+      executeJavaScript: (code) => {
+        scripts.push(code);
+        return executeJavaScript(code);
+      },
+    },
+  };
+  await captureScreens(recorded, DIR, () => {});
+  const settle = scripts.find((code) => code.includes('data-layout')) ?? '';
+  let now = 0;
+  const clock = { now: () => (now += Number.MAX_SAFE_INTEGER / 2) };
+  await assert.rejects(
+    runInNewContext(settle, { ...NEVER_READY, Date: clock }) as Promise<unknown>,
+    /timed out waiting for/,
+  );
+});
+
+test('rpg-42a.32 capture takes each screenshot from a freshly presented compositor frame', async () => {
+  const { window, calls } = fakeWindow();
+  const written = new Map<string, Uint8Array>();
+  const files = await captureJourney(window, DIR, (path, data) => written.set(path, data), [
+    { script: '', shot: 'home' },
+  ]);
+  assert.deepEqual(
+    calls.filter((call) => call.startsWith(SCREENSHOT)),
+    CAPTURE_THEMES.map(() => `${SCREENSHOT} {"format":"png"}`),
+  );
+  assert.ok(files.every((file) => PNG.equals(written.get(file) ?? new Uint8Array())));
 });

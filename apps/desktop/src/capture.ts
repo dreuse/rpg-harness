@@ -48,12 +48,17 @@ type MediaFeature = { readonly name: string; readonly value: string };
 const MEDIA_JOIN = ' and ';
 const mediaQuery = (features: readonly MediaFeature[]) =>
   features.map(({ name, value }) => `(${name}: ${value})`).join(MEDIA_JOIN);
-const settleProbe = (layout: string, features: readonly MediaFeature[]) => `new Promise((resolve) => {
-  const deadline = Date.now() + ${SETTLE_TIMEOUT_MS};
-  const frames = () => requestAnimationFrame(() => requestAnimationFrame(resolve));
-  const poll = () => ((document.querySelector('main[data-layout="${layout}"]') && matchMedia(${JSON.stringify(mediaQuery(features))}).matches) || Date.now() > deadline ? frames() : setTimeout(poll, ${SETTLE_POLL_MS}));
-  poll();
-})`;
+const settleProbe = (layout: string, features: readonly MediaFeature[]) =>
+  until(
+    `document.querySelector('main[data-layout="${layout}"]') && matchMedia(${JSON.stringify(mediaQuery(features))}).matches`,
+  );
+const SCREENSHOT = 'Page.captureScreenshot';
+const SCREENSHOT_PARAMS = { format: 'png' };
+const BASE64 = 'base64';
+const screenshot = async ({ webContents }: CaptureWindow) => {
+  const { data } = (await webContents.debugger.sendCommand(SCREENSHOT, SCREENSHOT_PARAMS)) as { data: string };
+  return Buffer.from(data, BASE64);
+};
 
 export type CaptureWindow = {
   setContentSize(width: number, height: number): void;
@@ -63,7 +68,6 @@ export type CaptureWindow = {
       sendCommand(method: string, params: object): Promise<unknown>;
     };
     executeJavaScript(code: string): Promise<unknown>;
-    capturePage(): Promise<{ toPNG(): Uint8Array }>;
   };
 };
 
@@ -82,7 +86,7 @@ export const captureScreens = async (
         window.setContentSize(width, WINDOW_HEIGHT);
         await webContents.executeJavaScript(settleProbe(name, features));
         const file = join(dir, `${prefix}${name}-${themeName}${PNG_EXTENSION}`);
-        write(file, (await webContents.capturePage()).toPNG());
+        write(file, await screenshot(window));
         files.push(file);
       }
     }
@@ -265,7 +269,7 @@ export const captureJourney = async (
       await webContents.debugger.sendCommand(EMULATE_MEDIA, { features });
       await webContents.executeJavaScript(settleProbe(WIDE_LAYOUT, features));
       const file = join(dir, `${shot}-${themeName}${PNG_EXTENSION}`);
-      const png = (await webContents.capturePage()).toPNG();
+      const png = await screenshot(window);
       write(file, png);
       const { width, height } = decodePng(png);
       const audit = await webContents.executeJavaScript(AUDIT_PROBE);
