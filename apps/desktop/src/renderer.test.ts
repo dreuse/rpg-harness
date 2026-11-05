@@ -852,3 +852,95 @@ test('rpg-42a.38 a sheetless campaign still requests the view that carries the c
     ['SubmitPlayerAction', 'GetCampaignSnapshot', 'RequestView'],
   );
 });
+
+const lastNarration = (client: ReturnType<typeof connectedClient>['client']) =>
+  viewModel(client.state(), WIDE_WIDTH).conversation.at(-1)?.narration;
+
+const recordedWithoutReply = (turnId: string, revision = 2) => {
+  const recorded = snapshotAt(revision, ['old', 'a0']);
+  const turns = recorded.turns.map((turn, index) => (index === 1 ? { ...turn, id: turnId, narration: '' } : turn));
+  return { ...recorded, turns };
+};
+
+test('rpg-cm63.22 streamed narration fills the pending turn and the turn recorded without a reply while in flight', () => {
+  const { wire, client } = connectedClient();
+  client.submit('look around');
+  wire.receive({ type: 'Narration', turnId: 't9', text: 'The door creaks open.' });
+  wire.receive({ type: 'Narration', turnId: 't9', text: 'Dust falls.' });
+  assert.equal(lastNarration(client), 'The door creaks open. Dust falls.');
+  assert.equal(viewModel(client.state(), WIDE_WIDTH).conversation.at(-1)?.pending, true);
+  wire.receive({ type: 'Snapshot', snapshot: recordedWithoutReply('t9') });
+  assert.equal(lastNarration(client), 'The door creaks open. Dust falls.');
+  wire.receive({ type: 'Accepted', actionId: 'a0', revision: 2 });
+  wire.receive({ type: 'Snapshot', snapshot: snapshotAt(3, ['old', 'a0']) });
+  assert.equal(lastNarration(client), 'narration a0');
+});
+
+test('rpg-cm63.22 a failed narration leaves no partial streamed text once the action settles', () => {
+  for (const settled of [
+    { type: 'Accepted', actionId: 'a0' },
+    { type: 'Rejected', actionId: 'a0', error: 'no' },
+  ]) {
+    const { wire, client } = connectedClient();
+    client.submit('look around');
+    wire.receive({ type: 'Narration', turnId: 't9', text: 'Half a sentence' });
+    wire.receive({ type: 'Snapshot', snapshot: recordedWithoutReply('t9') });
+    wire.receive(settled);
+    assert.equal(client.state().streaming, undefined);
+    wire.receive({ type: 'Snapshot', snapshot: recordedWithoutReply('t9', 3) });
+    assert.equal(lastNarration(client), '');
+  }
+});
+
+test('rpg-cm63.22 a late narration for an earlier turn is ignored', () => {
+  const { wire, client } = connectedClient();
+  client.submit('one');
+  wire.receive({ type: 'Snapshot', snapshot: recordedWithoutReply('t9') });
+  wire.receive({ type: 'Accepted', actionId: 'a0', revision: 2 });
+  wire.receive({ type: 'Narration', turnId: 't9', text: 'Too late.' });
+  assert.equal(client.state().streaming, undefined);
+  client.submit('two');
+  wire.receive({ type: 'Narration', turnId: 't9', text: 'Still too late.' });
+  assert.equal(client.state().streaming, undefined);
+  assert.equal(lastNarration(client), '');
+  wire.receive({ type: 'Narration', turnId: 't10', text: 'Fresh.' });
+  assert.equal(lastNarration(client), 'Fresh.');
+});
+
+test('rpg-cm63.22 a new turn id restarts the streamed text and a new action clears it', () => {
+  const { wire, client } = connectedClient();
+  client.submit('one');
+  wire.receive({ type: 'Narration', turnId: 't1', text: 'First turn.' });
+  wire.receive({ type: 'Narration', turnId: 't2', text: 'Second turn.' });
+  assert.equal(lastNarration(client), 'Second turn.');
+  client.submit('two');
+  assert.equal(lastNarration(client), '');
+});
+
+test('rpg-cm63.22 narration lines with a bad shape are ignored and a closed session drops the stream', () => {
+  const { wire, client } = connectedClient();
+  client.submit('look');
+  for (const line of [
+    { type: 'Narration', turnId: 1, text: 'x' },
+    { type: 'Narration', turnId: 't1' },
+    { type: 'Narration', turnId: 't1', text: { nested: true } },
+  ])
+    wire.receive(line);
+  assert.equal(lastNarration(client), '');
+  wire.receive({ type: 'Narration', turnId: 't1', text: 'Heard.' });
+  client.goHome();
+  assert.equal(client.state().streaming, undefined);
+});
+
+test('rpg-cm63.22 the page shows streamed narration in place of the pending label and escapes it', () => {
+  const { wire, client } = connectedClient();
+  client.submit('look');
+  assert.match(renderView(viewModel(client.state(), WIDE_WIDTH), 'en'), /Waiting|pending/i);
+  wire.receive({ type: 'Narration', turnId: 't1', text: '<b>Wind</b> rises.' });
+  const html = renderView(viewModel(client.state(), WIDE_WIDTH), 'en');
+  assert.match(
+    html,
+    /<p data-speaker="gm"><span data-speaker-label>[^<]*<\/span>&lt;b&gt;Wind&lt;\/b&gt; rises\.<\/p>/,
+  );
+  assert.doesNotMatch(html, /<b>Wind/);
+});

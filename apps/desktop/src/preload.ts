@@ -20,6 +20,7 @@ export const CHANNELS = {
   voicePreview: 'rpg:voice:preview',
   voiceClear: 'rpg:voice:clear',
   voicePlayback: 'rpg:voice:playback',
+  voiceDiagnostics: 'rpg:voice:diagnostics',
 } as const;
 
 export type Bridge = Transport & {
@@ -54,6 +55,7 @@ export const exposeBridge = ({
       remove: (providerId) => ipcRenderer.invoke(CHANNELS.voiceRemove, providerId) as never,
       preview: (request) => ipcRenderer.invoke(CHANNELS.voicePreview, request) as never,
       clearCache: () => ipcRenderer.invoke(CHANNELS.voiceClear) as never,
+      diagnostics: () => ipcRenderer.invoke(CHANNELS.voiceDiagnostics) as never,
       playback: (command) => ipcRenderer.invoke(CHANNELS.voicePlayback, command) as never,
       onProgress: (listener) => ipcRenderer.on(CHANNELS.voiceProgress, (_event, bytes) => listener(Number(bytes))),
     },

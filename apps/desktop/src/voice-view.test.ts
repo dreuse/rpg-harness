@@ -54,6 +54,7 @@ const ready: VoiceSetupView = {
     errors: { timeout: 1 },
     stages: { synthesis: 200, transfer: 13, decode: 30 },
   },
+  engine: undefined,
 };
 const html = (setup: VoiceSetupView, preferences = voice.preferences, locale = 'en') =>
   renderView(
@@ -280,4 +281,35 @@ test('rpg-cm63.17 voice settings show pause, resume, skip and stop only while sp
     assert.match(page, new RegExp(`<button type="button" data-voice-playback="${command}">${label}</button>`));
   assert.doesNotMatch(html(ready, { ...voice.preferences, spokenOutput: 'off' }), /data-voice-playback/);
   assert.match(html(ready, voice.preferences, 'pt-BR'), /data-voice-playback="pause">Pausar<\/button>/);
+});
+
+test('rpg-cm63.22 playback buttons sit on the play screen before the settings menu', () => {
+  const page = html(ready);
+  assert.ok(page.indexOf('data-voice-playback="pause"') < page.indexOf('<details data-settings>'));
+  assert.equal(page.split('data-voice-playback-group').length, 2);
+});
+
+const ENGINE = { samples: 3, cacheHitRate: 0, errors: { timeout: 2 }, stages: {}, peakQueueDepth: 4 };
+const diagnosticsOf = (page: string) => /<dl data-voice-diagnostics>[\s\S]*?<\/dl>/.exec(page)?.[0] ?? '';
+
+test('rpg-cm63.22 troubleshooting shows the engine speech metrics when the engine reports them', () => {
+  const rows = diagnosticsOf(html({ ...ready, engine: ENGINE }));
+  assert.match(rows, /<dt>Spoken replies<\/dt><dd>3<\/dd>/);
+  assert.match(rows, /<dt>Peak speech queue<\/dt><dd>4<\/dd>/);
+  assert.match(rows, /<dt>Speech errors<\/dt><dd>timed out: 2<\/dd>/);
+});
+
+test('rpg-cm63.22 troubleshooting omits engine speech rows without a report and says none for empty metrics', () => {
+  assert.doesNotMatch(diagnosticsOf(html(ready)), /Spoken replies|Peak speech queue|Speech errors/);
+  const quiet = diagnosticsOf(html({ ...ready, engine: { samples: 0, cacheHitRate: 0, errors: {}, stages: {} } }));
+  assert.match(quiet, /<dt>Spoken replies<\/dt><dd>0<\/dd>/);
+  assert.match(quiet, /<dt>Peak speech queue<\/dt><dd>none<\/dd>/);
+  assert.match(quiet, /<dt>Speech errors<\/dt><dd>none<\/dd>/);
+});
+
+test('rpg-cm63.22 engine speech rows are translated', () => {
+  const rows = diagnosticsOf(html({ ...ready, engine: ENGINE }, voice.preferences, 'pt-BR'));
+  assert.match(rows, /<dt>Respostas faladas<\/dt><dd>3<\/dd>/);
+  assert.match(rows, /<dt>Pico da fila de fala<\/dt><dd>4<\/dd>/);
+  assert.match(rows, /<dt>Erros de fala<\/dt><dd>tempo esgotado: 2<\/dd>/);
 });

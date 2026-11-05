@@ -34,9 +34,18 @@ type Options = {
   failPreview?: unknown;
   failDownload?: unknown;
   speakers?: string[];
+  engineSummary?: unknown;
+  failDiagnostics?: unknown;
 };
 
-const fakeBridge = ({ installed = false, providers, failPreview, failDownload }: Options = {}) => {
+const fakeBridge = ({
+  installed = false,
+  providers,
+  failPreview,
+  failDownload,
+  engineSummary,
+  failDiagnostics,
+}: Options = {}) => {
   const calls: unknown[][] = [];
   let present = installed;
   let progress = (_bytes: number) => {};
@@ -73,6 +82,10 @@ const fakeBridge = ({ installed = false, providers, failPreview, failDownload }:
       cacheBytes = 0;
     },
     playback: async () => true,
+    diagnostics: async () => {
+      if (failDiagnostics !== undefined) throw failDiagnostics;
+      return engineSummary as never;
+    },
     onProgress: (listener) => {
       progress = listener;
     },
@@ -349,4 +362,31 @@ test('rpg-cm63.7 browser audio decodes every chunk, queues them in order and app
   ]);
   assert.equal(gainValue, 0.3);
   assert.equal(contexts, 1);
+});
+
+const ENGINE_SUMMARY = { samples: 3, cacheHitRate: 0, errors: { timeout: 1 }, stages: {}, peakQueueDepth: 4 };
+
+test('rpg-cm63.22 refresh reads the engine speech summary and observe updates it', async () => {
+  const { controller, bridge } = setup({ engineSummary: ENGINE_SUMMARY });
+  assert.equal(controller.view().engine, undefined);
+  await controller.refresh();
+  assert.deepEqual(controller.view().engine, ENGINE_SUMMARY);
+  const later = { ...ENGINE_SUMMARY, samples: 5 };
+  bridge.diagnostics = async () => later;
+  await controller.observe();
+  assert.equal(controller.view().engine?.samples, 5);
+});
+
+test('rpg-cm63.22 the engine speech summary ignores malformed answers and failed requests', async () => {
+  for (const options of [
+    { engineSummary: 'nope' },
+    { engineSummary: { samples: -1, cacheHitRate: 0, errors: {}, stages: {} } },
+    { engineSummary: { samples: 1, cacheHitRate: 0, errors: { timeout: 'many' }, stages: {} } },
+    { engineSummary: undefined },
+    { failDiagnostics: new Error('engine stopped') },
+  ]) {
+    const { controller } = setup(options);
+    await controller.refresh();
+    assert.equal(controller.view().engine, undefined);
+  }
 });

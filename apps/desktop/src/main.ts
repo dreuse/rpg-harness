@@ -7,6 +7,7 @@ import {
 } from '../../../packages/client-protocol/src/guided-start.ts';
 import { localeOf } from '../../../packages/client-protocol/src/locale.ts';
 import { type ClientCommand, failure } from '../../../packages/client-protocol/src/protocol.ts';
+import { NARRATION } from '../../../packages/client-protocol/src/wire.ts';
 import { isPlaybackCommand } from '../../../packages/voice/src/playback-controls.ts';
 import {
   DAEMON_ENTRY,
@@ -33,7 +34,7 @@ export const SMOKE_STATUS = 'rpg-desktop-smoke-status: ';
 const TEXT = 'utf8';
 
 export type Daemon = Pick<ReturnType<typeof startEngine>, 'ready' | 'command' | 'subscribe' | 'stop'> &
-  Partial<Pick<ReturnType<typeof startEngine>, 'playback'>>;
+  Partial<Pick<ReturnType<typeof startEngine>, 'playback' | 'diagnostics'>>;
 export type WebContentsLike = {
   send(channel: string, ...args: unknown[]): void;
   on(name: 'will-navigate', listener: (event: { preventDefault(): void }) => void): unknown;
@@ -135,7 +136,10 @@ export const daemonTransport = (daemon: Pick<Daemon, 'ready' | 'command' | 'subs
   };
   const reply = async (command: ClientCommand) => {
     if (command.type === 'SubscribeEvents') return follow(command);
-    const { result, message } = await daemon.command(command);
+    const { result, message } = await daemon.command(
+      command,
+      command.type === 'SubmitPlayerAction' ? ({ turnId, text }) => emit({ type: NARRATION, turnId, text }) : undefined,
+    );
     if (ACTIONS.has(command.type) && 'actionId' in command) {
       const { actionId } = command;
       return emit(
@@ -250,6 +254,7 @@ export const startMain = ({
     };
   const handle = (channel: string, handler: (...args: unknown[]) => unknown) =>
     ipcMain.handle?.(channel, invokedFromWindow(handler));
+  handle(CHANNELS.voiceDiagnostics, async () => (await daemon.diagnostics?.())?.summary);
   handle(CHANNELS.voicePlayback, async (command) => {
     if (!isPlaybackCommand(command)) return false;
     return (await daemon.playback?.(command))?.type === 'Played';

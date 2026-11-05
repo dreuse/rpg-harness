@@ -514,7 +514,14 @@ export const mountPage = ({
       settleLater(client.state());
     }, SETTLE_MS);
   };
+  let observedRevision: number | undefined;
+  const observeSpeech = ({ snapshot }: DesktopState) => {
+    if (snapshot?.revision === observedRevision) return;
+    observedRevision = snapshot?.revision;
+    void setup.observe();
+  };
   client.subscribe(loadVoice);
+  client.subscribe(observeSpeech);
   client.subscribe(settleLater);
   client.subscribe(render);
   root.addEventListener(CLICK, (event) => {

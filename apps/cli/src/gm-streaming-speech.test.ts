@@ -315,6 +315,71 @@ describe('rpg-cm63.17 streaming speech in the GM turn flow', () => {
   });
 });
 
+describe('rpg-cm63.22 streamed narration for the desktop', () => {
+  const streamingGm = (streams: boolean[]): GameMaster => ({
+    request: async (_packet, { onSegment }) => {
+      streams.push(onSegment !== undefined);
+      onSegment?.(FIRST);
+      onSegment?.(SECOND);
+      return reply(`${FIRST} ${SECOND}`);
+    },
+    summarizer: FAKE_GAME_MASTER.summarizer,
+  });
+
+  it('hands each streamed segment with the turn id to the listener while the turn streams for speech', async (t) => {
+    const { dataDir, runtime } = await setup(t);
+    const streams: boolean[] = [];
+    const opened = openWith(dataDir, streamingGm(streams), runtime);
+    t.after(() => opened.close());
+    submit(opened, {});
+    const heard: (readonly [string, string])[] = [];
+    await opened.narrate((turnId, segment) => heard.push([turnId, segment]));
+    const turnId = readCampaignState(dataDir, CAMPAIGN).turns.at(-1)?.id ?? '';
+    assert.notEqual(turnId, '');
+    assert.deepEqual(streams, [true]);
+    assert.deepEqual(heard, [
+      [turnId, FIRST],
+      [turnId, SECOND],
+    ]);
+  });
+
+  it('keeps the model call non-streaming while spoken output is off even with a listener', async (t) => {
+    const { dataDir, runtime } = await setup(t);
+    const streams: boolean[] = [];
+    const opened = openWith(dataDir, streamingGm(streams), runtime);
+    t.after(() => opened.close());
+    submit(opened, undefined);
+    const heard: string[] = [];
+    await opened.narrate((_turnId, segment) => heard.push(segment));
+    assert.deepEqual(streams, [false]);
+    assert.deepEqual(heard, []);
+  });
+
+  it('still speaks the streamed segments when a listener is attached', async (t) => {
+    const { dataDir, played, runtime } = await setup(t);
+    const opened = openWith(dataDir, streamingGm([]), runtime);
+    t.after(() => opened.close());
+    submit(opened, {});
+    const heard: string[] = [];
+    await opened.narrate((_turnId, segment) => heard.push(segment));
+    await runtime.speech.idle();
+    assert.deepEqual(heard, [FIRST, SECOND]);
+    assert.deepEqual(played, [`narrator|${FIRST}`, `narrator|${SECOND}`]);
+  });
+
+  it('keeps the tagged non-streaming call in dialogue mode even with a listener', async (t) => {
+    const { dataDir, runtime } = await setup(t);
+    const streams: boolean[] = [];
+    const opened = openWith(dataDir, streamingGm(streams), runtime);
+    t.after(() => opened.close());
+    submit(opened, { spokenOutput: 'dialogue' });
+    const heard: string[] = [];
+    await opened.narrate((_turnId, segment) => heard.push(segment));
+    assert.deepEqual(streams, [false]);
+    assert.deepEqual(heard, []);
+  });
+});
+
 describe('rpg-cm63.17 speech runtime lifetime', () => {
   const PLAIN: Capabilities = { width: 80, height: 24, colors: 'none', unicode: false, interactive: false };
   const disposing = (runtime: ReturnType<typeof createSpeechRuntime>, calls: string[]) => ({

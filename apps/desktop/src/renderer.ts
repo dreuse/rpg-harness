@@ -32,7 +32,7 @@ import {
 } from '../../../packages/client-protocol/src/protocol.ts';
 import { parseViewDescriptor } from '../../../packages/client-protocol/src/view-registry.ts';
 import { VISUALIZATION_EVENT, type VisualizationEvent } from '../../../packages/client-protocol/src/visualization.ts';
-import type { Ready } from '../../../packages/client-protocol/src/wire.ts';
+import { NARRATION, type Ready } from '../../../packages/client-protocol/src/wire.ts';
 import type { CampaignId } from '../../../packages/domain/src/campaign.ts';
 import type { GmSettings } from '../../../packages/domain/src/gm.ts';
 import { DEFAULT_RULES_USAGE, usesDice, usesSheet } from '../../../packages/domain/src/rules-usage.ts';
@@ -46,6 +46,7 @@ export const DESKTOP_VIEW_IDS = ['sheet'] as const;
 const SHEET_VIEW = 'sheet';
 const READY = 'Ready';
 const NEWLINE = '\n';
+const SEGMENT_JOIN = ' ';
 const CAMPAIGNS = 'Campaigns';
 const SNAPSHOT = 'Snapshot';
 const PANELS = 'Panels';
@@ -71,6 +72,7 @@ export type Connection = {
   readonly lastError?: string;
   readonly engine?: Pick<Ready, 'pid' | 'gm'>;
 };
+export type StreamedNarration = { readonly turnId: string; readonly text: string };
 export type RejectedAction = { readonly actionId: string; readonly input: string; readonly message: string };
 export type StartState = {
   readonly open: boolean;
@@ -96,6 +98,7 @@ export type DesktopState = {
   readonly panels?: CampaignPanels;
   readonly views: Readonly<Record<string, ViewDescriptor>>;
   readonly outbox: readonly SubmitPlayerAction[];
+  readonly streaming?: StreamedNarration | undefined;
   readonly rejected: readonly RejectedAction[];
   readonly start: StartState;
   readonly rolls: readonly VisualizationEvent[];
@@ -284,7 +287,14 @@ export const viewModel = (
     conversation: [
       ...committed.map(({ actionId, input, narration }) => ({ actionId, input, narration, pending: false })),
       ...pending.map(({ actionId, input }) => ({ actionId, input, narration: '', pending: true })),
-    ],
+    ].map((turn, index, turns) =>
+      index === turns.length - 1 &&
+      turn.narration === '' &&
+      state.streaming !== undefined &&
+      state.outbox.some(({ actionId }) => actionId === turn.actionId)
+        ? { ...turn, narration: state.streaming.text }
+        : turn,
+    ),
     sheet: state.views[SHEET_VIEW],
     sheetGroups: sheetGroupsOf(state.views[SHEET_VIEW]?.components ?? [], state, preferences.locale),
     sheetEditing: state.sheetEditing,
@@ -478,12 +488,20 @@ export const createDesktopClient = ({
     if (action === undefined) return;
     update({
       outbox: state.outbox.filter((queued) => queued !== action),
+      streaming: undefined,
       rejected:
         message === undefined
           ? state.rejected
           : [...state.rejected, { actionId: action.actionId, input: action.input, message }],
     });
     if (message === undefined) refresh();
+  };
+
+  const inFlight = (turnId: string) => {
+    const owner = state.snapshot?.turns.find(({ id }) => id === turnId)?.actionId;
+    return state.outbox.some(
+      ({ campaignId, actionId }) => campaignId === state.selected && (owner === undefined || owner === actionId),
+    );
   };
 
   const onReady = (message: Record<string, unknown>) => {
@@ -524,7 +542,7 @@ export const createDesktopClient = ({
   };
 
   const select = (campaignId: CampaignId) => {
-    const { snapshot, panels, ...rest } = state;
+    const { snapshot, panels, streaming, ...rest } = state;
     queuedEdits = [];
     state = {
       ...rest,
@@ -592,6 +610,12 @@ export const createDesktopClient = ({
         view.value.viewId === SHEET_VIEW ? changedIds(state.views[SHEET_VIEW], view.value) : state.sheetChanged;
       return update({ views: { ...state.views, [view.value.viewId]: view.value }, sheetChanged });
     }
+    if (message.type === NARRATION && typeof message.turnId === 'string' && typeof message.text === 'string') {
+      const { turnId, text } = message;
+      if (!inFlight(turnId)) return;
+      const heard = state.streaming?.turnId === turnId ? `${state.streaming.text}${SEGMENT_JOIN}` : '';
+      return update({ streaming: { turnId, text: `${heard}${text}` } });
+    }
     if (message.type === VISUALIZATION_EVENT) {
       const roll = parseVisualization(message);
       if (roll === undefined) return;
@@ -656,7 +680,7 @@ export const createDesktopClient = ({
     },
     select,
     goHome: () => {
-      const { selected, snapshot, panels, ...rest } = state;
+      const { selected, snapshot, panels, streaming, ...rest } = state;
       queuedEdits = [];
       state = { ...rest, views: {}, rolls: [], rolling: false, sheetChanged: [], sheetErrors: {}, sheetEditing: false };
       update({});
@@ -711,7 +735,7 @@ export const createDesktopClient = ({
       });
       if (!parsed.ok) return parsed;
       const action = parsed.value as SubmitPlayerAction;
-      update({ outbox: [...state.outbox, action] });
+      update({ outbox: [...state.outbox, action], streaming: undefined });
       if (!resendOnSnapshot) send(action);
       return { ok: true, value: action };
     },

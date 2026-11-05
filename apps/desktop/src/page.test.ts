@@ -868,6 +868,7 @@ const fakeVoiceBridge = () => {
   let progress = (_bytes: number) => {};
   const previews: unknown[] = [];
   const playbackCommands: string[] = [];
+  const engine: { summary: unknown } = { summary: undefined };
   const bridge: VoiceBridge = {
     check: async () => ({ providers: [{ ...VOICE_PROVIDER, installed }], cacheBytes: 0 }),
     download: async () => {
@@ -886,11 +887,12 @@ const fakeVoiceBridge = () => {
       playbackCommands.push(command);
       return true;
     },
+    diagnostics: async () => engine.summary as never,
     onProgress: (listener) => {
       progress = listener;
     },
   };
-  return { bridge, previews, playbackCommands };
+  return { bridge, previews, playbackCommands, engine };
 };
 
 const spokenOutputs = (page: ReturnType<typeof fakePage>) =>
@@ -1076,4 +1078,23 @@ test('rpg-cm63.13 page ignores an unknown sound channel and an out-of-range volu
   page.change({ 'data-sound-volume': 'music' }, '7');
   page.change({ 'data-sound-volume': 'music' }, 'loud');
   assert.deepEqual(saved, []);
+});
+
+test('rpg-cm63.22 page refreshes the engine speech metrics in troubleshooting when a new revision arrives', async () => {
+  const page = fakePage();
+  const voice = installedVoiceBridge();
+  mount(page, {}, deniedMicrophone, undefined, WIDE_WIDTH, {
+    bridge: { ...page.bridge, voice: voice.bridge },
+    audio: { play: async () => ({ decodeMs: 1 }) },
+  });
+  page.receive(READY);
+  continueHarbor(page);
+  page.receive({ type: 'Snapshot', snapshot: SNAPSHOT });
+  await settle();
+  assert.doesNotMatch(page.root.innerHTML, /Spoken replies/);
+  voice.engine.summary = { samples: 2, cacheHitRate: 0, errors: {}, stages: {}, peakQueueDepth: 3 };
+  page.receive({ type: 'Snapshot', snapshot: { ...SNAPSHOT, revision: SNAPSHOT.revision + 1 } });
+  await settle();
+  assert.match(page.root.innerHTML, /<dt>Spoken replies<\/dt><dd>2<\/dd>/);
+  assert.match(page.root.innerHTML, /<dt>Peak speech queue<\/dt><dd>3<\/dd>/);
 });

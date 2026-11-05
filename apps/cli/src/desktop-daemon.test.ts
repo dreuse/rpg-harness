@@ -844,6 +844,64 @@ describe('rpg-cm63.17 desktop playback controls', () => {
   });
 });
 
+describe('rpg-cm63.22 desktop streamed narration and speech metrics', () => {
+  it('keeps the tool call and commits proposals when a listener is attached and spoken output is off', async (t) => {
+    const proposal = { kind: 'entity', id: 'brannoch', entityKind: 'npc', name: 'Brannoch', facts: ['Keeps the inn.'] };
+    const toolReply = {
+      body: JSON.stringify({
+        content: [
+          {
+            type: 'tool_use',
+            id: 't1',
+            name: 'narrate',
+            input: { segments: [{ text: API_NARRATION }], proposals: [proposal] },
+          },
+        ],
+      }),
+    };
+    const provider = await startProviderServer([toolReply]);
+    t.after(provider.close);
+    const { env, campaignId } = await campaignEnv(t);
+    const daemon = supervise(t, { env: { ...env, [API_KEY_ENV]: FAKE_API_KEY, [GM_API_URL_ENV]: provider.url } });
+    await daemon.ready();
+    const before = await snapshotOf(daemon, campaignId);
+    const narrations: unknown[] = [];
+    const submitted = await daemon.command(actionCommand(before, ACTION), (narration) => narrations.push(narration));
+    assert.ok(submitted.result?.ok);
+    assert.notEqual(provider.received[0]?.body.stream, true);
+    assert.ok(provider.received[0]?.body.tools);
+    assert.deepEqual(narrations, []);
+    const connection = openDatabase(campaignFile(env[DATA_DIR_ENV] ?? '', CAMPAIGN), { readOnly: true });
+    try {
+      const names = createEntityStore(connection.database)
+        .listEntities(campaignId)
+        .map(({ name }) => name);
+      assert.ok(names.includes('Brannoch'));
+    } finally {
+      connection.close();
+    }
+  });
+
+  it('keeps the model call non-streaming when no listener is given', async (t) => {
+    const provider = await startProviderServer([textReply(API_NARRATION)]);
+    t.after(provider.close);
+    const { env, campaignId } = await campaignEnv(t);
+    const daemon = supervise(t, { env: { ...env, [API_KEY_ENV]: FAKE_API_KEY, [GM_API_URL_ENV]: provider.url } });
+    await daemon.ready();
+    const before = await snapshotOf(daemon, campaignId);
+    assert.ok((await daemon.command(actionCommand(before, ACTION))).result?.ok);
+    assert.notEqual(provider.received[0]?.body.stream, true);
+  });
+
+  it('answers a diagnostics request with no summary before any spoken turn', async (t) => {
+    const daemon = supervise(t, { env: baseEnv() });
+    await daemon.ready();
+    const reply = await daemon.diagnostics();
+    assert.equal(reply.type, 'Diagnosed');
+    assert.equal(reply.summary, undefined);
+  });
+});
+
 describe('desktop does not require unsupported reuse of consumer claude subscription credentials', () => {
   it('scrubs consumer claude variables from the engine environment', () => {
     const env = daemonEnv({ [OAUTH_ENV]: FAKE_SECRET, [CONFIG_DIR_ENV]: FAKE_SECRET, [API_KEY_ENV]: FAKE_API_KEY });

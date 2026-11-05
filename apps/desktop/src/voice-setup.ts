@@ -4,7 +4,7 @@ import { speaksLanguage } from '../../../packages/voice/src/kokoro-provider.ts';
 import { DEFAULT_PLAYBACK_SPEED } from '../../../packages/voice/src/playback.ts';
 import type { PlaybackCommand } from '../../../packages/voice/src/playback-controls.ts';
 import type { SpokenOutputMode } from '../../../packages/voice/src/voice.ts';
-import { createVoiceDiagnostics } from '../../../packages/voice/src/voice-diagnostics.ts';
+import { createVoiceDiagnostics, type VoiceDiagnosticsSummary } from '../../../packages/voice/src/voice-diagnostics.ts';
 import type { PreviewAudio, PreviewRequest, VoiceHostStatus, VoiceProviderStatus } from './voice-host.ts';
 
 export const VOICE_ON_MODE: SpokenOutputMode = 'narrator';
@@ -42,6 +42,7 @@ export type VoiceBridge = {
   preview(request: PreviewRequest): Promise<PreviewAudio>;
   clearCache(): Promise<void>;
   playback(command: PlaybackCommand): Promise<boolean>;
+  diagnostics(): Promise<VoiceDiagnosticsSummary | undefined>;
   onProgress(listener: (bytes: number) => void): void;
 };
 
@@ -104,12 +105,27 @@ export type VoiceSetupOptions = {
 };
 
 const OFF: SpokenOutputMode = 'off';
+const NO_COUNT = 0;
 
 const isVolume = (value: unknown): value is number =>
   typeof value === 'number' && value >= MIN_VOLUME && value <= MAX_VOLUME;
 
 const isMap = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
+
+const isCount = (value: unknown): value is number =>
+  typeof value === 'number' && Number.isFinite(value) && value >= NO_COUNT;
+
+const isCounts = (value: unknown) => isMap(value) && Object.values(value).every(isCount);
+
+const isEngineSummary = (value: unknown): value is VoiceDiagnosticsSummary =>
+  isMap(value) &&
+  isCount(value.samples) &&
+  isCount(value.cacheHitRate) &&
+  isCounts(value.errors) &&
+  isCounts(value.stages) &&
+  (value.firstAudioMs === undefined || isCount(value.firstAudioMs)) &&
+  (value.peakQueueDepth === undefined || isCount(value.peakQueueDepth));
 
 const isNpcVoices = (value: unknown): value is NpcVoices =>
   isMap(value) &&
@@ -155,6 +171,7 @@ export const createVoiceSetup = ({
   let status: VoiceHostStatus = { providers: [], cacheBytes: 0 };
   let progress: { bytes: number; total: number } | undefined;
   let error: AudioFailure | undefined;
+  let engine: VoiceDiagnosticsSummary | undefined;
 
   const go = (next: SetupStep) => {
     step = next;
@@ -171,6 +188,14 @@ export const createVoiceSetup = ({
     diagnostics.fail(cause);
     error = classifyAudioFailure(cause);
   };
+  const observeEngine = async () => {
+    try {
+      const summary = await bridge?.diagnostics();
+      engine = isEngineSummary(summary) ? summary : undefined;
+    } catch {
+      engine = undefined;
+    }
+  };
   const refresh = async () => {
     if (bridge === undefined) return;
     try {
@@ -178,6 +203,11 @@ export const createVoiceSetup = ({
     } catch (cause) {
       failed(cause);
     }
+    await observeEngine();
+    changed();
+  };
+  const observe = async () => {
+    await observeEngine();
     changed();
   };
 
@@ -349,6 +379,7 @@ export const createVoiceSetup = ({
       npcVoices,
       speakers: unvoiced(npcVoices),
       diagnostics: diagnostics.summary(),
+      engine,
     };
   };
 
@@ -364,6 +395,7 @@ export const createVoiceSetup = ({
     preview,
     previewVoice,
     refresh,
+    observe,
     update,
     setNpcVoice,
     removeNpcVoice,

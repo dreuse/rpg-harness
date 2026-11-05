@@ -58,6 +58,7 @@ test('UI08 preload exposes only the narrow transport bridge', () => {
   assert.deepEqual(Object.keys(bridge.voice).sort(), [
     'check',
     'clearCache',
+    'diagnostics',
     'download',
     'onProgress',
     'playback',
@@ -114,4 +115,10 @@ test('rpg-cm63.17 preload voice bridge sends playback commands over the playback
   const { bridge, invoked } = expose();
   await bridge.voice.playback('skip');
   assert.deepEqual(invoked, [[CHANNELS.voicePlayback, 'skip']]);
+});
+
+test('rpg-cm63.22 preload voice bridge asks for engine speech diagnostics over its own channel', async () => {
+  const { bridge, invoked } = expose();
+  await bridge.voice.diagnostics();
+  assert.deepEqual(invoked, [[CHANNELS.voiceDiagnostics]]);
 });

@@ -122,6 +122,25 @@ test('UI08 daemon transport maps engine replies to renderer lines', async () => 
   assert.deepEqual(closes, []);
 });
 
+test('rpg-cm63.22 daemon transport relays streamed narration lines before the action settles', async () => {
+  const daemon = {
+    ...fakeDaemon(),
+    command: async (_input: unknown, onNarration?: (narration: { turnId: string; text: string }) => void) => {
+      onNarration?.({ turnId: 't1', text: 'First.' });
+      onNarration?.({ turnId: 't1', text: 'Second.' });
+      return { id: 0, type: 'Result' as const, result: { ok: true as const, value: {} } };
+    },
+  };
+  const { transport, lines } = collect(daemon);
+  transport.send(command('SubmitPlayerAction', { actionId: 'a1' }));
+  await flush();
+  assert.deepEqual(lines, [
+    { type: 'Narration', turnId: 't1', text: 'First.' },
+    { type: 'Narration', turnId: 't1', text: 'Second.' },
+    { type: 'Accepted', actionId: 'a1' },
+  ]);
+});
+
 test('rpg-42a.21 daemon transport settles sheet edits as Accepted or Rejected', async () => {
   const edit = (results: Record<string, unknown>) => {
     const wired = collect(fakeDaemon(results));
@@ -484,6 +503,7 @@ test('rpg-cm63.7 main serves voice setup to its own window and forwards download
     [
       CHANNELS.voiceCheck,
       CHANNELS.voiceClear,
+      CHANNELS.voiceDiagnostics,
       CHANNELS.voiceDownload,
       CHANNELS.voicePlayback,
       CHANNELS.voicePreview,
@@ -524,4 +544,19 @@ test('rpg-cm63.17 main forwards only valid playback commands from its own window
   assert.equal(await electron.invoke(CHANNELS.voicePlayback, 'format-disk'), false);
   assert.equal(await electron.invoke(CHANNELS.voicePlayback, { command: 'stop' }), false);
   assert.deepEqual(forwarded, ['pause']);
+});
+
+test('rpg-cm63.22 main answers a diagnostics request from its own window with the engine speech summary', async () => {
+  const electron = fakeElectron();
+  const summary = { samples: 2, cacheHitRate: 0, errors: {}, stages: {}, peakQueueDepth: 3 };
+  const daemon = { ...fakeDaemon(), diagnostics: async () => ({ id: 0, type: 'Diagnosed' as const, summary }) };
+  start(electron, daemon);
+  await assert.rejects(electron.invokeForeign(CHANNELS.voiceDiagnostics));
+  assert.deepEqual(await electron.invoke(CHANNELS.voiceDiagnostics), summary);
+});
+
+test('rpg-cm63.22 main answers a diagnostics request with nothing when the engine has no summary', async () => {
+  const electron = fakeElectron();
+  start(electron, fakeDaemon());
+  assert.equal(await electron.invoke(CHANNELS.voiceDiagnostics), undefined);
 });

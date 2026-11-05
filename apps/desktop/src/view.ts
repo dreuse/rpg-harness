@@ -96,10 +96,10 @@ const orEmpty = (items: readonly string[], locale: string, region: Region) =>
 const speaker = (locale: string, who: 'player' | 'gm', text: string) =>
   `<p data-speaker="${who}"><span data-speaker-label>${escapeHtml(translate(locale, `speaker.${who}`))}</span>${escapeHtml(text)}</p>`;
 const systemLine = (text: string) => `<p data-speaker="system">${escapeHtml(text)}</p>`;
-const gmLine = (locale: string, narration: string, pending: boolean) => {
-  if (pending) return systemLine(translate(locale, 'label.pending'));
-  return narration.trim() === '' ? systemLine(translate(locale, 'label.no-reply')) : speaker(locale, 'gm', narration);
-};
+const gmLine = (locale: string, narration: string, pending: boolean) =>
+  narration.trim() === ''
+    ? systemLine(translate(locale, pending ? 'label.pending' : 'label.no-reply'))
+    : speaker(locale, 'gm', narration);
 
 const GM_FIELD = 'gm';
 
@@ -188,7 +188,7 @@ const basicVoice = ({ preferences }: DesktopVoiceView, setup: VoiceSetupView, lo
   const languages = [...new Set([...setup.speaking.flatMap(({ languages }) => languages), preferences.locale])];
   return `<fieldset data-voice-basic><legend>${escapeHtml(translate(locale, 'region.voice'))}</legend>${
     on
-      ? `${button(VOICE_SETUP, 'off', translate(locale, 'voice.turnOff'))}${playbackControls(locale)}`
+      ? button(VOICE_SETUP, 'off', translate(locale, 'voice.turnOff'))
       : button(VOICE_SETUP, 'on', translate(locale, 'voice.on'), false, true)
   }${select(
     'voice-mode',
@@ -251,11 +251,29 @@ const voiceStorage = ({ providers, cacheBytes }: VoiceSetupView, locale: string)
   }<p>${escapeHtml(translate(locale, 'voice.cache', { size: Math.round(cacheBytes / BYTES_PER_KIB) }))}</p><div data-voice-actions>${removes.join('')}${button(VOICE_CLEAR, 'cache', translate(locale, 'voice.clear'))}</div>`;
 };
 
+const failureList = (locale: string, errors: Readonly<Record<string, number | undefined>>) => {
+  const failures = Object.entries(errors).map(([code, count]) => `${failureName(locale, code)}: ${count}`);
+  return failures.length === 0 ? translate(locale, 'voice.diagnostics.none') : failures.join(ISSUE_SEPARATOR);
+};
+
+const engineSpeechRows = (engine: VoiceSetupView['engine'], locale: string): [string, string][] =>
+  engine === undefined
+    ? []
+    : [
+        [translate(locale, 'voice.diagnostics.spokenReplies'), String(engine.samples)],
+        [
+          translate(locale, 'voice.diagnostics.peakQueue'),
+          engine.peakQueueDepth === undefined
+            ? translate(locale, 'voice.diagnostics.none')
+            : String(engine.peakQueueDepth),
+        ],
+        [translate(locale, 'voice.diagnostics.speechErrors'), failureList(locale, engine.errors)],
+      ];
+
 const voiceDiagnostics = (
-  { diagnostics: { firstAudioMs, cacheHitRate, errors, stages } }: VoiceSetupView,
+  { diagnostics: { firstAudioMs, cacheHitRate, errors, stages }, engine }: VoiceSetupView,
   locale: string,
 ) => {
-  const failures = Object.entries(errors).map(([code, count]) => `${failureName(locale, code)}: ${count}`);
   const rows: [string, string][] = [
     [
       translate(locale, 'voice.diagnostics.firstAudio'),
@@ -265,14 +283,12 @@ const voiceDiagnostics = (
       translate(locale, 'voice.diagnostics.cacheHits'),
       translate(locale, 'voice.diagnostics.percent', { value: Math.round(cacheHitRate * PERCENT) }),
     ],
-    [
-      translate(locale, 'voice.diagnostics.errors'),
-      failures.length === 0 ? translate(locale, 'voice.diagnostics.none') : failures.join(ISSUE_SEPARATOR),
-    ],
+    [translate(locale, 'voice.diagnostics.errors'), failureList(locale, errors)],
     ...VOICE_STAGES.flatMap((stage): [string, string][] => {
       const value = stages[stage];
       return value === undefined ? [] : [[translate(locale, `voice.stage.${stage}`), ms(locale, value)]];
     }),
+    ...engineSpeechRows(engine, locale),
   ];
   return `<details data-voice-troubleshooting><summary>${escapeHtml(translate(locale, 'voice.troubleshooting'))}</summary><dl data-voice-diagnostics>${rows.map(([name, value]) => `<dt>${escapeHtml(name)}</dt><dd>${escapeHtml(value)}</dd>`).join('')}</dl></details>`;
 };
@@ -735,7 +751,7 @@ const playHeader = (
   pane(
     STATUS,
     locale,
-    `${homeNav(locale)}${header(model, locale)}${connection(model, locale)}${settingsMenu(model, locale, voice, setup)}`,
+    `${homeNav(locale)}${header(model, locale)}${connection(model, locale)}${voice !== undefined && voice.preferences.spokenOutput !== 'off' ? playbackControls(locale) : ''}${settingsMenu(model, locale, voice, setup)}`,
     false,
   );
 

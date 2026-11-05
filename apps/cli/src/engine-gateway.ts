@@ -366,12 +366,23 @@ type Session = {
 
 type SpeakTurn = (turnId: string) => Promise<TurnSpeech | undefined>;
 
+const streamOf = (voice: TurnSpeech | undefined, listener: StreamedSegment | undefined, turnId: string) => {
+  const heard = voice?.streams ? voice.heard : undefined;
+  const shown = voice?.streams ? listener : undefined;
+  if (heard === undefined && shown === undefined) return undefined;
+  return (segment: string) => {
+    heard?.(segment);
+    shown?.(turnId, segment);
+  };
+};
+
 const narrateLatest = async (
   { engine, store, campaignId, database }: Session,
   request: (packet: ContextPacket, onSegment?: (segment: string) => void) => Promise<GmTurnReply>,
   sessionId: string,
   speak: SpeakTurn,
   calibrates: boolean,
+  listener?: StreamedSegment,
 ): Promise<readonly GmSegment[]> => {
   const state = engine.getState(campaignId);
   const latest = playTurns(state).at(-1);
@@ -390,7 +401,7 @@ const narrateLatest = async (
       const fitted = await requestFitting({
         first: preset,
         packetOf: (chosenPreset) => contextPacketOf(database, state, committed, PLAYER_VIEWER, chosenPreset, ratio),
-        send: (packet) => request(packet, voice?.streams ? voice.heard : undefined),
+        send: (packet) => request(packet, streamOf(voice, listener, committed.turn.id)),
         ratio,
       }).catch((error: unknown) => {
         if (!(error instanceof ProviderError && error.message === TOO_LONG_MESSAGE)) {
@@ -450,10 +461,12 @@ const summarizeInBackground = ({ store, campaignId, database }: Session, summari
   return summarizing;
 };
 
+export type StreamedSegment = (turnId: string, segment: string) => void;
+
 type OpenSession = Session & {
   sessionId: string;
   gmDefaults: () => GmSettings;
-  narrate: () => Promise<readonly GmSegment[]>;
+  narrate: (onSegment?: StreamedSegment) => Promise<readonly GmSegment[]>;
   settle: () => Promise<unknown>;
   close: () => void;
 };
@@ -520,7 +533,7 @@ const openSession = (
         return undefined;
       }
     };
-    const narrate = async () => {
+    const narrate = async (onSegment?: StreamedSegment) => {
       const { model, summaryModel } = {
         ...gmDefaults(),
         ...gmSettingsOf(engine.getState(session.campaignId).changes),
@@ -534,6 +547,7 @@ const openSession = (
               sessionId,
               speakTurn,
               gm.calibratesContext === true,
+              onSegment,
             )
           : NO_SEGMENTS;
       summarized = summarizeInBackground(session, (level, texts, language) =>

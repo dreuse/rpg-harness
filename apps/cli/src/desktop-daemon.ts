@@ -13,6 +13,8 @@ import {
 } from '../../../packages/client-protocol/src/protocol.ts';
 import {
   EVENT,
+  NARRATION,
+  type Narrated,
   type Pushed,
   READY,
   type Ready,
@@ -47,6 +49,7 @@ import { dataDirFromEnv } from './setup-check.ts';
 const UNSUPPORTED_STORY_MEMORY = 'this daemon does not serve story memory yet';
 const PLAYBACK = 'Playback';
 const UNKNOWN_PLAYBACK = 'Unknown playback command.';
+const DIAGNOSTICS = 'Diagnostics';
 const INVALID_GM_DEFAULTS = 'GM defaults name an invalid model or budget';
 
 const saveGmDefaults = ({ model, summaryModel, sessionBudgetTokens }: SaveGmDefaults) => {
@@ -80,7 +83,7 @@ const ENGINE_STOPPED = 'The engine is not running.';
 
 type Campaign = ReturnType<typeof openClientSession>;
 type Served = { readonly name?: string; readonly campaign?: Campaign; readonly problem: string };
-export type EngineMessage = Ready | Reply | Pushed;
+export type EngineMessage = Ready | Reply | Pushed | Narrated;
 export type EngineChannel = {
   readonly pid: () => number | undefined;
   readonly send: (message: Request) => void;
@@ -101,6 +104,8 @@ type ParentPort = {
   postMessage(message: unknown): void;
   on(event: 'message', listener: (event: { readonly data: unknown }) => void): unknown;
 };
+
+export type OnNarration = (narration: Pick<Narrated, 'turnId' | 'text'>) => void;
 
 type Lifecycle = Exclude<CampaignCommand, { readonly type: 'PlanCampaign' }>;
 type Versions = Readonly<Record<string, string | undefined>>;
@@ -225,7 +230,7 @@ const replier = ({ name, campaign, problem }: Served, gm: GameMaster) => {
     campaign = opened;
   };
 
-  const execute = async (id: number, input: unknown) => {
+  const execute = async (id: number, input: unknown, streamed: boolean) => {
     const parsed = parseCommand(input);
     if (!parsed.ok) return send({ id, type: 'Error', message: parsed.error.message });
     const command = parsed.value;
@@ -242,7 +247,10 @@ const replier = ({ name, campaign, problem }: Served, gm: GameMaster) => {
     if (command.type === 'GetCampaignPanels') return send({ id, type: 'Result', result: session.getPanels(command) });
     if (command.type === 'SubmitPlayerAction') {
       const result = session.submitPlayerAction(command);
-      if (result.ok) await narrate().catch(reportNarrationFailure);
+      if (result.ok)
+        await narrate(streamed ? (turnId, text) => send({ id, type: NARRATION, turnId, text }) : undefined).catch(
+          reportNarrationFailure,
+        );
       return send({ id, type: 'Result', result });
     }
     if (command.type === 'SelectCapability')
@@ -268,9 +276,9 @@ const replier = ({ name, campaign, problem }: Served, gm: GameMaster) => {
     try {
       const request = (typeof input === 'string' ? JSON.parse(input) : input) as Request;
       id = request.id;
-      const { type, command, subscription } = request;
+      const { type, command, subscription, narration } = request;
       if (type === 'Ping') return send({ id, type: 'Pong' });
-      if (type === 'Command') return await execute(id, command);
+      if (type === 'Command') return await execute(id, command, narration === true);
       if (type === 'Unsubscribe') {
         if (subscription !== undefined) subscriptions.get(subscription)?.();
         subscriptions.delete(subscription ?? id);
@@ -302,9 +310,13 @@ const replier = ({ name, campaign, problem }: Served, gm: GameMaster) => {
       ? send({ id, type: 'Played' })
       : send({ id, type: 'Error', message: UNKNOWN_PLAYBACK });
 
+  const diagnose = ({ id }: Request) =>
+    send({ id, type: 'Diagnosed', summary: playbackFor(dataDirFromEnv()).diagnostics?.() });
+
   return (input: unknown) => {
     const request = requestOf(input);
     if (request?.type === PLAYBACK) return playback(request);
+    if (request?.type === DIAGNOSTICS) return diagnose(request);
     queue = queue.then(() => reply(input)).then(IGNORE, IGNORE);
   };
 };
@@ -357,6 +369,7 @@ export const stdioEngine: SpawnEngine = (env, on) => {
 export const startDaemon = ({ env, onCrash, maxRestarts = MAX_RESTARTS, spawnEngine = stdioEngine }: DaemonOptions) => {
   const pending = new Map<number, PromiseWithResolvers<Reply>>();
   const listeners = new Map<number, (event: ClientEvent) => void>();
+  const narrations = new Map<number, OnNarration>();
   let child: EngineChannel;
   let running = false;
   let handshake: Promise<Ready>;
@@ -376,6 +389,8 @@ export const startDaemon = ({ env, onCrash, maxRestarts = MAX_RESTARTS, spawnEng
       message: (message) => {
         if (message.type === READY) return ready.resolve(message);
         if (message.type === EVENT) return listeners.get(message.id)?.(message.event);
+        if (message.type === NARRATION)
+          return narrations.get(message.id)?.({ turnId: message.turnId, text: message.text });
         pending.get(message.id)?.resolve(message);
         pending.delete(message.id);
       },
@@ -407,9 +422,20 @@ export const startDaemon = ({ env, onCrash, maxRestarts = MAX_RESTARTS, spawnEng
 
   const request = (type: RequestType) => call({ type });
 
-  const command = (input: unknown) => call({ type: 'Command', command: input });
+  const command = async (input: unknown, onNarration?: OnNarration) => {
+    if (onNarration === undefined) return call({ type: 'Command', command: input });
+    const id = nextId++;
+    narrations.set(id, onNarration);
+    try {
+      return await call({ type: 'Command', command: input, narration: true }, id);
+    } finally {
+      narrations.delete(id);
+    }
+  };
 
   const playback = (input: unknown) => call({ type: PLAYBACK, command: input });
+
+  const diagnostics = () => call({ type: DIAGNOSTICS });
 
   const subscribe = async (input: unknown, listener: (event: ClientEvent) => void) => {
     const id = nextId++;
@@ -438,7 +464,7 @@ export const startDaemon = ({ env, onCrash, maxRestarts = MAX_RESTARTS, spawnEng
   };
 
   startEngine();
-  return { ready: () => handshake, request, command, playback, subscribe, stop, restarts: () => restarts };
+  return { ready: () => handshake, request, command, playback, diagnostics, subscribe, stop, restarts: () => restarts };
 };
 
 if (import.meta.main) await runDaemon();
