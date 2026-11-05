@@ -11,6 +11,7 @@ export const VOICE_ON_MODE: SpokenOutputMode = 'narrator';
 export const MIN_VOLUME = 0;
 export const MAX_VOLUME = 1;
 export const MAX_NPC_NAME_LENGTH = 60;
+const MS_PER_SECOND = 1000;
 export const SETUP_STEPS = [
   'closed',
   'checking',
@@ -47,7 +48,10 @@ export type VoiceBridge = {
 };
 
 export type AudioOut = {
-  play(chunks: readonly Uint8Array[], volume: number): Promise<{ readonly decodeMs: number }>;
+  play(
+    chunks: readonly Uint8Array[],
+    volume: number,
+  ): Promise<{ readonly decodeMs: number; readonly durationMs?: number }>;
 };
 
 type DecodedAudio = { readonly duration: number };
@@ -77,7 +81,8 @@ export const browserAudio = (context: () => AudioContextLike, now = () => perfor
       const gain = audio.createGain();
       gain.gain.value = volume;
       gain.connect(audio.destination);
-      let at = audio.currentTime;
+      const begin = audio.currentTime;
+      let at = begin;
       for (const buffer of buffers) {
         const source = audio.createBufferSource();
         source.buffer = buffer;
@@ -85,7 +90,7 @@ export const browserAudio = (context: () => AudioContextLike, now = () => perfor
         source.start(at);
         at += buffer.duration;
       }
-      return { decodeMs };
+      return { decodeMs, durationMs: (at - begin) * MS_PER_SECOND };
     },
   };
 };

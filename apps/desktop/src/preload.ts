@@ -1,6 +1,7 @@
 import type { StartDraft } from '../../../packages/client-protocol/src/guided-start.ts';
 import type { UiPreferences } from './accessibility.ts';
 import type { Transport } from './renderer.ts';
+import type { SoundBridge } from './sound-player.ts';
 import type { VoiceBridge } from './voice-setup.ts';
 
 export const BRIDGE_KEY = 'rpg';
@@ -21,12 +22,17 @@ export const CHANNELS = {
   voiceClear: 'rpg:voice:clear',
   voicePlayback: 'rpg:voice:playback',
   voiceDiagnostics: 'rpg:voice:diagnostics',
+  soundStatus: 'rpg:sound:status',
+  soundDownload: 'rpg:sound:download',
+  soundFile: 'rpg:sound:file',
+  soundProgress: 'rpg:sound:progress',
 } as const;
 
 export type Bridge = Transport & {
   savePreferences(preferences: UiPreferences): void;
   saveStart(draft: StartDraft): void;
   voice: VoiceBridge;
+  sound: SoundBridge;
 };
 export type IpcRendererLike = {
   send(channel: string, ...args: unknown[]): void;
@@ -58,5 +64,11 @@ export const exposeBridge = ({
       diagnostics: () => ipcRenderer.invoke(CHANNELS.voiceDiagnostics) as never,
       playback: (command) => ipcRenderer.invoke(CHANNELS.voicePlayback, command) as never,
       onProgress: (listener) => ipcRenderer.on(CHANNELS.voiceProgress, (_event, bytes) => listener(Number(bytes))),
+    },
+    sound: {
+      status: () => ipcRenderer.invoke(CHANNELS.soundStatus) as never,
+      download: (consent) => ipcRenderer.invoke(CHANNELS.soundDownload, consent) as never,
+      file: (kind, key) => ipcRenderer.invoke(CHANNELS.soundFile, kind, key) as never,
+      onProgress: (listener) => ipcRenderer.on(CHANNELS.soundProgress, (_event, bytes) => listener(Number(bytes))),
     },
   });

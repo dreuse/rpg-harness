@@ -20,6 +20,7 @@ import {
 import { loadPreferences, parsePreferences, persistedPreferences, SUPPORTED_LOCALES } from './accessibility.ts';
 import { CHANNELS, PREFERENCES_QUERY, START_QUERY } from './preload.ts';
 import type { Transport } from './renderer.ts';
+import type { SoundHost } from './sound-host.ts';
 import type { VoiceHost } from './voice-host.ts';
 
 export const PREFERENCES_FILE = 'desktop-preferences.json';
@@ -71,6 +72,7 @@ export type MainOptions = {
   readonly page: string;
   readonly startDaemon?: (options: DaemonOptions) => Daemon;
   readonly voice?: VoiceHost;
+  readonly sound?: SoundHost;
   readonly hidden?: boolean;
 };
 export const FOREIGN_SENDER = 'ipc sender is not the app window';
@@ -191,6 +193,7 @@ export const startMain = ({
   page,
   startDaemon = startEngine,
   voice,
+  sound,
   hidden = false,
 }: MainOptions) => {
   const preferencesPath = join(dataDir, PREFERENCES_FILE);
@@ -272,6 +275,13 @@ export const startMain = ({
     handle(CHANNELS.voiceRemove, (providerId) => voice.remove(providerId));
     handle(CHANNELS.voicePreview, (request) => voice.preview(request));
     handle(CHANNELS.voiceClear, () => voice.clearCache());
+  }
+  if (sound !== undefined) {
+    handle(CHANNELS.soundStatus, () => sound.status());
+    handle(CHANNELS.soundDownload, (consent) =>
+      sound.download(consent, (bytes) => push(CHANNELS.soundProgress, bytes)),
+    );
+    handle(CHANNELS.soundFile, (kind, key) => sound.file(kind, key));
   }
   const preferences = loadPreferences(() => fs.readFileSync(preferencesPath, TEXT), systemLocale);
   const url = new URL(page);

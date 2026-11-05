@@ -353,7 +353,7 @@ test('rpg-cm63.7 browser audio decodes every chunk, queues them in order and app
     };
   };
   const audio = browserAudio(context, () => clock);
-  assert.deepEqual(await audio.play([new Uint8Array(2), new Uint8Array(5)], 0.3), { decodeMs: 8 });
+  assert.deepEqual(await audio.play([new Uint8Array(2), new Uint8Array(5)], 0.3), { decodeMs: 8, durationMs: 7000 });
   await audio.play([new Uint8Array(1)], 0.3);
   assert.deepEqual(started, [
     [3, 2],

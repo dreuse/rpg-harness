@@ -2,10 +2,13 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { GUIDE_STEPS, INITIAL_DRAFT, type StartDraft } from '../../../packages/client-protocol/src/guided-start.ts';
 import { type ClientCommand, PROTOCOL_VERSION } from '../../../packages/client-protocol/src/protocol.ts';
+import { DUCK_RELEASE_MS } from '../../../packages/voice/src/ducking-sink.ts';
 import type { MicrophoneState } from '../../../packages/voice/src/microphone.ts';
+import { DEFAULT_SOUND_SETTINGS } from '../../../packages/voice/src/sound-settings.ts';
 import { DEFAULT_PREFERENCES, MAX_FONT_SCALE, type UiPreferences } from './accessibility.ts';
 import { FONT_SCALE_PROPERTY, mountPage, type PageElements, type PageOptions } from './page.ts';
 import { PREFERENCES_QUERY, START_QUERY } from './preload.ts';
+import type { DesktopSound } from './sound-player.ts';
 import type { KeyEventLike } from './view.ts';
 import type { VoiceProviderStatus } from './voice-host.ts';
 import type { VoiceBridge } from './voice-setup.ts';
@@ -1143,4 +1146,57 @@ test('rpg-42a.67 page sends SetCampaignLanguage when a story language is chosen 
   assert.equal(sets.length, 1);
   assert.ok(sets[0]?.type === 'SetCampaignLanguage');
   assert.equal(sets[0].language, 'es');
+});
+
+const MUSIC_ON = { ...DEFAULT_SOUND_SETTINGS, music: { enabled: true, volume: 0.25 } };
+const PREVIEW_MS = 2000;
+
+const fakeSound = () => {
+  const calls: unknown[][] = [];
+  const sound: DesktopSound = {
+    update: (settings, scene) => calls.push(['update', settings, scene]),
+    speaking: (active) => calls.push(['speaking', active]),
+    dispose: () => {},
+  };
+  const last = (name: string) => calls.filter(([call]) => call === name).at(-1);
+  return { sound, last, speaking: () => last('speaking')?.[1] };
+};
+
+test('rpg-cm63.33 page hands the saved sound settings and the scene to playback only while a campaign is open', () => {
+  const page = fakePage();
+  const { sound, last } = fakeSound();
+  mount(page, { sound: MUSIC_ON }, deniedMicrophone, undefined, WIDE_WIDTH, { sound });
+  assert.deepEqual(last('update'), ['update', MUSIC_ON, undefined]);
+  page.receive(READY);
+  page.receive({ type: 'Campaigns', campaigns: [SNAPSHOT.campaign] });
+  continueHarbor(page);
+  page.receive({ type: 'Snapshot', snapshot: SNAPSHOT });
+  assert.deepEqual(last('update'), ['update', MUSIC_ON, { location: '', mood: ['docks'] }]);
+});
+
+test('rpg-cm63.33 page ducks the background while a voice preview plays and releases it afterwards', async () => {
+  const page = fakePage();
+  const { sound, speaking } = fakeSound();
+  const voice = installedVoiceBridge();
+  const scheduled: [() => void, number][] = [];
+  mount(page, {}, deniedMicrophone, undefined, WIDE_WIDTH, {
+    bridge: { ...page.bridge, voice: voice.bridge },
+    audio: { play: async () => ({ decodeMs: 1, durationMs: PREVIEW_MS }) },
+    schedule: (run, ms) => scheduled.push([run, ms]),
+    sound,
+  });
+  page.receive(READY);
+  continueHarbor(page);
+  page.receive({ type: 'Snapshot', snapshot: SNAPSHOT });
+  await settle();
+  page.click({ 'data-voice-setup': 'on' });
+  await settle();
+  page.click({ 'data-voice-setup': 'accept' });
+  await settle();
+  await settle();
+  assert.equal(speaking(), true);
+  const release = scheduled.findLast(([, ms]) => ms === PREVIEW_MS + DUCK_RELEASE_MS);
+  assert.ok(release);
+  release[0]();
+  assert.equal(speaking(), false);
 });

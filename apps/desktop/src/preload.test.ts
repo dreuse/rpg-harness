@@ -53,8 +53,10 @@ test('UI08 preload exposes only the narrow transport bridge', () => {
     'savePreferences',
     'saveStart',
     'send',
+    'sound',
     'voice',
   ]);
+  assert.deepEqual(Object.keys(bridge.sound).sort(), ['download', 'file', 'onProgress', 'status']);
   assert.deepEqual(Object.keys(bridge.voice).sort(), [
     'check',
     'clearCache',
@@ -121,4 +123,21 @@ test('rpg-cm63.22 preload voice bridge asks for engine speech diagnostics over i
   const { bridge, invoked } = expose();
   await bridge.voice.diagnostics();
   assert.deepEqual(invoked, [[CHANNELS.voiceDiagnostics]]);
+});
+
+test('rpg-cm63.33 preload sound bridge invokes narrow channels and forwards only progress bytes', async () => {
+  const { bridge, invoked, emit } = expose();
+  const consent = { accepted: true, source: 'https://sounds.example', bytes: 1, sizeMiB: 0 } as const;
+  const progress: unknown[][] = [];
+  bridge.sound.onProgress((...args) => progress.push(args));
+  await bridge.sound.status();
+  await bridge.sound.download(consent);
+  await bridge.sound.file('music', 'calm');
+  emit(CHANNELS.soundProgress, 9);
+  assert.deepEqual(invoked, [
+    [CHANNELS.soundStatus],
+    [CHANNELS.soundDownload, consent],
+    [CHANNELS.soundFile, 'music', 'calm'],
+  ]);
+  assert.deepEqual(progress, [[9]]);
 });

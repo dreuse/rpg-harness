@@ -5,6 +5,7 @@ import { app, BrowserWindow, dialog, ipcMain, protocol, shell, utilityProcess } 
 import { DEFAULT_RELEASES_URL, RELEASE_PUBLIC_KEY, RELEASES_URL_ENV } from '../../../packages/updater/src/release.ts';
 import { startDaemon } from '../../cli/src/desktop-daemon.ts';
 import { dataDirFromEnv } from '../../cli/src/setup-check.ts';
+import { SOUNDS_DIR } from '../../cli/src/sound-files.ts';
 import {
   CAPTURE_ENV,
   CAPTURE_STATUS,
@@ -19,6 +20,7 @@ import {
 import { SMOKE_ENV, SMOKE_STATUS, startMain, utilityEngine } from './main.ts';
 import { PLATFORMS } from './packaging.ts';
 import { APP_ROOT, APP_SCHEME, bundlePreload, PAGE_URL, PRELOAD_SOURCE, serveAsset } from './serve.ts';
+import { createSoundHost } from './sound-host.ts';
 import { offerDesktopUpdate, UPDATE_CHOICES } from './update.ts';
 import { voiceHostFromEnv } from './voice-host.ts';
 
@@ -132,6 +134,7 @@ app.whenReady().then(() => {
     page: PAGE_URL,
     startDaemon: (options) => startDaemon({ ...options, spawnEngine: utilityEngine(utilityProcess.fork) }),
     voice: voiceHostFromEnv(process.env, dataDirFromEnv()),
+    sound: createSoundHost({ dir: join(dataDirFromEnv(), SOUNDS_DIR) }),
   });
   if (app.isPackaged && !process.env[SMOKE_ENV]) offerUpdate(dataDirFromEnv()).catch(() => undefined);
 });

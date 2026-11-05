@@ -1,5 +1,6 @@
 import type { CampaignSnapshot } from '../../../packages/client-protocol/src/protocol.ts';
 import { MOTION_SETTINGS } from '../../../packages/client-protocol/src/visualization.ts';
+import { DUCK_RELEASE_MS } from '../../../packages/voice/src/ducking-sink.ts';
 import { voiceLocaleFor } from '../../../packages/voice/src/language-voices.ts';
 import { createMicrophoneController } from '../../../packages/voice/src/microphone.ts';
 import type { PlaybackControl } from '../../../packages/voice/src/playback-controls.ts';
@@ -9,6 +10,7 @@ import { type RendererAction, SUPPORTED_LOCALES, translate } from './accessibili
 import { SETTLE_MS } from './dice.ts';
 import { BRIDGE_KEY, type Bridge } from './preload.ts';
 import { createDesktopClient, type DesktopState, REGIONS, type Region, type Transport, viewModel } from './renderer.ts';
+import { createDesktopSound, type DesktopSound, sceneSoundInput } from './sound-player.ts';
 import {
   ALLOW,
   bindKeys,
@@ -88,6 +90,7 @@ const RESIZE = 'resize';
 const INPUT = 'input';
 const CHANGE = 'change';
 const OUTPUT_FIELDS = ['spokenOutput', 'locale', 'speed'];
+const NO_DURATION_MS = 0;
 const SPEECH_FIELDS = ['providerId', 'narratorVoice', 'volume'];
 const NUMBER_FIELDS = ['speed', 'volume'];
 const RETRY_SELECTOR = '[data-action="retry"]';
@@ -162,7 +165,7 @@ export type PageElements = {
 };
 export type PageOptions = {
   readonly elements: PageElements;
-  readonly bridge: Transport & Partial<Pick<Bridge, 'saveStart' | 'savePreferences' | 'voice'>>;
+  readonly bridge: Transport & Partial<Pick<Bridge, 'saveStart' | 'savePreferences' | 'voice' | 'sound'>>;
   readonly search: string;
   readonly width: () => number;
   readonly newActionId: () => string;
@@ -170,6 +173,7 @@ export type PageOptions = {
   readonly schedule?: (run: () => void, ms: number) => void;
   readonly prefersReducedMotion?: () => boolean;
   readonly audio?: AudioOut;
+  readonly sound?: DesktopSound;
   readonly localize?: (locale: string) => void;
 };
 
@@ -215,6 +219,7 @@ export const mountPage = ({
   schedule = setTimeout,
   prefersReducedMotion = systemReducedMotion,
   audio = browserAudio(() => new AudioContext()),
+  sound = bridge.sound === undefined ? undefined : createDesktopSound({ bridge: bridge.sound }),
   localize = () => {},
 }: PageOptions) => {
   let saved = queryPreferences(search);
@@ -238,9 +243,29 @@ export const mountPage = ({
     save: client.saveVoice,
     ...(bridge.voice === undefined ? {} : { playback: playbackOf(bridge.voice) }),
   });
+  let previewing = false;
+  let previewRun = 0;
+  const syncSpeaking = () => sound?.speaking(previewing || voice.view().subtitle !== undefined);
+  const speechAudio: AudioOut = {
+    play: async (chunks, volume) => {
+      const played = await audio.play(chunks, volume);
+      const run = ++previewRun;
+      previewing = true;
+      syncSpeaking();
+      schedule(
+        () => {
+          if (run !== previewRun) return;
+          previewing = false;
+          syncSpeaking();
+        },
+        (played.durationMs ?? NO_DURATION_MS) + DUCK_RELEASE_MS,
+      );
+      return played;
+    },
+  };
   const setup = createVoiceSetup({
     ...(bridge.voice === undefined ? {} : { bridge: bridge.voice }),
-    audio,
+    audio: speechAudio,
     speech: saved.speech,
     language: () => voice.view().preferences.locale,
     campaign: () => loaded?.campaignId,
@@ -285,6 +310,8 @@ export const mountPage = ({
       (selector) => root.querySelector<HTMLDetailsElement>(selector)?.open === true,
     );
     localize(preferences.locale);
+    sound?.update(preferences.sound, model.playing ? sceneSoundInput(model.title.scene) : undefined);
+    syncSpeaking();
     const setupView = setup.view();
     root.innerHTML = renderView(model, preferences.locale, shownPane, voice.view(), setupView);
     root.style.setProperty(FONT_SCALE_PROPERTY, String(model.fontScale));

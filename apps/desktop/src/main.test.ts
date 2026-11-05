@@ -27,6 +27,7 @@ import {
   WINDOW_SECURITY,
 } from './main.ts';
 import { CHANNELS, PREFERENCES_QUERY, START_QUERY } from './preload.ts';
+import type { SoundHost } from './sound-host.ts';
 import type { VoiceHost } from './voice-host.ts';
 
 const DATA_DIR = '/data';
@@ -298,11 +299,13 @@ const start = (
   daemon = fakeDaemon(),
   voice?: VoiceHost,
   locale: Readonly<Record<string, string>> = HERMETIC_LOCALE,
+  sound?: SoundHost,
 ) => {
   const options: DaemonOptions[] = [];
   const main = startMain({
     ...electron,
     ...(voice === undefined ? {} : { voice }),
+    ...(sound === undefined ? {} : { sound }),
     env: { [API_KEY_ENV]: API_KEY, CLAUDE_CODE_OAUTH_TOKEN: CONSUMER_TOKEN, ...locale },
     dataDir: DATA_DIR,
     preload: PRELOAD,
@@ -526,6 +529,47 @@ test('rpg-cm63.7 main serves voice setup to its own window and forwards download
     ['clear'],
   ]);
   assert.deepEqual(electron.pushed, [[CHANNELS.voiceProgress, 5]]);
+});
+
+test('rpg-cm63.33 main serves sound downloads and files to its own window only', async () => {
+  const electron = fakeElectron();
+  const calls: unknown[][] = [];
+  const offer = { source: 'https://sounds.example', bytes: 1, sizeMiB: 0 };
+  const bytes = new Uint8Array([1]);
+  const sound: SoundHost = {
+    status: async () => ({ installed: false, bytes: 0, offer }),
+    download: async (consent, onProgress) => {
+      calls.push(['download', consent]);
+      onProgress(3);
+    },
+    file: async (kind, key) => {
+      calls.push(['file', kind, key]);
+      return bytes;
+    },
+  };
+  start(electron, fakeDaemon(), undefined, HERMETIC_LOCALE, sound);
+  assert.deepEqual(
+    electron.channels().sort(),
+    [
+      CHANNELS.soundDownload,
+      CHANNELS.soundFile,
+      CHANNELS.soundStatus,
+      CHANNELS.voiceDiagnostics,
+      CHANNELS.voicePlayback,
+    ].sort(),
+  );
+  await assert.rejects(electron.invokeForeign(CHANNELS.soundStatus));
+  await assert.rejects(electron.invokeForeign(CHANNELS.soundDownload, { accepted: true }));
+  await assert.rejects(electron.invokeForeign(CHANNELS.soundFile, 'music', 'calm'));
+  assert.deepEqual(calls, []);
+  assert.deepEqual(await electron.invoke(CHANNELS.soundStatus), { installed: false, bytes: 0, offer });
+  await electron.invoke(CHANNELS.soundDownload, { accepted: true });
+  assert.equal(await electron.invoke(CHANNELS.soundFile, 'music', 'calm'), bytes);
+  assert.deepEqual(calls, [
+    ['download', { accepted: true }],
+    ['file', 'music', 'calm'],
+  ]);
+  assert.deepEqual(electron.pushed, [[CHANNELS.soundProgress, 3]]);
 });
 
 test('rpg-cm63.17 main forwards only valid playback commands from its own window to the engine', async () => {

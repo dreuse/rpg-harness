@@ -92,7 +92,7 @@ const BYTES_PER_MIB = 1024 * 1024;
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 
-const isConsent = (value: unknown): value is ModelConsent =>
+export const isConsent = (value: unknown): value is ModelConsent =>
   isRecord(value) &&
   value.accepted === true &&
   typeof value.source === 'string' &&
