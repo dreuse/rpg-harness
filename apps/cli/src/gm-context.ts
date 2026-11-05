@@ -8,10 +8,16 @@ import type {
   EventId,
   Turn,
 } from '../../../packages/domain/src/campaign.ts';
+import { OPENING_ACTION_ID } from '../../../packages/domain/src/campaign.ts';
 import type { CampaignEntity } from '../../../packages/domain/src/entity.ts';
 import { playTurns } from '../../../packages/engine/src/character.ts';
 import { campaignLanguageOf } from '../../../packages/engine/src/engine.ts';
-import { contextBudgetOf, recordSummary } from '../../../packages/engine/src/memory.ts';
+import {
+  contextBudgetOf,
+  ENTITY_INTRODUCED,
+  FACT_RECORDED,
+  recordSummary,
+} from '../../../packages/engine/src/memory.ts';
 import { directoryOf } from '../../../packages/engine/src/story-memory.ts';
 import { campaignConfigOf, loadState } from '../../../packages/engine/src/turn.ts';
 import { parseCampaignConfig } from '../../../packages/intent/src/config.ts';
@@ -54,6 +60,9 @@ import { panelsOf } from './views.ts';
 export const SCENE_TURN_LIMIT = 20;
 export const CHAPTER_SCENE_COUNT = 5;
 export const FAKE_SUMMARY_LENGTH = 400;
+export const STALL_TURN_LIMIT = 2;
+export const STALL_INSTRUCTION =
+  'This scene has stalled: this reply must reveal something, introduce a named character, or force a choice.';
 
 export type Summarizer = (
   level: SummaryLevel,
@@ -61,6 +70,7 @@ export type Summarizer = (
   language: string | undefined,
 ) => Promise<string>;
 
+const DEVELOPMENT_EVENT_TYPES = [ENTITY_INTRODUCED, FACT_RECORDED, PENDING_OPENED];
 const MEMORY_EVENT_TYPES = [PENDING_OPENED, PENDING_RESOLVED, SUMMARY_WRITTEN];
 const SUMMARY_EVENT_TYPES = [SUMMARY_WRITTEN];
 
@@ -91,6 +101,19 @@ const visibleSummaries = (summaries: readonly WrittenSummary[], viewer: Viewer, 
   summaries
     .filter((written) => written.level === level && visibleTo([written.summary], viewer).length > NONE)
     .map(({ summary }) => summary.text);
+
+export const isStalled = (state: CampaignState): boolean => {
+  const developed = new Set(
+    state.events.filter(({ type }) => DEVELOPMENT_EVENT_TYPES.includes(type)).map(({ turnId }) => turnId),
+  );
+  const played = new Set(
+    playTurns(state)
+      .filter(({ actionId }) => actionId !== OPENING_ACTION_ID)
+      .map(({ id }) => id),
+  );
+  const lastDevelopment = state.turns.findLastIndex(({ id }) => developed.has(id));
+  return state.turns.slice(lastDevelopment + 1).filter(({ id }) => played.has(id)).length >= STALL_TURN_LIMIT;
+};
 
 const named = (entities: readonly CampaignEntity[], input: string) => {
   const lower = input.toLowerCase();
@@ -154,7 +177,11 @@ export const contextPacketOf = (
   const budget = budgetOf(preset, ratio);
   return buildContextPacket(
     {
-      instructions: [SYSTEM_PROMPT, ...(language === undefined ? [] : [languageInstruction(language)])],
+      instructions: [
+        SYSTEM_PROMPT,
+        ...(isStalled(state) ? [STALL_INSTRUCTION] : []),
+        ...(language === undefined ? [] : [languageInstruction(language)]),
+      ],
       ruleset: config === undefined ? [] : [describeConfig(config)],
       setting: [state.currentScene?.title ?? state.campaign.name],
       campaignSummary: visibleSummaries(summaries, viewer, 'campaign'),

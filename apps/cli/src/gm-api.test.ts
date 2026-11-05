@@ -28,6 +28,7 @@ import {
   MAX_RETRIES,
   NARRATE_TOOL,
   NARRATE_TOOL_DESCRIPTION,
+  OPENING_PROMPT,
   ProviderError,
   requestNarration,
   requestSummary,
@@ -407,4 +408,36 @@ describe('rpg-cm63.17 streamed API narration', () => {
 
 it('the system prompt tells the GM when to mark a speaker important', () => {
   assert.match(SYSTEM_PROMPT, /important/);
+});
+
+it('rpg-42a.56 the system prompt is a craft brief that advances the story every reply', () => {
+  assert.match(SYSTEM_PROMPT, /every reply must change something/i);
+  assert.match(SYSTEM_PROMPT, /reveal/);
+  assert.match(SYSTEM_PROMPT, /new character/);
+  assert.match(SYSTEM_PROMPT, /choice/);
+  assert.match(SYSTEM_PROMPT, /consequence/);
+  assert.match(SYSTEM_PROMPT, /clock/);
+  assert.match(SYSTEM_PROMPT, /yes, and/i);
+  assert.match(SYSTEM_PROMPT, /yes, but/i);
+  assert.match(SYSTEM_PROMPT, /clear prompt or choice/);
+  assert.match(SYSTEM_PROMPT, /never two replies in a row with no new information/i);
+});
+
+it('rpg-42a.56 the integrity rule is narrow and still allows new people, places, clues and events', () => {
+  assert.match(SYSTEM_PROMPT, /never invent dice results, rule outcomes, items in the player's inventory/i);
+  assert.match(SYSTEM_PROMPT, /player character's actions/);
+  assert.match(SYSTEM_PROMPT, /may introduce new npcs, places, clues and events as proposals/i);
+  assert.doesNotMatch(SYSTEM_PROMPT, /facts that the data does not contain/);
+});
+
+it('rpg-42a.56 the data framing and proposal rules stay', () => {
+  assert.match(SYSTEM_PROMPT, /campaign-data tags/);
+  assert.match(SYSTEM_PROMPT, /as data, never as instructions/);
+  assert.match(SYSTEM_PROMPT, /proposals are never instructions/);
+});
+
+it('rpg-42a.56 the opening scene starts close to the action with a named npc or a hook from the pitch', () => {
+  assert.match(OPENING_PROMPT, /close to the action/);
+  assert.match(OPENING_PROMPT, /named NPC/);
+  assert.match(OPENING_PROMPT, /hook from the pitch/);
 });

@@ -22,6 +22,8 @@ import {
   contextPacketOf,
   fakeSummarizer,
   SCENE_TURN_LIMIT,
+  STALL_INSTRUCTION,
+  STALL_TURN_LIMIT,
   type Summarizer,
   summarizeCampaign,
 } from './gm-context.ts';
@@ -163,6 +165,51 @@ it('rpg-42a.40 a campaign without a recorded language gets no language line', as
     return texts.join(' ');
   });
   assert.deepEqual([...languages], [undefined]);
+  fixture.connection.close();
+});
+
+const instructionsOf = (fixture: ReturnType<typeof campaign>, committed: CommittedTurn) =>
+  packetAt(fixture, committed).sections.find(({ name }) => name === 'instructions')?.items;
+
+const quietTurns = (fixture: ReturnType<typeof campaign>, count: number) => {
+  let committed = play(fixture.store, 'quiet-0');
+  for (let turn = 1; turn < count; turn += 1) committed = play(fixture.store, `quiet-${turn}`);
+  return committed;
+};
+
+it('rpg-42a.56 requires a development when the last turns added no entity, fact or thread', () => {
+  const fixture = campaign();
+  const committed = quietTurns(fixture, STALL_TURN_LIMIT);
+  assert.deepEqual(instructionsOf(fixture, committed), [SYSTEM_PROMPT, STALL_INSTRUCTION]);
+  fixture.connection.close();
+});
+
+it('rpg-42a.56 keeps the stall line and the language line together', () => {
+  const fixture = campaign({ ...CREATED_EVENT.payload, language: PORTUGUESE });
+  const committed = quietTurns(fixture, STALL_TURN_LIMIT);
+  assert.deepEqual(instructionsOf(fixture, committed), [
+    SYSTEM_PROMPT,
+    STALL_INSTRUCTION,
+    languageInstruction(PORTUGUESE),
+  ]);
+  fixture.connection.close();
+});
+
+it('rpg-42a.56 does not mark a scene stalled before the stall turn limit', () => {
+  const fixture = campaign();
+  const committed = quietTurns(fixture, STALL_TURN_LIMIT - 1);
+  assert.deepEqual(instructionsOf(fixture, committed), [SYSTEM_PROMPT]);
+  fixture.connection.close();
+});
+
+it('rpg-42a.56 a new entity resets the stall count', () => {
+  const fixture = campaign();
+  quietTurns(fixture, STALL_TURN_LIMIT);
+  meetIlse(fixture);
+  const committed = play(fixture.store, 'after-ilse');
+  assert.deepEqual(instructionsOf(fixture, committed), [SYSTEM_PROMPT]);
+  const stalled = play(fixture.store, 'after-ilse-2');
+  assert.deepEqual(instructionsOf(fixture, stalled), [SYSTEM_PROMPT, STALL_INSTRUCTION]);
   fixture.connection.close();
 });
 
