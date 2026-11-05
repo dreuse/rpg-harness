@@ -41,6 +41,23 @@ export type VisualizationEvent = {
 
 export type VisualizationPreference = { readonly enabled: boolean };
 
+export const MOTION_SETTINGS = ['full', 'reduced', 'off'] as const;
+export type MotionSetting = (typeof MOTION_SETTINGS)[number];
+export const GENERIC_DIE = 'generic';
+const DIE_SHAPES: readonly number[] = [4, 6, 8, 10, 12, 20];
+const TUMBLE_STRIDE = 3;
+
+export const dieShapeOf = (sides: number) => (DIE_SHAPES.includes(sides) ? `d${sides}` : GENERIC_DIE);
+
+export const tumbleFaces = ({ sides, face }: Extract<MechanicReveal, { kind: 'die' }>, steps: number) => {
+  if (!Number.isInteger(sides) || sides < 1 || steps < 1) return [face];
+  const cosmetic = Array.from(
+    { length: steps - 1 },
+    (_, step) => ((face + (steps - step) * TUMBLE_STRIDE) % sides) + 1,
+  );
+  return [...cosmetic, face];
+};
+
 const canSee = (visibility: Visibility, viewer: ViewerScope) => viewer === 'gm' || PLAYER_VISIBLE.includes(visibility);
 
 const copyReveal = (reveal: MechanicReveal): MechanicReveal =>

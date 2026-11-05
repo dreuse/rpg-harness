@@ -1,7 +1,9 @@
 import type { CampaignSnapshot } from '../../../packages/client-protocol/src/protocol.ts';
+import { MOTION_SETTINGS } from '../../../packages/client-protocol/src/visualization.ts';
 import { createMicrophoneController } from '../../../packages/voice/src/microphone.ts';
 import { createSubtitleTranscript } from '../../../packages/voice/src/subtitles.ts';
 import { type RendererAction, SUPPORTED_LOCALES } from './accessibility.ts';
+import { SETTLE_MS } from './dice.ts';
 import { BRIDGE_KEY, type Bridge } from './preload.ts';
 import { createDesktopClient, type DesktopState, REGIONS, type Region, type Transport, viewModel } from './renderer.ts';
 import {
@@ -56,6 +58,9 @@ const HOME_REGION = '[data-region="campaigns"]';
 const SEARCH_SELECTOR = `#${HOME_SEARCH}`;
 const CANCEL_SELECTOR = '#home-cancel';
 const LOG_SELECTOR = '[data-region="conversation"] > ol';
+const SKIP_SELECTOR = '[data-roll-skip]';
+const MOTION_ATTRIBUTE = 'data-motion';
+const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)';
 const FOCUS_ATTRIBUTES = [START_TITLE, START_OPTION, START_CONTROL, START_OPEN, PANE_ATTRIBUTE];
 const FOCUS_REGIONS: Partial<Record<RendererAction, Region>> = {
   focusConversation: 'conversation',
@@ -72,12 +77,16 @@ export type PageElements = {
 };
 export type PageOptions = {
   readonly elements: PageElements;
-  readonly bridge: Transport & Partial<Pick<Bridge, 'saveStart'>>;
+  readonly bridge: Transport & Partial<Pick<Bridge, 'saveStart' | 'savePreferences'>>;
   readonly search: string;
   readonly width: () => number;
   readonly newActionId: () => string;
   readonly openMicrophone: DesktopVoiceOptions['openMicrophone'];
+  readonly schedule?: (run: () => void, ms: number) => void;
+  readonly prefersReducedMotion?: () => boolean;
 };
+
+const systemReducedMotion = () => globalThis.matchMedia?.(REDUCED_MOTION_QUERY).matches === true;
 
 type Focusable = Pick<Element, 'id' | 'hasAttribute' | 'getAttribute'>;
 
@@ -102,8 +111,12 @@ export const mountPage = ({
   width,
   newActionId,
   openMicrophone,
+  schedule = setTimeout,
+  prefersReducedMotion = systemReducedMotion,
 }: PageOptions) => {
-  const preferences = queryPreferences(search);
+  let saved = queryPreferences(search);
+  const withSystem = () => ({ ...saved, reducedMotion: saved.reducedMotion || prefersReducedMotion() });
+  let preferences = withSystem();
   const client = createDesktopClient({
     transport: bridge,
     newActionId,
@@ -209,7 +222,19 @@ export const mountPage = ({
     loaded = snapshot;
     voice.load(snapshot.voice ?? { ...voicePreferences, microphone: MICROPHONE_OFF }).then(render);
   };
+  let settling = false;
+  const settleLater = ({ rolling, sheetChanged }: DesktopState) => {
+    if (settling || (!rolling && sheetChanged.length === 0)) return;
+    settling = true;
+    const scheduled = client.state().rolls[0]?.resultId;
+    schedule(() => {
+      settling = false;
+      if (client.state().rolls[0]?.resultId === scheduled) return client.settle();
+      settleLater(client.state());
+    }, SETTLE_MS);
+  };
   client.subscribe(loadVoice);
+  client.subscribe(settleLater);
   client.subscribe(render);
   root.addEventListener(CLICK, (event) => {
     const target = closestTarget(event);
@@ -230,6 +255,16 @@ export const mountPage = ({
     if (option !== undefined && option !== null) return startOption(option);
     const control = target?.closest(`[${START_CONTROL}]`)?.getAttribute(START_CONTROL);
     if (isStartControl(control)) return startControl(control);
+    if (target?.closest(SKIP_SELECTOR)) return client.settle();
+    const motion = MOTION_SETTINGS.find(
+      (setting) => setting === target?.closest(`[${MOTION_ATTRIBUTE}]`)?.getAttribute(MOTION_ATTRIBUTE),
+    );
+    if (motion !== undefined) {
+      saved = { ...saved, motion };
+      bridge.savePreferences?.(saved);
+      preferences = withSystem();
+      return render();
+    }
     if (target?.closest(RETRY_SELECTOR)) client.retry();
   });
   root.addEventListener(INPUT, () => {

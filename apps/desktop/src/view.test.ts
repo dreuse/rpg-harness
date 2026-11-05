@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { INITIAL_DRAFT, START_STEPS, type StartDraft } from '../../../packages/client-protocol/src/guided-start.ts';
 import { type CampaignSummary, PROTOCOL_VERSION } from '../../../packages/client-protocol/src/protocol.ts';
+import type { VisualizationEvent } from '../../../packages/client-protocol/src/visualization.ts';
 import { DEFAULT_PREFERENCES, MAX_FONT_SCALE, type RendererAction } from './accessibility.ts';
 import { PREFERENCES_QUERY, START_QUERY } from './preload.ts';
 import { type DesktopState, initialState, REGIONS, viewModel } from './renderer.ts';
@@ -283,7 +284,7 @@ test('rpg-42a.14 guided start is a labelled region with a focusable step heading
   assert.doesNotMatch(genre, /data-start-control="start"/);
   const path = startHtml(INITIAL_DRAFT);
   assert.match(path, /data-start-option="1">Guide me - /);
-  assert.doesNotMatch(path, /aria-pressed/);
+  assert.doesNotMatch(path, /data-start-option="\d" aria-pressed/);
   const character = startHtml(guideAt('character', { genre: 'evil' }));
   assert.match(
     character,
@@ -425,4 +426,39 @@ test('rpg-42a.13 archive and delete ask first, archive offers undo and archived 
   );
   const failed = home({ campaigns: [HARBOR], home: { query: '', error: 'Campaign Harbor is open in this engine.' } });
   assert.match(failed, /<p role="alert">Campaign Harbor is open in this engine\.<\/p>/);
+});
+
+const rolled = (resultId: string, face: number): VisualizationEvent => ({
+  version: PROTOCOL_VERSION,
+  type: 'MechanicVisualized',
+  resultId,
+  mechanic: 'dice',
+  frames: [{ step: 0, reveal: { kind: 'die', sides: 20, face } }],
+  final: { total: face, outcome: HOSTILE },
+});
+
+test('UI15: the conversation shows the latest roll with a skip button and a recent roll history', () => {
+  const rolling = { ...state, rolls: [rolled('r2', 12), rolled('r1', 3)], rolling: true };
+  const html = renderView(viewModel(rolling, WIDE_WIDTH), DEFAULT_PREFERENCES.locale);
+  assert.match(html, /<section data-rolls aria-label="Dice"><figure data-roll data-animated="true"/);
+  assert.match(html, /data-roll-skip/);
+  assert.match(html, /<details data-roll-history><summary>Recent rolls<\/summary><ol><li>d20 3, total 3, /);
+  assert.doesNotMatch(html, /<img/);
+  const still = renderView(viewModel(rolling, WIDE_WIDTH, { ...DEFAULT_PREFERENCES, motion: 'off' }), 'en');
+  assert.match(still, /data-animated="false"/);
+  assert.doesNotMatch(renderView(viewModel(state, WIDE_WIDTH), 'en'), /data-rolls/);
+});
+
+test('UI15: changed sheet values carry a highlight marker', () => {
+  const changed = { ...state, sheetChanged: ['n'] };
+  assert.match(renderView(viewModel(changed, WIDE_WIDTH), 'en'), /<li data-changed>/);
+  assert.doesNotMatch(renderView(viewModel(state, WIDE_WIDTH), 'en'), /data-changed/);
+});
+
+test('UI15: the motion control offers full, reduced and off and marks the current setting', () => {
+  const html = renderView(viewModel(state, WIDE_WIDTH, { ...DEFAULT_PREFERENCES, motion: 'reduced' }), 'en');
+  assert.match(html, /<fieldset data-motion-control><legend>Motion<\/legend>/);
+  assert.match(html, /<button type="button" data-motion="full" aria-pressed="false">Full<\/button>/);
+  assert.match(html, /<button type="button" data-motion="reduced" aria-pressed="true">Reduced<\/button>/);
+  assert.match(html, /<button type="button" data-motion="off" aria-pressed="false">Off<\/button>/);
 });

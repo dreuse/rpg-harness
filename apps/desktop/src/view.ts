@@ -1,5 +1,7 @@
 import { loadStartDraft, type StartScreen } from '../../../packages/client-protocol/src/guided-start.ts';
+import { MOTION_SETTINGS } from '../../../packages/client-protocol/src/visualization.ts';
 import { actionForKey, loadPreferences, type RendererAction, translate, type UiPreferences } from './accessibility.ts';
+import { renderRoll, rollSummary } from './dice.ts';
 import { PREFERENCES_QUERY, START_QUERY } from './preload.ts';
 import type { Region, viewModel } from './renderer.ts';
 import type { DesktopVoiceView } from './voice.ts';
@@ -130,23 +132,31 @@ const archivedList = ({ archived }: HomeModel, locale: string) =>
     ? ''
     : `<details data-archived><summary>${escapeHtml(translate(locale, 'home.archived', { count: archived.length }))}</summary><ul>${archived.map(homeCard('home-archived', ['unarchive', 'delete'], locale)).join('')}</ul></details>`;
 
+const rollHistory = (older: ViewModel['rolls'], locale: string) =>
+  older.length === 0
+    ? ''
+    : `<details data-roll-history><summary>${escapeHtml(translate(locale, 'roll.history'))}</summary><ol>${older.map((plan) => `<li>${escapeHtml(rollSummary(plan, locale))}</li>`).join('')}</ol></details>`;
+
+const rollTray = ({ rolls: [latest, ...older] }: ViewModel, locale: string) =>
+  latest === undefined
+    ? ''
+    : `<section data-rolls aria-label="${escapeHtml(translate(locale, 'region.rolls'))}">${renderRoll(latest, locale)}${rollHistory(older, locale)}</section>`;
+
 const REGION_BODIES: Readonly<Record<Region, (model: ViewModel, locale: string) => string>> = {
   campaigns: ({ home }, locale) => homeNotices(home, locale) + homeList(home, locale) + archivedList(home, locale),
   status: (model, locale) =>
     `${header(model, locale)}<p role="status" data-connection="${model.status.connection}">${escapeHtml(model.status.label)}</p>${model.status.canRetry ? button('data-action', 'retry', translate(locale, 'action.retry')) : ''}${diagnostics(model, locale)}`,
-  conversation: ({ conversation }, locale) =>
-    `<ol aria-live="polite">${conversation
+  conversation: (model, locale) =>
+    `<ol aria-live="polite">${model.conversation
       .map(
         ({ actionId, input, narration, pending }) =>
           `<li data-action-id="${escapeHtml(actionId)}"${pending ? ' aria-busy="true"' : ''}>${speaker(locale, 'player', input)}${pending ? systemLine(translate(locale, 'label.pending')) : speaker(locale, 'gm', narration)}</li>`,
       )
-      .join('')}</ol>${conversation.length === 0 ? empty(locale, 'conversation') : ''}`,
+      .join('')}</ol>${model.conversation.length === 0 ? empty(locale, 'conversation') : ''}${rollTray(model, locale)}`,
   sheet: ({ sheetLabels }, locale) =>
-    orEmpty(
-      sheetLabels.map(({ label }) => escapeHtml(label)),
-      locale,
-      'sheet',
-    ),
+    sheetLabels.length === 0
+      ? empty(locale, 'sheet')
+      : `<ul>${sheetLabels.map(({ label, changed }) => `<li${changed ? ' data-changed' : ''}>${escapeHtml(label)}</li>`).join('')}</ul>`,
   panels: ({ panels }, locale) =>
     orEmpty(
       panels === undefined
@@ -260,6 +270,12 @@ const paneSwitcher = (regions: readonly Region[], shown: Region, locale: string)
     .map((region) => button(PANE_ATTRIBUTE, region, translate(locale, `region.${region}`), region === shown))
     .join('')}</nav>`;
 
+const motionControl = (current: string, locale: string): string =>
+  `<fieldset data-motion-control><legend>${escapeHtml(translate(locale, 'motion.label'))}</legend>${MOTION_SETTINGS.map(
+    (setting) =>
+      `<button type="button" data-motion="${setting}" aria-pressed="${setting === current}">${escapeHtml(translate(locale, `motion.${setting}`))}</button>`,
+  ).join('')}</fieldset>`;
+
 export const renderView = (
   model: ViewModel,
   locale: string,
@@ -267,7 +283,7 @@ export const renderView = (
 ): string => {
   const [single, ...rest] = model.layout.columns;
   const tabbed = single !== undefined && rest.length === 0;
-  return `<main data-layout="${model.layout.name}" data-animate="${model.animate}" style="--font-scale: ${model.fontScale}">${renderStart(model, locale)}${tabbed ? paneSwitcher(single, shown, locale) : ''}<div data-columns>${model.layout.columns
+  return `<main data-layout="${model.layout.name}" data-animate="${model.animate}" style="--font-scale: ${model.fontScale}">${renderStart(model, locale)}${motionControl(model.motion, locale)}${tabbed ? paneSwitcher(single, shown, locale) : ''}<div data-columns>${model.layout.columns
     .map(
       (column) =>
         `<div>${column.map((region) => pane(region, locale, REGION_BODIES[region](model, locale), tabbed && region !== STATUS && region !== shown)).join('')}</div>`,

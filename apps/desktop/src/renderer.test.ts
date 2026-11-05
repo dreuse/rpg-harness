@@ -7,6 +7,7 @@ import {
   EVENT_COMMITTED,
   PROTOCOL_VERSION,
 } from '../../../packages/client-protocol/src/protocol.ts';
+import { VISUALIZATION_EVENT } from '../../../packages/client-protocol/src/visualization.ts';
 import { DEFAULT_PREFERENCES } from './accessibility.ts';
 import {
   createDesktopClient,
@@ -276,7 +277,7 @@ test('UI10 view model carries font scale, motion flag and text-only sheet labels
   const model = viewModel(state, WIDE_WIDTH, { ...DEFAULT_PREFERENCES, fontScale: 1.5, reducedMotion: true });
   assert.equal(model.fontScale, 1.5);
   assert.equal(model.animate, false);
-  assert.deepEqual(model.sheetLabels, [{ id: 'hp', label: 'HP: 7 of 10' }]);
+  assert.deepEqual(model.sheetLabels, [{ id: 'hp', label: 'HP: 7 of 10', changed: false }]);
   assert.deepEqual(viewModel(initialState, WIDE_WIDTH).sheetLabels, []);
 });
 
@@ -472,4 +473,71 @@ test('rpg-42a.13 search shows only after more than five campaigns and filters th
     home.cards.map(({ name }) => name),
     ['Harbor'],
   );
+});
+
+const rollEvent = (resultId: string, face: number) => ({
+  version: PROTOCOL_VERSION,
+  type: VISUALIZATION_EVENT,
+  resultId,
+  mechanic: 'dice',
+  frames: [{ step: 0, reveal: { kind: 'die', sides: 20, face } }],
+  final: { total: face, outcome: 'success' },
+});
+
+test('UI15: a roll never blocks input or delays the committed turn', () => {
+  const { wire, client } = connectedClient();
+  wire.receive(rollEvent('r1', 17));
+  assert.equal(client.state().rolling, true);
+  const submitted = client.submit('I climb');
+  assert.equal(submitted.ok, true);
+  assert.equal(wire.sent.at(-1)?.type, 'SubmitPlayerAction');
+  wire.receive({ type: 'Snapshot', snapshot: snapshotAt(2, ['old', 'a0']) });
+  const model = viewModel(client.state(), WIDE_WIDTH);
+  assert.equal(model.conversation.at(-1)?.narration, 'narration a0');
+  assert.equal(model.rolls[0]?.animated, true);
+  assert.equal(model.rolls[0]?.groups[0]?.dice[0]?.at(-1), 17);
+});
+
+test('UI15: skip settles the roll, history keeps recent rolls and motion preferences render immediately', () => {
+  const { wire, client } = connectedClient();
+  for (let index = 0; index < 7; index += 1) wire.receive(rollEvent(`r${index}`, index + 1));
+  wire.receive(rollEvent('r6', 7));
+  assert.deepEqual(
+    client.state().rolls.map(({ resultId }) => resultId),
+    ['r6', 'r5', 'r4', 'r3', 'r2'],
+  );
+  assert.equal(
+    viewModel(client.state(), WIDE_WIDTH, { ...DEFAULT_PREFERENCES, motion: 'off' }).rolls[0]?.animated,
+    false,
+  );
+  assert.equal(
+    viewModel(client.state(), WIDE_WIDTH, { ...DEFAULT_PREFERENCES, reducedMotion: true }).rolls[0]?.animated,
+    false,
+  );
+  assert.equal(viewModel(client.state(), WIDE_WIDTH).rolls[1]?.animated, false);
+  client.settle();
+  assert.equal(viewModel(client.state(), WIDE_WIDTH).rolls[0]?.animated, false);
+  wire.receive({ type: 'MechanicVisualized', resultId: 'bad' });
+  assert.equal(client.state().rolls.length, 5);
+});
+
+test('UI15: changed sheet values are highlighted until they settle', () => {
+  const { wire, client } = connectedClient();
+  const sheet = (hp: number) => ({
+    campaignId: CAMPAIGN,
+    viewId: 'sheet',
+    components: [
+      { kind: 'field', id: 'name', label: 'Name', value: 'Ash' },
+      { kind: 'field', id: 'hp', label: 'HP', value: hp },
+    ],
+  });
+  wire.receive({ type: 'View', campaignId: CAMPAIGN, view: sheet(10) });
+  wire.receive({ type: 'View', campaignId: CAMPAIGN, view: sheet(7) });
+  assert.deepEqual(client.state().sheetChanged, ['hp']);
+  assert.deepEqual(
+    viewModel(client.state(), WIDE_WIDTH).sheetLabels.map(({ changed }) => changed),
+    [false, true],
+  );
+  client.settle();
+  assert.deepEqual(client.state().sheetChanged, []);
 });

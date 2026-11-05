@@ -11,6 +11,7 @@ import {
 import { SHEET_VIEW } from '../../../packages/client-protocol/src/view-registry.ts';
 import {
   type MechanicReveal,
+  tumbleFaces,
   VISUALIZATION_EVENT,
   type VisualizationEvent,
 } from '../../../packages/client-protocol/src/visualization.ts';
@@ -32,6 +33,7 @@ export type TuiData = {
   readonly events: readonly ClientEvent[];
   readonly mechanics: readonly VisualizationEvent[];
   readonly audio?: string;
+  readonly changed?: readonly string[];
 };
 
 export type TuiState = {
@@ -54,6 +56,8 @@ export type Terminal = {
   readonly capabilities: Capabilities;
   readonly audio?: (session: ClientSession, campaignId: CampaignId) => TuiAudio;
   readonly keys?: AsyncIterable<Key>;
+  readonly motion?: boolean;
+  readonly schedule?: (run: () => void, ms: number) => void;
   readonly lines: AsyncIterable<string>;
   readonly write: (text: string) => void;
 };
@@ -83,6 +87,10 @@ const SPLIT_SHARE = 0.6;
 const SPLIT_PARTNER: PaneId = 'sheet';
 const FOLLOWS_LATEST: ReadonlySet<PaneId> = new Set(['conversation', 'log', 'mechanics']);
 const DUMB_TERM = 'dumb';
+const ANIMATED_COLORS: ReadonlySet<ColorDepth> = new Set(['256', 'truecolor']);
+const ROLL_STEPS = 6;
+const FRAME_MS = 80;
+const HIGHLIGHT_MS = 1200;
 const NEXT = 1;
 const TAB = 'tab';
 const RETURN = 'return';
@@ -148,6 +156,9 @@ export const capabilitiesOf = (env: NodeJS.ProcessEnv, input: Stream, output: St
   };
 };
 
+export const motionOf = (env: NodeJS.ProcessEnv, { interactive, colors }: Capabilities) =>
+  interactive && ANIMATED_COLORS.has(colors) && env.NO_COLOR === undefined;
+
 const typing = (state: TuiState, draft: string, key: Key): TuiState => {
   if (key.name === RETURN) return { ...state, draft: undefined, submitted: draft.trim() || undefined };
   if (key.name === ESCAPE) return { ...state, draft: undefined };
@@ -201,6 +212,20 @@ const indicator = ({ mechanic, frames, final }: VisualizationEvent) =>
     ...(final.outcome === undefined ? [] : [`outcome ${final.outcome}`]),
   ].join('; ');
 
+const spinning = ({ mechanic, frames }: VisualizationEvent, step: number, tumbles: readonly number[][]) =>
+  `${mechanic}: ${frames
+    .map(({ reveal: shown }, index) =>
+      shown.kind === 'die' ? `d${shown.sides} -> ${tumbles[index]?.[step] ?? shown.face}` : shown.label,
+    )
+    .join(', ')}`;
+
+export const rollFrames = (event: VisualizationEvent, steps: number): string[] => {
+  const tumbles = event.frames.map(({ reveal: shown }) => (shown.kind === 'die' ? tumbleFaces(shown, steps) : []));
+  return [...Array.from({ length: steps - 1 }, (_, step) => spinning(event, step, tumbles)), indicator(event)];
+};
+
+const sheetRow = ({ label, value }: ViewComponent) => (value === undefined ? label : `${label}: ${String(value)}`);
+
 const conversation = ({ currentScene, characters, turns }: CampaignSnapshot) => {
   const names = new Map(characters.map(({ id, name }) => [id, name]));
   const rows = turns.flatMap(({ actorId, input, narration }) => [
@@ -214,7 +239,7 @@ const PANE_ROWS: Readonly<Record<PaneId, (data: TuiData) => readonly string[]>> 
   conversation: ({ snapshot }) => conversation(snapshot),
   sheet: ({ snapshot, sheet }) => [
     ...snapshot.characters.map(({ name }) => `Character: ${name}`),
-    ...sheet.map(({ label, value }) => (value === undefined ? label : `${label}: ${String(value)}`)),
+    ...sheet.map(sheetRow),
   ],
   log: ({ events }) =>
     events.flatMap((event) => (event.type === EVENT_COMMITTED ? [`#${event.revision} ${event.event.type}`] : [])),
@@ -266,11 +291,15 @@ export const renderScreen = (state: TuiState, data: TuiData, capabilities: Capab
     typed || state.notice !== undefined ? row : paint(colors, 'muted', row),
   );
   const paneHeight = Math.max(MIN_PANE_HEIGHT, height - tabRows.length - statusRows.length);
+  const changed = new Set(data.changed ?? []);
+  const highlighted = new Set(data.sheet.filter(({ id }) => changed.has(id)).map(sheetRow));
   const boxes = columnsFor(state, data, width).map(({ pane, width: columns, focused: active }) =>
     frame(
       capabilities,
       pane.title,
-      fit(wrap(pane.rows, columns - FRAME_COLUMNS), paneHeight - BORDER_ROWS, pane.follow),
+      fit(wrap(pane.rows, columns - FRAME_COLUMNS), paneHeight - BORDER_ROWS, pane.follow).map((row) =>
+        highlighted.has(row) ? paint(colors, 'accent', row.padEnd(columns - FRAME_COLUMNS)) : row,
+      ),
       columns,
       active,
     ),
@@ -326,15 +355,51 @@ const submit = (session: ClientSession, { snapshot }: TuiData, input: string): s
   return accepted.ok ? undefined : accepted.error.message;
 };
 
+const valuesOf = (sheet: readonly ViewComponent[]) => new Map(sheet.map(({ id, value }) => [id, value]));
+
 const interactive = async (data: () => TuiData, act: Act, terminal: Terminal, keys: AsyncIterable<Key>) => {
+  const { motion = false, schedule = setTimeout } = terminal;
   let state = INITIAL_STATE;
+  let changed: string[] = [];
+  let generation = 0;
+  const first = data();
+  let seen = first.mechanics.length;
+  let shownSheet = valuesOf(first.sheet);
   const paint = () =>
-    terminal.write(`${CLEAR_SCREEN}${renderScreen(state, data(), terminal.capabilities).join(NEWLINE)}`);
+    terminal.write(
+      `${CLEAR_SCREEN}${renderScreen(state, { ...data(), changed }, terminal.capabilities).join(NEWLINE)}`,
+    );
+  const play = (frames: readonly string[], token: number) => {
+    for (const [index, frame] of frames.entries())
+      schedule(() => {
+        if (token !== generation) return;
+        state = { ...state, notice: frame };
+        paint();
+      }, index * FRAME_MS);
+  };
+  const settle = () => {
+    if (state.quit) return;
+    changed = [];
+    paint();
+  };
   paint();
   for await (const key of keys) {
     state = nextState(state, key);
+    generation += 1;
     if (state.quit) return;
     if (state.submitted !== undefined) state = { ...state, notice: act(state.submitted) };
+    const current = data();
+    const latest = current.mechanics.slice(seen).at(-1);
+    seen = current.mechanics.length;
+    changed = motion
+      ? current.sheet.filter(({ id, value }) => shownSheet.has(id) && shownSheet.get(id) !== value).map(({ id }) => id)
+      : [];
+    shownSheet = valuesOf(current.sheet);
+    if (latest !== undefined && state.notice === undefined) {
+      if (motion) play(rollFrames(latest, ROLL_STEPS), generation);
+      else state = { ...state, notice: indicator(latest) };
+    }
+    if (changed.length > 0) schedule(settle, HIGHLIGHT_MS);
     paint();
   }
 };

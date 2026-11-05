@@ -144,6 +144,7 @@ const mount = (
   openMicrophone = deniedMicrophone,
   startDraft?: StartDraft,
   width = WIDE_WIDTH,
+  extra: Partial<PageOptions> = {},
 ) => {
   const preferences = { ...DEFAULT_PREFERENCES, fontScale: MAX_FONT_SCALE, ...saved };
   let actions = 0;
@@ -157,6 +158,7 @@ const mount = (
     width: () => width,
     newActionId: () => `a${actions++}`,
     openMicrophone,
+    ...extra,
   });
 };
 
@@ -507,4 +509,82 @@ test('rpg-42a.13 page searches as the player types and keeps Enter on the home c
   assert.equal(page.prevented(), before);
   page.press('Alt+ArrowDown');
   assert.ok(sentOf(page, 'OpenCampaign').length === 1);
+});
+
+const ROLL = {
+  version: PROTOCOL_VERSION,
+  type: 'MechanicVisualized',
+  resultId: 'r1',
+  mechanic: 'dice',
+  frames: [{ step: 0, reveal: { kind: 'die', sides: 20, face: 17 } }],
+  final: { total: 17, outcome: 'success' },
+};
+
+test('UI15: page skips a roll, settles it after the animation and honours prefers-reduced-motion', () => {
+  const timers: (() => void)[] = [];
+  const schedule = (run: () => void) => {
+    timers.push(run);
+  };
+  const page = fakePage();
+  mount(page, {}, deniedMicrophone, undefined, WIDE_WIDTH, { schedule });
+  page.receive(READY);
+  page.receive({ type: 'Campaigns', campaigns: [SNAPSHOT.campaign] });
+  continueHarbor(page);
+  page.receive(ROLL);
+  assert.match(page.root.innerHTML, /data-animated="true"/);
+  assert.equal(timers.length, 1);
+  page.click({ 'data-roll-skip': '' });
+  assert.match(page.root.innerHTML, /data-animated="false"/);
+  page.receive({ ...ROLL, resultId: 'r2' });
+  assert.match(page.root.innerHTML, /data-animated="true"/);
+  while (timers.length > 0) timers.shift()?.();
+  assert.match(page.root.innerHTML, /data-animated="false"/);
+
+  const reduced = fakePage();
+  mount(reduced, {}, deniedMicrophone, undefined, WIDE_WIDTH, { schedule, prefersReducedMotion: () => true });
+  reduced.receive(READY);
+  reduced.receive({ type: 'Campaigns', campaigns: [SNAPSHOT.campaign] });
+  continueHarbor(reduced);
+  reduced.receive(ROLL);
+  assert.match(reduced.root.innerHTML, /data-animated="false"[\s\S]*17/);
+});
+
+test('UI15: page saves the chosen motion setting and re-renders with it', () => {
+  const saved: UiPreferences[] = [];
+  const page = fakePage();
+  mount(page, {}, deniedMicrophone, undefined, WIDE_WIDTH, {
+    bridge: { ...page.bridge, savePreferences: (preferences: UiPreferences) => saved.push(preferences) },
+    schedule: () => {},
+  });
+  page.receive(READY);
+  page.receive({ type: 'Campaigns', campaigns: [SNAPSHOT.campaign] });
+  continueHarbor(page);
+  page.receive(ROLL);
+  assert.match(page.root.innerHTML, /data-animated="true"/);
+  page.click({ 'data-motion': 'off' });
+  assert.equal(saved.at(-1)?.motion, 'off');
+  assert.equal(saved.at(-1)?.fontScale, MAX_FONT_SCALE);
+  assert.match(page.root.innerHTML, /data-motion="off" aria-pressed="true"/);
+  assert.match(page.root.innerHTML, /data-animate="false"/);
+  page.click({ 'data-motion': 'wild' });
+  assert.equal(saved.length, 1);
+});
+
+test('UI15: page settles only the roll it scheduled', () => {
+  const timers: (() => void)[] = [];
+  const page = fakePage();
+  const client = mount(page, {}, deniedMicrophone, undefined, WIDE_WIDTH, {
+    schedule: (run) => {
+      timers.push(run);
+    },
+  });
+  page.receive(READY);
+  page.receive({ type: 'Campaigns', campaigns: [SNAPSHOT.campaign] });
+  continueHarbor(page);
+  page.receive(ROLL);
+  page.receive({ ...ROLL, resultId: 'r2' });
+  timers.shift()?.();
+  assert.equal(client.state().rolling, true);
+  timers.shift()?.();
+  assert.equal(client.state().rolling, false);
 });

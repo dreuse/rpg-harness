@@ -2,7 +2,7 @@
 import { on } from 'node:events';
 import { createInterface, emitKeypressEvents, type Key } from 'node:readline';
 import { dataDirFromEnv, firstRunProblem } from './setup-check.ts';
-import { capabilitiesOf } from './tui.ts';
+import { capabilitiesOf, motionOf } from './tui.ts';
 
 const KEYPRESS = 'keypress';
 const EXIT_SETUP_FAILURE = 1;
@@ -47,6 +47,7 @@ if (problem !== undefined) {
   process.exitCode = EXIT_SETUP_FAILURE;
 } else {
   const [{ createEngineGateway }, { main }] = await Promise.all([import('./engine-gateway.ts'), import('./main.ts')]);
+  const capabilities = capabilitiesOf(process.env, process.stdin, process.stdout);
   process.exitCode = await main(
     process.argv.slice(2),
     {
@@ -54,7 +55,8 @@ if (problem !== undefined) {
       stderr: (text) => process.stderr.write(text),
       lines,
       terminal: {
-        capabilities: capabilitiesOf(process.env, process.stdin, process.stdout),
+        capabilities,
+        motion: motionOf(process.env, capabilities),
         keys: { [Symbol.asyncIterator]: keypresses },
         lines,
         write: stdout,

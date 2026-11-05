@@ -126,3 +126,10 @@ test('rpg-42a.13 every home label reads in each supported locale and names the a
   assert.equal(translate('en', 'home.continueLabel', { name: 'Harbor' }), 'Continue Harbor');
   assert.equal(translate('es', 'home.deleteLabel', { name: 'Harbor' }), 'Borrar Harbor');
 });
+
+test('UI15: the motion setting is full, reduced or off and defaults to full', () => {
+  assert.equal(DEFAULT_PREFERENCES.motion, 'full');
+  const off = parsePreferences({ motion: 'off' });
+  assert.equal(off.ok && off.value.motion, 'off');
+  assert.equal(parsePreferences({ motion: 'wild' }).ok, false);
+});

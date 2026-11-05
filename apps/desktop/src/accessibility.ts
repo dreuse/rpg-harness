@@ -1,5 +1,6 @@
 import type { Result, ViewComponent } from '../../../packages/client-protocol/src/protocol.ts';
 import { failure } from '../../../packages/client-protocol/src/view-registry.ts';
+import { MOTION_SETTINGS, type MotionSetting } from '../../../packages/client-protocol/src/visualization.ts';
 import {
   DEFAULT_PLAYBACK_SPEED,
   MAX_PLAYBACK_SPEED,
@@ -23,6 +24,7 @@ export type UiPreferences = {
   readonly fontScale: number;
   readonly locale: string;
   readonly reducedMotion: boolean;
+  readonly motion: MotionSetting;
   readonly keyboard: boolean;
   readonly voice: SavedVoice;
 };
@@ -31,6 +33,7 @@ export const DEFAULT_PREFERENCES: UiPreferences = {
   fontScale: 1,
   locale: DEFAULT_LOCALE,
   reducedMotion: false,
+  motion: 'full',
   keyboard: true,
   voice: {
     microphone: DEFAULT_VOICE_SETTINGS.microphone,
@@ -43,6 +46,8 @@ export const DEFAULT_PREFERENCES: UiPreferences = {
 
 const MICROPHONE_MODES: readonly unknown[] = ['off', 'push-to-talk', 'hands-free'] satisfies MicrophoneMode[];
 const SPOKEN_OUTPUT_MODES: readonly unknown[] = ['off', 'narrator', 'dialogue', 'full'] satisfies SpokenOutputMode[];
+
+const isMotion = (value: unknown): value is MotionSetting => MOTION_SETTINGS.some((setting) => setting === value);
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -72,12 +77,20 @@ const clamp = (value: number) => Math.min(MAX_FONT_SCALE, Math.max(MIN_FONT_SCAL
 export const parsePreferences = (input: unknown): Result<UiPreferences> => {
   if (input === undefined) return { ok: true, value: DEFAULT_PREFERENCES };
   if (!isRecord(input)) return failure('MalformedCommand', 'preferences must be an object');
-  const { fontScale, locale, reducedMotion, keyboard, voice: savedVoice } = { ...DEFAULT_PREFERENCES, ...input };
+  const {
+    fontScale,
+    locale,
+    reducedMotion,
+    motion,
+    keyboard,
+    voice: savedVoice,
+  } = { ...DEFAULT_PREFERENCES, ...input };
   const voice = isRecord(savedVoice) ? { ...DEFAULT_PREFERENCES.voice, ...savedVoice } : savedVoice;
   if (typeof fontScale !== 'number' || !Number.isFinite(fontScale))
     return failure('MalformedCommand', 'fontScale must be a finite number');
   if (typeof locale !== 'string' || locale.length === 0) return failure('MalformedCommand', 'locale must be text');
   if (typeof reducedMotion !== 'boolean') return failure('MalformedCommand', 'reducedMotion must be a flag');
+  if (!isMotion(motion)) return failure('MalformedCommand', 'motion must be full, reduced or off');
   if (typeof keyboard !== 'boolean') return failure('MalformedCommand', 'keyboard must be a flag');
   if (!isSavedVoice(voice)) return failure('MalformedCommand', 'voice settings are invalid');
   const { microphone, spokenOutput, locale: voiceLocale, speed, consent } = voice;
@@ -87,6 +100,7 @@ export const parsePreferences = (input: unknown): Result<UiPreferences> => {
       fontScale: clamp(fontScale),
       locale,
       reducedMotion,
+      motion,
       keyboard,
       voice: { microphone, spokenOutput, locale: voiceLocale, speed, consent },
     },
@@ -192,6 +206,15 @@ const CATALOG: Readonly<Record<string, Readonly<Record<string, string>>>> = {
     'home.problem.needs-migration': 'This save needs a newer version of the app.',
     'home.problem.unreadable': 'This save cannot be read.',
     'home.restoreHint': 'Restore it from a backup with rpg restore <file>.',
+    'region.rolls': 'Dice',
+    'motion.label': 'Motion',
+    'motion.full': 'Full',
+    'motion.reduced': 'Reduced',
+    'motion.off': 'Off',
+    'roll.modifier': 'modifier {value}',
+    'roll.total': 'total {value}',
+    'roll.skip': 'Skip animation',
+    'roll.history': 'Recent rolls',
   },
   es: {
     'status.connecting': 'Conectando',
@@ -260,6 +283,15 @@ const CATALOG: Readonly<Record<string, Readonly<Record<string, string>>>> = {
     'home.problem.needs-migration': 'Esta partida necesita una versión más nueva de la app.',
     'home.problem.unreadable': 'Esta partida no se puede leer.',
     'home.restoreHint': 'Recupérala de una copia con rpg restore <file>.',
+    'region.rolls': 'Dados',
+    'motion.label': 'Movimiento',
+    'motion.full': 'Completo',
+    'motion.reduced': 'Reducido',
+    'motion.off': 'Desactivado',
+    'roll.modifier': 'modificador {value}',
+    'roll.total': 'total {value}',
+    'roll.skip': 'Saltar animación',
+    'roll.history': 'Tiradas recientes',
   },
 };
 

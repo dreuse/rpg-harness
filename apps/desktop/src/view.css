@@ -7,6 +7,8 @@
 :root:has([data-animate="false"]) {
   --duration-fast: 0ms;
   --duration-base: 0ms;
+  --duration-roll: 0ms;
+  --duration-settle: 0ms;
 }
 
 body {
@@ -403,4 +405,100 @@ main > nav button {
 :focus-visible {
   outline: var(--focus-width) solid var(--focus);
   outline-offset: var(--focus-offset);
+}
+
+[data-rolls] {
+  display: grid;
+  gap: var(--space-2);
+  width: min(100%, var(--measure));
+  margin-inline: auto;
+  padding: var(--space-3);
+  background: var(--surface-raised);
+  border: var(--border-width) solid var(--border);
+  border-radius: var(--radius-2);
+}
+
+[data-roll] {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+}
+
+[data-dice],
+[data-dice-group] {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+[data-die] {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  width: var(--target-min);
+  height: var(--target-min);
+  font-family: var(--font-mono);
+  font-weight: var(--weight-strong);
+}
+
+[data-die] svg {
+  position: absolute;
+  inset: 0;
+  fill: var(--surface);
+  stroke: var(--accent);
+  stroke-width: var(--marker-width);
+}
+
+[data-reel] {
+  position: relative;
+  height: 1lh;
+  overflow: hidden;
+}
+
+[data-strip] {
+  display: grid;
+}
+
+[data-animated="true"] [data-strip] {
+  animation: reel var(--duration-roll) var(--ease) both;
+}
+
+[data-animated="true"] [data-die] svg {
+  animation: tumble var(--duration-roll) var(--ease);
+}
+
+[data-token] {
+  padding: var(--space-1) var(--space-2);
+  border: var(--border-width) solid var(--border-strong);
+  border-radius: var(--radius-1);
+}
+
+[data-roll-history] ol {
+  gap: var(--space-1);
+  color: var(--text-muted);
+  font-size: calc(var(--text-sm) * var(--font-scale, 1));
+}
+
+[data-changed] {
+  animation: settle var(--duration-settle) var(--ease);
+}
+
+@keyframes reel {
+  from {
+    transform: translateY(calc(-100% + 1lh));
+  }
+}
+
+@keyframes tumble {
+  from {
+    transform: rotate(-1turn);
+  }
+}
+
+@keyframes settle {
+  from {
+    background: var(--accent);
+    color: var(--surface);
+  }
 }

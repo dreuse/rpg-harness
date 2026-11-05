@@ -1,7 +1,14 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { PROTOCOL_VERSION } from './protocol.ts';
-import { type MechanicResult, toVisualizationEvent, VISUALIZATION_EVENT } from './visualization.ts';
+import {
+  dieShapeOf,
+  GENERIC_DIE,
+  type MechanicResult,
+  toVisualizationEvent,
+  tumbleFaces,
+  VISUALIZATION_EVENT,
+} from './visualization.ts';
 
 const D20: MechanicResult = {
   resultId: 'roll-1',
@@ -130,4 +137,28 @@ test('UI05 edge: hidden rolls respect visibility policy', () => {
 
 test('UI05 opt-out produces no visualization events', () => {
   assert.equal(toVisualizationEvent(D20, 'player', { enabled: false }), undefined);
+});
+
+const TUMBLE_STEPS = 6;
+const PROPERTY_ROLLS = 2000;
+const SIDE_CHOICES = [2, 3, 4, 6, 7, 8, 10, 12, 20, 100];
+
+test('UI15: every tumble lands on the engine face for many rolls', () => {
+  for (let roll = 0; roll < PROPERTY_ROLLS; roll += 1) {
+    const sides = SIDE_CHOICES[roll % SIDE_CHOICES.length] ?? 6;
+    const face = (roll % sides) + 1;
+    const faces = tumbleFaces({ kind: 'die', sides, face }, TUMBLE_STEPS);
+    assert.equal(faces.at(-1), face);
+    assert.equal(faces.length, TUMBLE_STEPS);
+    assert.ok(faces.every((shown) => Number.isInteger(shown) && shown >= 1 && shown <= sides));
+  }
+  assert.deepEqual(tumbleFaces({ kind: 'die', sides: 0, face: 3 }, TUMBLE_STEPS), [3]);
+  assert.deepEqual(tumbleFaces({ kind: 'die', sides: 20, face: 17 }, 0), [17]);
+});
+
+test('UI15: known die shapes come from declared sides and unknown sides fall back to a generic die', () => {
+  assert.equal(dieShapeOf(20), 'd20');
+  assert.equal(dieShapeOf(6), 'd6');
+  assert.equal(dieShapeOf(7), GENERIC_DIE);
+  assert.equal(dieShapeOf(1.5), GENERIC_DIE);
 });

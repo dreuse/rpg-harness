@@ -47,6 +47,8 @@
 
   --duration-fast: 120ms;
   --duration-base: 200ms;
+  --duration-roll: 900ms;
+  --duration-settle: 1200ms;
   --ease: cubic-bezier(0.2, 0, 0, 1);
 }
 
@@ -54,6 +56,8 @@
   :root {
     --duration-fast: 0ms;
     --duration-base: 0ms;
+    --duration-roll: 0ms;
+    --duration-settle: 0ms;
   }
 }
 

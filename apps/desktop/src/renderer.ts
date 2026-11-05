@@ -29,9 +29,11 @@ import {
   type ViewDescriptor,
 } from '../../../packages/client-protocol/src/protocol.ts';
 import { parseViewDescriptor } from '../../../packages/client-protocol/src/view-registry.ts';
+import { VISUALIZATION_EVENT, type VisualizationEvent } from '../../../packages/client-protocol/src/visualization.ts';
 import type { Ready } from '../../../packages/client-protocol/src/wire.ts';
 import type { CampaignId } from '../../../packages/domain/src/campaign.ts';
 import { componentLabel, DEFAULT_PREFERENCES, translate, type UiPreferences } from './accessibility.ts';
+import { effectiveMotion, parseVisualization, ROLL_HISTORY, rollPlan } from './dice.ts';
 
 export const COMPACT_MAX_WIDTH = 720;
 export const MEDIUM_MAX_WIDTH = 1200;
@@ -90,6 +92,9 @@ export type DesktopState = {
   readonly outbox: readonly SubmitPlayerAction[];
   readonly rejected: readonly RejectedAction[];
   readonly start: StartState;
+  readonly rolls: readonly VisualizationEvent[];
+  readonly rolling: boolean;
+  readonly sheetChanged: readonly string[];
 };
 
 export type Transport = {
@@ -126,6 +131,9 @@ export const initialState: DesktopState = {
   outbox: [],
   rejected: [],
   start: { open: false, draft: INITIAL_DRAFT },
+  rolls: [],
+  rolling: false,
+  sheetChanged: [],
 };
 
 const statusLabel = ({ status, attempts }: Connection, locale: string) =>
@@ -157,6 +165,7 @@ export const viewModel = (
   now = Date.now(),
 ) => {
   const committed = state.snapshot?.turns ?? [];
+  const motion = effectiveMotion(preferences.motion, preferences.reducedMotion);
   const pending = state.outbox.filter(
     ({ campaignId, actionId }) =>
       campaignId === state.selected && !committed.some((turn) => turn.actionId === actionId),
@@ -186,9 +195,12 @@ export const viewModel = (
     sheetLabels: (state.views[SHEET_VIEW]?.components ?? []).map((component) => ({
       id: component.id,
       label: componentLabel(component, preferences.locale),
+      changed: state.sheetChanged.includes(component.id),
     })),
+    rolls: state.rolls.map((roll, index) => rollPlan(roll, index === 0 && state.rolling ? motion : 'off')),
     fontScale: preferences.fontScale,
-    animate: !preferences.reducedMotion,
+    animate: motion === 'full',
+    motion: preferences.motion,
     panels: state.panels,
     rejected: state.rejected,
     start: state.start.open ? startScreen(state.start.draft, state.start.options, state.start.plan) : undefined,
@@ -232,6 +244,14 @@ const summariesFrom = (value: unknown): CampaignSummary[] =>
       },
     ];
   });
+
+const changedIds = (before: ViewDescriptor | undefined, after: ViewDescriptor) =>
+  after.components
+    .filter(({ id, value }) => {
+      const previous = before?.components.find((component) => component.id === id);
+      return previous !== undefined && previous.value !== value;
+    })
+    .map(({ id }) => id);
 
 const parseLine = (line: string): Record<string, unknown> | undefined => {
   try {
@@ -365,7 +385,7 @@ export const createDesktopClient = ({
 
   const select = (campaignId: CampaignId) => {
     const { snapshot, panels, ...rest } = state;
-    state = { ...rest, selected: campaignId, views: {} };
+    state = { ...rest, selected: campaignId, views: {}, rolls: [], rolling: false, sheetChanged: [] };
     update({});
     follow();
   };
@@ -416,8 +436,16 @@ export const createDesktopClient = ({
     if (message.type === VIEW) {
       if (message.campaignId !== state.selected) return;
       const view = parseViewDescriptor(message.view);
-      if (view.ok) update({ views: { ...state.views, [view.value.viewId]: view.value } });
-      return;
+      if (!view.ok) return;
+      const sheetChanged =
+        view.value.viewId === SHEET_VIEW ? changedIds(state.views[SHEET_VIEW], view.value) : state.sheetChanged;
+      return update({ views: { ...state.views, [view.value.viewId]: view.value }, sheetChanged });
+    }
+    if (message.type === VISUALIZATION_EVENT) {
+      const roll = parseVisualization(message);
+      if (roll === undefined) return;
+      const rolls = [roll, ...state.rolls.filter(({ resultId }) => resultId !== roll.resultId)].slice(0, ROLL_HISTORY);
+      return update({ rolls, rolling: true });
     }
     if (message.type === PLANNED && isResult(message.result)) return onPlanned(message.command, message.result);
     if (message.type === CREATED && isResult(message.result)) return onCreated(message.result);
@@ -448,6 +476,7 @@ export const createDesktopClient = ({
       return () => listeners.delete(listener);
     },
     select,
+    settle: () => update({ rolling: false, sheetChanged: [] }),
     continueCampaign: (name: string) => {
       update({ home: { ...state.home, confirm: undefined, error: undefined } });
       sendNamed('OpenCampaign', name);

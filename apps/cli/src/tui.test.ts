@@ -8,11 +8,12 @@ import { test } from 'node:test';
 import { stripVTControlCharacters } from 'node:util';
 import {
   type CampaignSnapshot,
+  type ClientEvent,
   type ClientSession,
   PROTOCOL_VERSION,
   toClientEvent,
 } from '../../../packages/client-protocol/src/protocol.ts';
-import { toVisualizationEvent } from '../../../packages/client-protocol/src/visualization.ts';
+import { toVisualizationEvent, type VisualizationEvent } from '../../../packages/client-protocol/src/visualization.ts';
 import { MAIN_BRANCH } from '../../../packages/domain/src/campaign.ts';
 import { createEngine } from '../../../packages/engine/src/engine.ts';
 import { openScene } from '../../../packages/engine/src/turn.ts';
@@ -25,9 +26,11 @@ import {
   type Capabilities,
   capabilitiesOf,
   INITIAL_STATE,
+  motionOf,
   nextState,
   renderLinear,
   renderScreen,
+  rollFrames,
   runTui,
   type TuiData,
   type TuiState,
@@ -404,4 +407,153 @@ test('A18: headless text-only play does not depend on audio stack', () => {
   } finally {
     rmSync(dataDir, { recursive: true, force: true });
   }
+});
+
+const ACCENT = `${ESCAPE}[38;2;111;134;198m`;
+const ROLL_STEPS = 6;
+const PROPERTY_ROLLS = 300;
+
+test('UI15: TUI animation runs only on an interactive 256 or truecolor terminal without NO_COLOR', () => {
+  const tty = terminalOf(WIDE, HEIGHT);
+  const motion = (env: NodeJS.ProcessEnv, input: object, output: object) =>
+    motionOf(env, capabilitiesOf(env, input, output));
+  assert.equal(motion(TRUECOLOR_ENV, tty, tty), true);
+  assert.equal(motion({ ...TRUECOLOR_ENV, COLORTERM: undefined, TERM: 'xterm-256color' }, tty, tty), true);
+  assert.equal(motion({ ...TRUECOLOR_ENV, NO_COLOR: '1' }, tty, tty), false);
+  assert.equal(motion({ ...TRUECOLOR_ENV, NO_COLOR: '1', FORCE_COLOR: '3' }, tty, tty), false);
+  assert.equal(motion(TRUECOLOR_ENV, {}, {}), false);
+  assert.equal(motion({ ...TRUECOLOR_ENV, FORCE_COLOR: '3' }, {}, {}), false);
+  assert.equal(motion({ TERM: 'xterm' }, tty, tty), false);
+});
+
+test('UI15: TUI roll frames always land on the engine result', () => {
+  assert.equal(
+    rollFrames(data.mechanics[0] as VisualizationEvent, ROLL_STEPS).at(-1),
+    'attack: d20 -> 14, Ace; modifier +2; total 16; outcome hit',
+  );
+  for (let roll = 0; roll < PROPERTY_ROLLS; roll += 1) {
+    const sides = (roll % 19) + 2;
+    const face = (roll % sides) + 1;
+    const event = {
+      ...(data.mechanics[0] as VisualizationEvent),
+      frames: [{ step: 0, reveal: { kind: 'die', sides, face } as const }],
+    };
+    const frames = rollFrames(event, ROLL_STEPS);
+    assert.equal(frames.length, ROLL_STEPS);
+    assert.match(frames.at(-1) ?? '', new RegExp(`^attack: d${sides} -> ${face};`));
+  }
+});
+
+test('UI15: changed sheet values are highlighted on colour terminals only', () => {
+  const changed = { ...data, changed: ['grit'] };
+  const wide = { ...COLOR, width: LARGE_WIDTH, height: LARGE_HEIGHT };
+  assert.ok(renderScreen(INITIAL_STATE, changed, wide).join('\n').includes(`${ACCENT}Grit: 3`));
+  assert.ok(!renderScreen(INITIAL_STATE, data, wide).join('\n').includes(`${ACCENT}Grit: 3`));
+  assert.ok(
+    !renderScreen(INITIAL_STATE, changed, { ...PLAIN, width: LARGE_WIDTH })
+      .join('\n')
+      .includes(ESCAPE),
+  );
+});
+
+const rollingSession = (session: ClientSession): ClientSession => {
+  let rolled = false;
+  const listeners: ((event: ClientEvent) => void)[] = [];
+  return {
+    ...session,
+    requestView: ({ campaignId, viewId }) => ({
+      ok: true,
+      value: { campaignId, viewId, components: [{ kind: 'field', id: 'grit', label: 'Grit', value: rolled ? 4 : 3 }] },
+    }),
+    subscribeEvents: (command, listener) => {
+      listeners.push(listener);
+      return session.subscribeEvents(command, listener);
+    },
+    submitPlayerAction: (command) => {
+      const accepted = session.submitPlayerAction(command);
+      rolled = true;
+      if (mechanic !== undefined) for (const listener of listeners) listener(mechanic);
+      return accepted;
+    },
+  };
+};
+
+const playRoll = async (motion: boolean) => {
+  const { engine, campaignId, session } = engineSession();
+  const output: string[] = [];
+  const timers: (() => void)[] = [];
+  let release = () => {};
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const keys = async function* () {
+    yield key('i');
+    yield* typed(ACTION);
+    yield RETURN;
+    await gate;
+    yield key('q');
+  };
+  const run = runTui(rollingSession(session), campaignId, {
+    capabilities: { ...COLOR, width: LARGE_WIDTH, height: LARGE_HEIGHT },
+    motion,
+    schedule: (later) => {
+      timers.push(later);
+    },
+    keys: keys(),
+    lines: each([]),
+    write: (text) => output.push(text),
+  });
+  while (engine.getState(campaignId).turns.at(-1)?.input !== ACTION) await new Promise(setImmediate);
+  await new Promise(setImmediate);
+  const committed = output.length;
+  return {
+    output,
+    timers,
+    committed,
+    finish: async () => {
+      release();
+      await run;
+    },
+  };
+};
+
+test('UI15: an interactive TUI roll animates in short frames without blocking input or the committed turn', async () => {
+  const { output, timers, committed, finish } = await playRoll(true);
+  assert.match(output.at(-1) ?? '', /Wanderer: I wave\./);
+  assert.ok((output.at(-1) ?? '').includes(`${ACCENT}Grit: 4`));
+  assert.ok(timers.length > 1);
+  for (const later of timers.splice(0)) later();
+  const frames = output.slice(committed);
+  assert.ok(frames.length > 1);
+  assert.match(frames.at(-1) ?? '', /attack: d20 -> 14, Ace; modifier \+2; total 16; outcome hit/);
+  assert.ok(!(output.at(-1) ?? '').includes(`${ACCENT}Grit: 4`));
+  await finish();
+});
+
+test('UI15: without motion the TUI prints the roll result directly', async () => {
+  const { output, timers, finish } = await playRoll(false);
+  assert.equal(timers.length, 0);
+  assert.match(output.at(-1) ?? '', /attack: d20 -> 14, Ace; modifier \+2; total 16; outcome hit/);
+  assert.ok(!(output.at(-1) ?? '').includes(`${ACCENT}Grit`));
+  await finish();
+});
+
+test('UI15: a sheet highlight timer that fires after quit writes nothing', async () => {
+  const { campaignId, session } = engineSession();
+  const output: string[] = [];
+  const timers: (() => void)[] = [];
+  await runTui(rollingSession(session), campaignId, {
+    capabilities: { ...COLOR, width: LARGE_WIDTH, height: LARGE_HEIGHT },
+    motion: true,
+    schedule: (later) => {
+      timers.push(later);
+    },
+    keys: each([key('i'), ...typed(ACTION), RETURN, key('q')]),
+    lines: each([]),
+    write: (text) => output.push(text),
+  });
+  const written = output.length;
+  assert.ok(timers.length > 0);
+  for (const later of timers.splice(0)) later();
+  assert.equal(output.length, written);
 });
