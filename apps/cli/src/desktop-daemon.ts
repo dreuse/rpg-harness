@@ -259,7 +259,7 @@ const runDaemon = async () => {
   const found = consumerKeys(process.env);
   if (found.length > 0) {
     process.stderr.write(
-      `The desktop engine does not use a Claude login (${found.join(', ')}). Set ${API_KEY_ENV} or play with the fake GM.${NEWLINE}`,
+      `The desktop engine does not take Claude Code session variables (${found.join(', ')}). Start it from the desktop app, or unset them.${NEWLINE}`,
     );
     process.exit(EXIT_CONSUMER_CREDENTIALS);
   }

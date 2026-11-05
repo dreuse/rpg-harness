@@ -3,7 +3,7 @@ import type { ClientEvent, ProtocolVersion, Result } from './protocol.ts';
 export const READY = 'Ready';
 export const EVENT = 'Event';
 
-export type GmRoute = 'api' | 'fake';
+export type GmRoute = 'api' | 'claude-code' | 'fake';
 export type Ready = {
   readonly type: typeof READY;
   readonly version: ProtocolVersion;

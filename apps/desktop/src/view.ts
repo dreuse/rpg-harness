@@ -82,6 +82,8 @@ const gmLine = (locale: string, narration: string, pending: boolean) => {
   return narration.trim() === '' ? systemLine(translate(locale, 'label.no-reply')) : speaker(locale, 'gm', narration);
 };
 
+const GM_FIELD = 'gm';
+
 const diagnostics = ({ diagnostics: { pid, gm, error, attempts } }: ViewModel, locale: string) =>
   `<details data-diagnostics><summary>${escapeHtml(translate(locale, 'diagnostics.summary'))}</summary><dl>${Object.entries(
     { pid, gm, error, attempts },
@@ -89,7 +91,7 @@ const diagnostics = ({ diagnostics: { pid, gm, error, attempts } }: ViewModel, l
     .filter(([, value]) => value !== undefined)
     .map(
       ([name, value]) =>
-        `<dt>${escapeHtml(translate(locale, `diagnostics.${name}`))}</dt><dd>${escapeHtml(String(value))}</dd>`,
+        `<dt>${escapeHtml(translate(locale, `diagnostics.${name}`))}</dt><dd>${escapeHtml(name === GM_FIELD ? translate(locale, `gm.${value}`) : String(value))}</dd>`,
     )
     .join('')}</dl></details>`;
 

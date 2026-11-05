@@ -9,6 +9,7 @@ import {
   type CreateCampaign,
   MAX_INPUT_LENGTH,
 } from '../../../packages/client-protocol/src/protocol.ts';
+import type { GmRoute } from '../../../packages/client-protocol/src/wire.ts';
 import {
   type CampaignId,
   type CampaignState,
@@ -58,6 +59,8 @@ import {
   type ApiRoute,
   apiKeyOf,
   apiRouteOf,
+  CLAUDE_CODE_ROUTE,
+  claudeBinOf,
   FAKE_ROUTE,
   GM_ROUTE_ENV,
   gmSecrets,
@@ -67,6 +70,12 @@ import {
   storedApiKey,
   summaryRouteOf,
 } from './gm-api.ts';
+import {
+  type ClaudeCodeRoute,
+  claudeCodeRouteOf,
+  requestClaudeNarration,
+  requestClaudeSummary,
+} from './gm-claude-code.ts';
 import { contextPacketOf, fakeSummarizer, type Summarizer, summarizeCampaign } from './gm-context.ts';
 import { importRules } from './import-gateway.ts';
 import type { CampaignGateway } from './main.ts';
@@ -118,7 +127,12 @@ const CHARACTER_PROMPT = `Describe your character, or press Enter to play as ${H
 const CREATE_CHARACTER_INTENT = 'create character';
 export const FAKE_GM_REPLY = 'The world shifts in answer.';
 const SUMMARY_SETTLE_MS = 10_000;
-export const NO_KEY_NOTICE = `No ${API_KEY_ENV} is set, so the built-in narrator tells the story.`;
+export const NO_KEY_NOTICE = `No AI game master is set up, so the built-in narrator tells the story. Install Claude Code or set ${API_KEY_ENV} to play with one.`;
+export const GM_NOTICES: Readonly<Record<GmRoute, string>> = {
+  'claude-code': 'The game master is Claude Code on this computer.',
+  api: `The game master is Claude through your ${API_KEY_ENV}.`,
+  fake: NO_KEY_NOTICE,
+};
 const NO_FACTS: NarrationContext = { facts: [], equipment: {}, viewer: PLAYER_VIEWER };
 const PENDING_NARRATION = '';
 
@@ -177,10 +191,12 @@ const narratingEngine = (
   };
 };
 
-export type GameMaster = (
-  | { readonly narrator: PacketNarrator }
-  | { readonly request: (packet: ContextPacket) => Promise<string> }
-) & { readonly summarizer: Summarizer };
+type PacketRequest = (packet: ContextPacket, databasePath: string) => Promise<string>;
+
+export type GameMaster = ({ readonly narrator: PacketNarrator } | { readonly request: PacketRequest }) & {
+  readonly summarizer: Summarizer;
+  readonly notice?: string;
+};
 
 export const FAKE_GAME_MASTER: GameMaster = { narrator: () => FAKE_GM_REPLY, summarizer: fakeSummarizer };
 
@@ -198,29 +214,50 @@ export const noKeyGameMaster = (): GameMaster => {
   };
 };
 
-export const apiGameMaster = (route: ApiRoute, summaryRoute: ApiRoute = route): GameMaster => {
+const providerGameMaster = (narrate: PacketRequest, summarize: Summarizer): GameMaster => {
   let failed = false;
   return {
-    request: async (packet) => {
+    request: async (packet, databasePath) => {
       if (failed) return FAKE_GM_REPLY;
       try {
-        return await requestNarration(route, packet);
+        return await narrate(packet, databasePath);
       } catch (error) {
         if (!(error instanceof ProviderError)) throw error;
         failed = true;
         return withNotice(`The AI game master is unavailable: ${error.message} The built-in narrator takes over.`);
       }
     },
-    summarizer: (level, texts) => (failed ? fakeSummarizer(level, texts) : requestSummary(summaryRoute, level, texts)),
+    summarizer: (level, texts) => (failed ? fakeSummarizer(level, texts) : summarize(level, texts)),
   };
 };
 
-export const gameMasterFor = async (env: NodeJS.ProcessEnv) => {
-  if (env[GM_ROUTE_ENV] === FAKE_ROUTE) return { gm: FAKE_GAME_MASTER, route: FAKE_ROUTE };
+export const apiGameMaster = (route: ApiRoute, summaryRoute: ApiRoute = route): GameMaster =>
+  providerGameMaster(
+    (packet) => requestNarration(route, packet),
+    (level, texts) => requestSummary(summaryRoute, level, texts),
+  );
+
+export const claudeCodeGameMaster = (route: ClaudeCodeRoute): GameMaster =>
+  providerGameMaster(
+    async (packet, databasePath) => (await requestClaudeNarration(route, packet, databasePath)).narration,
+    (level, texts) => requestClaudeSummary(route, level, texts),
+  );
+
+const chosenGameMaster = async (env: NodeJS.ProcessEnv): Promise<{ gm: GameMaster; route: GmRoute }> => {
+  const chosen = env[GM_ROUTE_ENV];
+  if (chosen === FAKE_ROUTE) return { gm: FAKE_GAME_MASTER, route: FAKE_ROUTE };
+  const bin = chosen === API_ROUTE ? undefined : claudeBinOf(env);
+  if (bin !== undefined) return { gm: claudeCodeGameMaster(claudeCodeRouteOf(bin, env)), route: CLAUDE_CODE_ROUTE };
+  if (chosen === CLAUDE_CODE_ROUTE) return { gm: noKeyGameMaster(), route: FAKE_ROUTE };
   const key = apiKeyOf(env, await storedApiKey(gmSecrets(env)));
   if (key === undefined) return { gm: noKeyGameMaster(), route: FAKE_ROUTE };
   const route = apiRouteOf(key, env);
   return { gm: apiGameMaster(route, summaryRouteOf(route, env)), route: API_ROUTE };
+};
+
+export const gameMasterFor = async (env: NodeJS.ProcessEnv) => {
+  const { gm, route } = await chosenGameMaster(env);
+  return { gm: { ...gm, notice: GM_NOTICES[route] }, route };
 };
 
 type Session = {
@@ -277,7 +314,7 @@ const openSession = (
     const session = { engine, store, campaignId: String(row.id), database };
     let summarized: Promise<void> = Promise.resolve();
     const narrate = async () => {
-      if ('request' in gm) await narrateLatest(session, gm.request);
+      if ('request' in gm) await narrateLatest(session, (packet) => gm.request(packet, path));
       summarized = summarizeInBackground(session, gm.summarizer);
     };
     const settle = () => Promise.race([summarized, settled()]);
@@ -332,7 +369,7 @@ export const openClientSession = (
 const playTui = async (dataDir: string, name: string, terminal: Terminal, gm: GameMaster, rng: Rng) => {
   const { session, campaignId, narrate, settle, close } = openClientSession(dataDir, name, gm, rng);
   try {
-    await runTui(session, campaignId, terminal, narrate);
+    await runTui(session, campaignId, terminal, narrate, gm.notice);
   } finally {
     await settle();
     close();

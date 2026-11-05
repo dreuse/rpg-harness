@@ -1,3 +1,5 @@
+import { accessSync, constants, statSync } from 'node:fs';
+import { delimiter, join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { GmRoute } from '../../../packages/client-protocol/src/wire.ts';
 import type { SummaryLevel } from '../../../packages/memory/src/history.ts';
@@ -18,6 +20,9 @@ export const KEYCHAIN_OFF = 'off';
 export const GM_ROUTE_ENV = 'RPG_GM';
 export const FAKE_ROUTE: GmRoute = 'fake';
 export const API_ROUTE: GmRoute = 'api';
+export const CLAUDE_CODE_ROUTE: GmRoute = 'claude-code';
+export const CLAUDE_BIN_ENV = 'RPG_CLAUDE_BIN';
+export const CLAUDE_BIN = 'claude';
 export const GM_PROVIDER_ID = 'anthropic';
 export const SYSTEM_PROMPT = [
   'You narrate a tabletop role-playing game for one player.',
@@ -72,8 +77,33 @@ export const apiRouteOf = (key: string, env: NodeJS.ProcessEnv): ApiRoute => ({
 export const apiKeyOf = (env: NodeJS.ProcessEnv, stored: string | undefined): string | undefined =>
   env[API_KEY_ENV]?.trim() || stored || undefined;
 
-export const gmRouteOf = (env: NodeJS.ProcessEnv, stored?: string): GmRoute =>
-  env[GM_ROUTE_ENV] !== FAKE_ROUTE && apiKeyOf(env, stored) ? API_ROUTE : FAKE_ROUTE;
+const isExecutable = (path: string) => {
+  try {
+    accessSync(path, constants.X_OK);
+    return statSync(path).isFile();
+  } catch {
+    return false;
+  }
+};
+
+export const claudeBinOf = (env: NodeJS.ProcessEnv): string | undefined => {
+  const chosen = env[CLAUDE_BIN_ENV]?.trim();
+  const candidates = chosen
+    ? [chosen]
+    : (env.PATH ?? '')
+        .split(delimiter)
+        .filter(Boolean)
+        .map((dir) => join(dir, CLAUDE_BIN));
+  return candidates.find(isExecutable);
+};
+
+export const gmRouteOf = (env: NodeJS.ProcessEnv, stored?: string): GmRoute => {
+  const chosen = env[GM_ROUTE_ENV];
+  if (chosen === FAKE_ROUTE) return FAKE_ROUTE;
+  if (chosen !== API_ROUTE && claudeBinOf(env) !== undefined) return CLAUDE_CODE_ROUTE;
+  if (chosen === CLAUDE_CODE_ROUTE) return FAKE_ROUTE;
+  return apiKeyOf(env, stored) ? API_ROUTE : FAKE_ROUTE;
+};
 
 export const gmSecrets = async (
   env: NodeJS.ProcessEnv = process.env,
@@ -99,7 +129,8 @@ export const summaryRouteOf = (route: ApiRoute, env: NodeJS.ProcessEnv): ApiRout
   model: env[SUMMARY_MODEL_ENV]?.trim() || route.model,
 });
 
-const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null;
+export const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null;
 
 const narrationOf = (body: unknown): string => {
   const content = isRecord(body) ? body.content : undefined;

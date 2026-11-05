@@ -129,12 +129,12 @@ RPG_DATABASE_PATH=/path/to/rpg-data/Ember.sqlite node apps/mcp-server/src/main.t
 
 ## API-key desktop providers
 
-The desktop engine is a separate program that the harness distributes. It does not use a Claude login. Set `ANTHROPIC_API_KEY` to a key from the provider console.
+The desktop engine is a separate program that the harness distributes. The API-key route does not use a Claude login. Set `ANTHROPIC_API_KEY` to a key from the provider console.
 
 ```bash
 ANTHROPIC_API_KEY= RPG_CAMPAIGN=Ember pnpm --filter @rpg/desktop start
 ```
 
-- Without `ANTHROPIC_API_KEY` the desktop plays with the fake GM.
+- With `claude` on `PATH` the desktop uses Claude Code as GM (ADR 0020). Without it or `ANTHROPIC_API_KEY`, it plays with the fake GM.
 - The desktop app removes Claude Code session variables before it starts the engine. If you start the engine directly with them set, it refuses and exits with code 3. See `apps/cli/src/desktop-daemon.ts`.
 - Voice providers use their own keys. See Audio and desktop.

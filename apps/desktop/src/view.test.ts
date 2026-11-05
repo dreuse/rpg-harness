@@ -136,8 +136,23 @@ test('rpg-42a.18 player-facing text has no PID, process or engine wording; detai
   const diagnostics = DIAGNOSTICS.exec(html)?.[0] ?? '';
   assert.match(diagnostics, /<summary>Connection details<\/summary>/);
   assert.match(diagnostics, new RegExp(`<dd>${PID}</dd>`));
-  assert.match(diagnostics, /<dd>fake<\/dd>/);
+  assert.match(diagnostics, /<dd>Built-in narrator\. Install Claude Code or set ANTHROPIC_API_KEY/);
   assert.match(diagnostics, /<dd>boom<\/dd>/);
+});
+
+test('rpg-42a.33 diagnostics name the active game master in plain words', () => {
+  const routes = [
+    ['claude-code', /Claude Code on this computer/],
+    ['api', /Claude with your API key/],
+  ] as const;
+  for (const [gm, words] of routes) {
+    const state: DesktopState = {
+      ...initialState,
+      connection: { status: 'connected', attempts: 0, engine: { pid: PID, gm } },
+    };
+    const html = renderView(viewModel(state, WIDE_WIDTH), 'en');
+    assert.match(DIAGNOSTICS.exec(html)?.[0] ?? '', words);
+  }
 });
 
 test('rpg-42a.18 every pane has a heading and an empty state', () => {

@@ -640,3 +640,16 @@ test('rpg-42a.27 the TUI conversation shows a no-reply line for a blank narratio
   const shown = renderScreen(INITIAL_STATE, { ...data, snapshot: { ...snapshot, turns: [blank] } }, COLOR).join('\n');
   assert.match(shown, /No reply was recorded for this turn\./);
 });
+
+test('rpg-42a.33 the TUI says in plain words which game master is active', async () => {
+  const notice = 'Claude Code is the GM.';
+  for (const terminal of [
+    { capabilities: PLAIN_WIDE, lines: each(['q']) },
+    { capabilities: COLOR, keys: each([key('q')]), lines: each([]) },
+  ]) {
+    const { campaignId, session } = engineSession();
+    const output: string[] = [];
+    await runTui(session, campaignId, { ...terminal, write: (text) => output.push(text) }, async () => {}, notice);
+    assert.ok(output.join('').includes(notice));
+  }
+});

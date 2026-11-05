@@ -879,5 +879,7 @@ describe('desktop does not require unsupported reuse of consumer claude subscrip
     const run = spawnSync(process.execPath, [DAEMON_ENTRY], { env: { ...baseEnv(), [OAUTH_ENV]: FAKE_SECRET } });
     assert.equal(run.status, EXIT_CONSUMER_CREDENTIALS);
     assert.match(String(run.stderr), new RegExp(CONSUMER_CREDENTIAL_PREFIX));
+    assert.doesNotMatch(String(run.stderr), /does not use a Claude login/);
+    assert.match(String(run.stderr), /Claude Code session variables/);
   });
 });

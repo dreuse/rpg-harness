@@ -1,6 +1,6 @@
 # ADR 0007 — Provider authentication boundary
 
-**Status:** Accepted. **Decision:** Two separate auth routes. They never share credentials.
+**Status:** Accepted, amended by ADR 0020 (local Claude Code CLI route). **Decision:** Two separate auth routes. They never share credentials.
 
 | Route | Who runs it | Auth | Allowed |
 |---|---|---|---|
@@ -10,7 +10,7 @@
 **Rules:**
 
 - RPG Harness never reads, copies or proxies Claude Code OAuth tokens or session files.
-- The distributed client does not spawn `claude` to borrow a consumer login.
+- ~~The distributed client does not spawn `claude` to borrow a consumer login.~~ Superseded by ADR 0020 for the local Claude Code CLI route.
 - The MCP server needs no model credentials. It exposes typed campaign tools only.
 - No credentials configured → fake GM or text-only play, with a clear message.
 

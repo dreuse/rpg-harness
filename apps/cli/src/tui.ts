@@ -411,9 +411,10 @@ const interactive = async (
   narrate: Narrate,
   terminal: Terminal,
   keys: AsyncIterable<Key>,
+  notice: string | undefined,
 ) => {
   const { motion = false, schedule = setTimeout } = terminal;
-  let state = INITIAL_STATE;
+  let state = { ...INITIAL_STATE, notice };
   let changed: string[] = [];
   let generation = 0;
   const first = data();
@@ -461,12 +462,19 @@ const interactive = async (
   }
 };
 
-const linear = async (data: () => TuiData, act: Act, narrate: Narrate, terminal: Terminal) => {
+const linear = async (
+  data: () => TuiData,
+  act: Act,
+  narrate: Narrate,
+  terminal: Terminal,
+  notice: string | undefined,
+) => {
   const { capabilities } = terminal;
   const { width } = capabilities;
   const print = (rows: readonly string[]) => terminal.write(`${rows.join(NEWLINE)}${NEWLINE}`);
   const show = ({ id, label }: Pane) => print(section(`${label}:`, paneRows(id, data()), capabilities));
   print(renderLinear(data(), terminal.capabilities));
+  if (notice !== undefined) print(wrap([notice], width));
   for await (const line of terminal.lines) {
     const text = line.trim();
     const pane = PANES.find(({ key }) => key === text);
@@ -488,6 +496,7 @@ export const runTui = async (
   campaignId: CampaignId,
   terminal: Terminal,
   narrate: Narrate = async () => {},
+  notice?: string,
 ): Promise<void> => {
   const events: ClientEvent[] = [];
   const unsubscribe = session.subscribeEvents(
@@ -505,8 +514,8 @@ export const runTui = async (
   const act: Act = audio === undefined ? send : (input) => audio.input(input, send);
   try {
     if (terminal.capabilities.interactive && terminal.keys !== undefined)
-      await interactive(data, act, narrate, terminal, terminal.keys);
-    else await linear(data, act, narrate, terminal);
+      await interactive(data, act, narrate, terminal, terminal.keys, notice);
+    else await linear(data, act, narrate, terminal, notice);
   } finally {
     unsubscribe();
   }
