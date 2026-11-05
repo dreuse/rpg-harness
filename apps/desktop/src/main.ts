@@ -6,7 +6,14 @@ import {
   START_DRAFT_FILE,
 } from '../../../packages/client-protocol/src/guided-start.ts';
 import { type ClientCommand, failure } from '../../../packages/client-protocol/src/protocol.ts';
-import { type DaemonOptions, daemonEnv, startDaemon as startEngine } from '../../cli/src/desktop-daemon.ts';
+import {
+  DAEMON_ENTRY,
+  type DaemonOptions,
+  type EngineMessage,
+  engineEnv,
+  type SpawnEngine,
+  startDaemon as startEngine,
+} from '../../cli/src/desktop-daemon.ts';
 import { loadPreferences, parsePreferences } from './accessibility.ts';
 import { CHANNELS, PREFERENCES_QUERY, START_QUERY } from './preload.ts';
 import type { Transport } from './renderer.ts';
@@ -57,6 +64,28 @@ export type MainOptions = {
   readonly page: string;
   readonly startDaemon?: (options: DaemonOptions) => Daemon;
 };
+
+export type UtilityProcessLike = {
+  readonly pid: number | undefined;
+  postMessage(message: unknown): void;
+  on(event: 'message', listener: (message: EngineMessage) => void): unknown;
+  on(event: 'exit', listener: (code: number) => void): unknown;
+  kill(): boolean;
+};
+export type Fork = (
+  modulePath: string,
+  args: string[],
+  options: { readonly env: NodeJS.ProcessEnv },
+) => UtilityProcessLike;
+
+export const utilityEngine =
+  (fork: Fork): SpawnEngine =>
+  (env, on) => {
+    const engine = fork(DAEMON_ENTRY, [], { env: engineEnv(env) });
+    engine.on('message', on.message);
+    engine.on('exit', (code) => on.exit(code, null));
+    return { pid: () => engine.pid, send: (message) => engine.postMessage(message), kill: () => engine.kill() };
+  };
 
 const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
@@ -150,7 +179,7 @@ export const startMain = ({
   const push = (channel: string, value: string) => {
     if (!window.isDestroyed()) window.webContents.send(channel, value);
   };
-  const daemon = startDaemon({ env: daemonEnv(env), onCrash: () => push(CHANNELS.close, ENGINE_CRASHED) });
+  const daemon = startDaemon({ env: engineEnv(env), onCrash: () => push(CHANNELS.close, ENGINE_CRASHED) });
   window.on('closed', () => {
     daemon.stop();
   });

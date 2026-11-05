@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, globSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join, sep } from 'node:path';
 import { test } from 'node:test';
 import { promisify } from 'node:util';
 import { CAMPAIGN_ENV } from '../../cli/src/desktop-daemon.ts';
@@ -13,6 +13,13 @@ import { CAPTURE_ENV, CAPTURE_LAYOUTS, CAPTURE_STATUS, CAPTURE_THEMES } from './
 import { SMOKE_ENV, SMOKE_STATUS } from './main.ts';
 
 const APP_DIR = join(import.meta.dirname, '..');
+const REPO_ROOT = join(APP_DIR, '..', '..');
+const PACKED_SOURCES = ['apps/*/src/**', 'apps/*/package.json', 'packages/**'];
+const PACKED_APP = 'app.asar';
+const PACKAGE_FILE = 'package.json';
+const PACKED_PACKAGE = { name: 'rpg-harness', type: 'module', main: 'apps/desktop/src/electron-main.ts' };
+const NODE_MODULES = 'node_modules';
+const PICKLE_WORD = 4;
 const PATH_FILE = 'path.txt';
 const LAUNCH_TIMEOUT_MS = 60000;
 const ENABLED = '1';
@@ -54,12 +61,12 @@ const skip =
       ? 'no display for Electron (run under xvfb-run)'
       : false;
 
-const launch = async (extra: NodeJS.ProcessEnv = {}, seed = async (_dataDir: string) => {}) => {
+const launch = async (extra: NodeJS.ProcessEnv = {}, seed = async (_dataDir: string) => {}, app = APP_DIR) => {
   const dataDir = mkdtempSync(join(tmpdir(), 'rpg-desktop-smoke-'));
   try {
     await seed(dataDir);
     const env = Object.fromEntries(KEPT_ENV.flatMap((key) => (process.env[key] ? [[key, process.env[key]]] : [])));
-    const { stdout } = await promisify(execFile)(binary as string, [APP_DIR], {
+    const { stdout } = await promisify(execFile)(binary as string, [app], {
       env: { ...env, ...extra, [SMOKE_ENV]: ENABLED, [DATA_DIR_ENV]: dataDir },
       timeout: LAUNCH_TIMEOUT_MS,
     });
@@ -71,6 +78,50 @@ const launch = async (extra: NodeJS.ProcessEnv = {}, seed = async (_dataDir: str
 
 test('rpg-42a.7 Electron launches, loads the page, connects to the engine and quits', { skip }, async () => {
   assert.match(await launch(), new RegExp(`^${SMOKE_STATUS}Connected$`, 'm'));
+});
+
+type AsarDir = { files: Record<string, AsarDir | { size: number; offset: string }> };
+
+const writeAsar = (target: string, entries: readonly (readonly [string, Buffer])[]) => {
+  const root: AsarDir = { files: {} };
+  let offset = 0;
+  for (const [path, data] of entries) {
+    const parts = path.split(sep);
+    const name = parts.pop() as string;
+    const dir = parts.reduce((node, part) => {
+      node.files[part] ??= { files: {} };
+      return node.files[part] as AsarDir;
+    }, root);
+    dir.files[name] = { size: data.length, offset: String(offset) };
+    offset += data.length;
+  }
+  const json = Buffer.from(JSON.stringify(root));
+  const header = Buffer.alloc(PICKLE_WORD * 2 + Math.ceil(json.length / PICKLE_WORD) * PICKLE_WORD);
+  header.writeUInt32LE(header.length - PICKLE_WORD, 0);
+  header.writeUInt32LE(json.length, PICKLE_WORD);
+  json.copy(header, PICKLE_WORD * 2);
+  const size = Buffer.alloc(PICKLE_WORD * 2);
+  size.writeUInt32LE(PICKLE_WORD, 0);
+  size.writeUInt32LE(header.length, PICKLE_WORD);
+  writeFileSync(target, Buffer.concat([size, header, ...entries.map(([, data]) => data)]));
+};
+
+const packApp = (dir: string) => {
+  const sources = globSync(PACKED_SOURCES, { cwd: REPO_ROOT, exclude: (path) => basename(path) === NODE_MODULES })
+    .filter((path) => statSync(join(REPO_ROOT, path)).isFile())
+    .map((path) => [path, readFileSync(join(REPO_ROOT, path))] as const);
+  const target = join(dir, PACKED_APP);
+  writeAsar(target, [[PACKAGE_FILE, Buffer.from(JSON.stringify(PACKED_PACKAGE))], ...sources]);
+  return target;
+};
+
+test('rpg-42a.6 packaged asar starts the engine .ts entry through utilityProcess and connects', { skip }, async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'rpg-desktop-asar-'));
+  try {
+    assert.match(await launch({}, undefined, packApp(dir)), new RegExp(`^${SMOKE_STATUS}Connected$`, 'm'));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 const SHOT_PREFIXES = ['home-', ''];

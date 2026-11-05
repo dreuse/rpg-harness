@@ -1,10 +1,11 @@
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { app, BrowserWindow, ipcMain, protocol } from 'electron';
+import { app, BrowserWindow, ipcMain, protocol, utilityProcess } from 'electron';
+import { startDaemon } from '../../cli/src/desktop-daemon.ts';
 import { dataDirFromEnv } from '../../cli/src/setup-check.ts';
 import { CAPTURE_ENV, CAPTURE_STATUS, captureScreens } from './capture.ts';
-import { SMOKE_ENV, SMOKE_STATUS, startMain } from './main.ts';
+import { SMOKE_ENV, SMOKE_STATUS, startMain, utilityEngine } from './main.ts';
 import { APP_ROOT, APP_SCHEME, bundlePreload, PAGE_URL, PRELOAD_SOURCE, serveAsset } from './serve.ts';
 
 const TEXT = 'utf8';
@@ -57,5 +58,6 @@ app.whenReady().then(() => {
     dataDir: dataDirFromEnv(),
     preload: writePreload(),
     page: PAGE_URL,
+    startDaemon: (options) => startDaemon({ ...options, spawnEngine: utilityEngine(utilityProcess.fork) }),
   });
 });

@@ -1,11 +1,29 @@
 import assert from 'node:assert/strict';
+import { fork } from 'node:child_process';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { INITIAL_DRAFT, START_DRAFT_FILE } from '../../../packages/client-protocol/src/guided-start.ts';
 import { type ClientEvent, EVENT_COMMITTED, PROTOCOL_VERSION } from '../../../packages/client-protocol/src/protocol.ts';
-import { API_KEY_ENV, type DaemonOptions } from '../../cli/src/desktop-daemon.ts';
+import {
+  API_KEY_ENV,
+  CONSUMER_CREDENTIAL_PREFIX,
+  DAEMON_ENTRY,
+  type DaemonOptions,
+  ELECTRON_RUN_AS_NODE_ENV,
+  startDaemon,
+} from '../../cli/src/desktop-daemon.ts';
 import { DEFAULT_PREFERENCES, MAX_FONT_SCALE } from './accessibility.ts';
-import { type Daemon, daemonTransport, ENGINE_CRASHED, PREFERENCES_FILE, startMain, WINDOW_SECURITY } from './main.ts';
+import {
+  type Daemon,
+  daemonTransport,
+  ENGINE_CRASHED,
+  type Fork,
+  PREFERENCES_FILE,
+  startMain,
+  type UtilityProcessLike,
+  utilityEngine,
+  WINDOW_SECURITY,
+} from './main.ts';
 import { CHANNELS, PREFERENCES_QUERY, START_QUERY } from './preload.ts';
 
 const DATA_DIR = '/data';
@@ -320,6 +338,45 @@ test('UI08 main persists only valid preferences from its window', () => {
   electron.ipc(CHANNELS.preferences, SENT_PREFERENCES);
   assert.deepEqual(electron.made, [DATA_DIR]);
   assert.deepEqual(JSON.parse(electron.written[join(DATA_DIR, PREFERENCES_FILE)] ?? ''), SENT_PREFERENCES);
+});
+
+const PARENT_PORT_SHIM = `data:text/javascript,${encodeURIComponent(
+  "process.parentPort = { postMessage: (m) => process.send(m), on: (_e, l) => process.on('message', (data) => l({ data })) };",
+)}`;
+
+const childUtilityProcess: Fork = (modulePath, args, options) => {
+  const child = fork(modulePath, args, { ...options, execArgv: ['--import', PARENT_PORT_SHIM] });
+  return {
+    get pid() {
+      return child.pid;
+    },
+    postMessage: (message) => child.send(message as object),
+    on: (event: string, listener: (...args: unknown[]) => void) => child.on(event, listener),
+    kill: () => child.kill(),
+  } as UtilityProcessLike;
+};
+
+test('rpg-42a.6 the utilityProcess engine channel forks the engine without consumer keys or run-as-node', async (t) => {
+  const forked: Parameters<Fork>[] = [];
+  const daemon = startDaemon({
+    env: { ...process.env, CLAUDE_CODE_OAUTH_TOKEN: CONSUMER_TOKEN },
+    spawnEngine: utilityEngine((...args) => {
+      forked.push(args);
+      return childUtilityProcess(...args);
+    }),
+  });
+  t.after(() => daemon.stop());
+  assert.equal((await daemon.ready()).type, 'Ready');
+  assert.equal((await daemon.request('Ping')).type, 'Pong');
+  assert.equal(await daemon.stop(), 0);
+  const [modulePath, , options] = forked[0] ?? [];
+  assert.equal(modulePath, DAEMON_ENTRY);
+  assert.deepEqual(
+    Object.keys(options?.env ?? {}).filter(
+      (key) => key.startsWith(CONSUMER_CREDENTIAL_PREFIX) || key === ELECTRON_RUN_AS_NODE_ENV,
+    ),
+    [],
+  );
 });
 
 const SAVED_DRAFT = { path: 'guide', step: 2, name: '', intent: '', choices: { genre: 'fantasy' } };

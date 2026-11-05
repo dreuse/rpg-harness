@@ -1,5 +1,4 @@
-import { type ChildProcessWithoutNullStreams, spawn } from 'node:child_process';
-import { once } from 'node:events';
+import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
@@ -57,10 +56,26 @@ const ENGINE_STOPPED = 'The engine is not running.';
 
 type Campaign = ReturnType<typeof openClientSession>;
 type Served = { readonly name?: string; readonly campaign?: Campaign; readonly problem: string };
+export type EngineMessage = Ready | Reply | Pushed;
+export type EngineChannel = {
+  readonly pid: () => number | undefined;
+  readonly send: (message: Request) => void;
+  readonly kill: () => void;
+};
+export type EngineEvents = {
+  readonly message: (message: EngineMessage) => void;
+  readonly exit: (code: number | null, signal: string | null) => void;
+};
+export type SpawnEngine = (env: NodeJS.ProcessEnv, on: EngineEvents) => EngineChannel;
 export type DaemonOptions = {
   readonly env: NodeJS.ProcessEnv;
   readonly onCrash?: (pid: number) => void;
   readonly maxRestarts?: number;
+  readonly spawnEngine?: SpawnEngine;
+};
+type ParentPort = {
+  postMessage(message: unknown): void;
+  on(event: 'message', listener: (event: { readonly data: unknown }) => void): unknown;
 };
 
 type Lifecycle = Exclude<CampaignCommand, { readonly type: 'PlanCampaign' }>;
@@ -73,8 +88,11 @@ const isConsumerKey = (key: string) => {
 
 const consumerKeys = (env: NodeJS.ProcessEnv) => Object.keys(env).filter(isConsumerKey);
 
+export const engineEnv = (env: NodeJS.ProcessEnv): NodeJS.ProcessEnv =>
+  Object.fromEntries(Object.entries(env).filter(([key]) => !isConsumerKey(key)));
+
 export const daemonEnv = (env: NodeJS.ProcessEnv, versions: Versions = process.versions): NodeJS.ProcessEnv => ({
-  ...Object.fromEntries(Object.entries(env).filter(([key]) => !isConsumerKey(key))),
+  ...engineEnv(env),
   ...(versions.electron === undefined ? {} : { [ELECTRON_RUN_AS_NODE_ENV]: ENABLED }),
 });
 
@@ -89,7 +107,14 @@ const sqliteWorks = () => {
   }
 };
 
-const send = (message: object, done?: () => void) => process.stdout.write(JSON.stringify(message) + NEWLINE, done);
+const { parentPort } = process as { parentPort?: ParentPort };
+
+const send = (message: object, done?: () => void) => {
+  if (parentPort === undefined) return process.stdout.write(JSON.stringify(message) + NEWLINE, done);
+  parentPort.postMessage(message);
+  done?.();
+  return true;
+};
 
 const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
@@ -192,9 +217,9 @@ const replier = ({ name, campaign, problem }: Served) => {
     return send({ id, type: 'Result', result: { ok: true, value: { subscription: id } } });
   };
 
-  return (line: string) => {
+  return (input: unknown) => {
     try {
-      const { id, type, command, subscription } = JSON.parse(line) as Request;
+      const { id, type, command, subscription } = (typeof input === 'string' ? JSON.parse(input) : input) as Request;
       if (type === 'Ping') return send({ id, type: 'Pong' });
       if (type === 'Command') return execute(id, command);
       if (type === 'Unsubscribe') {
@@ -231,60 +256,80 @@ const runDaemon = () => {
   };
   const reply = replier(serve(process.env));
   send(ready);
-  createInterface({ input: process.stdin }).on('line', reply);
+  if (parentPort === undefined) createInterface({ input: process.stdin }).on('line', reply);
+  else parentPort.on('message', ({ data }) => reply(data));
 };
 
-export const startDaemon = ({ env, onCrash, maxRestarts = MAX_RESTARTS }: DaemonOptions) => {
+export const stdioEngine: SpawnEngine = (env, on) => {
+  const engine = spawn(process.execPath, [DAEMON_ENTRY], { env: daemonEnv(env) });
+  engine.stdin.on('error', IGNORE);
+  engine.stderr.pipe(process.stderr);
+  createInterface({ input: engine.stdout }).on('line', (line) => {
+    let message: EngineMessage;
+    try {
+      message = JSON.parse(line) as EngineMessage;
+    } catch {
+      process.stderr.write(line + NEWLINE);
+      return;
+    }
+    on.message(message);
+  });
+  engine.once('exit', on.exit);
+  return {
+    pid: () => engine.pid,
+    send: (message) => engine.stdin.write(JSON.stringify(message) + NEWLINE),
+    kill: () => engine.kill(KILL),
+  };
+};
+
+export const startDaemon = ({ env, onCrash, maxRestarts = MAX_RESTARTS, spawnEngine = stdioEngine }: DaemonOptions) => {
   const pending = new Map<number, PromiseWithResolvers<Reply>>();
   const listeners = new Map<number, (event: ClientEvent) => void>();
-  let child: ChildProcessWithoutNullStreams;
+  let child: EngineChannel;
+  let running = false;
   let handshake: Promise<Ready>;
-  let exited: Promise<[number | null, NodeJS.Signals | null]>;
+  let exited: Promise<number | null>;
   let restarts = 0;
   let nextId = 0;
   let stopping = false;
 
-  const spawnEngine = () => {
-    const engine = spawn(process.execPath, [DAEMON_ENTRY], { env: daemonEnv(env) });
+  const startEngine = () => {
     const ready = Promise.withResolvers<Ready>();
+    const exit = Promise.withResolvers<number | null>();
     ready.promise.catch(IGNORE);
-    child = engine;
     handshake = ready.promise;
-    exited = once(engine, 'exit') as Promise<[number | null, NodeJS.Signals | null]>;
-    engine.stdin.on('error', IGNORE);
-    engine.stderr.pipe(process.stderr);
-    createInterface({ input: engine.stdout }).on('line', (line) => {
-      let message: Ready | Reply | Pushed;
-      try {
-        message = JSON.parse(line) as Ready | Reply | Pushed;
-      } catch {
-        process.stderr.write(line + NEWLINE);
-        return;
-      }
-      if (message.type === READY) return ready.resolve(message);
-      if (message.type === EVENT) return listeners.get(message.id)?.(message.event);
-      pending.get(message.id)?.resolve(message);
-      pending.delete(message.id);
+    exited = exit.promise;
+    running = true;
+    const engine = spawnEngine(env, {
+      message: (message) => {
+        if (message.type === READY) return ready.resolve(message);
+        if (message.type === EVENT) return listeners.get(message.id)?.(message.event);
+        pending.get(message.id)?.resolve(message);
+        pending.delete(message.id);
+      },
+      exit: (code, signal) => {
+        running = false;
+        exit.resolve(code);
+        const error = new Error(`Engine ${engine.pid()} exited (${code ?? signal}).`);
+        ready.reject(error);
+        for (const request of pending.values()) request.reject(error);
+        pending.clear();
+        listeners.clear();
+        if (stopping || restarts >= maxRestarts) return;
+        restarts += 1;
+        startEngine();
+        onCrash?.(engine.pid() ?? UNKNOWN_PID);
+      },
     });
-    engine.once('exit', (code, signal) => {
-      const error = new Error(`Engine ${engine.pid} exited (${code ?? signal}).`);
-      ready.reject(error);
-      for (const request of pending.values()) request.reject(error);
-      pending.clear();
-      listeners.clear();
-      if (stopping || restarts >= maxRestarts) return;
-      restarts += 1;
-      spawnEngine();
-      onCrash?.(engine.pid ?? UNKNOWN_PID);
-    });
+    child = engine;
   };
 
   const call = async (message: Omit<Request, 'id'>, id = nextId++): Promise<Reply> => {
     await handshake;
-    if (child.exitCode !== null || child.signalCode !== null) throw new Error(ENGINE_STOPPED);
+    if (!running) throw new Error(ENGINE_STOPPED);
     const answer = Promise.withResolvers<Reply>();
     pending.set(id, answer);
-    child.stdin.write(JSON.stringify({ id, ...message }) + NEWLINE);
+    child.send({ id, ...message } as Request);
     return answer.promise;
   };
 
@@ -310,15 +355,15 @@ export const startDaemon = ({ env, onCrash, maxRestarts = MAX_RESTARTS }: Daemon
   const stop = async (): Promise<number | null> => {
     stopping = true;
     const engine = child;
-    if (engine.exitCode !== null || engine.signalCode !== null) return engine.exitCode;
+    if (!running) return exited;
     request('Shutdown').catch(IGNORE);
-    const timer = setTimeout(() => engine.kill(KILL), SHUTDOWN_TIMEOUT_MS);
-    const [code] = await exited;
+    const timer = setTimeout(engine.kill, SHUTDOWN_TIMEOUT_MS);
+    const code = await exited;
     clearTimeout(timer);
     return code;
   };
 
-  spawnEngine();
+  startEngine();
   return { ready: () => handshake, request, command, subscribe, stop, restarts: () => restarts };
 };
 
