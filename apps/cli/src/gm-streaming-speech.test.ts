@@ -190,7 +190,7 @@ describe('rpg-cm63.17 streaming speech in the GM turn flow', () => {
     const gm: GameMaster = {
       request: async (packet: ContextPacket, { onSegment }) => {
         instructions.push(packetParts(packet).instructions);
-        onSegment?.(FIRST);
+        onSegment?.({ text: FIRST });
         return reply(FIRST);
       },
       summarizer: FAKE_GAME_MASTER.summarizer,
