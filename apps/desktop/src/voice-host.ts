@@ -23,6 +23,12 @@ import {
   speaksLanguage,
 } from '../../../packages/voice/src/kokoro-provider.ts';
 import { voicesFor } from '../../../packages/voice/src/language-voices.ts';
+import {
+  createMlxAudioProvider,
+  MLX_AUDIO_DIR_ENV,
+  mlxAudioSupported,
+} from '../../../packages/voice/src/mlx-audio-engine.ts';
+import { createMlxAudioInstaller, type MlxAudioInstaller } from '../../../packages/voice/src/mlx-audio-install.ts';
 import { MAX_PLAYBACK_SPEED, MIN_PLAYBACK_SPEED } from '../../../packages/voice/src/playback.ts';
 import type { SpeechChunk } from '../../../packages/voice/src/tts.ts';
 import type { CommittedUtterance } from '../../../packages/voice/src/voice.ts';
@@ -30,6 +36,7 @@ import type { CommittedUtterance } from '../../../packages/voice/src/voice.ts';
 export const VOICE_ROUTE_ENV = 'RPG_VOICE';
 export const FAKE_VOICE_ROUTE = 'fake';
 export const VOICE_MODELS_DIR = 'voice-models';
+export const MLX_AUDIO_SUBDIR = 'mlx-audio';
 export const AUDIO_CACHE_DIR = 'audio-cache';
 export const PREVIEW_CACHE_BYTES = 8 * 1024 * 1024;
 export const PREVIEW_LINES: Readonly<Record<string, string>> = {
@@ -204,6 +211,29 @@ export const createVoiceHost = ({
   };
 };
 
+const BRAZILIAN_NARRATOR = voicesFor('pt-BR')?.narrator ?? '';
+
+export const mlxAudioProviders = (
+  dir: string,
+  installer: MlxAudioInstaller = createMlxAudioInstaller({ dir }),
+): HostedProvider[] => [
+  {
+    id: MLX_KOKORO_PROVIDER_ID,
+    capabilities: MLX_KOKORO_CAPABILITIES,
+    narrator: BRAZILIAN_NARRATOR,
+    model: {
+      offer: installer.offer,
+      status: async () => {
+        const { installed } = await installer.status();
+        return { installed, bytes: installed ? installer.offer.bytes : 0 };
+      },
+      download: (consent, signal) => installer.install(consent, signal),
+      remove: () => installer.remove(),
+    },
+    provider: createMlxAudioProvider({ dir }),
+  },
+];
+
 const kokoroNarrator = () => voicesFor('en')?.narrator ?? KOKORO_CAPABILITIES.voices[0] ?? '';
 
 export const kokoroProviders = (dir: string): HostedProvider[] => [
@@ -216,7 +246,6 @@ export const kokoroProviders = (dir: string): HostedProvider[] => [
   },
 ];
 
-const BRAZILIAN_NARRATOR = 'pf_dora';
 const SAMPLE_RATE = 24_000;
 const SILENT_SAMPLES = 2_400;
 const BYTES_PER_SAMPLE = 2;
@@ -293,11 +322,17 @@ export const fakeVoiceProviders = (schedule: (run: () => void, ms: number) => vo
   },
 ];
 
+export const voiceProviders = (
+  env: NodeJS.ProcessEnv,
+  dataDir: string,
+  mlxSupported: boolean = mlxAudioSupported(),
+): HostedProvider[] => [
+  ...kokoroProviders(env[KOKORO_MODEL_DIR_ENV] || join(dataDir, VOICE_MODELS_DIR)),
+  ...(mlxSupported ? mlxAudioProviders(env[MLX_AUDIO_DIR_ENV] || join(dataDir, MLX_AUDIO_SUBDIR)) : []),
+];
+
 export const voiceHostFromEnv = (env: NodeJS.ProcessEnv, dataDir: string): VoiceHost =>
   createVoiceHost({
     cacheDir: join(dataDir, AUDIO_CACHE_DIR),
-    providers:
-      env[VOICE_ROUTE_ENV] === FAKE_VOICE_ROUTE
-        ? fakeVoiceProviders()
-        : kokoroProviders(env[KOKORO_MODEL_DIR_ENV] || join(dataDir, VOICE_MODELS_DIR)),
+    providers: env[VOICE_ROUTE_ENV] === FAKE_VOICE_ROUTE ? fakeVoiceProviders() : voiceProviders(env, dataDir),
   });

@@ -496,7 +496,11 @@ export const openClientSession = (
       sheetsOf(opened, readWorld),
       { sessionId, defaults: gmDefaults },
     );
-    return { session: sessions(PLAYER_VIEWER), campaignId, narrate, settle, close };
+    const voiceLocale = () => {
+      const settings = voiceSettingsOf(engine.getState(campaignId).changes);
+      return settings === undefined || settings.spokenOutput === SPOKEN_OFF ? undefined : settings.locale;
+    };
+    return { session: sessions(PLAYER_VIEWER), campaignId, narrate, settle, close, voiceLocale };
   } catch (error) {
     close();
     throw error;
@@ -533,6 +537,13 @@ export const playbackFor = (dataDir: string): TuiPlayback => ({
   diagnostics: () => liveRuntimes.get(dataDir)?.diagnostics.summary(),
 });
 
+const NOTICE_JOIN = ' ';
+
+const speechNotice = async (speech: SpeechSource, locale: string) => {
+  const [{ prepareVoice }, runtime] = await Promise.all([import('./speech-runtime.ts'), speech()]);
+  return prepareVoice(runtime.providers, locale);
+};
+
 const playTui = async (
   dataDir: string,
   name: string,
@@ -541,15 +552,19 @@ const playTui = async (
   rng: Rng,
   makeSpeech: MakeSpeech,
 ) => {
-  const { session, campaignId, narrate, settle, close } = openClientSession(
+  const speech = liveSpeech(dataDir, makeSpeech);
+  const { session, campaignId, narrate, settle, close, voiceLocale } = openClientSession(
     dataDir,
     name,
     gm,
     rng,
-    liveSpeech(dataDir, makeSpeech),
+    speech,
   );
   try {
-    await runTui(session, campaignId, terminal, narrate, gm.notice, playbackFor(dataDir));
+    const locale = voiceLocale();
+    const voiceNotice = locale === undefined ? undefined : await speechNotice(speech, locale).catch(() => undefined);
+    const notice = [gm.notice, voiceNotice].filter((line) => line !== undefined).join(NOTICE_JOIN);
+    await runTui(session, campaignId, terminal, narrate, notice || undefined, playbackFor(dataDir));
   } finally {
     disposeSpeech(dataDir);
     await settle();

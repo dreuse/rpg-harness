@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import type { PlaybackSink } from '../../../packages/voice/src/playback.ts';
 import type { SpeechChunk, TtsProvider } from '../../../packages/voice/src/tts.ts';
 import type { CommittedUtterance, VoiceProfile } from '../../../packages/voice/src/voice.ts';
-import { createLiveSpeechRuntime, createSpeechRuntime } from './speech-runtime.ts';
+import { createLiveSpeechRuntime, createSpeechRuntime, liveProviders, prepareVoice } from './speech-runtime.ts';
 
 const SECRET = 'secret campaign words';
 const tick = () => new Promise((resolve) => setImmediate(resolve));
@@ -107,4 +107,56 @@ test('the live runtime builds without a model and keeps lines in text', async ()
   await runtime.speech.idle();
   assert.equal(runtime.diagnostics.summary().samples, 0);
   runtime.dispose();
+});
+
+const MLX_ID = 'kokoro-mlx';
+const PT_BR = 'pt-BR';
+const withPreload = (id: string, preload: () => Promise<void>) => ({ ...provider(id), preload });
+
+test('live providers add the mlx voice only where it is supported', () => {
+  const ids = (supported: boolean) => liveProviders('/data', {}, supported).map(({ id }) => id);
+  assert.deepEqual(ids(true), ['kokoro', MLX_ID]);
+  assert.deepEqual(ids(false), ['kokoro']);
+});
+
+test('a pt-BR campaign preloads the mlx voice without waiting for it', () => {
+  const calls: string[] = [];
+  const never = withPreload(MLX_ID, () => new Promise<void>(() => calls.push('preload')));
+  assert.equal(prepareVoice([never], PT_BR), undefined);
+  assert.deepEqual(calls, ['preload']);
+});
+
+test('a failing preload does not break play', async () => {
+  const failing = withPreload(MLX_ID, () => Promise.reject(new Error('cold start failed')));
+  assert.equal(prepareVoice([failing], PT_BR), undefined);
+  await tick();
+});
+
+test('an English campaign does not preload the mlx voice', () => {
+  const calls: string[] = [];
+  const mlx = withPreload(MLX_ID, async () => void calls.push('preload'));
+  prepareVoice([mlx], 'en');
+  assert.deepEqual(calls, []);
+});
+
+test('a pt-BR campaign without the mlx voice gets the player notice', () => {
+  assert.match(prepareVoice([provider('kokoro')], PT_BR) ?? '', /not available on this computer/);
+});
+
+test('dispose also disposes every provider', () => {
+  const disposed: string[] = [];
+  const hosted = { ...provider(MLX_ID), dispose: async () => void disposed.push(MLX_ID) };
+  const runtime = createSpeechRuntime({
+    providers: [provider('kokoro'), hosted],
+    sink: { play: () => new Promise<void>(() => {}) },
+  });
+  runtime.dispose();
+  assert.deepEqual(disposed, [MLX_ID]);
+});
+
+test('an unhealthy mlx voice is not preloaded', () => {
+  const calls: string[] = [];
+  const mlx = { ...withPreload(MLX_ID, async () => void calls.push('preload')), healthy: () => false };
+  prepareVoice([mlx], PT_BR);
+  assert.deepEqual(calls, []);
 });

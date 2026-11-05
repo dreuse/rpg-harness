@@ -8,8 +8,16 @@ import {
   createKokoroProvider,
   KOKORO_CAPABILITIES,
   KOKORO_PROVIDER_ID,
+  MLX_KOKORO_PROVIDER_ID,
 } from '../../../packages/voice/src/kokoro-provider.ts';
-import { createVoiceHost, fakeVoiceProviders, type HostedProvider, PREVIEW_LINES } from './voice-host.ts';
+import {
+  createVoiceHost,
+  fakeVoiceProviders,
+  type HostedProvider,
+  mlxAudioProviders,
+  PREVIEW_LINES,
+  voiceProviders,
+} from './voice-host.ts';
 
 const OFFER = { source: 'https://models.example/kokoro', bytes: 10, sizeMiB: 0 };
 const NARRATOR = 'af_heart';
@@ -225,4 +233,35 @@ test('rpg-cm63.8 clearing the cache removes persisted previews', async () => {
   host.clearCache();
   assert.equal((await host.check()).cacheBytes, 0);
   assert.equal((await setup(true).host.preview(PREVIEW)).cacheHit, false);
+});
+
+const MLX_OFFER = { source: 'https://pypi.example/mlx', bytes: 5, sizeMiB: 0 };
+const fakeInstaller = (calls: string[], installed = false) => ({
+  offer: MLX_OFFER,
+  status: async () => ({ supported: true, installed }),
+  install: async (consent: ModelConsent | undefined) => void calls.push(`install:${consent?.accepted}`),
+  remove: async () => void calls.push('remove'),
+});
+
+test('the mlx voice is offered with the pt-BR narrator and installs only through consent', async () => {
+  const calls: string[] = [];
+  const [hosted] = mlxAudioProviders('/mlx', fakeInstaller(calls));
+  assert.equal(hosted?.id, MLX_KOKORO_PROVIDER_ID);
+  assert.equal(hosted?.narrator, 'pf_dora');
+  assert.deepEqual(await hosted?.model.status(), { installed: false, bytes: 0 });
+  const host = createVoiceHost({ providers: hosted ? [hosted] : [], cacheDir });
+  await assert.rejects(
+    host.download(MLX_KOKORO_PROVIDER_ID, { accepted: false }, () => {}),
+    RangeError,
+  );
+  assert.deepEqual(calls, []);
+  await host.download(MLX_KOKORO_PROVIDER_ID, { accepted: true, ...MLX_OFFER }, () => {});
+  await host.remove(MLX_KOKORO_PROVIDER_ID);
+  assert.deepEqual(calls, ['install:true', 'remove']);
+});
+
+test('the host lists the mlx voice only where it is supported', () => {
+  const ids = (supported: boolean) => voiceProviders({}, '/dir', supported).map(({ id }) => id);
+  assert.deepEqual(ids(true), [KOKORO_PROVIDER_ID, MLX_KOKORO_PROVIDER_ID]);
+  assert.deepEqual(ids(false), [KOKORO_PROVIDER_ID]);
 });

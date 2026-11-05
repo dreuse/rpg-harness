@@ -297,4 +297,20 @@ describe('rpg-cm63.17 speech runtime lifetime', () => {
     disposeSpeech(dataDir);
     assert.deepEqual(calls, ['dispose']);
   });
+
+  it('shows the player a notice when the campaign language has no usable voice', async (t) => {
+    const { dataDir, runtime } = await setup(t);
+    const opened = openWith(dataDir, FAKE_GAME_MASTER, runtime);
+    submit(opened, { locale: 'pt-BR' });
+    await opened.settle();
+    opened.close();
+    const written: string[] = [];
+    const terminal = {
+      capabilities: PLAIN,
+      lines: (async function* () {})(),
+      write: (text: string) => void written.push(text),
+    };
+    await createEngineGateway(dataDir, FAKE_GAME_MASTER, Math.random, () => runtime).tui(CAMPAIGN, terminal);
+    assert.match(written.join(''), /not available on this computer/);
+  });
 });
