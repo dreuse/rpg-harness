@@ -116,13 +116,8 @@ const diagnostics = ({ diagnostics: { pid, gm, error, attempts } }: ViewModel, l
 
 const pageHeading = (text: string) => `<h1 id="${HEADING_ID}${STATUS}" tabindex="-1">${escapeHtml(text)}</h1>`;
 
-const rulesNote = ({ uses }: ViewModel, locale: string) => {
-  const key = uses.dice ? (uses.sheet ? '' : 'noSheet') : uses.sheet ? 'noDice' : 'noBoth';
-  return key === '' ? '' : `<p data-rules-note>${escapeHtml(translate(locale, `rules.note.${key}`))}</p>`;
-};
-
 const header = (model: ViewModel, locale: string) =>
-  `<hgroup>${pageHeading(model.title.campaign ?? translate(locale, 'app.name'))}${model.title.scene === undefined ? '' : `<p>${escapeHtml(model.title.scene)}</p>`}</hgroup>${rulesNote(model, locale)}`;
+  `<hgroup>${pageHeading(model.title.campaign ?? translate(locale, 'app.name'))}${model.title.scene === undefined ? '' : `<p>${escapeHtml(model.title.scene)}</p>`}</hgroup>`;
 
 const connection = (model: ViewModel, locale: string) =>
   `<p role="status" data-connection="${model.status.connection}">${escapeHtml(model.status.label)}</p>${model.status.canRetry ? button('data-action', 'retry', translate(locale, 'action.retry')) : ''}${diagnostics(model, locale)}`;
@@ -556,8 +551,11 @@ const REGION_BODIES: Readonly<Record<Region, (model: ViewModel, locale: string) 
       ? empty(locale, 'sheet')
       : `${name}<p data-empty>${escapeHtml(translate(locale, 'sheet.noStats'))}</p>`;
   },
-  panels: ({ panels, characterCard }, locale) =>
-    characterCardHtml(characterCard, locale) +
+  character: ({ characterCard }) =>
+    characterCard === undefined
+      ? ''
+      : `<h3>${escapeHtml(characterCard.name)}</h3>${characterCard.description === undefined ? '' : `<p>${escapeHtml(characterCard.description)}</p>`}`,
+  panels: ({ panels }, locale) =>
     orEmpty(
       panels === undefined
         ? []
@@ -570,11 +568,6 @@ const REGION_BODIES: Readonly<Record<Region, (model: ViewModel, locale: string) 
       'panels',
     ),
 };
-
-const characterCardHtml = (card: ViewModel['characterCard'], locale: string) =>
-  card === undefined
-    ? ''
-    : `<section data-character aria-label="${escapeHtml(translate(locale, 'region.character'))}"><h3>${escapeHtml(card.name)}</h3>${card.description === undefined ? '' : `<p>${escapeHtml(card.description)}</p>`}</section>`;
 
 const section = (name: string, locale: string, body: string) =>
   `<section data-region="${name}" aria-label="${escapeHtml(translate(locale, `region.${name}`))}">${body}</section>`;
@@ -643,8 +636,8 @@ const startTitle = ({ title, progress }: StartScreen, locale: string) =>
 
 const startOption =
   (step: StartScreen['step']) =>
-  ({ label, detail, selected }: StartScreen['options'][number], index: number) =>
-    `<li><button type="button" ${START_OPTION}="${index}"${step === 'path' ? '' : ` aria-pressed="${selected}"`} aria-labelledby="${OPTION_ID}${index}-label" aria-describedby="${OPTION_ID}${index}-detail"><span id="${OPTION_ID}${index}-label" data-option-label>${escapeHtml(label)}</span><span id="${OPTION_ID}${index}-detail" data-option-detail>${escapeHtml(detail)}</span></button></li>`;
+  ({ label, detail, selected, badge }: StartScreen['options'][number], index: number) =>
+    `<li><button type="button" ${START_OPTION}="${index}"${step === 'path' ? '' : ` aria-pressed="${selected}"`} aria-labelledby="${OPTION_ID}${index}-label" aria-describedby="${OPTION_ID}${index}-detail"><span id="${OPTION_ID}${index}-label" data-option-label>${escapeHtml(label)}${badge === undefined ? '' : ` <span data-option-badge>${escapeHtml(badge)}</span>`}</span><span id="${OPTION_ID}${index}-detail" data-option-detail>${escapeHtml(detail)}</span></button></li>`;
 
 const startEntry = ({ entry }: StartScreen) =>
   entry === undefined

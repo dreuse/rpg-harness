@@ -112,13 +112,13 @@ export type Transport = {
   onClose(listener: (error: string) => void): void;
 };
 
-export const REGIONS = ['campaigns', 'status', 'conversation', 'sheet', 'panels'] as const;
+export const REGIONS = ['campaigns', 'status', 'conversation', 'sheet', 'character', 'panels'] as const;
 export type Region = (typeof REGIONS)[number];
-export const PLAY_REGIONS = ['conversation', 'sheet', 'panels'] as const satisfies readonly Region[];
+export const PLAY_REGIONS = ['conversation', 'sheet', 'character', 'panels'] as const satisfies readonly Region[];
 export type Layout = { readonly name: 'compact' | 'medium' | 'wide'; readonly columns: readonly (readonly Region[])[] };
 export { OPENING_ACTION_ID } from '../../../packages/domain/src/campaign.ts';
 
-const SIDE_BY_SIDE: Layout['columns'] = [['conversation'], ['sheet', 'panels']];
+const SIDE_BY_SIDE: Layout['columns'] = [['conversation'], ['sheet', 'character', 'panels']];
 
 export const layoutFor = (width: number, hidden: readonly Region[] = []): Layout => {
   const shown = (regions: readonly Region[]) => regions.filter((region) => !hidden.includes(region));
@@ -255,10 +255,16 @@ export const viewModel = (
     ({ campaignId, actionId }) =>
       campaignId === state.selected && !committed.some((turn) => turn.actionId === actionId),
   );
+  const characterCard = sheet ? undefined : identityOf(state.views[SHEET_VIEW]);
+  const hidden: readonly Region[] = sheet
+    ? ['character']
+    : characterCard === undefined
+      ? ['sheet', 'character']
+      : ['sheet'];
   return {
-    layout: layoutFor(width, sheet ? [] : ['sheet']),
+    layout: layoutFor(width, hidden),
     uses: { dice, sheet },
-    characterCard: sheet ? undefined : identityOf(state.views[SHEET_VIEW]),
+    characterCard,
     status: {
       connection: state.connection.status,
       label: statusLabel(state.connection, preferences.locale),

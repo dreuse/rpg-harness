@@ -302,7 +302,7 @@ test('UI10 status label follows the locale preference', () => {
 test('rpg-42a.18 every play pane is in the layout at every width', () => {
   for (const width of [COMPACT_WIDTH, MEDIUM_WIDTH, WIDE_WIDTH])
     assert.deepEqual(layoutFor(width).columns.flat().toSorted(), [...PLAY_REGIONS].toSorted(), String(width));
-  assert.deepEqual(layoutFor(MEDIUM_WIDTH).columns, [['conversation'], ['sheet', 'panels']]);
+  assert.deepEqual(layoutFor(MEDIUM_WIDTH).columns, [['conversation'], ['sheet', 'character', 'panels']]);
 });
 
 test('rpg-42a.22 going home leaves the adventure, clears its panes and refreshes the list', () => {

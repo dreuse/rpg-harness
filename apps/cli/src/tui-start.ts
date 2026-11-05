@@ -53,9 +53,10 @@ const render = (screen: StartScreen, locale: string) =>
       ? screen.title
       : say(locale, 'start.step', { ...screen.progress, title: screen.title }),
     ...screen.text,
+    ...(screen.importHint === undefined ? [] : [screen.importHint]),
     ...screen.options.map(
-      ({ label, detail, selected }, index) =>
-        `  ${index + FIRST_NUMBER}. ${label}${selected ? ` (${say(locale, 'start.on')})` : ''} - ${detail}`,
+      ({ label, detail, selected, badge }, index) =>
+        `  ${index + FIRST_NUMBER}. ${label}${badge === undefined ? '' : ` [${badge}]`}${selected ? ` (${say(locale, 'start.on')})` : ''} - ${detail}`,
     ),
     ...(screen.entry === undefined ? [] : [`${screen.entry.label}: ${screen.entry.value}`]),
     ...(screen.error === undefined ? [] : [screen.error]),

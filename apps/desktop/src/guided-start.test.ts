@@ -124,7 +124,7 @@ test('rpg-42a.14 desktop describe it path creates a playable campaign', async (t
 
 test('rpg-42a.14 desktop guide me path creates a playable campaign with chosen settings', async (t) => {
   const { dataDir, summary } = await createThrough(t, GUIDE);
-  assert.ok(summary?.text.includes('Rules: narrative original (chosen)'));
+  assert.ok(summary?.text.includes('Rules: Story only: no dice, no sheet (chosen)'));
   assert.ok(summary?.text.includes('Character: none (default)'));
   assert.equal(await playOneTurn(t, dataDir, GUIDED_NAME), PLAYER_ACTION);
 });

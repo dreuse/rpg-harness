@@ -170,11 +170,24 @@ test('rpg-42a.14 rules step lists only installed rulesets and sends other system
   assert.equal(screen.step, 'rules');
   assert.deepEqual(
     screen.options.map(({ action }) => action),
-    OPTIONS.rulesets.map(({ id, edition }) => ({ kind: 'choose', field: 'ruleset', value: { id, edition } })),
+    [...OPTIONS.rulesets]
+      .reverse()
+      .map(({ id, edition }) => ({ kind: 'choose', field: 'ruleset', value: { id, edition } })),
   );
-  assert.match(screen.options[1]?.label ?? '', /recommended/);
-  assert.doesNotMatch(screen.options[0]?.label ?? '', /recommended/);
-  assert.ok(screen.text.some((line) => line.includes('Import your rulebook')));
+  assert.deepEqual(
+    screen.options.map(({ label, badge }) => [label, badge]),
+    [
+      ['Story only: no dice, no sheet', 'Recommended'],
+      ['Classic d20', undefined],
+    ],
+  );
+  assert.equal(screen.text.length, 1);
+  assert.match(screen.text[0] ?? '', /recommended option/);
+  assert.equal(
+    screen.importHint,
+    'Want a system that is not listed? Import your rulebook. Run rpg import <file> first.',
+  );
+  assert.ok(!screen.text.some((line) => line.includes('rpg import')));
 });
 
 test('rpg-42a.14 character step offers ready-made characters of the chosen genre and the sheet fields', () => {
@@ -218,7 +231,7 @@ test('rpg-42a.19 character step hides ready-made characters on rules without a s
 test('rpg-42a.14 summary shows chosen or default for each setting and an unknown edition asks for an import', () => {
   const summary = startScreen(skipAll, OPTIONS, PLAN);
   assert.equal(summary.canStart, true);
-  assert.deepEqual(summary.text, ['Rules: narrative original (chosen)', 'Genre: none (default)']);
+  assert.deepEqual(summary.text, ['Rules: Story only: no dice, no sheet (chosen)', 'Genre: none (default)']);
   assert.equal(summary.entry?.value, DEFAULT_ADVENTURE_NAME);
   const unknown = startScreen(skipAll, OPTIONS, failure('UnknownEdition', 'Ruleset D&D 1.9 is not installed.'));
   assert.equal(unknown.canStart, false);
@@ -247,7 +260,7 @@ test('rpg-42a.30 summary groups each setting for review with its provenance and 
     {
       title: 'Your story',
       items: [
-        { field: 'ruleset', label: 'Rules', value: 'narrative original', chosen: true, step: at('rules') },
+        { field: 'ruleset', label: 'Rules', value: 'Story only: no dice, no sheet', chosen: true, step: at('rules') },
         { field: 'dice', label: 'Dice', value: 'as the ruleset decides', chosen: false, step: at('rules') },
         { field: 'mystery', label: 'mystery', value: 'x', chosen: false, step: 0 },
       ],
@@ -342,9 +355,12 @@ test('rpg-42a.39 guided start reads in Brazilian Portuguese and names the defaul
     undefined,
     'pt-BR',
   );
-  assert.equal(rules.options[1]?.label, 'narrative original (recomendado para iniciantes)');
+  assert.deepEqual(
+    [rules.options[0]?.label, rules.options[0]?.badge],
+    ['Só história: sem dados, sem ficha', 'Recomendado'],
+  );
   const summary = startScreen(skipAll, OPTIONS, PLAN, 'pt-BR');
-  assert.deepEqual(summary.text, ['Regras: narrative original (escolhido)', 'Gênero: none (padrão)']);
+  assert.deepEqual(summary.text, ['Regras: Só história: sem dados, sem ficha (escolhido)', 'Gênero: none (padrão)']);
   assert.equal(summary.entry?.value, 'Minha aventura');
   assert.deepEqual(
     summary.review?.map(({ title }) => title),
@@ -365,13 +381,22 @@ const toRules = [
   { kind: 'choose', field: 'genre', value: 'fantasy' },
 ] as const;
 
-test('rpg-42a.38 rules step explains diceless and sheetless systems in plain words', () => {
+test('rpg-42a.54 rules cards use player names and never show internal ids', () => {
   const screen = startScreen(run(toRules), OPTIONS, undefined);
   assert.equal(screen.step, 'rules');
-  assert.ok(screen.text.includes('Some systems use no dice. The GM decides what happens from your story.'));
-  assert.ok(
-    screen.text.includes('Some systems have no character sheet. You only need a name and a short description.'),
-  );
+  const visible = [
+    ...screen.text,
+    ...screen.options.flatMap(({ label, detail, badge }) => [label, detail, badge ?? '']),
+  ];
+  for (const internal of ['d20-lite', 'dice-pool-lite', 'narrative', 'original'])
+    assert.ok(!visible.some((line) => line.includes(internal)), internal);
+  assert.equal(screen.options[1]?.label, 'Classic d20');
+});
+
+test('rpg-42a.54 an imported ruleset keeps its own id and edition as the name', () => {
+  const imported = { id: 'acme', edition: '2e', blurb: 'Acme rules.', recommended: false, readyMade: true, sheet: [] };
+  const screen = startScreen(run(toRules), { ...OPTIONS, rulesets: [...OPTIONS.rulesets, imported] }, undefined);
+  assert.deepEqual([screen.options[2]?.label, screen.options[2]?.detail], ['acme 2e', 'Acme rules.']);
 });
 
 test('rpg-42a.38 character step says a sheetless game uses a name and description only', () => {

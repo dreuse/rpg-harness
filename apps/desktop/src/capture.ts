@@ -125,10 +125,11 @@ export const SHOT_DATA_EXTENSION = '.json';
 
 const JOURNEY_TIMEOUT_MS = 15000;
 const WIDE_LAYOUT = 'wide';
-const JOURNEY_RULESET = 'd20-lite';
+const JOURNEY_RULESET = 'Classic d20';
+const PORTUGUESE_RULESET = 'd20 clássico';
 const JOURNEY_GUIDE = 'Guide me';
 const JOURNEY_FEATURE = 'Dice animation';
-const DICELESS_RULESET = 'narrative';
+const DICELESS_RULESET = 'Story only';
 const DICELESS_NAME = 'Mara';
 const DICELESS_CHARACTER = 'A lighthouse keeper named Mara who hears the sea talk.';
 const UNUSED_PARTS = '[data-region="sheet"], [data-rolls], [data-motion-control]';
@@ -138,7 +139,7 @@ const JOURNEY_CHARACTER = 'A scout named Wren with might 6, agility 5, wits 7 an
 const RANDOM_REGIONS = '[data-rolls], [data-voice-progress], [data-voice-diagnostics]';
 const CONNECTED = `document.querySelector('[role=status][data-connection="connected"]')`;
 const PLAY_READY = `document.querySelector('main[data-screen="play"] [data-region="conversation"] li:not([aria-busy])') && document.querySelector('[data-region="sheet"] h3')`;
-const DICELESS_PLAY_READY = `document.querySelector('main[data-screen="play"] [data-region="conversation"] li:not([aria-busy])') && document.querySelector('[data-rules-note]') && document.querySelector('[data-region="panels"] [data-character] h3')`;
+const DICELESS_PLAY_READY = `document.querySelector('main[data-screen="play"] [data-region="conversation"] li:not([aria-busy])') && document.querySelector('[data-region="character"] h3')`;
 const GM_REPLIED = `((gm) => gm && gm.textContent.trim() !== gm.querySelector('[data-speaker-label]').textContent.trim())(document.querySelector('[data-region="conversation"] li:last-child [data-speaker="gm"]'))`;
 const LIVE_ROLL = '[data-roll-skip], [data-roll][data-animated="true"]';
 const SETTLED = `!document.querySelector('[data-roll-skip], [data-changed], [aria-busy]')`;
@@ -199,20 +200,24 @@ const OPEN_START = steps(
   click('[data-start-open]'),
   `await ${until(`document.querySelector('[data-start-title="path"]')`)};`,
 );
-const guide = (guideOption: string, feature: string) =>
-  steps(
-    clickOption(guideOption),
-    `await ${until(`document.querySelector('[data-start-title="primer"]')`)};`,
-    nextStep('genre'),
-    `${clickOption('fantasy')} await ${until(`document.querySelector('[data-start-title="rules"]')`)};`,
-    `${clickOption(JOURNEY_RULESET)} await ${until(`document.querySelector('[data-start-title="character"]')`)};`,
-    `document.querySelector('#start-entry').value = ${JSON.stringify(JOURNEY_CHARACTER)};`,
-    `document.querySelector('[data-start-form]').requestSubmit();`,
-    `await ${until(`document.querySelector('[data-start-title="features"]')`)};`,
-    `${clickOption(feature)} await ${until(`document.querySelector('[data-start-option][aria-pressed="true"]')`)};`,
-    nextStep('summary'),
-    `await ${until(`document.querySelector('[data-start-control="start"]:not([disabled])')`)};`,
-  );
+const guideToRules = (guideOption: string) => [
+  clickOption(guideOption),
+  `await ${until(`document.querySelector('[data-start-title="primer"]')`)};`,
+  nextStep('genre'),
+  `${clickOption('fantasy')} await ${until(`document.querySelector('[data-start-title="rules"]')`)};`,
+];
+const guideFromRules = (feature: string, ruleset: string) => [
+  `${clickOption(ruleset)} await ${until(`document.querySelector('[data-start-title="character"]')`)};`,
+  `document.querySelector('#start-entry').value = ${JSON.stringify(JOURNEY_CHARACTER)};`,
+  `document.querySelector('[data-start-form]').requestSubmit();`,
+  `await ${until(`document.querySelector('[data-start-title="features"]')`)};`,
+  `${clickOption(feature)} await ${until(`document.querySelector('[data-start-option][aria-pressed="true"]')`)};`,
+  nextStep('summary'),
+  `await ${until(`document.querySelector('[data-start-control="start"]:not([disabled])')`)};`,
+];
+const guide = (guideOption: string, feature: string, ruleset: string) =>
+  steps(...guideToRules(guideOption), ...guideFromRules(feature, ruleset));
+const PORTUGUESE_TO_RULES = steps(...guideToRules(PORTUGUESE_GUIDE));
 const FIRST_TURN = steps(
   JOURNEY_LISTENER,
   click('[data-start-control="start"]'),
@@ -248,14 +253,14 @@ const DICELESS_PLAY = steps(
   `document.querySelector('#action-form').requestSubmit();`,
   `await ${until(`window.journeySnapshot?.turns.length > 1 && ${GM_REPLIED} && ${SETTLED}`)};`,
   `if (document.querySelector(${JSON.stringify(UNUSED_PARTS)})) throw new Error('diceless play shows a sheet, dice or motion setting');`,
-  `if (document.querySelector('[data-character] h3').textContent !== ${JSON.stringify(DICELESS_NAME)} || !document.querySelector('[data-character] p').textContent.includes(${JSON.stringify(DICELESS_CHARACTER)})) throw new Error('diceless play lacks the character name and description');`,
+  `if (document.querySelector('[data-region="character"] h3').textContent !== ${JSON.stringify(DICELESS_NAME)} || !document.querySelector('[data-region="character"] p').textContent.includes(${JSON.stringify(DICELESS_CHARACTER)})) throw new Error('diceless play lacks the character name and description');`,
 );
 
 export const JOURNEY: Readonly<Record<'first' | 'reopen' | 'portuguese' | 'diceless', readonly JourneyStep[]>> = {
   first: [
     { script: FIRST_HOME, shot: 'first-run-home' },
     { script: OPEN_START, shot: 'guided-start' },
-    { script: guide(JOURNEY_GUIDE, JOURNEY_FEATURE), shot: 'guided-summary' },
+    { script: guide(JOURNEY_GUIDE, JOURNEY_FEATURE, JOURNEY_RULESET), shot: 'guided-summary' },
     { script: FIRST_TURN, shot: 'first-roll' },
     {
       script: steps(
@@ -325,7 +330,8 @@ export const JOURNEY: Readonly<Record<'first' | 'reopen' | 'portuguese' | 'dicel
   portuguese: [
     { script: FIRST_HOME, shot: 'pt-BR-first-run-home' },
     { script: OPEN_START, shot: 'pt-BR-guided-start' },
-    { script: guide(PORTUGUESE_GUIDE, PORTUGUESE_FEATURE) },
+    { script: PORTUGUESE_TO_RULES, shot: 'pt-BR-rules' },
+    { script: steps(...guideFromRules(PORTUGUESE_FEATURE, PORTUGUESE_RULESET)) },
     { script: FIRST_TURN, shot: 'pt-BR-play' },
     { script: SET_UP_VOICE },
     { script: FINISH_VOICE_SETUP, shot: 'pt-BR-voice-basic' },

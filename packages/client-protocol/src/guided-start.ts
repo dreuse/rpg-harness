@@ -39,6 +39,7 @@ export type StartOption = {
   readonly detail: string;
   readonly action: StartAction;
   readonly selected: boolean;
+  readonly badge?: string;
 };
 export type StartReviewItem = {
   readonly field: string;
@@ -56,6 +57,7 @@ export type StartScreen = {
   readonly entry?: { readonly label: string; readonly value: string };
   readonly review?: readonly StartReviewGroup[];
   readonly error?: string;
+  readonly importHint?: string;
   readonly progress?: { readonly current: number; readonly total: number };
   readonly canBack: boolean;
   readonly canSkip: boolean;
@@ -110,10 +112,14 @@ export const START_CATALOG: Catalog = {
     'genre.title': 'Pick a tone and genre',
     'genre.text': 'This sets the mood of your story.',
     'rules.title': 'Pick a rules system',
-    'rules.text': 'Light rules are best for your first game.',
-    'rules.recommended': '{name} (recommended for new players)',
-    'rules.noDice': 'Some systems use no dice. The GM decides what happens from your story.',
-    'rules.noSheet': 'Some systems have no character sheet. You only need a name and a short description.',
+    'rules.text': 'Pick how your game plays; the recommended option suits a first game.',
+    'rules.badge': 'Recommended',
+    'ruleset.narrative': 'Story only: no dice, no sheet',
+    'ruleset.narrative.detail': 'The GM decides what happens from your story.',
+    'ruleset.d20-lite': 'Classic d20',
+    'ruleset.d20-lite.detail': 'Roll a twenty-sided die against a target. Your character has a sheet.',
+    'ruleset.dice-pool-lite': 'Dice pool',
+    'ruleset.dice-pool-lite.detail': 'Roll a pool of dice for each action. Your character has a sheet.',
     'character.noSheet':
       'This game does not use a character sheet. Give your character a name and a short description.',
     'features.noDice': 'This game does not use dice.',
@@ -165,10 +171,14 @@ export const START_CATALOG: Catalog = {
     'genre.title': 'Escolha o tom e o gênero',
     'genre.text': 'Isso define o clima da sua história.',
     'rules.title': 'Escolha um sistema de regras',
-    'rules.text': 'Regras leves são as melhores para o seu primeiro jogo.',
-    'rules.recommended': '{name} (recomendado para iniciantes)',
-    'rules.noDice': 'Alguns sistemas não usam dados. O mestre decide o que acontece a partir da sua história.',
-    'rules.noSheet': 'Alguns sistemas não têm ficha de personagem. Você só precisa de um nome e uma descrição curta.',
+    'rules.text': 'Escolha como seu jogo funciona; a opção recomendada serve para o primeiro jogo.',
+    'rules.badge': 'Recomendado',
+    'ruleset.narrative': 'Só história: sem dados, sem ficha',
+    'ruleset.narrative.detail': 'O mestre decide o que acontece a partir da sua história.',
+    'ruleset.d20-lite': 'd20 clássico',
+    'ruleset.d20-lite.detail': 'Role um dado de vinte lados contra um alvo. Seu personagem tem ficha.',
+    'ruleset.dice-pool-lite': 'Reserva de dados',
+    'ruleset.dice-pool-lite.detail': 'Role uma reserva de dados a cada ação. Seu personagem tem ficha.',
     'character.noSheet': 'Este jogo não usa ficha de personagem. Dê ao seu personagem um nome e uma descrição curta.',
     'features.noDice': 'Este jogo não usa dados.',
     'packs.english': 'Os gêneros e regras incluídos estão em inglês. O mestre ainda narra no seu idioma.',
@@ -178,6 +188,8 @@ export const START_CATALOG: Catalog = {
 const text = createTranslator(START_CATALOG);
 export const DEFAULT_ADVENTURE_NAME = text(DEFAULT_LOCALE, 'name.default');
 const UNKNOWN_EDITION = 'UnknownEdition';
+const BUILT_IN_EDITION = 'original';
+const BUILT_IN_RULESETS = ['narrative', 'd20-lite', 'dice-pool-lite'];
 const DEFAULT_PROVENANCE = 'default';
 const CHOSEN = 'chosen';
 const LIST_STYLE = { type: 'unit', style: 'short' } as const;
@@ -350,6 +362,22 @@ const usageOf = (draft: StartDraft, options: StartOptions) =>
       isEdition(draft.choices.ruleset) && JSON.stringify({ id, edition }) === JSON.stringify(draft.choices.ruleset),
   )?.usage ?? DEFAULT_RULES_USAGE;
 
+type Ruleset = StartOptions['rulesets'][number];
+
+const isBuiltIn = ({ id, edition }: Pick<Ruleset, 'id' | 'edition'>) =>
+  edition === BUILT_IN_EDITION && BUILT_IN_RULESETS.includes(id);
+
+const rulesetName = (locale: string, ruleset: Ruleset) =>
+  isBuiltIn(ruleset) ? text(locale, `ruleset.${ruleset.id}`) : `${ruleset.id} ${ruleset.edition}`;
+
+const rulesetDetail = (locale: string, ruleset: Ruleset) =>
+  isBuiltIn(ruleset) ? text(locale, `ruleset.${ruleset.id}.detail`) : ruleset.blurb;
+
+const rulesetValue = (locale: string, value: string, { rulesets }: StartOptions) => {
+  const ruleset = rulesets.find(({ id, edition }) => `${id} ${edition}` === value);
+  return ruleset === undefined ? value : rulesetName(locale, ruleset);
+};
+
 const characterPage = (draft: StartDraft, options: StartOptions, locale: string): Page => {
   const { genres, rulesets } = options;
   const genre = genres.find(({ id }) => id === draft.choices.genre);
@@ -381,12 +409,19 @@ const characterPage = (draft: StartDraft, options: StartOptions, locale: string)
   };
 };
 
-const reviewOf = (draft: StartDraft, { entries }: CampaignPlan, locale: string): readonly StartReviewGroup[] => {
+const shown = (locale: string, field: string, value: string, options: StartOptions) =>
+  field === 'ruleset' ? rulesetValue(locale, value, options) : value;
+
+const reviewOf = (
+  draft: StartDraft,
+  { entries, options }: CampaignPlan,
+  locale: string,
+): readonly StartReviewGroup[] => {
   const items = entries.map(
     ({ field, value, provenance }): StartReviewItem => ({
       field,
       label: fieldLabel(locale, field),
-      value,
+      value: shown(locale, field, value, options),
       chosen: provenance !== DEFAULT_PROVENANCE,
       step: Math.max(FIRST_STEP, stepsOf(draft.path).indexOf(FIELD_STEPS[field] ?? 'path')),
     }),
@@ -404,7 +439,7 @@ const summaryPage = (draft: StartDraft, plan: Result<CampaignPlan> | undefined, 
     ? plan.value.entries.map(({ field, value, provenance }) =>
         text(locale, 'summary.line', {
           label: fieldLabel(locale, field),
-          value,
+          value: shown(locale, field, value, plan.value.options),
           provenance: text(locale, `provenance.${provenance === DEFAULT_PROVENANCE ? DEFAULT_PROVENANCE : CHOSEN}`),
         }),
       )
@@ -451,22 +486,20 @@ const PAGES: Readonly<
   }),
   rules: (draft, { rulesets }, _plan, locale) => ({
     title: text(locale, 'rules.title'),
-    text: [
-      text(locale, 'rules.text'),
-      text(locale, 'rules.noDice'),
-      text(locale, 'rules.noSheet'),
-      text(locale, 'import.hint', { rulebook: text(locale, 'import.rulebook') }),
-      ...packNotice(locale),
-    ],
-    options: rulesets.map(({ id, edition, blurb, recommended }) =>
-      choose(
-        'ruleset',
-        { id, edition },
-        recommended ? text(locale, 'rules.recommended', { name: `${id} ${edition}` }) : `${id} ${edition}`,
-        blurb,
-        draft,
-      ),
-    ),
+    text: [text(locale, 'rules.text'), ...packNotice(locale)],
+    importHint: text(locale, 'import.hint', { rulebook: text(locale, 'import.rulebook') }),
+    options: [...rulesets]
+      .sort((first, second) => Number(second.recommended) - Number(first.recommended))
+      .map((ruleset) => ({
+        ...choose(
+          'ruleset',
+          { id: ruleset.id, edition: ruleset.edition },
+          rulesetName(locale, ruleset),
+          rulesetDetail(locale, ruleset),
+          draft,
+        ),
+        ...(ruleset.recommended ? { badge: text(locale, 'rules.badge') } : {}),
+      })),
   }),
   character: (draft, options, _plan, locale) => characterPage(draft, options, locale),
   features: (draft, options, _plan, locale) => ({

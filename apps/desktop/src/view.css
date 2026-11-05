@@ -914,7 +914,8 @@ section[data-region="start"]:has(h2) {
   color: var(--text-muted);
 }
 
-[data-review-badge] {
+[data-review-badge],
+[data-option-badge] {
   padding: 0 var(--space-2);
   color: var(--text-muted);
   font-size: calc(var(--text-sm) * var(--font-scale, 1));
@@ -922,6 +923,7 @@ section[data-region="start"]:has(h2) {
   border-radius: var(--radius-1);
 }
 
+[data-option-badge],
 [data-provenance="chosen"] [data-review-badge] {
   color: var(--surface-raised);
   background: var(--accent);

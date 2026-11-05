@@ -24,7 +24,7 @@ const SKIP = 's';
 const QUIT = 'q';
 const START = 'y';
 const FIRST = '1';
-const NARRATIVE = '3';
+const NARRATIVE = '1';
 const HORROR_INTENT = 'A horror story using the Narrative rules';
 const DICE_ANIMATION_INTENT = 'A fantasy story using the d20-lite rules with dice animation';
 const GUIDED_NAME = 'Ashfall';
@@ -105,7 +105,7 @@ test('rpg-42a.14 tui guide me path walks numbered steps and creates a playable c
   const out = await answer(dataDir, [GUIDE, CONTINUE, FIRST, NARRATIVE, FIRST, CONTINUE, GUIDED_NAME, START]);
   assert.match(out[1] ?? '', /^Step 1 of 6: What is a tabletop RPG\?/);
   assert.match(out[3] ?? '', /Import your rulebook/);
-  assert.match(out[3] ?? '', /3\. narrative original \(recommended for new players\)/);
+  assert.match(out[3] ?? '', /1\. Story only: no dice, no sheet \[Recommended\]/);
   const summary = summaryOf(dataDir, GUIDED_NAME);
   assert.deepEqual([summary?.ruleset?.id, summary?.ruleset?.provenance], ['narrative', 'explicit']);
   assert.deepEqual([summary?.genre?.id, summary?.genre?.provenance], ['fantasy', 'explicit']);

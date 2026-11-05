@@ -156,13 +156,15 @@ test('rpg-42a.33 diagnostics name the active game master in plain words', () => 
   }
 });
 
+const FULL_RULES_REGIONS = PLAY_REGIONS.filter((region) => region !== 'character');
+
 test('rpg-42a.18 every pane has a heading and an empty state', () => {
   const html = renderView(viewModel(initialState, WIDE_WIDTH), 'en');
   for (const region of ['status', 'campaigns'])
     assert.match(html, new RegExp(`aria-labelledby="heading-${region}"><(hgroup><)?h[12] [^>]*id="heading-${region}"`));
   assert.ok(html.includes('<p data-empty>No adventures yet. Start a new adventure to play.</p>'));
   const playing = renderView(viewModel({ ...initialState, selected: CAMPAIGN }, WIDE_WIDTH), 'en');
-  for (const region of PLAY_REGIONS)
+  for (const region of FULL_RULES_REGIONS)
     assert.match(playing, new RegExp(`aria-labelledby="heading-${region}"><h2 id="heading-${region}">`));
   for (const text of [
     'Your story starts here. Type what your character does, then press Send.',
@@ -201,7 +203,7 @@ test('rpg-42a.18 player, narrator and system lines have distinct speakers', () =
 test('rpg-42a.18 compact width shows one pane at a time with a pane switcher, wider widths show every pane', () => {
   const compact = renderView(viewModel(state, COMPACT_WIDTH), 'en', 'sheet');
   assert.match(compact, /<nav aria-label="Panes">/);
-  for (const region of PLAY_REGIONS)
+  for (const region of FULL_RULES_REGIONS)
     assert.match(
       compact,
       new RegExp(`<button type="button" data-pane="${region}"${region === 'sheet' ? ' aria-current="true"' : ''}>`),
@@ -217,7 +219,7 @@ test('rpg-42a.18 compact width shows one pane at a time with a pane switcher, wi
   for (const width of [MEDIUM_WIDTH, WIDE_WIDTH]) {
     const html = renderView(viewModel(state, width), 'en', 'sheet');
     assert.doesNotMatch(html, /<nav|hidden>/);
-    for (const region of PLAY_REGIONS) assert.match(html, new RegExp(`data-region="${region}"`));
+    for (const region of FULL_RULES_REGIONS) assert.match(html, new RegExp(`data-region="${region}"`));
   }
 });
 
@@ -839,32 +841,26 @@ test('rpg-42a.38 a diceless sheetless game hides the sheet panel, dice card and 
   }
   assert.deepEqual(viewModel(diceless, MEDIUM_WIDTH).layout.columns, [['conversation'], ['panels']]);
   assert.deepEqual(viewModel(diceless, COMPACT_WIDTH).layout.columns, [['conversation', 'panels']]);
-  assert.match(
-    renderView(viewModel(diceless, WIDE_WIDTH), 'en'),
-    /<p data-rules-note>This game does not use dice or character sheets\.<\/p>/,
-  );
+  assert.doesNotMatch(renderView(viewModel(diceless, WIDE_WIDTH), 'en'), /does not use dice|data-rules-note/);
 });
 
-test('rpg-42a.38 dice and sheet are hidden independently and notes say what the game does not use', () => {
+test('rpg-42a.38 dice and sheet are hidden independently without a header notice', () => {
   const noSheet = renderView(viewModel(withRules(NO_SHEET_DICE, { rolls: [rolled('r1', 3)] }), WIDE_WIDTH), 'en');
   assert.doesNotMatch(noSheet, /data-region="sheet"/);
   assert.match(noSheet, /data-rolls/);
   assert.match(noSheet, /data-motion-control/);
-  assert.match(noSheet, /<p data-rules-note>This game does not use character sheets\.<\/p>/);
   const noDice = renderView(viewModel(withRules(SHEET_NO_DICE, { rolls: [rolled('r1', 3)] }), WIDE_WIDTH), 'en');
   assert.match(noDice, /data-region="sheet"/);
   assert.doesNotMatch(noDice, /data-rolls|data-motion-control/);
-  assert.match(noDice, /<p data-rules-note>This game does not use dice\.<\/p>/);
   const full = renderView(viewModel(state, WIDE_WIDTH), 'en');
-  assert.doesNotMatch(full, /data-rules-note/);
   assert.match(full, /data-region="sheet"/);
 });
 
-test('rpg-42a.38 the note is translated', () => {
+test('rpg-42a.38 no locale shows a permanent dice or sheet notice', () => {
   for (const locale of ['es', 'pt-BR'])
-    assert.match(
+    assert.doesNotMatch(
       renderView(viewModel(withRules(DICELESS_SHEETLESS), WIDE_WIDTH, { ...DEFAULT_PREFERENCES, locale }), locale),
-      /<p data-rules-note>/,
+      /data-rules-note/,
     );
 });
 
@@ -877,19 +873,79 @@ const IDENTITY_VIEW = {
   ],
 } as const;
 
-test('rpg-42a.38 a sheetless game shows a character card with name and description in the journal column', () => {
-  const sheetless = withRules(DICELESS_SHEETLESS, { views: { sheet: IDENTITY_VIEW } });
-  const html = renderView(viewModel(sheetless, WIDE_WIDTH), 'en');
+test('rpg-42a.54 a sheetless game shows a Character panel in the sheet slot and an empty journal says so once', () => {
+  const { panels: _journal, ...withoutJournal } = withRules(DICELESS_SHEETLESS, { views: { sheet: IDENTITY_VIEW } });
+  const sheetless: DesktopState = withoutJournal;
+  const model = viewModel(sheetless, WIDE_WIDTH);
+  assert.deepEqual(model.layout.columns, [['conversation'], ['character', 'panels']]);
+  const html = renderView(model, 'en');
   assert.match(
     html,
-    /<section data-character aria-label="Character"><h3>Mara<\/h3><p>A lighthouse keeper\.<\/p><\/section>/,
+    /<section data-region="character" aria-labelledby="[^"]+"><h2 id="[^"]+">Character<\/h2><h3>Mara<\/h3><p>A lighthouse keeper\.<\/p><\/section>/,
   );
-  assert.ok(html.indexOf('data-region="panels"') < html.indexOf('data-character'));
+  const journal = html.slice(html.indexOf('data-region="panels"'));
+  assert.doesNotMatch(journal, /Mara/);
+  assert.match(journal, /Nothing in your journal yet\./);
   assert.doesNotMatch(html, /data-region="sheet"|data-stat/);
   const full = renderView(
     viewModel(withRules({ resolution: 'dice', sheet: 'full' }, { views: { sheet: IDENTITY_VIEW } }), WIDE_WIDTH),
     'en',
   );
-  assert.doesNotMatch(full, /data-character/);
-  assert.doesNotMatch(renderView(viewModel(withRules(DICELESS_SHEETLESS), WIDE_WIDTH), 'en'), /data-character/);
+  assert.doesNotMatch(full, /data-region="character"/);
+  assert.doesNotMatch(
+    renderView(viewModel(withRules(DICELESS_SHEETLESS), WIDE_WIDTH), 'en'),
+    /data-region="character"/,
+  );
+});
+
+const BUILT_IN_RULESETS = ['narrative', 'd20-lite', 'dice-pool-lite'].map((id) => ({
+  id,
+  edition: 'original',
+  blurb: `${id} original`,
+  recommended: id === 'narrative',
+  readyMade: true,
+  sheet: [],
+}));
+const INTERNAL_IDS = /d20-lite|dice-pool-lite|narrative|original/;
+const visibleText = (html: string) =>
+  html
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/&[a-z]+;/g, ' ')
+    .replace(/\s+/g, ' ');
+
+test('rpg-42a.54 the rules and summary steps show player names, a Recommended badge first, and no import command', () => {
+  const options = { ...START_OPTIONS, rulesets: BUILT_IN_RULESETS };
+  const choice = { id: 'narrative', edition: 'original' };
+  const plan = {
+    ok: true,
+    value: {
+      version: PROTOCOL_VERSION,
+      options,
+      entries: [{ field: 'ruleset', value: 'narrative original', provenance: 'explicit' }],
+    },
+  } as const;
+  for (const [draft, shownPlan] of [
+    [guideAt('rules'), undefined],
+    [guideAt('summary', { ruleset: choice }), plan],
+  ] as const) {
+    const html = renderView(
+      viewModel({ ...initialState, start: { open: true, draft, options, plan: shownPlan } }, WIDE_WIDTH),
+      'en',
+    );
+    assert.doesNotMatch(visibleText(html), INTERNAL_IDS);
+    assert.doesNotMatch(html, /rpg import|data-start-import/);
+  }
+  const rules = renderView(
+    viewModel(
+      { ...initialState, start: { open: true, draft: guideAt('rules'), options, plan: undefined } },
+      WIDE_WIDTH,
+    ),
+    'en',
+  );
+  assert.match(
+    rules,
+    /<ul data-start-options><li><button[^>]*><span[^>]*data-option-label>Story only: no dice, no sheet <span data-option-badge>Recommended<\/span><\/span>/,
+  );
+  assert.match(rules, /Classic d20/);
+  assert.match(rules, /Dice pool/);
 });
