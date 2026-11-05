@@ -28,6 +28,7 @@ import {
   SHEET_INPUT,
   START_CONTROL,
   START_CONTROLS,
+  START_EDIT,
   START_ENTRY,
   START_FORM,
   START_OPEN,
@@ -57,6 +58,7 @@ const ENTRY_SELECTOR = `#${START_ENTRY}`;
 const TITLE_SELECTOR = `[${START_TITLE}]`;
 const OPEN_SELECTOR = `[${START_OPEN}]`;
 const FOCUSED_SELECTOR = ':focus';
+const STEP_INDEX = /^\d+$/;
 const ARCHIVED_SELECTOR = '[data-archived]';
 const DISCLOSURE_SELECTORS = ['[data-diagnostics]', ARCHIVED_SELECTOR, '[data-settings]'];
 const HOME_REGION = '[data-region="campaigns"]';
@@ -195,12 +197,21 @@ export const mountPage = ({
     const search = focused === SEARCH_SELECTOR ? root.querySelector<HTMLInputElement>(SEARCH_SELECTOR) : null;
     search?.setSelectionRange?.(search.value.length, search.value.length);
   };
+  const keepName = () => {
+    const entry = entryValue();
+    const screen = client.startScreen();
+    if (screen.step === 'summary' && entry !== undefined && entry !== screen.entry?.value)
+      client.startAction({ kind: 'enter', text: entry });
+  };
   const startControl = (control: StartControl) => {
     if (control === 'close') return client.closeStart();
-    const entry = entryValue();
-    if (control === 'start' && entry !== undefined && entry !== client.startScreen().entry?.value)
-      client.startAction({ kind: 'enter', text: entry });
+    keepName();
     client.startAction({ kind: control });
+  };
+  const startEdit = (step: string) => {
+    if (!STEP_INDEX.test(step)) return;
+    keepName();
+    client.startAction({ kind: 'edit', step: Number(step) });
   };
   const startOption = (index: string) => {
     const option = client.startScreen().options[Number(index)];
@@ -340,6 +351,8 @@ export const mountPage = ({
     if (target?.closest(`[${START_OPEN}]`)) return client.openStart();
     const option = target?.closest(`[${START_OPTION}]`)?.getAttribute(START_OPTION);
     if (option !== undefined && option !== null) return startOption(option);
+    const edit = target?.closest(`[${START_EDIT}]`)?.getAttribute(START_EDIT);
+    if (edit !== undefined && edit !== null) return startEdit(edit);
     const control = target?.closest(`[${START_CONTROL}]`)?.getAttribute(START_CONTROL);
     if (isStartControl(control)) return startControl(control);
     if (target?.closest(SKIP_SELECTOR)) return client.settle();

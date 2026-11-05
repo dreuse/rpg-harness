@@ -338,10 +338,14 @@ export const START_CONTROL = 'data-start-control';
 export const START_FORM = 'data-start-form';
 export const START_TITLE = 'data-start-title';
 export const START_ENTRY = 'start-entry';
-export const START_SAVE = 'start-save';
+export const START_SUBMIT = 'start-submit';
+export const START_EDIT = 'data-start-edit';
 export const START_CONTROLS = ['back', 'skip', 'next', 'start', 'close'] as const;
 export type StartControl = (typeof START_CONTROLS)[number];
-const DETAIL_SEPARATOR = ' - ';
+const START_FORM_ID = 'start-form';
+const OPTION_ID = 'start-option-';
+const REVIEW_ID = 'start-review-';
+const PRIMARY_CONTROLS: readonly StartControl[] = ['next', 'start'];
 
 const startTitle = ({ title, progress }: StartScreen, locale: string) =>
   progress === undefined ? title : translate(locale, 'start.step', { ...progress, title });
@@ -349,17 +353,31 @@ const startTitle = ({ title, progress }: StartScreen, locale: string) =>
 const startOption =
   (step: StartScreen['step']) =>
   ({ label, detail, selected }: StartScreen['options'][number], index: number) =>
-    `<li><button type="button" ${START_OPTION}="${index}"${step === 'path' ? '' : ` aria-pressed="${selected}"`}>${escapeHtml(label)}${DETAIL_SEPARATOR}${escapeHtml(detail)}</button></li>`;
+    `<li><button type="button" ${START_OPTION}="${index}"${step === 'path' ? '' : ` aria-pressed="${selected}"`} aria-labelledby="${OPTION_ID}${index}-label" aria-describedby="${OPTION_ID}${index}-detail"><span id="${OPTION_ID}${index}-label" data-option-label>${escapeHtml(label)}</span><span id="${OPTION_ID}${index}-detail" data-option-detail>${escapeHtml(detail)}</span></button></li>`;
 
-const startEntry = ({ entry }: StartScreen, locale: string) =>
+const startEntry = ({ entry }: StartScreen) =>
   entry === undefined
     ? ''
-    : `<form ${START_FORM}="${START_ENTRY}"><label for="${START_ENTRY}">${escapeHtml(entry.label)}</label><input id="${START_ENTRY}" name="${START_ENTRY}" value="${escapeHtml(entry.value)}"><button type="submit" id="${START_SAVE}">${escapeHtml(translate(locale, 'start.save'))}</button></form>`;
+    : `<form id="${START_FORM_ID}" ${START_FORM}="${START_ENTRY}"><label for="${START_ENTRY}">${escapeHtml(entry.label)}</label><input id="${START_ENTRY}" name="${START_ENTRY}" value="${escapeHtml(entry.value)}"></form>`;
+
+type ReviewGroup = NonNullable<StartScreen['review']>[number];
+
+const reviewItem =
+  (locale: string) =>
+  ({ label, value, chosen, step }: ReviewGroup['items'][number]) =>
+    `<li data-provenance="${chosen ? 'chosen' : 'default'}"><span data-review-label>${escapeHtml(label)}</span><span data-review-value>${escapeHtml(value)}</span><span data-review-badge>${escapeHtml(translate(locale, chosen ? 'start.chosen' : 'start.default'))}</span><button type="button" ${START_EDIT}="${step}" aria-label="${escapeHtml(translate(locale, 'start.editLabel', { label }))}">${escapeHtml(translate(locale, 'start.edit'))}</button></li>`;
+
+const startReview = (review: readonly ReviewGroup[], locale: string) =>
+  `<div data-start-review>${review
+    .map(
+      ({ title, items }, index) =>
+        `<h3 id="${REVIEW_ID}${index}">${escapeHtml(title)}</h3><ul aria-labelledby="${REVIEW_ID}${index}">${items.map(reviewItem(locale)).join('')}</ul>`,
+    )
+    .join('')}</div>`;
 
 const shownControls = (screen: StartScreen): readonly StartControl[] =>
   START_CONTROLS.filter(
     (control) =>
-      control === 'close' ||
       (control === 'back' && screen.canBack) ||
       (control === 'skip' && screen.canSkip) ||
       (control === 'next' && screen.canNext) ||
@@ -367,18 +385,31 @@ const shownControls = (screen: StartScreen): readonly StartControl[] =>
   );
 
 const startControl = (screen: StartScreen, locale: string) => (control: StartControl) =>
-  `<button type="button" ${START_CONTROL}="${control}"${control === 'start' && !screen.canStart ? ' disabled' : ''}>${escapeHtml(translate(locale, `start.${control}`))}</button>`;
+  `<button type="button" ${START_CONTROL}="${control}"${PRIMARY_CONTROLS.includes(control) ? PRIMARY : ''}${control === 'start' && !screen.canStart ? ' disabled' : ''}>${escapeHtml(translate(locale, `start.${control}`))}</button>`;
+
+const startSubmit = ({ entry, step }: StartScreen, locale: string) =>
+  entry === undefined || step === 'summary'
+    ? ''
+    : `<button type="submit" id="${START_SUBMIT}" form="${START_FORM_ID}"${PRIMARY}>${escapeHtml(translate(locale, 'start.next'))}</button>`;
+
+const startActions = (screen: StartScreen, locale: string) => {
+  const actions = shownControls(screen).map(startControl(screen, locale)).join('') + startSubmit(screen, locale);
+  return actions === '' ? '' : `<div data-actions>${actions}</div>`;
+};
 
 const startBody = ({ start, created, playing, home }: ViewModel, locale: string) =>
   start === undefined
     ? `${playing || home.total === 0 ? '' : button(START_OPEN, 'open', translate(locale, 'start.open'), false, true)}${created === undefined || playing ? '' : `<p role="status">${escapeHtml(translate(locale, 'start.created', { name: created }))}</p>`}`
     : [
-        `<h2 tabindex="-1" ${START_TITLE}="${start.step}">${escapeHtml(startTitle(start, locale))}</h2>`,
-        ...start.text.map((line) => `<p>${escapeHtml(line)}</p>`),
-        start.options.length === 0 ? '' : `<ul>${start.options.map(startOption(start.step)).join('')}</ul>`,
-        startEntry(start, locale),
+        `<div data-start-head><h2 tabindex="-1" ${START_TITLE}="${start.step}">${escapeHtml(startTitle(start, locale))}</h2>${startControl(start, locale)('close')}</div>`,
+        ...(start.review === undefined ? start.text.map((line) => `<p>${escapeHtml(line)}</p>`) : []),
+        start.options.length === 0
+          ? ''
+          : `<ul data-start-options>${start.options.map(startOption(start.step)).join('')}</ul>`,
+        start.review === undefined ? '' : startReview(start.review, locale),
+        startEntry(start),
         start.error === undefined ? '' : alert(start.error),
-        shownControls(start).map(startControl(start, locale)).join(''),
+        startActions(start, locale),
       ].join('');
 
 const renderStart = (model: ViewModel, locale: string) => {

@@ -304,7 +304,7 @@ test('rpg-42a.14 guided start is a labelled region with a focusable step heading
   for (const control of ['back', 'skip', 'close']) assert.match(genre, new RegExp(`data-start-control="${control}">`));
   assert.doesNotMatch(genre, /data-start-control="start"/);
   const path = startHtml(INITIAL_DRAFT);
-  assert.match(path, /data-start-option="1">Guide me - /);
+  assert.match(path, /data-start-option="1" aria-labelledby="start-option-1-label"/);
   assert.doesNotMatch(path, /data-start-option="\d" aria-pressed/);
   const character = startHtml(guideAt('character', { genre: 'evil' }));
   assert.match(
@@ -313,7 +313,78 @@ test('rpg-42a.14 guided start is a labelled region with a focusable step heading
   );
   const summary = startHtml(guideAt('summary'), { ok: false, error: { code: 'UnknownEdition', message: HOSTILE } });
   assert.ok(summary.includes(`<p role="alert">Import your rulebook. ${ESCAPED}</p>`));
-  assert.match(summary, /data-start-control="start" disabled>Start</);
+  assert.match(summary, /data-start-control="start" data-primary disabled>Start</);
+});
+
+const startSection = (html: string) => /<section data-region="start"[\s\S]*?<\/section>/.exec(html)?.[0] ?? '';
+const primaries = (html: string) => (startSection(html).match(/data-primary/g) ?? []).length;
+const REVIEW_PLAN: DesktopState['start']['plan'] = {
+  ok: true,
+  value: {
+    version: PROTOCOL_VERSION,
+    options: START_OPTIONS,
+    entries: [
+      { field: 'ruleset', value: HOSTILE, provenance: 'explicit' },
+      { field: 'voiceOutput', value: 'off', provenance: 'default' },
+    ],
+  },
+};
+
+test('rpg-42a.30 start choices are cards with a separate title and description named for screen readers', () => {
+  const path = startHtml(INITIAL_DRAFT);
+  assert.doesNotMatch(path, / - /);
+  assert.match(
+    path,
+    /<li><button type="button" data-start-option="0" aria-labelledby="start-option-0-label" aria-describedby="start-option-0-detail"><span id="start-option-0-label" data-option-label>Describe it<\/span><span id="start-option-0-detail" data-option-detail>Write one sentence about the game you want\.<\/span><\/button><\/li>/,
+  );
+  assert.match(path, /<ul data-start-options>/);
+  const genre = startHtml(guideAt('genre'));
+  assert.match(genre, /data-start-option="0" aria-pressed="false" aria-labelledby="start-option-0-label"/);
+  assert.ok(genre.includes(`<span id="start-option-0-label" data-option-label>${ESCAPED}</span>`));
+});
+
+test('rpg-42a.30 Close sits in the wizard header and each step has at most one primary action', () => {
+  const path = startHtml(INITIAL_DRAFT);
+  assert.match(
+    path,
+    /<div data-start-head><h2 tabindex="-1" data-start-title="path">New adventure<\/h2><button type="button" data-start-control="close">Close<\/button><\/div>/,
+  );
+  assert.equal((path.match(/data-start-control="close"/g) ?? []).length, 1);
+  assert.equal(primaries(path), 0);
+  assert.equal(primaries(startHtml(guideAt('genre'))), 0);
+  const primer = startHtml(guideAt('primer'));
+  assert.equal(primaries(primer), 1);
+  assert.match(primer, /<button type="button" data-start-control="next" data-primary>Next<\/button>/);
+  const described = startHtml({ ...INITIAL_DRAFT, path: 'describe' });
+  assert.equal(primaries(described), 1);
+  assert.match(described, /<form id="start-form" data-start-form="start-entry">/);
+  assert.match(
+    described,
+    /<div data-actions><button type="button" data-start-control="back">Back<\/button><button type="button" data-start-control="skip">Skip<\/button><button type="submit" id="start-submit" form="start-form" data-primary>Next<\/button><\/div>/,
+  );
+});
+
+test('rpg-42a.30 summary is a grouped review list with chosen and default marked and an edit per setting', () => {
+  const summary = startHtml(guideAt('summary'), REVIEW_PLAN);
+  assert.doesNotMatch(summary, /type="submit"|>Save</);
+  assert.match(summary, /<h3 id="start-review-0">Your story<\/h3><ul aria-labelledby="start-review-0">/);
+  assert.match(summary, /<h3 id="start-review-1">Extras<\/h3>/);
+  assert.ok(
+    summary.includes(
+      `<li data-provenance="chosen"><span data-review-label>Rules</span><span data-review-value>${ESCAPED}</span><span data-review-badge>Chosen</span><button type="button" data-start-edit="2" aria-label="Edit Rules">Edit</button></li>`,
+    ),
+  );
+  assert.match(
+    summary,
+    /<li data-provenance="default"><span data-review-label>Voice narration<\/span><span data-review-value>off<\/span><span data-review-badge>Default<\/span><button type="button" data-start-edit="4" aria-label="Edit Voice narration">Edit<\/button><\/li>/,
+  );
+  assert.doesNotMatch(summary, /<p>Rules: /);
+  assert.equal(primaries(summary), 1);
+  assert.match(
+    summary,
+    /<div data-actions><button type="button" data-start-control="back">Back<\/button><button type="button" data-start-control="start" data-primary>Start<\/button><\/div>/,
+  );
+  assert.match(summary, /<label for="start-entry">Adventure name<\/label><input id="start-entry"/);
 });
 
 test('rpg-42a.17 the open wizard hides the first adventure button and play hides the created notice', () => {

@@ -452,6 +452,25 @@ test('rpg-42a.14 page keeps focus and the typed name when an engine reply redraw
   assert.equal(page.fields[ENTRY], GUIDED_NAME);
 });
 
+test('rpg-42a.30 page edits a summary setting at its step and keeps the typed name when leaving the summary', () => {
+  const page = fakePage();
+  mount(page, {}, deniedMicrophone, AT_SUMMARY);
+  page.receive(READY);
+  page.fields[ENTRY] = GUIDED_NAME;
+  page.click({ 'data-start-edit': String(GUIDE_STEPS.indexOf('rules')) });
+  assert.match(page.root.innerHTML, /data-start-title="rules"/);
+  assert.equal(page.focused.at(-1), TITLE);
+  assert.equal(page.saved.at(-1)?.name, GUIDED_NAME);
+  page.click({ 'data-start-edit': 'nope' });
+  assert.match(page.root.innerHTML, /data-start-title="rules"/);
+  const back = fakePage();
+  mount(back, {}, deniedMicrophone, AT_SUMMARY);
+  back.fields[ENTRY] = GUIDED_NAME;
+  back.click({ 'data-start-control': 'back' });
+  assert.equal(back.saved.at(-1)?.name, GUIDED_NAME);
+  assert.match(back.root.innerHTML, /data-start-title="features"/);
+});
+
 const shownPane = (html: string, region: string) =>
   new RegExp(`data-region="${region}" aria-labelledby="heading-${region}">`).test(html);
 
@@ -662,14 +681,14 @@ test('rpg-42a.19 page keeps the focused entry and caret when the same step redra
   assert.equal(page.focused.at(-1), ENTRY);
 });
 
-test('rpg-42a.19 page keeps focus on the save button when the same step redraws', () => {
+test('rpg-42a.19 page keeps focus on the submit button when the same step redraws', () => {
   const page = fakePage();
   mount(page, {}, deniedMicrophone, { ...INITIAL_DRAFT, path: 'describe' });
-  assert.match(page.root.innerHTML, /<button type="submit" id="start-save">/);
-  page.root.querySelector('#start-save')?.focus();
+  assert.match(page.root.innerHTML, /<button type="submit" id="start-submit"/);
+  page.root.querySelector('#start-submit')?.focus();
   page.focused.length = 0;
   page.receive(READY);
-  assert.equal(page.focused.at(-1), '#start-save');
+  assert.equal(page.focused.at(-1), '#start-submit');
 });
 
 const EDITABLE_SHEET = {

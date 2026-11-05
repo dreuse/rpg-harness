@@ -215,6 +215,49 @@ test('rpg-42a.14 summary shows chosen or default for each setting and an unknown
   assert.equal(startScreen(skipAll, OPTIONS, undefined).canStart, false);
 });
 
+test('rpg-42a.30 summary groups each setting for review with its provenance and the step that edits it', () => {
+  const plan: Result<CampaignPlan> = {
+    ok: true,
+    value: {
+      version: PROTOCOL_VERSION,
+      options: OPTIONS,
+      entries: [
+        { field: 'ruleset', value: 'narrative original', provenance: 'explicit' },
+        { field: 'dice', value: 'as the ruleset decides', provenance: 'default' },
+        { field: 'voiceOutput', value: 'on', provenance: 'explicit' },
+        { field: 'mystery', value: 'x', provenance: 'default' },
+      ],
+    },
+  };
+  const at = (step: string) => GUIDE_STEPS.indexOf(step as (typeof GUIDE_STEPS)[number]);
+  assert.deepEqual(startScreen(skipAll, OPTIONS, plan).review, [
+    {
+      title: 'Your story',
+      items: [
+        { field: 'ruleset', label: 'Rules', value: 'narrative original', chosen: true, step: at('rules') },
+        { field: 'dice', label: 'Dice', value: 'as the ruleset decides', chosen: false, step: at('rules') },
+        { field: 'mystery', label: 'mystery', value: 'x', chosen: false, step: 0 },
+      ],
+    },
+    {
+      title: 'Extras',
+      items: [{ field: 'voiceOutput', label: 'Voice narration', value: 'on', chosen: true, step: at('features') }],
+    },
+  ]);
+  const described = run([{ kind: 'path', path: 'describe' }, { kind: 'skip' }]);
+  const steps = startScreen(described, OPTIONS, plan).review?.flatMap(({ items }) => items.map(({ step }) => step));
+  assert.deepEqual(steps, [0, 0, 0, 0]);
+  assert.equal(startScreen(skipAll, OPTIONS, undefined).review, undefined);
+  assert.equal(startScreen(INITIAL_DRAFT, OPTIONS, plan).review, undefined);
+});
+
+test('rpg-42a.30 edit jumps to a step of the current path and ignores steps outside it', () => {
+  const rules = GUIDE_STEPS.indexOf('rules');
+  assert.equal(stepOf(nextDraft(skipAll, { kind: 'edit', step: rules })), 'rules');
+  for (const step of [-1, GUIDE_STEPS.length, 1.5]) assert.equal(nextDraft(skipAll, { kind: 'edit', step }), skipAll);
+  assert.equal(nextDraft(INITIAL_DRAFT, { kind: 'edit', step: 0 }), INITIAL_DRAFT);
+});
+
 test('rpg-42a.14 saved progress round-trips and tampered progress falls back to the start', () => {
   const draft = run([
     { kind: 'path', path: 'guide' },

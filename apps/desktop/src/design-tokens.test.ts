@@ -32,6 +32,7 @@ const ALLOWED_KEYWORDS = new Set([
   'currentcolor',
   'inset',
   'auto',
+  'underline',
 ]);
 const THEME_TOKEN = /--([\w-]+):\s*light-dark\((#[0-9a-f]{6}),\s*(#[0-9a-f]{6})\)/gi;
 const AA_TEXT = 4.5;

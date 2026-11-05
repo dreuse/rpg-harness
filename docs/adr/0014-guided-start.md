@@ -47,6 +47,7 @@
 - One pure state machine (`nextDraft`, `startScreen`) keeps both UIs identical and testable without a DOM or terminal.
 - A dry run reuses `quickstart.ts` resolution, so the summary shows exactly what `CreateCampaign` will write.
 - No new package and no new dependency.
+- The desktop summary is a grouped review list built from `StartScreen.review`. Each row carries a chosen or default flag and an Edit action that sends `{ kind: 'edit', step }`. The adventure name saves with Start; there is no Save button.
 
 ## Consequences
 

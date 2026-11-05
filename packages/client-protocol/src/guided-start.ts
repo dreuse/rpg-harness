@@ -31,6 +31,7 @@ export type StartAction =
   | { readonly kind: 'choose'; readonly field: string; readonly value: unknown }
   | { readonly kind: 'toggle'; readonly field: Feature }
   | { readonly kind: 'enter'; readonly text: string }
+  | { readonly kind: 'edit'; readonly step: number }
   | { readonly kind: 'next' | 'skip' | 'back' | 'start' };
 export type StartOption = {
   readonly label: string;
@@ -38,12 +39,21 @@ export type StartOption = {
   readonly action: StartAction;
   readonly selected: boolean;
 };
+export type StartReviewItem = {
+  readonly field: string;
+  readonly label: string;
+  readonly value: string;
+  readonly chosen: boolean;
+  readonly step: number;
+};
+export type StartReviewGroup = { readonly title: string; readonly items: readonly StartReviewItem[] };
 export type StartScreen = {
   readonly step: StartStep;
   readonly title: string;
   readonly text: readonly string[];
   readonly options: readonly StartOption[];
   readonly entry?: { readonly label: string; readonly value: string };
+  readonly review?: readonly StartReviewGroup[];
   readonly error?: string;
   readonly progress?: { readonly current: number; readonly total: number };
   readonly canBack: boolean;
@@ -86,6 +96,16 @@ const STEP_FIELDS: Partial<Record<StartStep, readonly string[]>> = {
   character: ['character'],
   features: FEATURES,
 };
+const FIELD_STEPS: Readonly<Record<string, StartStep>> = {
+  ruleset: 'rules',
+  dice: 'rules',
+  genre: 'genre',
+  character: 'character',
+  ...Object.fromEntries(FEATURES.map((feature) => [feature, 'features'])),
+};
+const STORY_GROUP = 'Your story';
+const EXTRAS_GROUP = 'Extras';
+const FIRST_STEP = 0;
 const DRAFT_KEYS = ['path', 'step', 'name', 'intent', 'choices'];
 const NEXT = 1;
 const NO_READY_MADE = 'Ready-made characters need a sheet on these rules. Describe your own.';
@@ -131,6 +151,11 @@ const entered = (draft: StartDraft, text: string): StartDraft => {
   });
 };
 
+const editAt = (draft: StartDraft, step: number): StartDraft =>
+  draft.path !== null && Number.isInteger(step) && step >= FIRST_STEP && step < stepsOf(draft.path).length
+    ? { ...draft, step }
+    : draft;
+
 export const nextDraft = (draft: StartDraft, action: StartAction): StartDraft => {
   if (action.kind === 'path') return { ...draft, path: action.path, step: 0 };
   if (action.kind === 'back')
@@ -152,6 +177,7 @@ export const nextDraft = (draft: StartDraft, action: StartAction): StartDraft =>
     };
   }
   if (action.kind === 'enter') return entered(draft, action.text);
+  if (action.kind === 'edit') return editAt(draft, action.step);
   return draft;
 };
 
@@ -232,6 +258,23 @@ const characterPage = (draft: StartDraft, { genres, rulesets }: StartOptions): P
   };
 };
 
+const reviewOf = (draft: StartDraft, { entries }: CampaignPlan): readonly StartReviewGroup[] => {
+  const items = entries.map(
+    ({ field, value, provenance }): StartReviewItem => ({
+      field,
+      label: FIELD_LABELS[field] ?? field,
+      value,
+      chosen: provenance !== DEFAULT_PROVENANCE,
+      step: Math.max(FIRST_STEP, stepsOf(draft.path).indexOf(FIELD_STEPS[field] ?? 'path')),
+    }),
+  );
+  const extra = ({ field }: StartReviewItem) => FEATURES.some((feature) => feature === field);
+  return [
+    { title: STORY_GROUP, items: items.filter((item) => !extra(item)) },
+    { title: EXTRAS_GROUP, items: items.filter(extra) },
+  ].filter((group) => group.items.length > 0);
+};
+
 const summaryPage = (draft: StartDraft, plan: Result<CampaignPlan> | undefined): Page => ({
   title: 'Ready to start',
   text: plan?.ok
@@ -242,6 +285,7 @@ const summaryPage = (draft: StartDraft, plan: Result<CampaignPlan> | undefined):
     : [],
   options: [],
   entry: { label: 'Adventure name', value: draft.name || DEFAULT_ADVENTURE_NAME },
+  ...(plan?.ok ? { review: reviewOf(draft, plan.value) } : {}),
   ...(plan === undefined || plan.ok ? {} : { error: errorText(plan.error) }),
   canStart: plan?.ok === true,
 });
@@ -294,7 +338,7 @@ const PAGES: Readonly<
   }),
   character: characterPage,
   features: (draft) => ({
-    title: 'Extras',
+    title: EXTRAS_GROUP,
     text: ['These stay off unless you turn them on.'],
     options: FEATURES.map((field) => ({
       ...FEATURE_COPY[field],

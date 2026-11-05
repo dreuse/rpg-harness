@@ -44,10 +44,14 @@ const CONTINUE_FIRST_CAMPAIGN = `new Promise((resolve) => {
   const poll = () => (document.querySelector('[data-region="conversation"] li') || Date.now() > deadline ? resolve() : setTimeout(poll, ${SETTLE_POLL_MS}));
   poll();
 })`;
-const settleProbe = (layout: string) => `new Promise((resolve) => {
+type MediaFeature = { readonly name: string; readonly value: string };
+const MEDIA_JOIN = ' and ';
+const mediaQuery = (features: readonly MediaFeature[]) =>
+  features.map(({ name, value }) => `(${name}: ${value})`).join(MEDIA_JOIN);
+const settleProbe = (layout: string, features: readonly MediaFeature[]) => `new Promise((resolve) => {
   const deadline = Date.now() + ${SETTLE_TIMEOUT_MS};
   const frames = () => requestAnimationFrame(() => requestAnimationFrame(resolve));
-  const poll = () => (document.querySelector('main[data-layout="${layout}"]') || Date.now() > deadline ? frames() : setTimeout(poll, ${SETTLE_POLL_MS}));
+  const poll = () => ((document.querySelector('main[data-layout="${layout}"]') && matchMedia(${JSON.stringify(mediaQuery(features))}).matches) || Date.now() > deadline ? frames() : setTimeout(poll, ${SETTLE_POLL_MS}));
   poll();
 })`;
 
@@ -76,7 +80,7 @@ export const captureScreens = async (
       await webContents.debugger.sendCommand(EMULATE_MEDIA, { features });
       for (const { name, width } of CAPTURE_LAYOUTS) {
         window.setContentSize(width, WINDOW_HEIGHT);
-        await webContents.executeJavaScript(settleProbe(name));
+        await webContents.executeJavaScript(settleProbe(name, features));
         const file = join(dir, `${prefix}${name}-${themeName}${PNG_EXTENSION}`);
         write(file, (await webContents.capturePage()).toPNG());
         files.push(file);
@@ -259,7 +263,7 @@ export const captureJourney = async (
     if (shot === undefined) continue;
     for (const { name: themeName, features } of CAPTURE_THEMES) {
       await webContents.debugger.sendCommand(EMULATE_MEDIA, { features });
-      await webContents.executeJavaScript(settleProbe(WIDE_LAYOUT));
+      await webContents.executeJavaScript(settleProbe(WIDE_LAYOUT, features));
       const file = join(dir, `${shot}-${themeName}${PNG_EXTENSION}`);
       const png = (await webContents.capturePage()).toPNG();
       write(file, png);

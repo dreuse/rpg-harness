@@ -58,3 +58,26 @@ test('rpg-42a.11 captureScreens writes the home, then one screenshot per layout 
     CAPTURE_THEMES.flatMap(() => CAPTURE_LAYOUTS.map(({ name }) => `settle ${name}`)),
   );
 });
+
+test('rpg-42a.30 capture waits until the page matches the emulated theme before each screenshot', async () => {
+  const scripts: string[] = [];
+  const { window } = fakeWindow();
+  const executeJavaScript = window.webContents.executeJavaScript;
+  const recorded: CaptureWindow = {
+    ...window,
+    webContents: {
+      ...window.webContents,
+      executeJavaScript: (code) => {
+        scripts.push(code);
+        return executeJavaScript(code);
+      },
+    },
+  };
+  await captureScreens(recorded, DIR, () => {});
+  const settles = scripts.filter((code) => code.includes('data-layout'));
+  assert.ok(
+    settles[settles.length - 1]?.includes(
+      `matchMedia(${JSON.stringify('(prefers-color-scheme: dark) and (prefers-contrast: more) and (prefers-reduced-motion: reduce)')}).matches`,
+    ),
+  );
+});
