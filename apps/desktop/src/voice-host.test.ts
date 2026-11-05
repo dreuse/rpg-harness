@@ -24,6 +24,7 @@ import {
 const OFFER = { source: 'https://models.example/kokoro', bytes: 10, sizeMiB: 0 };
 const NARRATOR = 'af_heart';
 const AUDIO = new Uint8Array([1, 2, 3]);
+const PREVIEW_PIECES = 3;
 const STEP_MS = 7;
 const CACHE_DIR_PREFIX = 'rpg-voice-host-';
 
@@ -177,12 +178,12 @@ test('rpg-cm63.26 voice host previews at the requested speed, applied once', asy
 test('rpg-cm63.7 voice host previews a fixed line in the campaign language and caches it', async () => {
   const { host, spoken } = setup(true);
   const first = await host.preview(PREVIEW);
-  assert.deepEqual(first, { chunks: [AUDIO, AUDIO], synthesisMs: STEP_MS, cacheHit: false });
+  assert.deepEqual(first, { chunks: [AUDIO, AUDIO, AUDIO], synthesisMs: STEP_MS, cacheHit: false });
   assert.equal(spoken.join(' '), PREVIEW_LINES.en);
   const again = await host.preview(PREVIEW);
   assert.equal(again.cacheHit, true);
-  assert.equal(spoken.length, 2);
-  assert.ok((await host.check()).cacheBytes >= AUDIO.byteLength * 2);
+  assert.equal(spoken.length, PREVIEW_PIECES);
+  assert.ok((await host.check()).cacheBytes >= AUDIO.byteLength * PREVIEW_PIECES);
   host.clearCache();
   assert.equal((await host.check()).cacheBytes, 0);
 });

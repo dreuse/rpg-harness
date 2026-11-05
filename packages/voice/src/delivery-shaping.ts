@@ -34,7 +34,15 @@ export const PEAK_LIMIT = 0.98;
 const SEGMENTER_LOCALE = 'en';
 const DEFAULT_PAUSE_MS = 250;
 const DIALOGUE_LEAD_PAUSE_MS = 150;
+export const CLAUSE_PAUSE_MS = Object.freeze({
+  ',': 180,
+  ';': 280,
+  ':': 280,
+  '—': 250,
+  '–': 250,
+});
 const TERMINAL_PAUSE_MS: Readonly<Record<string, number>> = Object.freeze({
+  ...CLAUSE_PAUSE_MS,
   '.': 350,
   '!': 300,
   '?': 400,
@@ -47,6 +55,7 @@ const DIALOGUE_START = /^["“«'‘—–-]/;
 const DIALOGUE_DASH = /^[—–]/;
 const SCENE_MARKER = /^\s*(?:\*{3,}|-{3,}|_{3,})\s*$/;
 const LINE_BREAK = /\r?\n/;
+const CLAUSE_BOUNDARY = /(?<=[,;:]["'”’»)\]]*)\s+|(?<=\s[—–])\s+/;
 const NEUTRAL = 1;
 const FULL_INTENSITY = 1;
 const NO_INTENSITY = 0;
@@ -132,7 +141,9 @@ const blocksOf = (text: string): Block[] => {
 const segmenter = new Intl.Segmenter(SEGMENTER_LOCALE, { granularity: 'sentence' });
 
 const sentencesOf = (text: string): string[] =>
-  [...segmenter.segment(text)].map(({ segment }) => segment.trim()).filter((sentence) => sentence !== '');
+  [...segmenter.segment(text)]
+    .flatMap(({ segment }) => segment.trim().split(CLAUSE_BOUNDARY))
+    .filter((clause) => clause !== '');
 
 export const shapeSentences = (text: string, delivery?: Delivery): ShapedSentence[] => {
   const scale = pauseScale(delivery);

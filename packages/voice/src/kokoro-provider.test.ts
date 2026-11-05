@@ -1,6 +1,13 @@
 import assert from 'node:assert/strict';
 import { mock, test } from 'node:test';
-import { decodeWav, encodeWav, PARAGRAPH_PAUSE_MS, SCENE_BREAK_PAUSE_MS, type Wav } from './delivery-shaping.ts';
+import {
+  CLAUSE_PAUSE_MS,
+  decodeWav,
+  encodeWav,
+  PARAGRAPH_PAUSE_MS,
+  SCENE_BREAK_PAUSE_MS,
+  type Wav,
+} from './delivery-shaping.ts';
 import {
   createKokoroProvider,
   KOKORO_CAPABILITIES,
@@ -13,6 +20,7 @@ import {
   MLX_KOKORO_PROVIDER_ID,
   type VoiceBlend,
 } from './kokoro-provider.ts';
+import { trailingSilenceMs } from './test-silence.ts';
 import type { SpeechChunk } from './tts.ts';
 import type { CommittedUtterance, VoiceProfile } from './voice.ts';
 
@@ -543,4 +551,67 @@ test('rpg-cm63.44 a manner changes the engine speed and lowers or raises the pit
   assert.equal(plain.speed, 1);
   assert.ok(menacing.speed < cheerful.speed);
   assert.ok(menacing.samples > plain.samples && plain.samples > cheerful.samples);
+});
+
+const PCM_FORMAT = 1;
+const PCM_BITS = 16;
+const PT_BR_RATE = 24_000;
+const PT_BR_TONE_SAMPLES = 2400;
+const PT_BR_TONE_PERIOD = 24;
+const PT_BR_TONE_AMPLITUDE = 0.3;
+const PT_BR_PARAGRAPH =
+  'Quando a porta abriu, ninguém falou; o capitão olhou o mapa: nada. Você vem comigo? Ele parou — e ouviu. Vai embora!';
+
+test('rpg-cm63.47 a pt-BR paragraph is spoken clause by clause with an audible silence after each mark', async () => {
+  const engine = fakeEngine();
+  engine.synthesize = async (sentence) => {
+    engine.calls.push(sentence);
+    return encodeWav({
+      format: PCM_FORMAT,
+      bits: PCM_BITS,
+      channels: 1,
+      sampleRate: PT_BR_RATE,
+      samples: Float32Array.from(
+        { length: PT_BR_TONE_SAMPLES },
+        (_, i) => PT_BR_TONE_AMPLITUDE * Math.sin((2 * Math.PI * (i + 1)) / PT_BR_TONE_PERIOD),
+      ),
+    });
+  };
+  const provider = createKokoroProvider({ engine });
+  const chunks = await speak(provider, { ...UTTERANCE, text: PT_BR_PARAGRAPH });
+  assert.deepEqual(engine.calls, [
+    'Quando a porta abriu,',
+    'ninguém falou;',
+    'o capitão olhou o mapa:',
+    'nada.',
+    'Você vem comigo?',
+    'Ele parou —',
+    'e ouviu.',
+    'Vai embora!',
+  ]);
+  const gaps = chunks.map((chunk) => trailingSilenceMs(chunk.audio));
+  assert.deepEqual(gaps.slice(0, 3), [CLAUSE_PAUSE_MS[','], CLAUSE_PAUSE_MS[';'], CLAUSE_PAUSE_MS[':']]);
+  assert.equal(gaps[5], CLAUSE_PAUSE_MS['—']);
+  assert.ok((gaps[4] ?? 0) > (gaps[3] ?? 0));
+  assert.ok((gaps[3] ?? 0) > (gaps[2] ?? 0));
+  assert.equal(gaps.at(-1), 0);
+  assert.equal(chunks.at(-1)?.final, true);
+  assert.deepEqual(
+    chunks.map((chunk) => chunk.sequence),
+    [0, 1, 2, 3, 4, 5, 6, 7],
+  );
+  await provider.dispose();
+});
+
+test('rpg-cm63.47 the utterance delivery reaches the engine so an expressive engine can map it', async () => {
+  const engine = fakeEngine();
+  const deliveries: unknown[] = [];
+  const synthesize = engine.synthesize;
+  engine.synthesize = (sentence, voiceId, signal, speed, blend, delivery) => {
+    deliveries.push(delivery);
+    return synthesize(sentence, voiceId, signal, speed, blend, delivery);
+  };
+  const delivery = { emotion: 'whisper', intensity: 0.5 };
+  await speak(createKokoroProvider({ engine }), { ...UTTERANCE, text: 'Psiu, venha.', delivery });
+  assert.deepEqual(deliveries, [delivery, delivery]);
 });

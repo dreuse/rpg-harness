@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
+  CLAUSE_PAUSE_MS,
   decodeWav,
   encodeWav,
   KOKORO_DELIVERY_PAUSE,
@@ -191,4 +192,60 @@ test('rpg-cm63.44 shifting pitch leaves undecodable audio and non-finite shifts 
   assert.equal(shiftPitch(junk, 1), junk);
   const bytes = encodeWav(tone(LOUD));
   assert.equal(shiftPitch(bytes, Number.NaN), bytes);
+});
+
+const PT_PARAGRAPH =
+  'Quando a porta abriu, ninguém falou; o capitão olhou para o mapa: nada. Você vem comigo? Ele parou — e ouviu, atento!';
+
+test('rpg-cm63.47 clause marks split a sentence and each piece keeps its mark', () => {
+  assert.deepEqual(
+    shapeSentences(PT_PARAGRAPH).map(({ sentence }) => sentence),
+    [
+      'Quando a porta abriu,',
+      'ninguém falou;',
+      'o capitão olhou para o mapa:',
+      'nada.',
+      'Você vem comigo?',
+      'Ele parou —',
+      'e ouviu,',
+      'atento!',
+    ],
+  );
+});
+
+test('rpg-cm63.47 each clause mark pauses for its own named duration and the question mark is kept', () => {
+  const shaped = shapeSentences(PT_PARAGRAPH);
+  assert.deepEqual(
+    shaped.map(({ pauseMs }) => pauseMs),
+    [
+      CLAUSE_PAUSE_MS[','],
+      CLAUSE_PAUSE_MS[';'],
+      CLAUSE_PAUSE_MS[':'],
+      pauses('nada. Fim.')[0],
+      pauses('Você vem comigo? Fim.')[0],
+      CLAUSE_PAUSE_MS['—'],
+      CLAUSE_PAUSE_MS[','],
+      0,
+    ],
+  );
+  assert.ok(CLAUSE_PAUSE_MS[','] < CLAUSE_PAUSE_MS[';'] && CLAUSE_PAUSE_MS[';'] < (pauses('A. B.')[0] ?? 0));
+  assert.ok(shaped.some(({ sentence }) => sentence.endsWith('?')));
+});
+
+test('rpg-cm63.47 a decimal comma, a closing quote and a leading dialogue dash do not add false splits', () => {
+  assert.deepEqual(
+    shapeSentences('Custa 1,5 moedas.').map(({ sentence }) => sentence),
+    ['Custa 1,5 moedas.'],
+  );
+  assert.deepEqual(
+    shapeSentences('— Vá, disse ele.').map(({ sentence }) => sentence),
+    ['— Vá,', 'disse ele.'],
+  );
+  assert.equal(pauses('“Vá,” disse ele. Fim.')[0], CLAUSE_PAUSE_MS[',']);
+});
+
+test('rpg-cm63.47 emotion scales clause pauses too', () => {
+  const base = pauses('Sim, claro.')[0] ?? 0;
+  assert.ok((pauses('Sim, claro.', { emotion: 'tense' })[0] ?? 0) < base);
+  assert.ok((pauses('Sim, claro.', { emotion: 'sad' })[0] ?? 0) > base);
 });

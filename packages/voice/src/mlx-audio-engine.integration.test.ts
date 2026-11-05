@@ -2,8 +2,10 @@ import assert from 'node:assert/strict';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
+import { CLAUSE_PAUSE_MS } from './delivery-shaping.ts';
 import { createMlxAudioEngine, createMlxAudioProvider, MLX_AUDIO_DIR_ENV } from './mlx-audio-engine.ts';
 import { NARRATOR_SPEAKER } from './speaker-routing.ts';
+import { trailingSilenceMs } from './test-silence.ts';
 import type { SpeechChunk } from './tts.ts';
 import type { CommittedUtterance } from './voice.ts';
 
@@ -138,4 +140,28 @@ test('the real service listens on loopback and rejects a wrong token or an unkno
   } finally {
     await engine.unload();
   }
+});
+
+const PUNCTUATED_LINE = LINES[0];
+const PUNCTUATED_TEXT = 'Quando a porta abriu, ninguém falou; o capitão olhou o mapa: nada. Você vem comigo?';
+const PUNCTUATED_PIECES = 5;
+const SLACK_MS = 1;
+
+test('leaves an audible silence after each pt-BR clause mark through the real service', { skip }, async () => {
+  assert.ok(dir);
+  const provider = createMlxAudioProvider({ dir });
+  const chunks: SpeechChunk[] = [];
+  try {
+    const spoken = { ...utterance(PUNCTUATED_LINE, 0), text: PUNCTUATED_TEXT };
+    for await (const chunk of provider.synthesize(spoken, PUNCTUATED_LINE.voice, new AbortController().signal)) {
+      chunks.push(chunk);
+    }
+  } finally {
+    await provider.dispose();
+  }
+  assert.equal(chunks.length, PUNCTUATED_PIECES);
+  const gaps = chunks.map((chunk) => trailingSilenceMs(chunk.audio));
+  const expected = [CLAUSE_PAUSE_MS[','], CLAUSE_PAUSE_MS[';'], CLAUSE_PAUSE_MS[':']];
+  for (const [index, pause] of expected.entries()) assert.ok((gaps[index] ?? 0) >= pause - SLACK_MS, `gap ${index}`);
+  assert.equal(gaps.at(-1), 0);
 });

@@ -67,11 +67,11 @@ export interface MlxAudioInstallerOptions {
 
 const execFileStep = promisify(execFile);
 
-const runStep: StepRunner = async (command, args, { env, signal }) => {
+export const runStep: StepRunner = async (command, args, { env, signal }) => {
   await execFileStep(command, [...args], { env, maxBuffer: MAX_OUTPUT_BYTES, ...(signal ? { signal } : {}) });
 };
 
-const isMissingCommand = (error: unknown): boolean =>
+export const isMissingCommand = (error: unknown): boolean =>
   error instanceof Error && (error as NodeJS.ErrnoException).code === MISSING_COMMAND;
 
 export const createMlxAudioInstaller = ({

@@ -20,6 +20,7 @@ export interface KokoroEngine {
     signal: AbortSignal,
     speed: number,
     blend?: VoiceBlend,
+    delivery?: Delivery,
   ): Promise<Uint8Array>;
   unload(): Promise<void>;
 }
@@ -248,11 +249,12 @@ export const createKokoroProvider = ({
     signal: AbortSignal,
     speed: number,
     blend: VoiceBlend | undefined,
+    delivery: Delivery | undefined,
   ): Promise<Uint8Array | undefined> => {
     if (!(await acquire(signal))) return undefined;
     try {
       await ensureLoaded();
-      return await engine.synthesize(sentence, voiceId, signal, speed, blend);
+      return await engine.synthesize(sentence, voiceId, signal, speed, blend, delivery);
     } finally {
       release();
     }
@@ -281,7 +283,7 @@ export const createKokoroProvider = ({
         ? usableBlend(capabilities, voiceId, voiceBlend?.(utterance.speakerId, voiceId))
         : undefined;
       for (const [sequence, { sentence, pauseMs }] of sentences.entries()) {
-        const synthesized = await synthesizeSentence(sentence, voiceId, signal, speed, blend);
+        const synthesized = await synthesizeSentence(sentence, voiceId, signal, speed, blend, utterance.delivery);
         if (!synthesized || signal.aborted) return;
         const audio = shiftPitch(synthesized, manner.pitch);
         yield {
