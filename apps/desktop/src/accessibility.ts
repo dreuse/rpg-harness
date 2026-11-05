@@ -123,7 +123,8 @@ export type RendererAction =
   | 'focusSheet'
   | 'focusPanels'
   | 'nextCampaign'
-  | 'newAdventure';
+  | 'newAdventure'
+  | 'closeMenu';
 
 export const KEY_BINDINGS: Readonly<Record<string, RendererAction>> = {
   Enter: 'submit',
@@ -133,6 +134,7 @@ export const KEY_BINDINGS: Readonly<Record<string, RendererAction>> = {
   'Alt+3': 'focusPanels',
   'Alt+ArrowDown': 'nextCampaign',
   'Alt+N': 'newAdventure',
+  Escape: 'closeMenu',
 };
 
 export const actionForKey = (key: string, { keyboard }: UiPreferences): RendererAction | undefined =>
@@ -149,19 +151,23 @@ const CATALOG: Readonly<Record<string, Readonly<Record<string, string>>>> = {
     'diagnostics.gm': 'GM provider',
     'diagnostics.error': 'Last error',
     'diagnostics.attempts': 'Reconnect attempts',
-    'title.none': 'No adventure selected',
+    'app.name': 'RPG Harness',
+    'nav.home': 'Home',
+    'nav.homeLabel': 'Back to home',
+    'settings.label': 'Settings',
     'nav.panes': 'Panes',
     'speaker.player': 'You',
     'speaker.gm': 'Narrator',
     'empty.campaigns': 'No adventures yet. Start a new adventure to play.',
     'empty.conversation': 'Your story starts here. Type what your character does, then press Send.',
     'empty.sheet': 'No character sheet yet.',
+    'sheet.noStats': 'No stats tracked yet.',
     'empty.panels': 'Nothing in your journal yet.',
     'label.yes': 'yes',
     'label.no': 'no',
     'label.noValue': 'no value',
     'label.progressOf': 'of',
-    'region.campaigns': 'Campaigns',
+    'region.campaigns': 'Your adventures',
     'region.conversation': 'Conversation',
     'region.sheet': 'Character sheet',
     'region.panels': 'Journal',
@@ -169,16 +175,25 @@ const CATALOG: Readonly<Record<string, Readonly<Record<string, string>>>> = {
     'action.retry': 'Reconnect',
     'label.pending': 'pending',
     'region.voice': 'Voice',
-    'voice.typedOnly': 'Voice off: type to play',
-    'voice.mode': 'Microphone {microphone}, spoken output {spokenOutput}',
+    'voice.off': 'Voice off',
+    'voice.microphone.off': 'Microphone off',
+    'voice.microphone.push-to-talk': 'Push to talk',
+    'voice.microphone.hands-free': 'Hands-free microphone',
+    'voice.output.off': 'Spoken output off',
+    'voice.output.narrator': 'Narrator reads aloud',
+    'voice.output.dialogue': 'Dialogue read aloud',
+    'voice.output.full': 'Everything read aloud',
+    'voice.speed.normal': 'normal speed',
+    'voice.speed': '{speed}× speed',
+    'voice.hint': "Type 'set mic to push-to-talk', 'set output to narrator' or 'set speed to 1.5' to change voice.",
     'voice.fallback': 'Audio unavailable ({reason}); type instead',
     'voice.rejected': 'Voice settings not changed: {codes}',
-    'voice.settings': 'Settings: microphone {microphone}, output {spokenOutput}, {locale}, {speed}x',
     'voice.consent': 'Allow microphone capture for this campaign?',
     'voice.allow': 'Allow microphone',
     'voice.decline': 'Keep typing',
     'region.start': 'New adventure',
     'start.open': 'New adventure',
+    'start.first': 'Start your first adventure',
     'start.created': 'Created campaign {name}.',
     'start.step': 'Step {current} of {total}: {title}',
     'start.save': 'Save',
@@ -197,6 +212,8 @@ const CATALOG: Readonly<Record<string, Readonly<Record<string, string>>>> = {
     'home.deleteLabel': 'Delete {name}',
     'home.unarchive': 'Restore',
     'home.unarchiveLabel': 'Restore {name}',
+    'home.more': 'More',
+    'home.moreLabel': 'More actions for {name}',
     'home.cancel': 'Cancel',
     'home.undo': 'Undo',
     'home.ask.archive': 'Archive {name}? You can undo this.',
@@ -226,19 +243,23 @@ const CATALOG: Readonly<Record<string, Readonly<Record<string, string>>>> = {
     'diagnostics.gm': 'Proveedor del GM',
     'diagnostics.error': 'Último error',
     'diagnostics.attempts': 'Intentos de reconexión',
-    'title.none': 'Ninguna aventura seleccionada',
+    'app.name': 'RPG Harness',
+    'nav.home': 'Inicio',
+    'nav.homeLabel': 'Volver al inicio',
+    'settings.label': 'Ajustes',
     'nav.panes': 'Paneles',
     'speaker.player': 'Tú',
     'speaker.gm': 'Narrador',
     'empty.campaigns': 'Aún no hay aventuras. Empieza una nueva aventura para jugar.',
     'empty.conversation': 'Tu historia empieza aquí. Escribe lo que hace tu personaje y pulsa Enviar.',
     'empty.sheet': 'Aún no hay ficha de personaje.',
+    'sheet.noStats': 'Aún no hay estadísticas.',
     'empty.panels': 'Tu diario aún está vacío.',
     'label.yes': 'sí',
     'label.no': 'no',
     'label.noValue': 'sin valor',
     'label.progressOf': 'de',
-    'region.campaigns': 'Campañas',
+    'region.campaigns': 'Tus aventuras',
     'region.conversation': 'Conversación',
     'region.sheet': 'Ficha del personaje',
     'region.panels': 'Diario',
@@ -246,16 +267,26 @@ const CATALOG: Readonly<Record<string, Readonly<Record<string, string>>>> = {
     'action.retry': 'Reconectar',
     'label.pending': 'pendiente',
     'region.voice': 'Voz',
-    'voice.typedOnly': 'Voz desactivada: escribe para jugar',
-    'voice.mode': 'Micrófono {microphone}, voz hablada {spokenOutput}',
+    'voice.off': 'Voz desactivada',
+    'voice.microphone.off': 'Micrófono apagado',
+    'voice.microphone.push-to-talk': 'Pulsar para hablar',
+    'voice.microphone.hands-free': 'Micrófono manos libres',
+    'voice.output.off': 'Voz hablada apagada',
+    'voice.output.narrator': 'El narrador lee en voz alta',
+    'voice.output.dialogue': 'Diálogos en voz alta',
+    'voice.output.full': 'Todo en voz alta',
+    'voice.speed.normal': 'velocidad normal',
+    'voice.speed': 'velocidad {speed}×',
+    'voice.hint':
+      "Escribe 'set mic to push-to-talk', 'set output to narrator' o 'set speed to 1.5' para cambiar la voz.",
     'voice.fallback': 'Audio no disponible ({reason}); escribe en su lugar',
     'voice.rejected': 'Ajustes de voz sin cambios: {codes}',
-    'voice.settings': 'Ajustes: micrófono {microphone}, salida {spokenOutput}, {locale}, {speed}x',
     'voice.consent': '¿Permitir la captura del micrófono en esta campaña?',
     'voice.allow': 'Permitir micrófono',
     'voice.decline': 'Seguir escribiendo',
     'region.start': 'Nueva aventura',
     'start.open': 'Nueva aventura',
+    'start.first': 'Empieza tu primera aventura',
     'start.created': 'Campaña {name} creada.',
     'start.step': 'Paso {current} de {total}: {title}',
     'start.save': 'Guardar',
@@ -274,6 +305,8 @@ const CATALOG: Readonly<Record<string, Readonly<Record<string, string>>>> = {
     'home.deleteLabel': 'Borrar {name}',
     'home.unarchive': 'Recuperar',
     'home.unarchiveLabel': 'Recuperar {name}',
+    'home.more': 'Más',
+    'home.moreLabel': 'Más acciones para {name}',
     'home.cancel': 'Cancelar',
     'home.undo': 'Deshacer',
     'home.ask.archive': '¿Archivar {name}? Puedes deshacerlo.',
@@ -303,6 +336,27 @@ export const translate = (locale: string, key: string, params: Readonly<Record<s
   (CATALOG[locale]?.[key] ?? CATALOG[DEFAULT_LOCALE]?.[key] ?? key).replace(PLACEHOLDER, (placeholder, name) =>
     Object.hasOwn(params, name) ? String(params[name]) : placeholder,
   );
+
+const VOICE_FIELD_SEPARATOR = ' · ';
+
+const languageName = (locale: string, language: string) => {
+  try {
+    return new Intl.DisplayNames([locale], { type: 'language' }).of(language) ?? language;
+  } catch {
+    return language;
+  }
+};
+
+export const voiceLabel = (locale: string, { microphone, spokenOutput, locale: language, speed }: VoicePreferences) =>
+  [
+    ...(microphone === 'off' && spokenOutput === 'off'
+      ? [translate(locale, 'voice.off')]
+      : [translate(locale, `voice.microphone.${microphone}`), translate(locale, `voice.output.${spokenOutput}`)]),
+    languageName(locale, language),
+    speed === DEFAULT_PLAYBACK_SPEED
+      ? translate(locale, 'voice.speed.normal')
+      : translate(locale, 'voice.speed', { speed }),
+  ].join(VOICE_FIELD_SEPARATOR);
 
 const PROGRESS_RATIO = /^(\d+)\s*\/\s*(\d+)$/;
 const LABEL_SEPARATOR = ': ';

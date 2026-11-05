@@ -5,8 +5,9 @@ import { type CampaignSummary, PROTOCOL_VERSION } from '../../../packages/client
 import type { VisualizationEvent } from '../../../packages/client-protocol/src/visualization.ts';
 import { DEFAULT_PREFERENCES, MAX_FONT_SCALE, type RendererAction } from './accessibility.ts';
 import { PREFERENCES_QUERY, START_QUERY } from './preload.ts';
-import { type DesktopState, initialState, REGIONS, viewModel } from './renderer.ts';
+import { type DesktopState, initialState, OPENING_ACTION_ID, PLAY_REGIONS, viewModel } from './renderer.ts';
 import { bindKeys, escapeHtml, KEEP_DEFAULT, keyName, queryPreferences, queryStart, renderView } from './view.ts';
+import type { DesktopVoiceView } from './voice.ts';
 
 const WIDE_WIDTH = 1600;
 const MEDIUM_WIDTH = 1000;
@@ -75,9 +76,9 @@ test('UI08 escapeHtml neutralises markup characters', () => {
 test('UI08 renderView escapes every untrusted text and labels regions', () => {
   const html = renderView(viewModel(state, WIDE_WIDTH), DEFAULT_PREFERENCES.locale);
   assert.doesNotMatch(html, /<img/);
-  assert.equal(html.split(ESCAPED).length - 1, 17);
+  assert.equal(html.split(ESCAPED).length - 1, 10);
+  assert.doesNotMatch(html, /data-region="campaigns"/);
   for (const [region, heading] of [
-    ['campaigns', 'Campaigns'],
     ['conversation', 'Conversation'],
     ['sheet', 'Character sheet'],
     ['panels', 'Journal'],
@@ -88,7 +89,10 @@ test('UI08 renderView escapes every untrusted text and labels regions', () => {
         `<section data-region="${region}" aria-labelledby="heading-${region}"><h2 id="heading-${region}">${heading}</h2>`,
       ),
     );
-  assert.match(html, /<section data-region="status" aria-labelledby="heading-status"><hgroup><h1 id="heading-status">/);
+  assert.match(
+    html,
+    /<section data-region="status" aria-labelledby="heading-status"><button[^>]*data-nav="home"[^>]*>Home<\/button><hgroup><h1 id="heading-status" tabindex="-1">/,
+  );
   assert.match(html, /data-layout="wide"/);
   assert.match(html, /role="status"/);
   assert.match(html, /role="alert"/);
@@ -104,7 +108,7 @@ test('UI08 renderView follows layout, font scale and reduced motion', () => {
   assert.match(html, /data-layout="compact"/);
   assert.match(html, new RegExp(`--font-scale: ${MAX_FONT_SCALE}`));
   assert.match(html, /data-animate="false"/);
-  assert.match(html, /<section data-region="campaigns" aria-labelledby="heading-campaigns" hidden>/);
+  assert.doesNotMatch(html, /data-region="campaigns"/);
 });
 
 const connected = (status: DesktopState['connection']['status'], lastError?: string): DesktopState => ({
@@ -129,16 +133,18 @@ test('rpg-42a.18 player-facing text has no PID, process or engine wording; detai
 
 test('rpg-42a.18 every pane has a heading and an empty state', () => {
   const html = renderView(viewModel(initialState, WIDE_WIDTH), 'en');
-  for (const region of REGIONS)
-    assert.match(html, new RegExp(`aria-labelledby="heading-${region}"><(hgroup><)?h[12] id="heading-${region}">`));
-  assert.match(html, /<h1 id="heading-status">No adventure selected<\/h1>/);
+  for (const region of ['status', 'campaigns'])
+    assert.match(html, new RegExp(`aria-labelledby="heading-${region}"><(hgroup><)?h[12] [^>]*id="heading-${region}"`));
+  assert.ok(html.includes('<p data-empty>No adventures yet. Start a new adventure to play.</p>'));
+  const playing = renderView(viewModel({ ...initialState, selected: CAMPAIGN }, WIDE_WIDTH), 'en');
+  for (const region of PLAY_REGIONS)
+    assert.match(playing, new RegExp(`aria-labelledby="heading-${region}"><h2 id="heading-${region}">`));
   for (const text of [
-    'No adventures yet. Start a new adventure to play.',
     'Your story starts here. Type what your character does, then press Send.',
     'No character sheet yet.',
     'Nothing in your journal yet.',
   ])
-    assert.ok(html.includes(`<p data-empty>${text}</p>`), text);
+    assert.ok(playing.includes(`<p data-empty>${text}</p>`), text);
   const filled = renderView(viewModel(state, WIDE_WIDTH), 'en');
   assert.doesNotMatch(filled, /data-empty/);
 });
@@ -150,7 +156,7 @@ test('rpg-42a.18 the header shows the campaign name and scene title', () => {
     snapshot: { ...snapshot, currentScene: { id: 's1', campaignId: CAMPAIGN, title: 'Docks' } },
   };
   const html = renderView(viewModel(scene, WIDE_WIDTH), 'en');
-  assert.ok(html.includes(`<hgroup><h1 id="heading-status">${ESCAPED}</h1><p>Docks</p></hgroup>`));
+  assert.ok(html.includes(`<hgroup><h1 id="heading-status" tabindex="-1">${ESCAPED}</h1><p>Docks</p></hgroup>`));
 });
 
 test('rpg-42a.18 player, narrator and system lines have distinct speakers', () => {
@@ -170,14 +176,14 @@ test('rpg-42a.18 player, narrator and system lines have distinct speakers', () =
 test('rpg-42a.18 compact width shows one pane at a time with a pane switcher, wider widths show every pane', () => {
   const compact = renderView(viewModel(state, COMPACT_WIDTH), 'en', 'sheet');
   assert.match(compact, /<nav aria-label="Panes">/);
-  for (const region of ['conversation', 'sheet', 'panels', 'campaigns'])
+  for (const region of PLAY_REGIONS)
     assert.match(
       compact,
       new RegExp(`<button type="button" data-pane="${region}"${region === 'sheet' ? ' aria-current="true"' : ''}>`),
     );
   assert.match(compact, /data-region="sheet" aria-labelledby="heading-sheet">/);
   assert.match(compact, /data-region="status" aria-labelledby="heading-status">/);
-  for (const region of ['conversation', 'panels', 'campaigns'])
+  for (const region of ['conversation', 'panels'])
     assert.match(compact, new RegExp(`data-region="${region}" aria-labelledby="heading-${region}" hidden>`));
   assert.match(
     renderView(viewModel(state, COMPACT_WIDTH), 'en'),
@@ -186,7 +192,7 @@ test('rpg-42a.18 compact width shows one pane at a time with a pane switcher, wi
   for (const width of [MEDIUM_WIDTH, WIDE_WIDTH]) {
     const html = renderView(viewModel(state, width), 'en', 'sheet');
     assert.doesNotMatch(html, /<nav|hidden>/);
-    for (const region of REGIONS) assert.match(html, new RegExp(`data-region="${region}"`));
+    for (const region of PLAY_REGIONS) assert.match(html, new RegExp(`data-region="${region}"`));
   }
 });
 
@@ -262,6 +268,7 @@ const guideAt = (step: string, choices = {}): StartDraft => ({
   step: START_STEPS.guide.indexOf(step as (typeof START_STEPS.guide)[number]),
   choices,
 });
+const ONE_CAMPAIGN = state.campaigns;
 const startHtml = (draft: StartDraft, plan?: DesktopState['start']['plan']) =>
   renderView(
     viewModel({ ...initialState, start: { open: true, draft, options: START_OPTIONS, plan } }, WIDE_WIDTH),
@@ -270,11 +277,14 @@ const startHtml = (draft: StartDraft, plan?: DesktopState['start']['plan']) =>
 
 test('rpg-42a.14 guided start is a labelled region with a focusable step heading and named controls', () => {
   const closed = renderView(
-    viewModel({ ...initialState, start: { ...initialState.start, created: HOSTILE } }, WIDE_WIDTH),
+    viewModel(
+      { ...initialState, campaigns: ONE_CAMPAIGN, start: { ...initialState.start, created: HOSTILE } },
+      WIDE_WIDTH,
+    ),
     'en',
   );
   assert.match(closed, /<section data-region="start" aria-label="New adventure">/);
-  assert.match(closed, /<button type="button" data-start-open="open">New adventure<\/button>/);
+  assert.match(closed, /<button type="button" data-start-open="open" data-primary>New adventure<\/button>/);
   assert.ok(closed.includes(`<p role="status">Created campaign ${ESCAPED}.</p>`));
   const genre = startHtml(guideAt('genre', { genre: 'evil' }));
   assert.match(genre, /<h2 tabindex="-1" data-start-title="genre">Step 2 of 6: Pick a tone and genre<\/h2>/);
@@ -323,6 +333,14 @@ test('rpg-42a.14 keyName reads letter and digit keys from the physical key when 
 });
 
 const NOW = Date.parse('2026-11-04T12:00:00.000Z');
+const VOICE_OFF: DesktopVoiceView = {
+  mode: { kind: 'typed-input-only' },
+  preferences: { microphone: 'off', spokenOutput: 'off', locale: 'en', speed: 1 },
+  subtitle: undefined,
+  fallback: undefined,
+  issues: [],
+  asking: false,
+};
 const HOUR_MS = 3_600_000;
 const summary = (name: string, overrides: Partial<CampaignSummary> = {}): CampaignSummary => ({
   id: `id-${name}`,
@@ -352,33 +370,85 @@ test('rpg-42a.13 the home shows one line and the guided start when there are no 
   assert.ok(html.includes('<p data-empty>No adventures yet. Start a new adventure to play.</p>'));
   assert.match(
     html,
-    /data-region="campaigns"[^>]*><h2[^>]*>Campaigns<\/h2><p data-empty>[^<]*<\/p><button type="button" data-start-open="home">New adventure<\/button>/,
+    /data-region="campaigns"[^>]*><h2[^>]*>Your adventures<\/h2><p data-empty>[^<]*<\/p><button type="button" data-start-open="home" data-primary>Start your first adventure<\/button>/,
   );
-  assert.doesNotMatch(html, /home-search|data-archived/);
+  assert.doesNotMatch(html, /home-search|data-archived|data-start-open="open"/);
 });
 
 test('rpg-42a.13 a home card shows where the adventure stopped and continues it', () => {
   const html = home({ campaigns: [HARBOR] });
   assert.match(html, /<article aria-labelledby="home-card-0"><h3 id="home-card-0">Harbor<\/h3>/);
-  assert.ok(html.includes('<p>Ash - fantasy - Docks - 1 hour ago</p><p data-narration>The tide turns.</p>'));
+  assert.ok(html.includes('<p data-meta>Ash · Docks · 1 hour ago</p><p data-narration>The tide turns.</p>'));
+  assert.doesNotMatch(html, / - /);
   assert.match(
     html,
-    /<button type="button" id="home-continue-0" data-home="continue" data-name="Harbor" aria-label="Continue Harbor">Continue<\/button>/,
+    /<button type="button" id="home-continue-0" data-home="continue" data-name="Harbor" aria-label="Continue Harbor" data-primary>Continue<\/button><details data-menu><summary id="home-more-0" aria-label="More actions for Harbor">More<\/summary><div><button type="button" id="home-archive-0" data-home="archive"[^>]*>Archive<\/button><button type="button" id="home-delete-0" data-home="delete"[^>]*>Delete<\/button><\/div><\/details>/,
   );
-  assert.match(html, /id="home-archive-0" data-home="archive"/);
-  assert.match(html, /id="home-delete-0" data-home="delete"/);
   assert.doesNotMatch(html, /home-search/);
 });
 
-test('rpg-42a.13 the compact home opens on the campaigns pane until an adventure is playing', () => {
+test('rpg-42a.22 the home is a landing view with an app header, a primary new adventure and no play panes', () => {
+  for (const width of [COMPACT_WIDTH, MEDIUM_WIDTH, WIDE_WIDTH]) {
+    const html = home(
+      { campaigns: [summary('Older', { lastPlayedAt: new Date(NOW - 2 * HOUR_MS).toISOString() }), HARBOR] },
+      width,
+    );
+    assert.match(html, /<main data-screen="home"/);
+    assert.match(html, /<h1 id="heading-status" tabindex="-1">RPG Harness<\/h1>/);
+    assert.match(html, /<button type="button" data-start-open="open" data-primary>New adventure<\/button>/);
+    assert.match(html, /data-region="campaigns" aria-labelledby="heading-campaigns">/);
+    assert.ok(html.indexOf('>Harbor<') < html.indexOf('>Older<'));
+    for (const region of PLAY_REGIONS) assert.doesNotMatch(html, new RegExp(`data-region="${region}"`));
+    assert.doesNotMatch(html, /<nav|data-nav|data-settings|No adventure selected/);
+  }
+});
+
+test('rpg-42a.22 the home shows the voice bar while voice is on and hides it while off', () => {
+  const model = viewModel({ ...initialState, campaigns: ONE_CAMPAIGN }, WIDE_WIDTH);
+  const on = { ...VOICE_OFF, preferences: { ...VOICE_OFF.preferences, microphone: 'push-to-talk' as const } };
+  assert.match(renderView(model, 'en', undefined, on), /<\/main><section data-region="voice"[^>]*><p>Push to talk · /);
+  assert.doesNotMatch(renderView(model, 'en', undefined, VOICE_OFF), /data-region="voice"/);
+});
+
+test('rpg-42a.22 the play view has a home button and a settings menu holding motion and voice', () => {
+  const html = renderView(viewModel(state, WIDE_WIDTH), 'en', undefined, VOICE_OFF);
+  assert.match(html, /<main data-screen="play"/);
   assert.match(
-    home({ campaigns: [HARBOR] }, COMPACT_WIDTH),
-    /data-region="campaigns" aria-labelledby="heading-campaigns">/,
+    html,
+    /<section data-region="status" aria-labelledby="heading-status"><button type="button" id="nav-home" data-nav="home" aria-label="Back to home">Home<\/button><hgroup><h1 id="heading-status" tabindex="-1">/,
   );
   assert.match(
-    home({ campaigns: [HARBOR], selected: 'id-Harbor' }, COMPACT_WIDTH),
-    /data-region="campaigns" aria-labelledby="heading-campaigns" hidden>/,
+    html,
+    /<details data-settings><summary id="settings-toggle">Settings<\/summary><div><fieldset data-motion-control><legend>Motion<\/legend>[\s\S]*<\/fieldset><p data-voice-summary>Voice off · English · normal speed<\/p><p>[^<]*set mic to push-to-talk[^<]*<\/p><\/div><\/details>/,
   );
+  assert.doesNotMatch(html, /data-region="voice"|data-region="campaigns"|data-start-open/);
+  assert.ok(html.indexOf('data-settings') < html.indexOf('data-columns'));
+});
+
+test('rpg-42a.22 the sheet names the existing character even before it has stats', () => {
+  const snapshot = state.snapshot as NonNullable<DesktopState['snapshot']>;
+  const hero = {
+    ...state,
+    views: {},
+    snapshot: { ...snapshot, characters: [{ id: 'h', campaignId: CAMPAIGN, name: 'The Wanderer' }] },
+  };
+  const html = renderView(viewModel(hero, WIDE_WIDTH), 'en');
+  assert.match(
+    html,
+    /<h2 id="heading-sheet">Character sheet<\/h2><h3>The Wanderer<\/h3><p data-empty>No stats tracked yet\.<\/p>/,
+  );
+  assert.doesNotMatch(html, /No character sheet yet/);
+});
+
+test('rpg-42a.22 the opening narration shows without a player prompt bubble', () => {
+  const snapshot = state.snapshot as NonNullable<DesktopState['snapshot']>;
+  const opening = {
+    ...state,
+    snapshot: { ...snapshot, turns: [{ ...snapshot.turns[0], actionId: OPENING_ACTION_ID, input: 'Begin.' }] },
+  } as DesktopState;
+  const html = renderView(viewModel(opening, WIDE_WIDTH), 'en');
+  assert.match(html, /<li data-action-id="opening"><p data-speaker="gm">/);
+  assert.doesNotMatch(html, /Begin\./);
 });
 
 test('rpg-42a.13 many adventures get a labelled search box and a no-match line', () => {
@@ -402,6 +472,7 @@ test('rpg-42a.13 unhealthy adventures show the problem and a backup hint instead
   );
   assert.match(html, /<h3 id="home-card-1">Old<\/h3><p data-problem>This save needs a newer version of the app\./);
   assert.doesNotMatch(html, /data-home="continue"/);
+  assert.match(html, /<summary id="home-more-0" aria-label="More actions for Junk">/);
   assert.match(html, /id="home-delete-0" data-home="delete" data-name="Junk"/);
 });
 
@@ -422,7 +493,7 @@ test('rpg-42a.13 archive and delete ask first, archive offers undo and archived 
   );
   assert.match(
     undo,
-    /id="home-unarchive-0" data-home="unarchive" data-name="Spire" aria-label="Restore Spire">Restore</,
+    /id="home-unarchive-0" data-home="unarchive" data-name="Spire" aria-label="Restore Spire" data-primary>Restore<\/button><details data-menu><summary id="home-archived-more-0" [^>]*>More<\/summary><div><button type="button" id="home-archived-delete-0" data-home="delete"/,
   );
   const failed = home({ campaigns: [HARBOR], home: { query: '', error: 'Campaign Harbor is open in this engine.' } });
   assert.match(failed, /<p role="alert">Campaign Harbor is open in this engine\.<\/p>/);
@@ -456,6 +527,7 @@ test('UI15: changed sheet values carry a highlight marker', () => {
 });
 
 test('UI15: the motion control offers full, reduced and off and marks the current setting', () => {
+  assert.doesNotMatch(home({ campaigns: [HARBOR] }), /data-motion-control/);
   const html = renderView(viewModel(state, WIDE_WIDTH, { ...DEFAULT_PREFERENCES, motion: 'reduced' }), 'en');
   assert.match(html, /<fieldset data-motion-control><legend>Motion<\/legend>/);
   assert.match(html, /<button type="button" data-motion="full" aria-pressed="false">Full<\/button>/);

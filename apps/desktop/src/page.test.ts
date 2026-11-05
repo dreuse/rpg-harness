@@ -27,10 +27,12 @@ const ALT_N = { key: '˜', code: 'KeyN', altKey: true } as const;
 
 type Listener = (event: { target: unknown; key?: string; preventDefault(): void }) => void;
 
-const target = (attributes: Record<string, string>) => ({
+const target = (attributes: Record<string, string>, find?: (selector: string) => unknown) => ({
   closest: (selector: string) => {
     const name = /\[([a-z-]+)/.exec(selector)?.[1] ?? '';
-    return Object.hasOwn(attributes, name) ? { getAttribute: (key: string) => attributes[key] ?? null } : null;
+    return Object.hasOwn(attributes, name)
+      ? { getAttribute: (key: string) => attributes[key] ?? null, open: true, querySelector: find }
+      : null;
   },
 });
 
@@ -99,7 +101,7 @@ const fakePage = () => {
     keys: { addEventListener: on('keys:') },
   };
   const event = (attributes: Record<string, string>, key?: string, keys: Partial<KeyEventLike> = {}) => ({
-    target: target(attributes),
+    target: target(attributes, node),
     preventDefault: () => {
       prevented++;
     },
@@ -190,7 +192,8 @@ test('rpg-42a.7 page renders the view and drives the client through the bridge',
   assert.deepEqual(submitted(page), ['look around']);
   assert.equal(page.input.value, '');
   page.press('Alt+2');
-  assert.deepEqual(page.focused, ['[data-region="sheet"]']);
+  assert.equal(page.focused[0], '#heading-status');
+  assert.equal(page.focused.at(-1), '[data-region="sheet"]');
 });
 
 test('rpg-42a.7 page retries only from the retry button', () => {
@@ -211,7 +214,7 @@ test('A18 page renders voice and opens the mic at startup when saved settings en
     return { start: async () => DENIED, stop: () => {} };
   });
   assert.deepEqual(unused, []);
-  assert.match(off.root.innerHTML, /data-region="voice"[^>]*>.*Voice off: type to play/);
+  assert.doesNotMatch(off.root.innerHTML, /data-region="voice"/);
 
   const page = fakePage();
   const opened: string[] = [];
@@ -229,14 +232,17 @@ test('A18 page renders voice and opens the mic at startup when saved settings en
   await settle();
   assert.deepEqual(opened, ['push-to-talk']);
   assert.match(page.root.innerHTML, /Audio unavailable \(permission-denied\); type instead/);
-  assert.match(page.root.innerHTML, /Settings: microphone push-to-talk, output off, en, 1x/);
+  assert.match(
+    page.root.innerHTML,
+    /<p data-voice-summary>Push to talk · Spoken output off · English · normal speed<\/p>/,
+  );
   page.input.value = 'set mic to off. look around';
   page.press('Enter');
   await settle();
   assert.deepEqual(submitted(page), ['look around']);
   assert.equal(page.input.value, '');
-  assert.match(page.root.innerHTML, /Voice off: type to play/);
-  assert.doesNotMatch(page.root.innerHTML, /Audio unavailable/);
+  assert.match(page.root.innerHTML, /<p data-voice-summary>Voice off · English · normal speed<\/p>/);
+  assert.doesNotMatch(page.root.innerHTML, /Audio unavailable|data-region="voice"/);
 });
 
 const saves = (page: ReturnType<typeof fakePage>) => page.sent.filter(({ type }) => type === 'SaveVoiceSettings');
@@ -294,7 +300,7 @@ test('A21 page asks for microphone consent, saves the answer through the engine 
   assert.match(page.root.innerHTML, /role="alert"><li>voice settings: no/);
   page.receive({ type: 'Snapshot', snapshot: { ...saved } });
   await settle();
-  assert.match(page.root.innerHTML, /Settings: microphone off/);
+  assert.match(page.root.innerHTML, /<p data-voice-summary>Voice off · /);
 });
 
 test('A21 page retries a voice save rejected as stale and keeps the mic off', async () => {
@@ -323,7 +329,7 @@ test('A21 page retries a voice save rejected as stale and keeps the mic off', as
   await settle();
   assert.deepEqual(opened, ['push-to-talk']);
   assert.doesNotMatch(page.root.innerHTML, /voice settings: stale/);
-  assert.match(page.root.innerHTML, /Settings: microphone off/);
+  assert.match(page.root.innerHTML, /<p data-voice-summary>Voice off · /);
   const retry = saves(page).at(-1);
   assert.ok(retry?.type === 'SaveVoiceSettings' && retry !== first);
   assert.equal(retry.expectedRevision, SAVED_REVISION);
@@ -333,7 +339,7 @@ test('A21 page retries a voice save rejected as stale and keeps the mic off', as
   page.receive({ type: 'Snapshot', snapshot: { ...SNAPSHOT, revision: SAVED_REVISION + 1, voice: off } });
   await settle();
   assert.deepEqual(opened, ['push-to-talk']);
-  assert.match(page.root.innerHTML, /Settings: microphone off/);
+  assert.match(page.root.innerHTML, /<p data-voice-summary>Voice off · /);
   assert.equal(saves(page).length, 2);
 });
 
@@ -456,6 +462,44 @@ test('rpg-42a.18 page switches the compact pane from the pane buttons and the fo
   assert.equal(page.focused.at(-1), '[data-region="panels"]');
 });
 
+test('rpg-42a.22 page goes home from the play header, focuses the adventures and keeps Enter off the action', async () => {
+  const page = fakePage();
+  mount(page);
+  page.receive(READY);
+  page.receive({ type: 'Campaigns', campaigns: [SNAPSHOT.campaign] });
+  continueHarbor(page);
+  page.receive({ type: 'Snapshot', snapshot: SNAPSHOT });
+  assert.match(page.root.innerHTML, /data-screen="play"/);
+  assert.equal(page.focused.at(-1), '#heading-status');
+  page.input.value = 'look around';
+  const before = page.prevented();
+  page.press('Enter', { 'data-region': 'status' });
+  await settle();
+  assert.equal(page.prevented(), before);
+  assert.deepEqual(submitted(page), []);
+  page.click({ 'data-nav': 'home' });
+  assert.match(page.root.innerHTML, /data-screen="home"/);
+  assert.equal(page.focused.at(-1), '#home-continue-0');
+  assert.equal(page.sent.at(-1)?.type, 'ListCampaigns');
+  page.press('Enter');
+  await settle();
+  assert.equal(page.prevented(), before);
+  assert.deepEqual(submitted(page), []);
+});
+
+test('rpg-42a.22 Escape closes the open menu and returns focus to its toggle', () => {
+  const page = fakePage();
+  mount(page);
+  page.receive(READY);
+  page.receive({ type: 'Campaigns', campaigns: [SNAPSHOT.campaign] });
+  const before = page.prevented();
+  page.press('Escape');
+  assert.equal(page.prevented(), before);
+  page.press('Escape', { open: '' });
+  assert.equal(page.prevented(), before + 1);
+  assert.equal(page.focused.at(-1), 'summary');
+});
+
 const MANY_CAMPAIGNS = 6;
 const HOME_SEARCH = '#home-search';
 
@@ -469,6 +513,7 @@ test('rpg-42a.13 page archives after confirmation with focus on the choice, then
   assert.equal(page.focused.at(-1), '#home-cancel');
   page.click({ 'data-home': 'cancel' });
   assert.doesNotMatch(page.root.innerHTML, /role="alertdialog"/);
+  assert.equal(page.focused.at(-1), '#home-more-0');
   assert.deepEqual(sentOf(page, 'ArchiveCampaign'), []);
   page.click({ 'data-home': 'archive', 'data-name': HARBOR });
   page.click({ 'data-home': 'confirm' });

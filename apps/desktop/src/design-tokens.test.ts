@@ -44,6 +44,7 @@ const TEXT_PAIRS = [
   ['text-muted', 'surface-raised'],
   ['danger', 'surface'],
   ['danger', 'surface-raised'],
+  ['surface-raised', 'accent'],
 ] as const;
 const NON_TEXT_PAIRS = [
   ['accent', 'surface'],
@@ -194,4 +195,10 @@ test('rpg-42a.18 narration reads at a comfortable measure in its own font', () =
   assert.match(view, /\[data-speaker="gm"\] \{[^}]*font-family: var\(--font-narration\);/);
   for (const speaker of ['player', 'gm', 'system'])
     assert.match(view, new RegExp(`\\[data-speaker="${speaker}"\\] \\{`));
+});
+
+test('rpg-42a.22 the home hides the action form and primary buttons read on the accent', () => {
+  const view = read(VIEW_CSS);
+  assert.match(view, /body:has\(main\[data-screen="home"\]\) #action-form \{[^}]*display: none;/);
+  assert.match(view, /\[data-primary\] \{[^}]*color: var\(--surface-raised\);[^}]*background: var\(--accent\);/);
 });

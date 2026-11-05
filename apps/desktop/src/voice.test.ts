@@ -71,7 +71,8 @@ test('A18: desktop supports full voice; tui supports appropriate audio controls 
   await voice.heard({ kind: 'typed-input-only', turnId: 't2', reason: 'timeout' });
   await voice.say('set speed to 9');
   const html = renderVoice(voice.view(), LOCALE);
-  assert.match(html, /Microphone push-to-talk, spoken output full/);
+  assert.match(html, /<p>Push to talk · Everything read aloud · American English · normal speed<\/p>/);
+  assert.doesNotMatch(html, /push-to-talk|en-US|1x/);
   assert.match(html, /<p aria-live="polite">The door creaks open\.<\/p>/);
   assert.match(html, /role="alert">Audio unavailable \(timeout\); type instead/);
   assert.match(html, /Voice settings not changed: speed_out_of_range/);
@@ -204,7 +205,17 @@ test('A21: desktop loads saved voice settings from the campaign snapshot', async
     locale: 'en-US',
     speed: 1.5,
   });
-  assert.match(renderVoice(voice.view(), LOCALE), /Settings: microphone push-to-talk, output full, en-US, 1\.5x/);
+  assert.match(
+    renderVoice(voice.view(), LOCALE),
+    /Push to talk · Everything read aloud · American English · 1\.5× speed/,
+  );
+});
+
+test('rpg-42a.22 the voice bar is hidden while voice is off and nothing needs saying', async () => {
+  const { voice } = consentFixture();
+  assert.equal(renderVoice(voice.view(), LOCALE), '');
+  await voice.say('set mic to push-to-talk');
+  assert.match(renderVoice(voice.view(), LOCALE), /data-voice="allow"/);
 });
 
 const CHUNK = [1, 2, 3];

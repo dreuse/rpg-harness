@@ -106,20 +106,15 @@ export type Transport = {
 
 export const REGIONS = ['campaigns', 'status', 'conversation', 'sheet', 'panels'] as const;
 export type Region = (typeof REGIONS)[number];
+export const PLAY_REGIONS = ['conversation', 'sheet', 'panels'] as const satisfies readonly Region[];
 export type Layout = { readonly name: 'compact' | 'medium' | 'wide'; readonly columns: readonly (readonly Region[])[] };
+export const OPENING_ACTION_ID = 'opening';
+
+const SIDE_BY_SIDE: Layout['columns'] = [['conversation'], ['sheet', 'panels']];
 
 export const layoutFor = (width: number): Layout => {
-  if (!(width > COMPACT_MAX_WIDTH))
-    return { name: 'compact', columns: [['status', 'conversation', 'sheet', 'panels', 'campaigns']] };
-  if (width <= MEDIUM_MAX_WIDTH)
-    return {
-      name: 'medium',
-      columns: [
-        ['status', 'conversation'],
-        ['sheet', 'panels', 'campaigns'],
-      ],
-    };
-  return { name: 'wide', columns: [['campaigns'], ['status', 'conversation'], ['sheet', 'panels']] };
+  if (!(width > COMPACT_MAX_WIDTH)) return { name: 'compact', columns: [PLAY_REGIONS] };
+  return { name: width <= MEDIUM_MAX_WIDTH ? 'medium' : 'wide', columns: SIDE_BY_SIDE };
 };
 
 export const initialState: DesktopState = {
@@ -185,6 +180,7 @@ export const viewModel = (
       attempts: state.connection.attempts,
     },
     title: { campaign: state.snapshot?.campaign.name, scene: state.snapshot?.currentScene?.title },
+    character: state.snapshot?.characters[0]?.name,
     playing: state.selected !== undefined,
     home: homeOf(state, preferences.locale, now),
     conversation: [
@@ -476,6 +472,12 @@ export const createDesktopClient = ({
       return () => listeners.delete(listener);
     },
     select,
+    goHome: () => {
+      const { selected, snapshot, panels, ...rest } = state;
+      state = { ...rest, views: {}, rolls: [], rolling: false, sheetChanged: [] };
+      update({});
+      send(LIST_CAMPAIGNS);
+    },
     settle: () => update({ rolling: false, sheetChanged: [] }),
     continueCampaign: (name: string) => {
       update({ home: { ...state.home, confirm: undefined, error: undefined } });

@@ -13,14 +13,15 @@ import {
   HOME_ATTRIBUTE,
   HOME_NAME,
   HOME_SEARCH,
+  homeActionId,
   KEEP_DEFAULT,
   type KeyEventLike,
   type KeyTarget,
+  NAV_ATTRIBUTE,
   PANE_ATTRIBUTE,
   queryPreferences,
   queryStart,
   renderView,
-  renderVoice,
   START_CONTROL,
   START_CONTROLS,
   START_ENTRY,
@@ -53,15 +54,20 @@ const TITLE_SELECTOR = `[${START_TITLE}]`;
 const OPEN_SELECTOR = `[${START_OPEN}]`;
 const FOCUSED_SELECTOR = ':focus';
 const ARCHIVED_SELECTOR = '[data-archived]';
-const DISCLOSURE_SELECTORS = ['[data-diagnostics]', ARCHIVED_SELECTOR];
+const DISCLOSURE_SELECTORS = ['[data-diagnostics]', ARCHIVED_SELECTOR, '[data-settings]'];
 const HOME_REGION = '[data-region="campaigns"]';
+const KEEP_ENTER_REGIONS = [START_REGION, HOME_REGION, '[data-region="status"]'];
+const HEADING_SELECTOR = '#heading-status';
+const FIRST_CONTINUE_SELECTOR = '#home-continue-0';
+const OPEN_MENU_SELECTOR = 'details[open]';
+const MENU_TOGGLE_SELECTOR = 'summary';
 const SEARCH_SELECTOR = `#${HOME_SEARCH}`;
 const CANCEL_SELECTOR = '#home-cancel';
 const LOG_SELECTOR = '[data-region="conversation"] > ol';
 const SKIP_SELECTOR = '[data-roll-skip]';
 const MOTION_ATTRIBUTE = 'data-motion';
 const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)';
-const FOCUS_ATTRIBUTES = [START_TITLE, START_OPTION, START_CONTROL, START_OPEN, PANE_ATTRIBUTE];
+const FOCUS_ATTRIBUTES = [START_TITLE, START_OPTION, START_CONTROL, START_OPEN, PANE_ATTRIBUTE, MOTION_ATTRIBUTE];
 const FOCUS_REGIONS: Partial<Record<RendererAction, Region>> = {
   focusConversation: 'conversation',
   focusSheet: 'sheet',
@@ -136,6 +142,7 @@ export const mountPage = ({
   let loaded: CampaignSnapshot | undefined;
   let shownStep: string | undefined;
   let shownPane: Region | undefined;
+  let shownPlaying = false;
   const entryValue = () => root.querySelector<HTMLInputElement>(ENTRY_SELECTOR)?.value;
   const render = () => {
     const model = viewModel(client.state(), width(), preferences);
@@ -144,7 +151,7 @@ export const mountPage = ({
     const opened = DISCLOSURE_SELECTORS.map(
       (selector) => root.querySelector<HTMLDetailsElement>(selector)?.open === true,
     );
-    root.innerHTML = renderView(model, preferences.locale, shownPane) + renderVoice(voice.view(), preferences.locale);
+    root.innerHTML = renderView(model, preferences.locale, shownPane, voice.view());
     root.style.setProperty(FONT_SCALE_PROPERTY, String(model.fontScale));
     DISCLOSURE_SELECTORS.forEach((selector, index) => {
       const details = root.querySelector<HTMLDetailsElement>(selector);
@@ -152,6 +159,13 @@ export const mountPage = ({
     });
     const log = root.querySelector<HTMLElement>(LOG_SELECTOR);
     if (log !== null) log.scrollTop = log.scrollHeight;
+    if (model.playing !== shownPlaying) {
+      shownPlaying = model.playing;
+      shownStep = model.start?.step;
+      const home = () =>
+        root.querySelector<HTMLElement>(FIRST_CONTINUE_SELECTOR) ?? root.querySelector<HTMLElement>(OPEN_SELECTOR);
+      return (model.playing ? root.querySelector<HTMLElement>(HEADING_SELECTOR) : home())?.focus();
+    }
     if (model.start?.step !== shownStep) {
       shownStep = model.start?.step;
       return root.querySelector<HTMLElement>(shownStep === undefined ? OPEN_SELECTOR : TITLE_SELECTOR)?.focus();
@@ -188,7 +202,7 @@ export const mountPage = ({
   };
   const homeAction = (action: string | null, name: string | null, archived: boolean) => {
     if (action === 'confirm') return client.confirmHome();
-    if (action === 'cancel') return client.cancelHome();
+    if (action === 'cancel') return cancelHome();
     if (action === 'undo') return client.undoArchive();
     if (name === null) return;
     if (action === 'continue') return continueCampaign(name);
@@ -196,6 +210,21 @@ export const mountPage = ({
     if (action !== 'archive' && action !== 'delete') return;
     client.askHome(action, name, archived);
     root.querySelector<HTMLElement>(CANCEL_SELECTOR)?.focus();
+  };
+  const cancelHome = () => {
+    const asked = client.state().home.confirm;
+    client.cancelHome();
+    if (asked === undefined) return;
+    const { home } = viewModel(client.state(), width(), preferences);
+    const archived = asked.archived === true;
+    const index = (archived ? home.archived : home.cards).findIndex(({ name }) => name === asked.name);
+    if (index >= 0) root.querySelector<HTMLElement>(`#${homeActionId('more', index, archived)}`)?.focus();
+  };
+  const closeMenu = (target: ClickTarget | undefined) => {
+    const menu = target?.closest(OPEN_MENU_SELECTOR) as unknown as HTMLDetailsElement | null | undefined;
+    if (!menu) return KEEP_DEFAULT;
+    menu.open = false;
+    menu.querySelector<HTMLElement>(MENU_TOGGLE_SELECTOR)?.focus();
   };
   const showPane = (region: Region) => {
     shownPane = region;
@@ -212,7 +241,12 @@ export const mountPage = ({
     if (region !== undefined) return focusRegion(region);
     if (action === 'newAdventure') return client.openStart();
     const target = event.target as ClickTarget | undefined;
-    if (action === 'submit' && (target?.closest(START_REGION) || target?.closest(HOME_REGION))) return KEEP_DEFAULT;
+    if (action === 'closeMenu') return closeMenu(target);
+    if (
+      action === 'submit' &&
+      (client.state().selected === undefined || KEEP_ENTER_REGIONS.some((region) => target?.closest(region)))
+    )
+      return KEEP_DEFAULT;
     if (action === 'submit') return form.requestSubmit();
     if (action === 'retry') return client.retry();
     if (action === 'nextCampaign') return nextCampaign();
@@ -245,6 +279,10 @@ export const mountPage = ({
         home.getAttribute(HOME_NAME),
         !!target?.closest(ARCHIVED_SELECTOR),
       );
+    if (target?.closest(`[${NAV_ATTRIBUTE}]`)) {
+      shownPane = undefined;
+      return client.goHome();
+    }
     const pane = target?.closest(`[${PANE_ATTRIBUTE}]`)?.getAttribute(PANE_ATTRIBUTE);
     if (isRegion(pane)) return showPane(pane);
     const answer = target?.closest(`[${VOICE_ATTRIBUTE}]`)?.getAttribute(VOICE_ATTRIBUTE);

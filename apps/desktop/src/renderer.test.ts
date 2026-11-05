@@ -14,7 +14,7 @@ import {
   type DesktopState,
   initialState,
   layoutFor,
-  REGIONS,
+  PLAY_REGIONS,
   type Transport,
   viewModel,
 } from './renderer.ts';
@@ -117,7 +117,7 @@ test('UI08: provide responsive desktop conversation, sheets, panels and campaign
 
   const wide = viewModel(client.state(), WIDE_WIDTH);
   assert.equal(wide.layout.name, 'wide');
-  assert.deepEqual(wide.layout.columns, [['campaigns'], ['status', 'conversation'], ['sheet', 'panels']]);
+  assert.deepEqual(wide.layout.columns, [['conversation'], ['sheet', 'panels']]);
   assert.deepEqual(
     wide.home.cards.map(({ name, selected }) => [name, selected]),
     [
@@ -132,11 +132,12 @@ test('UI08: provide responsive desktop conversation, sheets, panels and campaign
   assert.deepEqual(wide.panels?.inventory, PANELS.inventory);
   assert.equal(wide.status.label, 'Connected');
   assert.deepEqual(wide.title, { campaign: 'Harbor', scene: 'Docks' });
+  assert.equal(wide.character, 'Ash');
   assert.deepEqual(wide.diagnostics, { pid: 42, gm: 'fake', error: undefined, attempts: 0 });
 
   assert.equal(viewModel(client.state(), MEDIUM_WIDTH).layout.name, 'medium');
   const compact = viewModel(client.state(), COMPACT_WIDTH).layout;
-  assert.deepEqual(compact, { name: 'compact', columns: [['status', 'conversation', 'sheet', 'panels', 'campaigns']] });
+  assert.deepEqual(compact, { name: 'compact', columns: [['conversation', 'sheet', 'panels']] });
   assert.equal(layoutFor(Number.NaN).name, 'compact');
 
   const submitted = client.submit('look around');
@@ -291,13 +292,26 @@ test('UI10 status label follows the locale preference', () => {
   assert.equal(label({ status: 'reconnecting', attempts: 2 }), 'Reconectando (intento 2)');
 });
 
-test('rpg-42a.18 every pane is in the layout at every width', () => {
+test('rpg-42a.18 every play pane is in the layout at every width', () => {
   for (const width of [COMPACT_WIDTH, MEDIUM_WIDTH, WIDE_WIDTH])
-    assert.deepEqual(layoutFor(width).columns.flat().toSorted(), [...REGIONS].toSorted(), String(width));
-  assert.deepEqual(layoutFor(MEDIUM_WIDTH).columns, [
-    ['status', 'conversation'],
-    ['sheet', 'panels', 'campaigns'],
-  ]);
+    assert.deepEqual(layoutFor(width).columns.flat().toSorted(), [...PLAY_REGIONS].toSorted(), String(width));
+  assert.deepEqual(layoutFor(MEDIUM_WIDTH).columns, [['conversation'], ['sheet', 'panels']]);
+});
+
+test('rpg-42a.22 going home leaves the adventure, clears its panes and refreshes the list', () => {
+  const { wire, client } = connectedClient();
+  client.goHome();
+  const state = client.state();
+  assert.equal(state.selected, undefined);
+  assert.equal(state.snapshot, undefined);
+  assert.equal(state.panels, undefined);
+  assert.deepEqual(state.views, {});
+  assert.deepEqual(wire.sent.at(-1), { version: PROTOCOL_VERSION, type: 'ListCampaigns' });
+  const model = viewModel(state, WIDE_WIDTH);
+  assert.equal(model.playing, false);
+  assert.equal(model.character, undefined);
+  wire.receive({ type: 'Snapshot', snapshot: snapshotAt(2) });
+  assert.equal(client.state().snapshot, undefined);
 });
 
 test('rpg-42a.18 the disconnect error stays in diagnostics, not in the status label', () => {

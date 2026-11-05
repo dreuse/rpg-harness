@@ -41,9 +41,11 @@
   --elevation-1: 0 1px 2px var(--shadow), 0 2px 8px var(--shadow);
 
   --content-max: 90rem;
-  --sidebar: 16rem;
   --measure: 70ch;
   --bubble-max: 85%;
+  --card-min: 18rem;
+  --card-lines: 3;
+  --popover-width: 24rem;
 
   --duration-fast: 120ms;
   --duration-base: 200ms;

@@ -1,9 +1,16 @@
 import { loadStartDraft, type StartScreen } from '../../../packages/client-protocol/src/guided-start.ts';
 import { MOTION_SETTINGS } from '../../../packages/client-protocol/src/visualization.ts';
-import { actionForKey, loadPreferences, type RendererAction, translate, type UiPreferences } from './accessibility.ts';
+import {
+  actionForKey,
+  loadPreferences,
+  type RendererAction,
+  translate,
+  type UiPreferences,
+  voiceLabel,
+} from './accessibility.ts';
 import { renderRoll, rollSummary } from './dice.ts';
 import { PREFERENCES_QUERY, START_QUERY } from './preload.ts';
-import type { Region, viewModel } from './renderer.ts';
+import { OPENING_ACTION_ID, type Region, type viewModel } from './renderer.ts';
 import type { DesktopVoiceView } from './voice.ts';
 
 export type ViewModel = ReturnType<typeof viewModel>;
@@ -36,7 +43,6 @@ const ISSUE_SEPARATOR = ', ';
 const HEADING_ID = 'heading-';
 const STATUS: Region = 'status';
 const DEFAULT_PANE: Region = 'conversation';
-const HOME_PANE: Region = 'campaigns';
 export const PANE_ATTRIBUTE = 'data-pane';
 const MODIFIERS = [
   ['ctrlKey', 'Ctrl'],
@@ -48,8 +54,9 @@ const MODIFIERS = [
 export const escapeHtml = (text: string) => text.replace(MARKUP, (character) => ENTITIES[character] ?? character);
 
 const list = (items: readonly string[]) => `<ul>${items.map((item) => `<li>${item}</li>`).join('')}</ul>`;
-const button = (attribute: string, value: string, label: string, current = false) =>
-  `<button type="button" ${attribute}="${escapeHtml(value)}"${current ? ' aria-current="true"' : ''}>${escapeHtml(label)}</button>`;
+const PRIMARY = ' data-primary';
+const button = (attribute: string, value: string, label: string, current = false, primary = false) =>
+  `<button type="button" ${attribute}="${escapeHtml(value)}"${current ? ' aria-current="true"' : ''}${primary ? PRIMARY : ''}>${escapeHtml(label)}</button>`;
 
 const empty = (locale: string, region: Region) =>
   `<p data-empty>${escapeHtml(translate(locale, `empty.${region}`))}</p>`;
@@ -70,38 +77,69 @@ const diagnostics = ({ diagnostics: { pid, gm, error, attempts } }: ViewModel, l
     )
     .join('')}</dl></details>`;
 
+const pageHeading = (text: string) => `<h1 id="${HEADING_ID}${STATUS}" tabindex="-1">${escapeHtml(text)}</h1>`;
+
 const header = ({ title }: ViewModel, locale: string) =>
-  `<hgroup><h1 id="${HEADING_ID}status">${escapeHtml(title.campaign ?? translate(locale, 'title.none'))}</h1>${title.scene === undefined ? '' : `<p>${escapeHtml(title.scene)}</p>`}</hgroup>`;
+  `<hgroup>${pageHeading(title.campaign ?? translate(locale, 'app.name'))}${title.scene === undefined ? '' : `<p>${escapeHtml(title.scene)}</p>`}</hgroup>`;
+
+const connection = (model: ViewModel, locale: string) =>
+  `<p role="status" data-connection="${model.status.connection}">${escapeHtml(model.status.label)}</p>${model.status.canRetry ? button('data-action', 'retry', translate(locale, 'action.retry')) : ''}${diagnostics(model, locale)}`;
+
+export const NAV_ATTRIBUTE = 'data-nav';
+const homeNav = (locale: string) =>
+  `<button type="button" id="nav-home" ${NAV_ATTRIBUTE}="home" aria-label="${escapeHtml(translate(locale, 'nav.homeLabel'))}">${escapeHtml(translate(locale, 'nav.home'))}</button>`;
+
+const voiceSettings = (voice: DesktopVoiceView | undefined, locale: string) =>
+  voice === undefined
+    ? ''
+    : `<p data-voice-summary>${escapeHtml(voiceLabel(locale, voice.preferences))}</p><p>${escapeHtml(translate(locale, 'voice.hint'))}</p>`;
+
+const settingsMenu = (model: ViewModel, locale: string, voice: DesktopVoiceView | undefined) =>
+  `<details data-settings><summary id="settings-toggle">${escapeHtml(translate(locale, 'settings.label'))}</summary><div>${motionControl(model.motion, locale)}${voiceSettings(voice, locale)}</div></details>`;
 
 export const HOME_ATTRIBUTE = 'data-home';
 export const HOME_NAME = 'data-name';
 export const HOME_SEARCH = 'home-search';
-const HOME_FIELD_SEPARATOR = ' - ';
+const HOME_FIELD_SEPARATOR = ' · ';
 
 type HomeModel = ViewModel['home'];
 type HomeCardModel = HomeModel['cards'][number];
 
-const homeButton = (action: string, locale: string, { id, name }: { id: string; name?: string }) =>
-  `<button type="button" id="${id}" ${HOME_ATTRIBUTE}="${action}"${name === undefined ? '' : ` ${HOME_NAME}="${escapeHtml(name)}" aria-label="${escapeHtml(translate(locale, `home.${action}Label`, { name }))}"`}>${escapeHtml(translate(locale, `home.${action}`))}</button>`;
+const homeButton = (
+  action: string,
+  locale: string,
+  { id, name, primary = false }: { id: string; name?: string; primary?: boolean },
+) =>
+  `<button type="button" id="${id}" ${HOME_ATTRIBUTE}="${action}"${name === undefined ? '' : ` ${HOME_NAME}="${escapeHtml(name)}" aria-label="${escapeHtml(translate(locale, `home.${action}Label`, { name }))}"`}${primary ? PRIMARY : ''}>${escapeHtml(translate(locale, `home.${action}`))}</button>`;
 
 const cardFields = (card: HomeCardModel) =>
-  [card.characters, card.rules, card.scene, card.when].filter((field) => field !== undefined && field !== '');
+  [card.characters, card.scene, card.when].filter((field) => field !== undefined && field !== '');
 
 const cardDetails = (card: HomeCardModel, locale: string) =>
   card.health === 'ok'
-    ? `${cardFields(card).length === 0 ? '' : `<p>${escapeHtml(cardFields(card).join(HOME_FIELD_SEPARATOR))}</p>`}${card.narration === undefined ? '' : `<p data-narration>${escapeHtml(card.narration)}</p>`}`
+    ? `${cardFields(card).length === 0 ? '' : `<p data-meta>${escapeHtml(cardFields(card).join(HOME_FIELD_SEPARATOR))}</p>`}${card.narration === undefined ? '' : `<p data-narration>${escapeHtml(card.narration)}</p>`}`
     : `<p data-problem>${escapeHtml(`${translate(locale, `home.problem.${card.health}`)} ${translate(locale, 'home.restoreHint')}`)}</p>`;
 
-const homeCard = (prefix: string, actions: readonly string[], locale: string) => (card: HomeCardModel, index: number) =>
-  `<li><article aria-labelledby="${prefix}-${index}"${card.selected ? ' aria-current="true"' : ''}><h3 id="${prefix}-${index}">${escapeHtml(card.name)}</h3>${cardDetails(card, locale)}${actions
-    .filter((action) => action !== 'continue' || card.playable)
-    .map((action) =>
-      homeButton(action, locale, {
-        id: `home-${prefix === 'home-archived' && action === 'delete' ? 'archived-' : ''}${action}-${index}`,
-        name: card.name,
-      }),
-    )
-    .join('')}</article></li>`;
+type CardActions = { readonly prefix: string; readonly primary: string; readonly menu: readonly string[] };
+const ACTIVE_CARD: CardActions = { prefix: 'home-card', primary: 'continue', menu: ['archive', 'delete'] };
+const ARCHIVED_CARD: CardActions = { prefix: 'home-archived', primary: 'unarchive', menu: ['delete'] };
+
+export const homeActionId = (action: string, index: number, archived: boolean) =>
+  `home-${archived ? 'archived-' : ''}${action}-${index}`;
+
+const cardMenu = ({ prefix, menu }: CardActions, card: HomeCardModel, index: number, locale: string) => {
+  const idOf = (action: string) => homeActionId(action, index, prefix === ARCHIVED_CARD.prefix);
+  return `<details data-menu><summary id="${idOf('more')}" aria-label="${escapeHtml(translate(locale, 'home.moreLabel', { name: card.name }))}">${escapeHtml(translate(locale, 'home.more'))}</summary><div>${menu
+    .map((action) => homeButton(action, locale, { id: idOf(action), name: card.name }))
+    .join('')}</div></details>`;
+};
+
+const homeCard = (actions: CardActions, locale: string) => (card: HomeCardModel, index: number) =>
+  `<li><article aria-labelledby="${actions.prefix}-${index}"${card.selected ? ' aria-current="true"' : ''}><h3 id="${actions.prefix}-${index}">${escapeHtml(card.name)}</h3>${cardDetails(card, locale)}<div data-actions>${
+    actions.primary === 'continue' && !card.playable
+      ? ''
+      : homeButton(actions.primary, locale, { id: `home-${actions.primary}-${index}`, name: card.name, primary: true })
+  }${cardMenu(actions, card, index, locale)}</div></article></li>`;
 
 const homeNotices = ({ error, undo, confirm }: HomeModel, locale: string) =>
   [
@@ -116,21 +154,21 @@ const homeNotices = ({ error, undo, confirm }: HomeModel, locale: string) =>
 
 const homeList = (home: HomeModel, locale: string) => {
   if (home.total === 0)
-    return `${empty(locale, 'campaigns')}${button(START_OPEN, 'home', translate(locale, 'start.open'))}`;
+    return `${empty(locale, 'campaigns')}${button(START_OPEN, 'home', translate(locale, 'start.first'), false, true)}`;
   const search = home.search
     ? `<label for="${HOME_SEARCH}">${escapeHtml(translate(locale, 'home.search'))}</label><input id="${HOME_SEARCH}" type="search" value="${escapeHtml(home.query)}">`
     : '';
   const cards =
     home.cards.length === 0
       ? `<p data-empty>${escapeHtml(translate(locale, 'home.noMatch'))}</p>`
-      : `<ul>${home.cards.map(homeCard('home-card', ['continue', 'archive', 'delete'], locale)).join('')}</ul>`;
+      : `<ul>${home.cards.map(homeCard(ACTIVE_CARD, locale)).join('')}</ul>`;
   return search + cards;
 };
 
 const archivedList = ({ archived }: HomeModel, locale: string) =>
   archived.length === 0
     ? ''
-    : `<details data-archived><summary>${escapeHtml(translate(locale, 'home.archived', { count: archived.length }))}</summary><ul>${archived.map(homeCard('home-archived', ['unarchive', 'delete'], locale)).join('')}</ul></details>`;
+    : `<details data-archived><summary>${escapeHtml(translate(locale, 'home.archived', { count: archived.length }))}</summary><ul>${archived.map(homeCard(ARCHIVED_CARD, locale)).join('')}</ul></details>`;
 
 const rollHistory = (older: ViewModel['rolls'], locale: string) =>
   older.length === 0
@@ -144,19 +182,22 @@ const rollTray = ({ rolls: [latest, ...older] }: ViewModel, locale: string) =>
 
 const REGION_BODIES: Readonly<Record<Region, (model: ViewModel, locale: string) => string>> = {
   campaigns: ({ home }, locale) => homeNotices(home, locale) + homeList(home, locale) + archivedList(home, locale),
-  status: (model, locale) =>
-    `${header(model, locale)}<p role="status" data-connection="${model.status.connection}">${escapeHtml(model.status.label)}</p>${model.status.canRetry ? button('data-action', 'retry', translate(locale, 'action.retry')) : ''}${diagnostics(model, locale)}`,
+  status: (model, locale) => `${pageHeading(translate(locale, 'app.name'))}${connection(model, locale)}`,
   conversation: (model, locale) =>
     `<ol aria-live="polite">${model.conversation
       .map(
         ({ actionId, input, narration, pending }) =>
-          `<li data-action-id="${escapeHtml(actionId)}"${pending ? ' aria-busy="true"' : ''}>${speaker(locale, 'player', input)}${pending ? systemLine(translate(locale, 'label.pending')) : speaker(locale, 'gm', narration)}</li>`,
+          `<li data-action-id="${escapeHtml(actionId)}"${pending ? ' aria-busy="true"' : ''}>${actionId === OPENING_ACTION_ID ? '' : speaker(locale, 'player', input)}${pending ? systemLine(translate(locale, 'label.pending')) : speaker(locale, 'gm', narration)}</li>`,
       )
       .join('')}</ol>${model.conversation.length === 0 ? empty(locale, 'conversation') : ''}${rollTray(model, locale)}`,
-  sheet: ({ sheetLabels }, locale) =>
-    sheetLabels.length === 0
+  sheet: ({ sheetLabels, character }, locale) => {
+    const name = character === undefined ? '' : `<h3>${escapeHtml(character)}</h3>`;
+    if (sheetLabels.length > 0)
+      return `${name}<ul>${sheetLabels.map(({ label, changed }) => `<li${changed ? ' data-changed' : ''}>${escapeHtml(label)}</li>`).join('')}</ul>`;
+    return character === undefined
       ? empty(locale, 'sheet')
-      : `<ul>${sheetLabels.map(({ label, changed }) => `<li${changed ? ' data-changed' : ''}>${escapeHtml(label)}</li>`).join('')}</ul>`,
+      : `${name}<p data-empty>${escapeHtml(translate(locale, 'sheet.noStats'))}</p>`;
+  },
   panels: ({ panels }, locale) =>
     orEmpty(
       panels === undefined
@@ -195,22 +236,28 @@ export const DECLINE = 'decline';
 const consentPrompt = (locale: string) =>
   `<div role="alertdialog" aria-label="${escapeHtml(translate(locale, 'voice.consent'))}"><p>${escapeHtml(translate(locale, 'voice.consent'))}</p>${button(VOICE_ATTRIBUTE, ALLOW, translate(locale, 'voice.allow'))}${button(VOICE_ATTRIBUTE, DECLINE, translate(locale, 'voice.decline'))}</div>`;
 
+const voiceOff = ({ microphone, spokenOutput }: DesktopVoiceView['preferences']) =>
+  microphone === 'off' && spokenOutput === 'off';
+
 export const renderVoice = (
-  { mode, preferences, subtitle, fallback, issues, asking }: DesktopVoiceView,
+  { preferences, subtitle, fallback, issues, asking }: DesktopVoiceView,
   locale: string,
 ): string =>
-  section(
-    'voice',
-    locale,
-    [
-      `<p>${escapeHtml(mode.kind === 'voice' ? translate(locale, 'voice.mode', mode) : translate(locale, 'voice.typedOnly'))}</p>`,
-      `<p>${escapeHtml(translate(locale, 'voice.settings', preferences))}</p>`,
-      asking ? consentPrompt(locale) : '',
-      `<p aria-live="polite">${escapeHtml(subtitle?.text ?? '')}</p>`,
-      fallback === undefined ? '' : alert(translate(locale, 'voice.fallback', { reason: fallback })),
-      issues.length === 0 ? '' : alert(translate(locale, 'voice.rejected', { codes: issues.join(ISSUE_SEPARATOR) })),
-    ].join(''),
-  );
+  voiceOff(preferences) && !asking && !subtitle?.text && fallback === undefined && issues.length === 0
+    ? ''
+    : section(
+        'voice',
+        locale,
+        [
+          voiceOff(preferences) ? '' : `<p>${escapeHtml(voiceLabel(locale, preferences))}</p>`,
+          asking ? consentPrompt(locale) : '',
+          `<p aria-live="polite">${escapeHtml(subtitle?.text ?? '')}</p>`,
+          fallback === undefined ? '' : alert(translate(locale, 'voice.fallback', { reason: fallback })),
+          issues.length === 0
+            ? ''
+            : alert(translate(locale, 'voice.rejected', { codes: issues.join(ISSUE_SEPARATOR) })),
+        ].join(''),
+      );
 
 export const START_OPEN = 'data-start-open';
 export const START_OPTION = 'data-start-option';
@@ -248,25 +295,25 @@ const shownControls = (screen: StartScreen): readonly StartControl[] =>
 const startControl = (screen: StartScreen, locale: string) => (control: StartControl) =>
   `<button type="button" ${START_CONTROL}="${control}"${control === 'start' && !screen.canStart ? ' disabled' : ''}>${escapeHtml(translate(locale, `start.${control}`))}</button>`;
 
-const renderStart = ({ start, created }: ViewModel, locale: string) =>
-  section(
-    'start',
-    locale,
-    start === undefined
-      ? `${button(START_OPEN, 'open', translate(locale, 'start.open'))}${created === undefined ? '' : `<p role="status">${escapeHtml(translate(locale, 'start.created', { name: created }))}</p>`}`
-      : [
-          `<h2 tabindex="-1" ${START_TITLE}="${start.step}">${escapeHtml(startTitle(start, locale))}</h2>`,
-          ...start.text.map((line) => `<p>${escapeHtml(line)}</p>`),
-          start.options.length === 0 ? '' : `<ul>${start.options.map(startOption(start.step)).join('')}</ul>`,
-          startEntry(start, locale),
-          start.error === undefined ? '' : alert(start.error),
-          shownControls(start).map(startControl(start, locale)).join(''),
-        ].join(''),
-  );
+const startBody = ({ start, created, playing, home }: ViewModel, locale: string) =>
+  start === undefined
+    ? `${playing || home.total === 0 ? '' : button(START_OPEN, 'open', translate(locale, 'start.open'), false, true)}${created === undefined ? '' : `<p role="status">${escapeHtml(translate(locale, 'start.created', { name: created }))}</p>`}`
+    : [
+        `<h2 tabindex="-1" ${START_TITLE}="${start.step}">${escapeHtml(startTitle(start, locale))}</h2>`,
+        ...start.text.map((line) => `<p>${escapeHtml(line)}</p>`),
+        start.options.length === 0 ? '' : `<ul>${start.options.map(startOption(start.step)).join('')}</ul>`,
+        startEntry(start, locale),
+        start.error === undefined ? '' : alert(start.error),
+        shownControls(start).map(startControl(start, locale)).join(''),
+      ].join('');
+
+const renderStart = (model: ViewModel, locale: string) => {
+  const body = startBody(model, locale);
+  return body === '' ? '' : section('start', locale, body);
+};
 
 const paneSwitcher = (regions: readonly Region[], shown: Region, locale: string) =>
   `<nav aria-label="${escapeHtml(translate(locale, 'nav.panes'))}">${regions
-    .filter((region) => region !== STATUS)
     .map((region) => button(PANE_ATTRIBUTE, region, translate(locale, `region.${region}`), region === shown))
     .join('')}</nav>`;
 
@@ -276,20 +323,38 @@ const motionControl = (current: string, locale: string): string =>
       `<button type="button" data-motion="${setting}" aria-pressed="${setting === current}">${escapeHtml(translate(locale, `motion.${setting}`))}</button>`,
   ).join('')}</fieldset>`;
 
-export const renderView = (
-  model: ViewModel,
-  locale: string,
-  shown: Region = model.playing ? DEFAULT_PANE : HOME_PANE,
-): string => {
+const mainOpen = (model: ViewModel, screen: 'home' | 'play') =>
+  `<main data-screen="${screen}" data-layout="${model.layout.name}" data-animate="${model.animate}" style="--font-scale: ${model.fontScale}">`;
+
+const renderHome = (model: ViewModel, locale: string) =>
+  `${mainOpen(model, 'home')}${pane(STATUS, locale, REGION_BODIES.status(model, locale), false)}${renderStart(model, locale)}${pane('campaigns', locale, REGION_BODIES.campaigns(model, locale), false)}</main>`;
+
+const playHeader = (model: ViewModel, locale: string, voice: DesktopVoiceView | undefined) =>
+  pane(
+    STATUS,
+    locale,
+    `${homeNav(locale)}${header(model, locale)}${connection(model, locale)}${settingsMenu(model, locale, voice)}`,
+    false,
+  );
+
+const renderPlay = (model: ViewModel, locale: string, shown: Region, voice: DesktopVoiceView | undefined) => {
   const [single, ...rest] = model.layout.columns;
   const tabbed = single !== undefined && rest.length === 0;
-  return `<main data-layout="${model.layout.name}" data-animate="${model.animate}" style="--font-scale: ${model.fontScale}">${renderStart(model, locale)}${motionControl(model.motion, locale)}${tabbed ? paneSwitcher(single, shown, locale) : ''}<div data-columns>${model.layout.columns
+  return `${mainOpen(model, 'play')}${playHeader(model, locale, voice)}${renderStart(model, locale)}${tabbed ? paneSwitcher(single, shown, locale) : ''}<div data-columns>${model.layout.columns
     .map(
       (column) =>
-        `<div>${column.map((region) => pane(region, locale, REGION_BODIES[region](model, locale), tabbed && region !== STATUS && region !== shown)).join('')}</div>`,
+        `<div>${column.map((region) => pane(region, locale, REGION_BODIES[region](model, locale), tabbed && region !== shown)).join('')}</div>`,
     )
     .join('')}</div>${rejectedAlert(model, locale)}</main>`;
 };
+
+export const renderView = (
+  model: ViewModel,
+  locale: string,
+  shown: Region = DEFAULT_PANE,
+  voice?: DesktopVoiceView,
+): string =>
+  `${model.playing ? renderPlay(model, locale, shown, voice) : renderHome(model, locale)}${voice === undefined ? '' : renderVoice(voice, locale)}`;
 
 export const keyName = (event: KeyEventLike) =>
   [
