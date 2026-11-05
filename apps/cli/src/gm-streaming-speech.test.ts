@@ -35,8 +35,8 @@ const settle = async () => {
   for (let round = 0; round < 8; round += 1) await tick();
 };
 
-const kokoro = (spoken: string[]): TtsProvider => ({
-  id: 'kokoro',
+const kokoro = (spoken: string[], id = 'kokoro'): TtsProvider => ({
+  id,
   locality: 'local',
   retention: 'none',
   healthy: () => true,
@@ -53,14 +53,14 @@ const kokoro = (spoken: string[]): TtsProvider => ({
   },
 });
 
-const setup = async (t: TestContext) => {
+const setup = async (t: TestContext, providers: readonly TtsProvider[] = [kokoro([])], language?: string) => {
   const dataDir = mkdtempSync(join(tmpdir(), 'rpg-stream-speech-'));
   t.after(() => rmSync(dataDir, { recursive: true, force: true }));
-  for await (const _ of createEngineGateway(dataDir).create(CAMPAIGN, undefined, NO_CHARACTER));
+  for await (const _ of createEngineGateway(dataDir).create(CAMPAIGN, undefined, NO_CHARACTER, undefined, language));
   const played: string[] = [];
   const blocked = { current: false, release: () => {} };
   const runtime = createSpeechRuntime({
-    providers: [kokoro([])],
+    providers,
     sink: {
       play: async (chunk, _speed, signal) => {
         played.push(new TextDecoder().decode(chunk.audio));
@@ -138,6 +138,56 @@ describe('rpg-cm63.17 streaming speech in the GM turn flow', () => {
     await runtime.speech.idle();
     assert.deepEqual(played, [`narrator|${FIRST}`, `narrator|${SECOND}`]);
     assert.equal(readCampaignState(dataDir, CAMPAIGN).turns.at(-1)?.narration, `${FIRST} ${SECOND}`);
+  });
+
+  it('speaks the streamed narration with the pt-BR MLX voice', async (t) => {
+    const { dataDir, played, runtime } = await setup(t, [kokoro([]), kokoro([], 'kokoro-mlx')]);
+    const gm: GameMaster = {
+      request: async (_packet, { onSegment }) => {
+        onSegment?.(FIRST);
+        return reply(FIRST);
+      },
+      summarizer: FAKE_GAME_MASTER.summarizer,
+    };
+    const opened = openWith(dataDir, gm, runtime);
+    t.after(() => opened.close());
+    submit(opened, { locale: 'pt-BR' });
+    await opened.narrate();
+    await runtime.speech.idle();
+    assert.deepEqual(played, [`narrator|${FIRST}`]);
+  });
+
+  it('speaks a pt-BR campaign with the pt-BR voice when the saved locale is English', async (t) => {
+    const english: string[] = [];
+    const portuguese: string[] = [];
+    const { dataDir, runtime } = await setup(t, [kokoro(english), kokoro(portuguese, 'kokoro-mlx')], 'pt-BR');
+    const gm: GameMaster = {
+      request: async (_packet, { onSegment }) => {
+        onSegment?.(FIRST);
+        return reply(FIRST);
+      },
+      summarizer: FAKE_GAME_MASTER.summarizer,
+    };
+    const opened = openWith(dataDir, gm, runtime);
+    t.after(() => opened.close());
+    submit(opened, { locale: 'en' });
+    await opened.narrate();
+    await runtime.speech.idle();
+    assert.deepEqual(english, []);
+    assert.deepEqual(portuguese, [FIRST]);
+  });
+
+  it('preloads the pt-BR voice when a spoken turn starts', async (t) => {
+    const preloads: string[] = [];
+    const mlx = { ...kokoro([], 'kokoro-mlx'), preload: async () => void preloads.push('mlx') };
+    const { dataDir, runtime } = await setup(t, [kokoro([]), mlx], 'pt-BR');
+    const gm: GameMaster = { request: async () => reply(FIRST), summarizer: FAKE_GAME_MASTER.summarizer };
+    const opened = openWith(dataDir, gm, runtime);
+    t.after(() => opened.close());
+    submit(opened, { locale: 'pt-BR' });
+    await opened.narrate();
+    await runtime.speech.idle();
+    assert.deepEqual(preloads, ['mlx']);
   });
 
   it('reports speech metrics to the voice diagnostics without narration text', async (t) => {

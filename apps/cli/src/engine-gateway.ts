@@ -481,18 +481,27 @@ const openSession = (
     const gmDefaults = () => readGmDefaults(dataDir);
     let summarized: Promise<void> = Promise.resolve();
     const speakTurn: SpeakTurn = async (turnId) => {
-      const settings = voiceSettingsOf(engine.getState(session.campaignId).changes);
+      const { changes } = engine.getState(session.campaignId);
+      const settings = voiceSettingsOf(changes);
       if (speech === undefined || settings === undefined || settings.spokenOutput === SPOKEN_OFF) return undefined;
       const { campaignId } = session;
       try {
-        const [{ createTurnSpeech, narratorProfileOf }, { utterancesFor }] = await Promise.all([
-          import('./turn-speech.ts'),
-          import('./turn-utterances.ts'),
-        ]);
-        const narrator = narratorProfileOf(settings.locale);
+        const [{ createTurnSpeech, narratorProfileOf }, { utterancesFor }, { voiceLocaleFor }, { prepareVoice }] =
+          await Promise.all([
+            import('./turn-speech.ts'),
+            import('./turn-utterances.ts'),
+            import('../../../packages/voice/src/language-voices.ts'),
+            import('./speech-runtime.ts'),
+          ]);
+        const campaignLanguage = campaignLanguageOf(changes);
+        const narrator = narratorProfileOf(
+          campaignLanguage === undefined ? settings.locale : voiceLocaleFor(campaignLanguage, settings.locale),
+        );
         const entities = createEntityStore(database);
+        const runtime = await speech();
+        prepareVoice(runtime.providers, narrator.language);
         return createTurnSpeech({
-          speech: (await speech()).speech,
+          speech: runtime.speech,
           turnId,
           mode: settings.spokenOutput,
           utterancesOf: (segments) =>
