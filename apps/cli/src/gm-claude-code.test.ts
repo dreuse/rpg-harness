@@ -19,7 +19,7 @@ import {
   STABLE_SECTIONS,
   VARIABLE_SECTIONS,
 } from '../../../packages/memory/src/packet.ts';
-import { createEngineGateway, gameMasterFor, readCampaignState } from './engine-gateway.ts';
+import { claudeCodeGameMaster, createEngineGateway, gameMasterFor, readCampaignState } from './engine-gateway.ts';
 import {
   API_KEY_ENV,
   CLAUDE_BIN,
@@ -45,6 +45,7 @@ import {
   requestClaudeSummary,
   WRITE_GAME_TOOLS,
 } from './gm-claude-code.ts';
+import { NEUTRAL_EMOTION, narrationOf, SEGMENTS_SCHEMA } from './gm-segments.ts';
 import { hermeticGmEnv } from './gm-test-env.ts';
 
 const NARRATION = 'The stranger laughs and pours you a cup of tea.';
@@ -244,6 +245,35 @@ describe('rpg-42a.33 Claude Code CLI game master', () => {
     assert.ok(!existsSync(call.cwd));
   });
 
+  it('rpg-cm63.3: asks for segments with --json-schema and returns them with the joined text', async (t) => {
+    const segments = [{ text: NARRATION }, { speakerId: 'npc-stranger', text: 'Sit.', delivery: { emotion: 'smug' } }];
+    const { bin, calls } = fakeClaude(t, [{ stdout: resultOf({ result: '', structured_output: { segments } }) }]);
+    const reply = await requestClaudeNarration(routeFor(bin), packet(), DATABASE);
+    assert.deepEqual(reply.segments, [
+      { text: NARRATION },
+      { speakerId: 'npc-stranger', text: 'Sit.', delivery: { emotion: NEUTRAL_EMOTION } },
+    ]);
+    assert.equal(reply.narration, `${NARRATION} Sit.`);
+    assert.deepEqual(JSON.parse(valueAfter(calls()[0]?.args ?? [], '--json-schema') ?? ''), SEGMENTS_SCHEMA);
+  });
+
+  it('rpg-cm63.3: falls back to one narrator segment when the structured output is malformed', async (t) => {
+    const { bin } = fakeClaude(t, [{ stdout: resultOf({ structured_output: { segments: 'oops' } }) }]);
+    const reply = await requestClaudeNarration(routeFor(bin), packet(), DATABASE);
+    assert.deepEqual(reply.segments, [{ text: NARRATION }]);
+    assert.equal(reply.narration, NARRATION);
+  });
+
+  it('rpg-cm63.3: the Claude Code game master returns segments joined to the narration', async (t) => {
+    const segments = [{ text: NARRATION }, { speakerId: 'npc-stranger', text: 'Sit.' }];
+    const { bin } = fakeClaude(t, [{ stdout: resultOf({ structured_output: { segments } }) }]);
+    const gm = claudeCodeGameMaster(routeFor(bin));
+    assert.ok('request' in gm);
+    const reply = await gm.request(packet(), { databasePath: DATABASE, model: undefined });
+    assert.deepEqual(reply.segments, segments);
+    assert.equal(reply.narration, narrationOf(segments));
+  });
+
   it('skips the game MCP server under Electron, where the node binary is Electron', async (t) => {
     const { bin, calls } = fakeClaude(t);
     const route = {
@@ -266,6 +296,7 @@ describe('rpg-42a.33 Claude Code CLI game master', () => {
     assert.ok(!call?.args.includes('--mcp-config'));
     assert.equal(call?.input.split(DATA_CLOSE).length, 2);
     assert.ok(call?.args.includes(`--model=${MODEL_ALIAS}`));
+    assert.ok(!call?.args.includes('--json-schema'));
   });
 
   it('rpg-42a.37: summarizes with a cheap model unless another one is chosen', async (t) => {

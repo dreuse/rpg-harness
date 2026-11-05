@@ -65,6 +65,7 @@ import {
   apiRouteOf,
   CLAUDE_CODE_ROUTE,
   claudeBinOf,
+  FAKE_GM_REPLY,
   FAKE_ROUTE,
   GM_ROUTE_ENV,
   gmSecrets,
@@ -83,6 +84,10 @@ import {
 } from './gm-claude-code.ts';
 import { contextPacketOf, fakeSummarizer, type Summarizer, summarizeCampaign } from './gm-context.ts';
 import { readGmDefaults, writeGmDefaults } from './gm-defaults.ts';
+import { type GmSegment, narratorSegments } from './gm-segments.ts';
+
+export { FAKE_GM_REPLY } from './gm-api.ts';
+
 import { importRules } from './import-gateway.ts';
 import type { CampaignGateway } from './main.ts';
 import {
@@ -131,7 +136,6 @@ const NONE = 'none';
 const SAVED_SETTINGS = 'Saved settings:';
 const CHARACTER_PROMPT = `Describe your character, or press Enter to play as ${HERO_NAME}.`;
 const CREATE_CHARACTER_INTENT = 'create character';
-export const FAKE_GM_REPLY = 'The world shifts in answer.';
 const SUMMARY_SETTLE_MS = 10_000;
 export const NO_KEY_NOTICE = `No AI game master is set up, so the built-in narrator tells the story. Install Claude Code or set ${API_KEY_ENV} to play with one.`;
 export const GM_NOTICES: Readonly<Record<GmRoute, string>> = {
@@ -167,7 +171,7 @@ export const narratedTurn = (store: CampaignStore, outcome: GameplayOutcome): Co
   return committed;
 };
 
-type PacketNarrator = (packet: ContextPacket) => string;
+type PacketNarrator = (packet: ContextPacket) => GmTurnReply;
 
 const narratingEngine = (
   store: CampaignStore,
@@ -177,7 +181,7 @@ const narratingEngine = (
 ): Engine => {
   const narrator: Narrator = {
     narrate: (committed) => ({
-      narration: narrate(contextPacketOf(database, loadState(store, committed.turn.campaignId), committed)),
+      narration: narrate(contextPacketOf(database, loadState(store, committed.turn.campaignId), committed)).narration,
       claims: [],
     }),
   };
@@ -198,7 +202,7 @@ const narratingEngine = (
 };
 
 type GmCall = { readonly databasePath: string; readonly model: string | undefined };
-type GmTurnReply = { readonly narration: string; readonly usage?: GmUsage };
+type GmTurnReply = { readonly narration: string; readonly segments: readonly GmSegment[]; readonly usage?: GmUsage };
 type PacketRequest = (packet: ContextPacket, call: GmCall) => Promise<GmTurnReply>;
 type ModelSummarizer = (...[level, texts, model]: [...Parameters<Summarizer>, string?]) => ReturnType<Summarizer>;
 
@@ -207,7 +211,12 @@ export type GameMaster = ({ readonly narrator: PacketNarrator } | { readonly req
   readonly notice?: string;
 };
 
-export const FAKE_GAME_MASTER: GameMaster = { narrator: () => FAKE_GM_REPLY, summarizer: fakeSummarizer };
+const narratorReply = (narration: string): GmTurnReply => ({ narration, segments: narratorSegments(narration) });
+
+export const FAKE_GAME_MASTER: GameMaster = {
+  narrator: () => narratorReply(FAKE_GM_REPLY),
+  summarizer: fakeSummarizer,
+};
 
 const withNotice = (notice: string) => `${notice} ${FAKE_GM_REPLY}`;
 
@@ -217,7 +226,7 @@ export const noKeyGameMaster = (): GameMaster => {
     narrator: () => {
       const narration = told ? FAKE_GM_REPLY : withNotice(NO_KEY_NOTICE);
       told = true;
-      return narration;
+      return narratorReply(narration);
     },
     summarizer: fakeSummarizer,
   };
@@ -227,17 +236,15 @@ const providerGameMaster = (narrate: PacketRequest, summarize: ModelSummarizer):
   let failed = false;
   return {
     request: async (packet, call) => {
-      if (failed) return { narration: FAKE_GM_REPLY };
+      if (failed) return narratorReply(FAKE_GM_REPLY);
       try {
         return await narrate(packet, call);
       } catch (error) {
         if (!(error instanceof ProviderError)) throw error;
         failed = true;
-        return {
-          narration: withNotice(
-            `The AI game master is unavailable: ${error.message} The built-in narrator takes over.`,
-          ),
-        };
+        return narratorReply(
+          withNotice(`The AI game master is unavailable: ${error.message} The built-in narrator takes over.`),
+        );
       }
     },
     summarizer: (level, texts, model) => (failed ? fakeSummarizer(level, texts) : summarize(level, texts, model)),

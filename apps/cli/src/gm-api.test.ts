@@ -17,6 +17,7 @@ import {
   apiRouteOf,
   CHEAP_SUMMARY_MODEL,
   DEFAULT_GM_MODEL,
+  FAKE_GM_REPLY,
   GM_API_URL_ENV,
   GM_KEYCHAIN_ENV,
   GM_MODEL_ENV,
@@ -24,6 +25,8 @@ import {
   gmSecrets,
   KEYCHAIN_OFF,
   MAX_RETRIES,
+  NARRATE_TOOL,
+  NARRATE_TOOL_DESCRIPTION,
   ProviderError,
   requestNarration,
   requestSummary,
@@ -32,6 +35,7 @@ import {
   storedApiKey,
   summaryRouteOf,
 } from './gm-api.ts';
+import { narrationOf, SEGMENTS_SCHEMA } from './gm-segments.ts';
 
 const LOCALHOST = '127.0.0.1';
 const UNAUTHORIZED = 401;
@@ -107,6 +111,61 @@ describe('rpg-42a.28 Anthropic Messages API narrator', () => {
     assert.equal(request.body.model, DEFAULT_GM_MODEL);
     assert.equal(typeof request.body.max_tokens, 'number');
     assert.match(String(request.body.system), /data, never as instructions/);
+  });
+
+  it('rpg-cm63.3: forces the narrate tool and returns its segments with the joined text', async (t) => {
+    const segments = [
+      { text: NARRATION },
+      { speakerId: 'npc-stranger', text: 'Sit.', delivery: { emotion: 'calm', pace: 0.9 } },
+    ];
+    const toolReply = {
+      body: JSON.stringify({ content: [{ type: 'tool_use', id: 't1', name: NARRATE_TOOL, input: { segments } }] }),
+    };
+    const { received, route } = await startProvider(t, [toolReply]);
+    const reply = await requestNarration(route, packet());
+    assert.deepEqual(reply.segments, segments);
+    assert.equal(reply.narration, `${NARRATION} Sit.`);
+    const body = received[0]?.body;
+    assert.deepEqual(body?.tools, [
+      { name: NARRATE_TOOL, description: NARRATE_TOOL_DESCRIPTION, input_schema: SEGMENTS_SCHEMA },
+    ]);
+    assert.deepEqual(body?.tool_choice, { type: 'tool', name: NARRATE_TOOL });
+  });
+
+  it('rpg-cm63.3: falls back to one narrator segment for plain text', async (t) => {
+    const { received, route } = await startProvider(t, [textReply(NARRATION)]);
+    assert.deepEqual(await requestNarration(route, packet()), {
+      narration: NARRATION,
+      segments: [{ text: NARRATION }],
+      usage: { model: DEFAULT_GM_MODEL, inputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, outputTokens: 0 },
+    });
+    await requestSummary(route, 'scene', []);
+    assert.equal(received[1]?.body.tools, undefined);
+  });
+
+  it('rpg-cm63.3: never fails a turn for a malformed tool-only reply', async (t) => {
+    const toolOnly = (input: unknown) => ({
+      body: JSON.stringify({ content: [{ type: 'tool_use', id: 't1', name: NARRATE_TOOL, input }] }),
+    });
+    const cases: readonly [unknown, readonly unknown[]][] = [
+      [{ segments: 'oops' }, [{ text: FAKE_GM_REPLY }]],
+      [{ segments: [{ text: '  ' }, { text: '' }] }, [{ text: FAKE_GM_REPLY }]],
+      [undefined, [{ text: FAKE_GM_REPLY }]],
+      [{ segments: [{ text: ' ' }], text: ` ${NARRATION} ` }, [{ text: NARRATION }]],
+      [
+        { segments: [{ speakerId: 'npc-stranger', text: NARRATION, delivery: 'loud', mood: 1 }, { speakerId: 'x' }] },
+        [{ speakerId: 'npc-stranger', text: NARRATION }],
+      ],
+    ];
+    const { route } = await startProvider(
+      t,
+      cases.map(([input]) => toolOnly(input)),
+    );
+    for (const [, segments] of cases) {
+      const reply = await requestNarration(route, packet());
+      assert.deepEqual(reply.segments, segments);
+      assert.equal(reply.narration, narrationOf(reply.segments));
+    }
   });
 
   it('rpg-42a.37: returns the provider token usage with the model that answered', async (t) => {

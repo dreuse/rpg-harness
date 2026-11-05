@@ -14,6 +14,7 @@ import { type ProviderReply, startProviderServer, textReply } from '../../../pac
 import {
   apiGameMaster,
   createEngineGateway,
+  FAKE_GAME_MASTER,
   FAKE_GM_REPLY,
   type GameMaster,
   gameMasterFor,
@@ -25,6 +26,7 @@ import {
 } from './engine-gateway.ts';
 import { API_KEY_ENV, apiRouteOf, FAKE_ROUTE, GM_API_URL_ENV, GM_ROUTE_ENV } from './gm-api.ts';
 import { SCENE_TURN_LIMIT, type Summarizer } from './gm-context.ts';
+import { narrationOf } from './gm-segments.ts';
 import { hermeticGmEnv } from './gm-test-env.ts';
 
 const CAMPAIGN = 'api-gm';
@@ -152,7 +154,7 @@ describe('rpg-42a.28 API game master wiring', () => {
     const packets: ContextPacket[] = [];
     const narrator = (packet: ContextPacket) => {
       packets.push(packet);
-      return NARRATION;
+      return { narration: NARRATION, segments: [{ text: NARRATION }] };
     };
     let failures = 0;
     const summarizers: readonly Summarizer[] = [
@@ -200,6 +202,41 @@ describe('rpg-42a.28 API game master wiring', () => {
     assert.equal(missing.route, 'fake');
     assert.ok((await play(dataDir, missing.gm, [ACTION]))[0]?.includes(NO_KEY_NOTICE));
     assert.equal((await gameMasterFor({ ...hermeticGmEnv(), [API_KEY_ENV]: KEY })).route, 'api');
+  });
+});
+
+const EMPTY_PACKET = { sections: [] } as unknown as ContextPacket;
+const GM_CALL = { databasePath: '', model: undefined };
+
+const gmReplyOf = async (gm: GameMaster) =>
+  'narrator' in gm ? gm.narrator(EMPTY_PACKET) : await gm.request(EMPTY_PACKET, GM_CALL);
+
+const assertJoined = (reply: { narration: string; segments: readonly { text: string }[] }) => {
+  assert.ok(reply.segments.length > 0);
+  assert.equal(reply.narration, narrationOf(reply.segments));
+};
+
+describe('rpg-cm63.3 game master segments on every route', () => {
+  it('returns one narrator segment from the built-in and no-key narrators', async () => {
+    assert.deepEqual(await gmReplyOf(FAKE_GAME_MASTER), {
+      narration: FAKE_GM_REPLY,
+      segments: [{ text: FAKE_GM_REPLY }],
+    });
+    const noKey = noKeyGameMaster();
+    for (let turn = 0; turn < 2; turn += 1) assertJoined(await gmReplyOf(noKey));
+  });
+
+  it('returns the api segments, then narrator segments after the provider fails', async (t) => {
+    const segments = [{ text: NARRATION }, { speakerId: 'npc-stranger', text: 'Sit.' }];
+    const toolReply = {
+      body: JSON.stringify({ content: [{ type: 'tool_use', id: 't1', name: 'narrate', input: { segments } }] }),
+    };
+    const { gm } = await providerGm(t, [toolReply, { status: UNAUTHORIZED }]);
+    const reply = await gmReplyOf(gm);
+    assert.deepEqual(reply.segments, segments);
+    assertJoined(reply);
+    assertJoined(await gmReplyOf(gm));
+    assertJoined(await gmReplyOf(gm));
   });
 });
 

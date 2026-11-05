@@ -16,6 +16,7 @@ import {
   SYSTEM_PROMPT,
   usageOf,
 } from './gm-api.ts';
+import { narrationOf, narratorSegments, SEGMENTS_SCHEMA, segmentsOf } from './gm-segments.ts';
 
 export const GM_PROFILE_ENV = 'RPG_GM_PROFILE';
 export const FULL_PROFILE = 'full';
@@ -57,6 +58,7 @@ const NO_BUILT_IN_TOOLS = '';
 const PART_SEPARATOR = '\n';
 const NO_PROMPT_MODE = 'dontAsk';
 const IGNORE = () => {};
+const NARRATION_SCHEMA = JSON.stringify(SEGMENTS_SCHEMA);
 
 export type ClaudeCodeRoute = {
   readonly bin: string;
@@ -82,7 +84,12 @@ export const claudeCodeRouteOf = (
   gameServer: versions.electron === undefined,
 });
 
-export const claudeArgs = ({ profile, model }: ClaudeCodeRoute, system: string, mcpConfig?: string): string[] => [
+export const claudeArgs = (
+  { profile, model }: ClaudeCodeRoute,
+  system: string,
+  mcpConfig?: string,
+  schema?: string,
+): string[] => [
   '-p',
   '--output-format',
   'json',
@@ -92,6 +99,7 @@ export const claudeArgs = ({ profile, model }: ClaudeCodeRoute, system: string, 
   '--append-system-prompt',
   system,
   ...(mcpConfig === undefined ? [] : ['--mcp-config', mcpConfig]),
+  ...(schema === undefined ? [] : ['--json-schema', schema]),
   ...(profile === LEAN_PROFILE ? ['--strict-mcp-config', '--tools', NO_BUILT_IN_TOOLS] : []),
   '--allowedTools',
   READ_ONLY_GAME_TOOLS.join(TOOL_SEPARATOR),
@@ -153,18 +161,24 @@ const replyOf = ({ code, stdout }: Exit, model: string | undefined): GmReply => 
     throw new ProviderError(
       'Claude Code reported an error. Run claude once in a terminal to check that it is signed in.',
     );
-  const narration = typeof body.result === 'string' ? body.result.trim() : '';
-  if (narration === '') throw new ProviderError('Claude Code sent a malformed reply.');
-  return { narration, usage: usageOf(body.usage, model ?? PROVIDER_DEFAULT_MODEL, body.total_cost_usd) };
+  const text = typeof body.result === 'string' ? body.result.trim() : '';
+  const segments = segmentsOf(body.structured_output) ?? (text === '' ? undefined : narratorSegments(text));
+  if (segments === undefined) throw new ProviderError('Claude Code sent a malformed reply.');
+  return {
+    narration: narrationOf(segments),
+    segments,
+    usage: usageOf(body.usage, model ?? PROVIDER_DEFAULT_MODEL, body.total_cost_usd),
+  };
 };
 
 const attempt = async (route: ClaudeCodeRoute, system: string, input: string, databasePath?: string) => {
+  const schema = databasePath === undefined ? undefined : NARRATION_SCHEMA;
   const dir = mkdtempSync(join(tmpdir(), TEMP_PREFIX));
   try {
     const config = databasePath === undefined || !route.gameServer ? undefined : join(dir, MCP_CONFIG_FILE);
     if (config !== undefined && databasePath !== undefined)
       writeFileSync(config, JSON.stringify(gameMcpConfig(databasePath)), { mode: PRIVATE_FILE_MODE });
-    return replyOf(await run(route, claudeArgs(route, system, config), input, dir), route.model);
+    return replyOf(await run(route, claudeArgs(route, system, config, schema), input, dir), route.model);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

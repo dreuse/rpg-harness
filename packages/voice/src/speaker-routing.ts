@@ -39,3 +39,17 @@ export const routeSegments = ({
   };
   return Object.freeze(segments.map(route));
 };
+
+export const outputSegmentsOf = (
+  eventId: string,
+  segments: readonly Omit<OutputSegment, 'eventId'>[],
+): readonly OutputSegment[] => segments.map((segment) => ({ eventId, ...segment }));
+
+export const unspoken = (
+  spoken: Set<string>,
+  utterances: readonly CommittedUtterance[],
+): readonly CommittedUtterance[] => {
+  const fresh = utterances.filter(({ eventId }) => !spoken.has(eventId));
+  for (const { eventId } of fresh) spoken.add(eventId);
+  return fresh;
+};
