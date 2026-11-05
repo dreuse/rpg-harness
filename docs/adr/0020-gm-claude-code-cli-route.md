@@ -71,4 +71,4 @@ A chosen route that is not available falls back to `fake` with the notice. The T
 
 - No new dependency and no new package.
 - `GmRoute` adds `claude-code`.
-- In the Electron engine, `process.execPath` is Electron, so the route skips `--mcp-config` there. The game MCP server needs `ELECTRON_RUN_AS_NODE` and a packaged entry path before it can run under Electron. Until then, desktop narration works from the packet alone.
+- In the Electron engine, `process.execPath` is Electron. The route passes `--mcp-config` there too, with `ELECTRON_RUN_AS_NODE=1` in the server env. The server entry resolves from the module path, like `DAEMON_ENTRY`. This works while the RunAsNode fuse is on (ADR 0012). A signed build with the fuse off ignores the variable, so a packaged build needs its own launch path (follow-up bead).

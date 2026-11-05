@@ -43,6 +43,7 @@ import {
   claudeArgs,
   claudeCodeRouteOf,
   GM_PROFILE_ENV,
+  gameMcpConfig,
   READ_ONLY_GAME_TOOLS,
   requestClaudeNarration,
   requestClaudeSummary,
@@ -390,18 +391,20 @@ describe('rpg-42a.33 Claude Code CLI game master', () => {
     assert.equal(valueAfter(calls()[0]?.args ?? [], '--append-system-prompt'), instructions.join(' '));
   });
 
-  it('skips the game MCP server under Electron, where the node binary is Electron', async (t) => {
+  it('passes the game MCP server under Electron, run as node', async (t) => {
     const { bin, calls } = fakeClaude(t);
     const route = {
-      ...claudeCodeRouteOf(bin, { PATH: dirname(process.execPath), RPG_DATA_DIR: DATA_DIR }, ELECTRON),
+      ...claudeCodeRouteOf(bin, { PATH: dirname(process.execPath), RPG_DATA_DIR: DATA_DIR }),
       timeoutMs: SHORT_TIMEOUT_MS * 10,
     };
     assert.equal((await requestClaudeNarration(route, packet(), DATABASE)).narration, NARRATION);
     const [call] = calls();
-    assert.equal(call?.mcp, null);
-    assert.ok(!call?.args.includes('--mcp-config'));
+    assert.ok(call?.args.includes('--mcp-config'));
     assertSafe(call?.args ?? []);
-    assert.equal(claudeCodeRouteOf(bin, {}).gameServer, true);
+    const server = Object.values(gameMcpConfig(DATABASE, ELECTRON).mcpServers)[0];
+    assert.equal(server?.command, process.execPath);
+    assert.deepEqual(server?.env, { RPG_DATABASE_PATH: DATABASE, ELECTRON_RUN_AS_NODE: '1' });
+    assert.deepEqual(Object.values(gameMcpConfig(DATABASE, {}).mcpServers)[0]?.env, { RPG_DATABASE_PATH: DATABASE });
   });
 
   it('summarizes framed text with the summary prompt and no MCP server', async (t) => {

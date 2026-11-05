@@ -54,6 +54,8 @@ export const WRITE_GAME_TOOLS = CAMPAIGN_TOOLS.filter(({ annotations }) => !anno
 );
 
 const MCP_SERVER_ENTRY = join(import.meta.dirname, '../../mcp-server/src/main.ts');
+const ELECTRON_RUN_AS_NODE_ENV = 'ELECTRON_RUN_AS_NODE';
+const ENABLED = '1';
 const DATABASE_ENV = 'RPG_DATABASE_PATH';
 const TEMP_PREFIX = 'rpg-gm-';
 const MCP_CONFIG_FILE = 'mcp.json';
@@ -78,7 +80,6 @@ export type ClaudeCodeRoute = {
   readonly effort: string;
   readonly timeoutMs: number;
   readonly env: NodeJS.ProcessEnv;
-  readonly gameServer: boolean;
   readonly workspace: string;
 };
 
@@ -88,11 +89,7 @@ const childEnvOf = (keys: readonly string[], env: NodeJS.ProcessEnv): NodeJS.Pro
 const workspaceOf = (env: NodeJS.ProcessEnv) =>
   join(userDataDir({ platform: process.platform, env, homedir: homedir() }), CLAUDE_WORKSPACE_DIR);
 
-export const claudeCodeRouteOf = (
-  bin: string,
-  env: NodeJS.ProcessEnv,
-  versions: { readonly electron?: string } = process.versions,
-): ClaudeCodeRoute => ({
+export const claudeCodeRouteOf = (bin: string, env: NodeJS.ProcessEnv): ClaudeCodeRoute => ({
   bin,
   profile: env[GM_PROFILE_ENV]?.trim() === LEAN_PROFILE ? LEAN_PROFILE : FULL_PROFILE,
   model: env[GM_MODEL_ENV]?.trim() || undefined,
@@ -100,7 +97,6 @@ export const claudeCodeRouteOf = (
   effort: BALANCED_EFFORT,
   timeoutMs: CLAUDE_TIMEOUT_MS,
   env: childEnvOf(CHILD_ENV_KEYS, env),
-  gameServer: versions.electron === undefined,
   workspace: workspaceOf(env),
 });
 
@@ -139,9 +135,16 @@ export const claudeArgs = (
   effort,
 ];
 
-export const gameMcpConfig = (databasePath: string) => ({
+export const gameMcpConfig = (databasePath: string, versions: { readonly electron?: string } = process.versions) => ({
   mcpServers: {
-    [GAME_SERVER]: { command: process.execPath, args: [MCP_SERVER_ENTRY], env: { [DATABASE_ENV]: databasePath } },
+    [GAME_SERVER]: {
+      command: process.execPath,
+      args: [MCP_SERVER_ENTRY],
+      env: {
+        [DATABASE_ENV]: databasePath,
+        ...(versions.electron === undefined ? {} : { [ELECTRON_RUN_AS_NODE_ENV]: ENABLED }),
+      },
+    },
   },
 });
 
@@ -208,7 +211,7 @@ const attempt = async (route: ClaudeCodeRoute, system: string, input: string, da
   const schema = databasePath === undefined ? undefined : NARRATION_SCHEMA;
   const dir = mkdtempSync(join(tmpdir(), TEMP_PREFIX));
   try {
-    const config = databasePath === undefined || !route.gameServer ? undefined : join(dir, MCP_CONFIG_FILE);
+    const config = databasePath === undefined ? undefined : join(dir, MCP_CONFIG_FILE);
     if (config !== undefined && databasePath !== undefined)
       writeFileSync(config, JSON.stringify(gameMcpConfig(databasePath)), { mode: PRIVATE_FILE_MODE });
     const cwd = preparedWorkspace(route);
