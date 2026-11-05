@@ -93,7 +93,7 @@ import {
 import { requestClaudeStream } from './gm-claude-stream.ts';
 import { contextPacketOf, fakeSummarizer, type Summarizer, summarizeCampaign } from './gm-context.ts';
 import { readGmDefaults, writeGmDefaults } from './gm-defaults.ts';
-import { requestFitting } from './gm-limits.ts';
+import { requestFitting, TOO_LONG_MESSAGE } from './gm-limits.ts';
 import { commitProposals, type GmProposal } from './gm-proposals.ts';
 import { type GmSegment, narratorSegments } from './gm-segments.ts';
 
@@ -375,7 +375,7 @@ const narrateLatest = async (
         send: (packet) => request(packet, voice?.streams ? voice.heard : undefined),
         ratio,
       }).catch((error: unknown) => {
-        if (!(error instanceof ProviderError)) {
+        if (!(error instanceof ProviderError && error.message === TOO_LONG_MESSAGE)) {
           voice?.abandon();
           throw error;
         }
