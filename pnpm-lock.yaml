@@ -132,6 +132,8 @@ importers:
         specifier: workspace:*
         version: link:../rules
 
+  packages/updater: {}
+
   packages/voice:
     dependencies:
       '@rpg/client-protocol':

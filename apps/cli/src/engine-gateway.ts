@@ -18,7 +18,7 @@ import { PLAYER_VIEWER } from '../../../packages/memory/src/knowledge.ts';
 import { createCampaignStore } from '../../../packages/persistence/src/campaign-store.ts';
 import { MIGRATIONS, openDatabase } from '../../../packages/persistence/src/database.ts';
 import type { BuildInput, BuildResult } from '../../../packages/rules/src/character-builder.ts';
-import { exportArchive, restoreArchive } from './campaign-archive.ts';
+import { backupArchive, exportArchive, restoreArchive } from './campaign-archive.ts';
 import { type Ask, createCharacter } from './character-creation.ts';
 import {
   campaignSummaryOf,
@@ -43,6 +43,7 @@ import { checkFor } from './roll-visualization.ts';
 import { runTui, type Terminal } from './tui.ts';
 import { runHome } from './tui-home.ts';
 import { guidedStart } from './tui-start.ts';
+import { type CampaignFile, defaultUpdateContext, updateCommand } from './update.ts';
 import { editableSheet, renderView, type ViewName } from './views.ts';
 
 const DATABASE_EXTENSION = '.sqlite';
@@ -70,10 +71,6 @@ const DEFAULT_OPENING: Opening = {
   narration: 'Rain drums on the roof of the Crossroads Inn. A stranger by the fire looks up as you enter.',
 };
 const ARCHIVE_DIR = 'archive';
-const BACKUP_DIR = 'backups';
-const ARCHIVE_EXTENSION = '.rpg-archive.json';
-const TIME_SEPARATOR = /:/g;
-const SAFE_TIME_SEPARATOR = '-';
 const NONE = 'none';
 const SAVED_SETTINGS = 'Saved settings:';
 const CHARACTER_PROMPT = `Describe your character, or press Enter to play as ${HERO_NAME}.`;
@@ -449,13 +446,15 @@ const exportCampaign = (dataDir: string, name: string, file: string) => {
 };
 
 const backup = (dataDir: string, name: string) => {
-  const dir = join(dataDir, BACKUP_DIR);
-  mkdirSync(dir, { recursive: true });
-  const stamp = new Date().toISOString().replace(TIME_SEPARATOR, SAFE_TIME_SEPARATOR);
-  const file = join(dir, `${encodeURIComponent(name)}-${stamp}${ARCHIVE_EXTENSION}`);
-  exportCampaign(dataDir, name, file);
-  return `Backed up campaign ${name} to ${file}.`;
+  const path = databasePath(dataDir, name);
+  if (!existsSync(path)) throw missingCampaign(dataDir, name);
+  return `Backed up campaign ${name} to ${backupArchive(dataDir, name, path)}.`;
 };
+
+export const campaignDatabases = (dataDir: string): CampaignFile[] => [
+  ...savedCampaigns(dataDir).map((name) => ({ name, database: databasePath(dataDir, name) })),
+  ...savedCampaigns(join(dataDir, ARCHIVE_DIR)).map((name) => ({ name, database: archivePath(dataDir, name) })),
+];
 
 const restore = (dataDir: string, file: string) => {
   mkdirSync(dataDir, { recursive: true });
@@ -483,6 +482,11 @@ export const createEngineGateway = (dataDir: string): CampaignGateway => ({
   exportCampaign: (name, file) => exportCampaign(dataDir, name, file),
   backup: (name) => backup(dataDir, name),
   restore: (file) => restore(dataDir, file),
+  update: (request) =>
+    updateCommand(
+      defaultUpdateContext(dataDir, () => campaignDatabases(dataDir)),
+      request,
+    ),
   create: async function* (name, intent, ask) {
     const config = planCampaign(intent);
     const scene = createCampaign(dataDir, name, openingFor(config, DEFAULT_OPENING), config);

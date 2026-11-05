@@ -24,6 +24,7 @@ const ALLOWED_IMPORTS: Record<string, readonly string[]> = {
   mcp: ['domain', 'engine'],
   testkit: ['domain'],
   timelines: ['domain', 'rules'],
+  updater: [],
 };
 
 type Manifest = { name: string; dependencies?: Record<string, string>; devDependencies?: Record<string, string> };

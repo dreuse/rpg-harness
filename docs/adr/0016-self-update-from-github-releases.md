@@ -1,0 +1,29 @@
+# ADR 0016 — Self-update from GitHub Releases with an Ed25519-signed checksums file
+
+**Status:** Accepted. **Decision:** The CLI/TUI and the desktop check the GitHub Releases API for a newer version. Each release carries a `SHA256SUMS` file and `SHA256SUMS.sig`, a detached Ed25519 signature of `SHA256SUMS` in base64. The app verifies the signature with `node:crypto` against a public key pinned in the app, then checks the SHA-256 of the downloaded build. The logic lives in a new package `packages/updater` (`@rpg/updater`). It imports no other package. The CLI and the desktop wire it.
+
+**Context:** UI16 asks for self-update with checksum and signature checks, no forced updates, an opt-in pre-release channel, refused downgrades, safe handling of offline use, rate limits and partial downloads, and a rollback when migrations fail. The project adds no dependencies. Code signing for an in-place macOS install waits for rpg-42a.4. The GitHub repo and releases are owner actions.
+
+**Rationale:**
+
+- Ed25519 over `SHA256SUMS` needs only `node:crypto`. Minisign needs a parser for its key and signature format. Sigstore needs a client, a transparency-log lookup and network access to verify. Both would add a dependency or much more code. A minisign-compatible signature can be added later as a second file in the release.
+- One signature covers every asset in the release. The app trusts a build only when the signature matches and the checksum matches. A changed `SHA256SUMS`, a key from another signer or a missing pinned key all fail the same way.
+- The download streams to a `.part` file and checks its size against the API size and the `Content-Length`. A short, long or cut-off body is deleted. A checksum mismatch is deleted too. Only a verified file is renamed to its final name.
+- Offline (fetch fails), HTTP 403 and 429 (rate limit) and other server errors become quiet statuses. The player sees one plain line and the command exits 0.
+- The check runs at startup at most once a day. `updates.json` in the data folder keeps the last check time, `autoCheck` (on by default) and `channel` (`stable` by default). With `autoCheck` off the app makes no network call at startup. `rpg update --no-auto-check` and the desktop "Stop checking" button turn it off. `rpg update --pre-release` opts in to pre-releases.
+- Only a version newer than the installed one is offered. A staged build that is not newer is deleted at startup, so a downgrade never installs.
+- Nothing installs mid-session. `rpg update` downloads, verifies and unpacks the build into `<install>.staged`. The next start backs up every campaign database (active and archived) with the backup command code (`backupArchive`). Then it renames `<install>` to `<install>.previous` and `<install>.staged` to `<install>`, and restarts itself. The new version opens every campaign database, which runs its migrations. If one fails, it renames `<install>.previous` back, restores each campaign database from its backup, and restarts into the previous version.
+- The CLI build is a JSON file (`rpg-release-bundle`) of relative paths and base64 file contents, like the campaign archive. Node has no built-in tar or zip reader. Paths that are absolute or leave the install folder are rejected.
+
+**Consequences:**
+
+- `release.ts` holds placeholders: `OWNER_PLACEHOLDER`/`REPO_PLACEHOLDER` in `DEFAULT_RELEASES_URL` and `RELEASE_PUBLIC_KEY`. Until the owner sets them, checks return `unavailable` and every download is rejected. `RPG_RELEASES_URL` overrides the base URL. The pinned key has no override.
+- Owner actions: create the GitHub repo, generate an Ed25519 key pair, pin the public key (SPKI PEM), and keep the private key outside the repo. Each release attaches `rpg-cli-<version>.json`, `rpg-desktop-<version>-<platform>-<arch>.<dmg|exe|AppImage>`, `SHA256SUMS` and `SHA256SUMS.sig`. A release-signing script is follow-up work.
+- A copy that runs from a Git checkout (a `.git` entry in the install folder) never replaces files and skips the startup check. `rpg update --check` still works there.
+- The desktop downloads and verifies the build, backs up campaigns, and opens the file for the player to install. An in-place install and an automatic file rollback for the desktop wait for code signing (rpg-42a.4). The packaged app checks only when `app.isPackaged` is true and the smoke-test variable is unset.
+- Each CLI process writes `session-<pid>.lock` in the data folder and removes it on exit. The CLI installs a staged build only when no other live process holds a session file. A file whose process has exited is deleted. The desktop app does not take a session lock yet.
+- `updates.json` records the install folder with the staged and applied update. Another install that shares the data folder leaves them alone.
+- If the backup or the folder swap fails, the CLI keeps the old version and clears the staged update. If a rollback fails, the CLI lists the backup archives. An update error never blocks the player's command.
+- Folder renames need the install folder and its `.staged` and `.previous` siblings on one file system. Windows can refuse to rename a folder in use. The CLI then reports that it could not install and keeps the old version. A Windows-safe swap is follow-up work.
+- The module table in `docs/product/p02-engine-boundaries.md` and `scripts/module-boundaries.test.ts` lists `updater` with no imports. The updater never writes game state. It touches only installed files, `updates/` and `updates.json`. During a rollback the CLI writes each campaign database back from its backup archive with the archive code in `apps/cli/src/campaign-archive.ts`. The engine stays the only writer of game state.
+- Deferred: if a new version cannot start at all (crashes on import before the update step runs), the old version is not restored automatically. Rollback runs only after the new version reaches the migration step.

@@ -1,6 +1,7 @@
 import { parseArgs } from 'node:util';
 import type { Ask } from './character-creation.ts';
 import { PLAIN_TERMINAL, type Terminal } from './tui.ts';
+import type { UpdateRequest } from './update.ts';
 import { printable, VIEW_NAMES, type ViewName } from './views.ts';
 
 export const EXIT_OK = 0;
@@ -9,9 +10,13 @@ export const EXIT_USAGE = 2;
 
 const HELP_HINT = 'Run rpg help for usage.';
 const VOICE_COMMAND = 'tui';
+const UPDATE_COMMAND = 'update';
 const OPTIONS = {
   help: { type: 'boolean', short: 'h' },
   voice: { type: 'boolean' },
+  check: { type: 'boolean' },
+  'auto-check': { type: 'boolean' },
+  'pre-release': { type: 'boolean' },
 } as const;
 
 export type CampaignMode = 'play' | 'resume';
@@ -35,6 +40,7 @@ export type CampaignGateway = {
   view: (campaign: string, view: ViewName) => string;
   tui: (campaign: string, terminal: Terminal) => Promise<void>;
   start: (lines: AsyncIterable<string>) => AsyncIterable<string>;
+  update: (request: UpdateRequest) => AsyncIterable<string>;
 };
 
 export type Io = {
@@ -90,6 +96,12 @@ const COMMANDS = [
       'Play with keyboard panes for talk, sheet, log and mechanics. Opens your adventures without a campaign. --voice adds voice settings.',
   },
   { name: 'recap', usage: 'recap <campaign>', description: 'Show the current scene and the latest event.' },
+  {
+    name: 'update',
+    usage: 'update [--check] [--no-auto-check] [--pre-release]',
+    description:
+      'Download a verified new version that installs the next time you start rpg. --check only shows the version and notes. --no-auto-check stops the daily check. --pre-release offers test versions.',
+  },
   { name: 'help', usage: 'help', description: 'Show this help.' },
 ] as const;
 
@@ -184,15 +196,19 @@ const run = async (io: Io, outputs: () => Iterable<string> | AsyncIterable<strin
 };
 
 export const main = async (argv: readonly string[], io: Io, gateway: CampaignGateway): Promise<number> => {
-  let parsed: ReturnType<typeof parseArgs<{ options: typeof OPTIONS; allowPositionals: true }>>;
+  let parsed: ReturnType<typeof parseArgs<{ options: typeof OPTIONS; allowPositionals: true; allowNegative: true }>>;
   try {
-    parsed = parseArgs({ args: [...argv], options: OPTIONS, allowPositionals: true });
+    parsed = parseArgs({ args: [...argv], options: OPTIONS, allowPositionals: true, allowNegative: true });
   } catch (error) {
     return usageError(io, error instanceof Error ? error.message : 'Invalid arguments.');
   }
   const [command = 'launch', ...rest] = parsed.positionals;
   const voice = parsed.values.voice === true;
   if (voice && command !== VOICE_COMMAND) return usageError(io, `Option --voice works only with ${VOICE_COMMAND}.`);
+  const { check, 'auto-check': autoCheck, 'pre-release': preRelease } = parsed.values;
+  const updateOption = [check, autoCheck, preRelease].some((value) => value !== undefined);
+  if (updateOption && command !== UPDATE_COMMAND)
+    return usageError(io, `Options --check, --auto-check and --pre-release work only with ${UPDATE_COMMAND}.`);
   const wantsHelp = parsed.values.help === true || command === 'help';
   if (wantsHelp) {
     const extra = parsed.values.help === true ? parsed.positionals : rest;
@@ -263,6 +279,16 @@ export const main = async (argv: readonly string[], io: Io, gateway: CampaignGat
     if (value === undefined || value.trim() === '') return usageError(io, `Missing ${missing} for ${command}.`);
     if (extra.length > 0) return usageError(io, `Unexpected argument: ${extra[0]}.`);
     return run(io, () => [command === 'backup' ? gateway.backup(value) : gateway.restore(value)]);
+  }
+  if (command === UPDATE_COMMAND) {
+    if (rest.length > 0) return usageError(io, `Unexpected argument: ${rest[0]}.`);
+    return run(io, () =>
+      gateway.update({
+        check: check === true,
+        ...(autoCheck !== undefined && { autoCheck }),
+        ...(preRelease !== undefined && { preRelease }),
+      }),
+    );
   }
   return usageError(io, `Unsupported command: ${command}.`);
 };

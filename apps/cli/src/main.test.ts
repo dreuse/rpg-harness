@@ -67,6 +67,10 @@ const setup = (input: readonly string[] = PLAYER_LINES) => {
       calls.push('start');
       for await (const line of input) yield `answer:${line}`;
     },
+    update: async function* (request) {
+      calls.push(`update:${JSON.stringify(request)}`);
+      yield 'rpg 1.2.0 is up to date.';
+    },
   };
   const out: string[] = [];
   const err: string[] = [];
@@ -103,6 +107,7 @@ test('help lists every command with a one-line description in plain text', async
       'encounter',
       'recap',
       'start',
+      'update',
       'help',
     ]) {
       assert.match(text, new RegExp(`^  ${command}\\b.* - .+$`, 'm'));
@@ -276,6 +281,10 @@ test('gateway failures exit 1 and report the error on stderr', async () => {
       yield 'New adventure';
       broken();
     },
+    update: async function* () {
+      yield 'Checking.';
+      broken();
+    },
   };
   for (const argv of [
     [],
@@ -293,6 +302,7 @@ test('gateway failures exit 1 and report the error on stderr', async () => {
     ['tui', 'Ember'],
     ['tui'],
     ['start'],
+    ['update'],
   ]) {
     const { io, err } = setup();
     assert.equal(await main(argv, io, failing), EXIT_FAILURE, argv.join(' '));
@@ -383,4 +393,36 @@ test('A18 tui gets voice controls only with --voice', async () => {
   const help = setup();
   await main(['help'], help.io, help.gateway);
   assert.match(help.out.join(''), /tui \[campaign\] \[--voice\]/);
+});
+
+test('rpg-42a.16 update --check prints the status and exits 0', async () => {
+  const { calls, gateway, io, out, err } = setup();
+  assert.equal(await main(['update', '--check'], io, gateway), 0);
+  assert.deepEqual(calls, ['update:{"check":true}']);
+  assert.deepEqual(out, ['rpg 1.2.0 is up to date.\n']);
+  assert.deepEqual(err, []);
+});
+
+test('rpg-42a.16 update passes the auto-check and pre-release settings', async () => {
+  const { calls, gateway, io } = setup();
+  assert.equal(await main(['update'], io, gateway), 0);
+  assert.equal(await main(['update', '--no-auto-check', '--pre-release'], io, gateway), 0);
+  assert.equal(await main(['update', '--auto-check', '--no-pre-release'], io, gateway), 0);
+  assert.deepEqual(calls, [
+    'update:{"check":false}',
+    'update:{"check":false,"autoCheck":false,"preRelease":true}',
+    'update:{"check":false,"autoCheck":true,"preRelease":false}',
+  ]);
+});
+
+test('rpg-42a.16 update options work only with update and update takes no arguments', async () => {
+  for (const argv of [
+    ['list', '--check'],
+    ['play', 'Ember', '--no-auto-check'],
+    ['update', 'now'],
+  ]) {
+    const { calls, gateway, io } = setup();
+    assert.equal(await main(argv, io, gateway), EXIT_USAGE, argv.join(' '));
+    assert.deepEqual(calls, []);
+  }
 });

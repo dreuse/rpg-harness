@@ -1,6 +1,17 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { closeSync, fstatSync, linkSync, openSync, readFileSync, readSync, rmSync, writeFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import {
+  closeSync,
+  fstatSync,
+  linkSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  readSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 import { type DatabaseSync, DatabaseSync as Sqlite } from 'node:sqlite';
 import { isDeepStrictEqual } from 'node:util';
 import { createEngine } from '../../../packages/engine/src/engine.ts';
@@ -32,6 +43,10 @@ const INTEGRITY_CHECK = 'PRAGMA integrity_check';
 const SNAPSHOT = 'VACUUM INTO ?';
 const READ_ONLY = 'r';
 const FOREIGN_KEY_CHECK = 'PRAGMA foreign_key_check';
+const BACKUP_DIR = 'backups';
+const ARCHIVE_EXTENSION = '.rpg-archive.json';
+const TIME_SEPARATOR = /:/g;
+const SAFE_TIME_SEPARATOR = '-';
 
 export type RulesetPin = { readonly rulepackId: string; readonly revision: string };
 
@@ -219,15 +234,40 @@ const inspectContent = (file: string, { campaign, rulesets }: CampaignArchive) =
   }
 };
 
+const readArchive = (archiveFile: string) => {
+  const archive = parseArchive(archiveFile);
+  const bytes = Buffer.from(archive.database, BINARY_ENCODING);
+  if (bytes.length > MAX_ARCHIVE_BYTES) reject('database is too large');
+  if (digest(bytes) !== archive.sha256) reject('checksum does not match');
+  return { archive, bytes };
+};
+
+export const backupArchive = (dataDir: string, name: string, databaseFile: string): string => {
+  const dir = join(dataDir, BACKUP_DIR);
+  mkdirSync(dir, { recursive: true });
+  const stamp = new Date().toISOString().replace(TIME_SEPARATOR, SAFE_TIME_SEPARATOR);
+  const file = join(dir, `${encodeURIComponent(name)}-${stamp}${ARCHIVE_EXTENSION}`);
+  exportArchive(databaseFile, file);
+  return file;
+};
+
+export const replaceFromArchive = (archiveFile: string, databaseFile: string) => {
+  const { bytes } = readArchive(archiveFile);
+  const temp = `${databaseFile}.${randomUUID()}${TEMP_SUFFIX}`;
+  try {
+    writeFileSync(temp, bytes, { flag: CREATE_EXCLUSIVE });
+    renameSync(temp, databaseFile);
+  } finally {
+    rmSync(temp, { force: true });
+  }
+};
+
 export const restoreArchive = (
   archiveFile: string,
   dataDir: string,
   campaignPath: (name: string) => string,
 ): CampaignArchive => {
-  const archive = parseArchive(archiveFile);
-  const bytes = Buffer.from(archive.database, BINARY_ENCODING);
-  if (bytes.length > MAX_ARCHIVE_BYTES) reject('database is too large');
-  if (digest(bytes) !== archive.sha256) reject('checksum does not match');
+  const { archive, bytes } = readArchive(archiveFile);
   const target = resolve(campaignPath(archive.campaign));
   if (dirname(target) !== resolve(dataDir)) reject('campaign name is not allowed');
   const temp = resolve(dataDir, `.${randomUUID()}${TEMP_SUFFIX}`);
