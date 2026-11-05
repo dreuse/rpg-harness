@@ -48,6 +48,114 @@
       "license": "CC0",
       "sha256": "53ddcfff86fb93d34a99d0ad659763d57e81098c8f7d944c3cf07b66a755ebce",
       "bytes": 3452972
+    },
+    {
+      "kind": "ambience",
+      "key": "tavern",
+      "file": "ambience/tavern.wav",
+      "mimeType": "audio/wav",
+      "url": "https://upload.wikimedia.org/wikipedia/commons/a/a9/360703_eguobyte_large-crowd-medium-distance-stereo.wav",
+      "sourcePage": "https://commons.wikimedia.org/wiki/File:360703_eguobyte_large-crowd-medium-distance-stereo.wav",
+      "author": "eguobyte",
+      "license": "CC0",
+      "sha256": "9821f013c7a752c809a1805aa9fc7a0ac17fd813b40e7d81ba3c286e2e8fd81f",
+      "bytes": 10987470
+    },
+    {
+      "kind": "ambience",
+      "key": "city",
+      "file": "ambience/city.ogg",
+      "mimeType": "audio/ogg",
+      "url": "https://upload.wikimedia.org/wikipedia/commons/d/d1/Audio_recording_of_market_activities.ogg",
+      "sourcePage": "https://commons.wikimedia.org/wiki/File:Audio_recording_of_market_activities.ogg",
+      "author": "Aishatu98",
+      "license": "CC0",
+      "sha256": "e3ebbdb4fc96c00ef74d87b9e697570759fec3011728180735e8c1b9eef67328",
+      "bytes": 1781247
+    },
+    {
+      "kind": "effect",
+      "key": "door-knock",
+      "file": "effect/door-knock.ogg",
+      "mimeType": "audio/ogg",
+      "url": "https://upload.wikimedia.org/wikipedia/commons/7/7c/Door_knocker_audio.ogg",
+      "sourcePage": "https://commons.wikimedia.org/wiki/File:Door_knocker_audio.ogg",
+      "author": "Mx. Granger",
+      "license": "CC0",
+      "sha256": "3362b0bd105382bd8f5e0d268b8e7318233abd966c43449241bfee1f35b47c35",
+      "bytes": 30423
+    },
+    {
+      "kind": "effect",
+      "key": "bell",
+      "file": "effect/bell.ogg",
+      "mimeType": "audio/ogg",
+      "url": "https://upload.wikimedia.org/wikipedia/commons/6/61/Cloche_de_l%27Eglise_de_Sainte-Marie-des-Batignolles.ogg",
+      "sourcePage": "https://commons.wikimedia.org/wiki/File:Cloche_de_l'Eglise_de_Sainte-Marie-des-Batignolles.ogg",
+      "author": "milo",
+      "license": "CC0",
+      "sha256": "5de257d4c29f5f8d54a7bb239088e09acb64fb6ca72fbddc0c320adbbd46cdb0",
+      "bytes": 1175103
+    },
+    {
+      "kind": "ambience",
+      "key": "forest",
+      "file": "ambience/forest.ogg",
+      "mimeType": "audio/ogg",
+      "url": "https://upload.wikimedia.org/wikipedia/commons/8/87/404114_felix-blume_toucans-singing-in-the-amazonian-rainforest-brazil.ogg",
+      "sourcePage": "https://commons.wikimedia.org/wiki/File:404114_felix-blume_toucans-singing-in-the-amazonian-rainforest-brazil.ogg",
+      "author": "Felix Blume",
+      "license": "CC0",
+      "sha256": "ae89c56723bb7cff19a239232ed7b160d913b66b1ffcf59f167efedf80730c42",
+      "bytes": 7160067
+    },
+    {
+      "kind": "ambience",
+      "key": "storm",
+      "file": "ambience/storm.ogg",
+      "mimeType": "audio/ogg",
+      "url": "https://upload.wikimedia.org/wikipedia/commons/6/63/Killiney_Hill_Storm_Floris_20250804_1537.ogg",
+      "sourcePage": "https://commons.wikimedia.org/wiki/File:Killiney_Hill_Storm_Floris_20250804_1537.ogg",
+      "author": "Karlunun",
+      "license": "CC0",
+      "sha256": "06529634e7415f943aa4d52461686f62ec211f79bb5f1d3c98843612327a7925",
+      "bytes": 1160895
+    },
+    {
+      "kind": "ambience",
+      "key": "stream",
+      "file": "ambience/stream.wav",
+      "mimeType": "audio/wav",
+      "url": "https://upload.wikimedia.org/wikipedia/commons/a/a6/363120_fractalstudios_water-trickle.wav",
+      "sourcePage": "https://commons.wikimedia.org/wiki/File:363120_fractalstudios_water-trickle.wav",
+      "author": "FractalStudios",
+      "license": "CC0",
+      "sha256": "a431777f2d840f74fcc8a01c0a4c8f0f648095d83ad2c29f9fc9488999e39672",
+      "bytes": 5833216
+    },
+    {
+      "kind": "effect",
+      "key": "metal-hit",
+      "file": "effect/metal-hit.wav",
+      "mimeType": "audio/wav",
+      "url": "https://upload.wikimedia.org/wikipedia/commons/4/4c/Fake_Metal_Bat.wav",
+      "sourcePage": "https://commons.wikimedia.org/wiki/File:Fake_Metal_Bat.wav",
+      "author": "Shawn Eary",
+      "license": "CC0",
+      "sha256": "396eff17fd532147c1ca8516bea5bee32be3c8632b5d200c9abe81449532308c",
+      "bytes": 185244
+    },
+    {
+      "kind": "effect",
+      "key": "gong",
+      "file": "effect/gong.ogg",
+      "mimeType": "audio/ogg",
+      "url": "https://upload.wikimedia.org/wikipedia/commons/4/42/Gong_or_bell_vibrant_%28short%29.ogg",
+      "sourcePage": "https://commons.wikimedia.org/wiki/File:Gong_or_bell_vibrant_(short).ogg",
+      "author": "PDSounds",
+      "license": "CC0",
+      "sha256": "f57283d08a0ecb052425af1ac1457f827fa27f423d49158963b3370c89fc942d",
+      "bytes": 58187
     }
   ]
 }

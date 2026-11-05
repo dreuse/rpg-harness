@@ -40,7 +40,10 @@ export const BASE_SOUND_TABLE: SoundTable = Object.freeze({
     harbor: 'sea',
     coast: 'sea',
     ship: 'sea',
-    storm: 'rain',
+    storm: 'storm',
+    river: 'stream',
+    stream: 'stream',
+    brook: 'stream',
   }),
   moods: Object.freeze({
     combat: { ambience: 'battle', music: 'combat' },

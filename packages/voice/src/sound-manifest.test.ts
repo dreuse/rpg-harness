@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { BUNDLED_MANIFEST_PATH, loadBundledManifest, validateSoundManifest } from './sound-manifest.ts';
+import { BASE_SOUND_TABLE } from './sound-selection.ts';
 
 const SHA = 'a'.repeat(64);
 const entry = (overrides: Record<string, unknown> = {}) => ({
@@ -75,4 +76,28 @@ test('the bundled manifest passes validation and covers the four music beds', ()
   assert.ok(BUNDLED_MANIFEST_PATH.endsWith('manifest.json'));
   const music = sounds.filter(({ kind }) => kind === 'music').map(({ key }) => key);
   assert.deepEqual(music.toSorted(), ['calm', 'combat', 'exploration', 'tension']);
+});
+
+test('the bundled manifest ships ambience and effect files with distinct hashes', () => {
+  const sounds = loadBundledManifest();
+  const keysOf = (wanted: string) =>
+    sounds
+      .filter(({ kind }) => kind === wanted)
+      .map(({ key }) => key)
+      .toSorted();
+  assert.deepEqual(keysOf('ambience'), ['city', 'forest', 'storm', 'stream', 'tavern']);
+  assert.deepEqual(keysOf('effect'), ['bell', 'door-knock', 'gong', 'metal-hit']);
+  assert.equal(new Set(sounds.map(({ sha256 }) => sha256)).size, sounds.length);
+});
+
+test('every shipped ambience key is the target of a base mapping', () => {
+  const targets = new Set([
+    ...Object.values(BASE_SOUND_TABLE.locations),
+    ...Object.values(BASE_SOUND_TABLE.moods).map(({ ambience }) => ambience),
+  ]);
+  const ambience = loadBundledManifest().filter(({ kind }) => kind === 'ambience');
+  assert.deepEqual(
+    ambience.filter(({ key }) => !targets.has(key)).map(({ key }) => key),
+    [],
+  );
 });
