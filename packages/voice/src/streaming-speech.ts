@@ -6,6 +6,7 @@ export const MIN_SEGMENT_CHARS = 24;
 export const PREFETCH_DEPTH = 2;
 const SENTENCE_END = /[.!?…]["')\]]*\s/;
 const SPEED = 1;
+type TurnState = 'open' | 'rejected';
 
 export type SpeechMetrics =
   | { readonly kind: 'first-audio'; readonly ms: number }
@@ -50,6 +51,7 @@ export interface StreamingSpeech {
   hold(turnId: string, utterance: CommittedUtterance): void;
   commit(turnId: string): void;
   reject(turnId: string): void;
+  finish(turnId: string): void;
   pause(): void;
   resume(): void;
   skip(): void;
@@ -81,6 +83,9 @@ export const createStreamingSpeech = (deps: StreamingSpeechDeps): StreamingSpeec
   let skipController: AbortController | undefined;
   let draining: Promise<void> | undefined;
   const startedAt = new Map<string, number>();
+  const turns = new Map<string, TurnState>();
+  const timed = new Set<string>();
+  let playing: { readonly turnId: string; readonly controller: AbortController } | undefined;
 
   const depth = () => waiting.length + jobs.length;
 
@@ -101,6 +106,14 @@ export const createStreamingSpeech = (deps: StreamingSpeechDeps): StreamingSpeec
     return { turnId, utterance, controller, chunks: collect() };
   };
 
+  const enqueue = (turnId: string, items: readonly CommittedUtterance[]) => {
+    if (items.length === 0) return;
+    if (!timed.has(turnId) && !startedAt.has(turnId)) startedAt.set(turnId, deps.now());
+    waiting.push(...items.map((utterance) => ({ utterance, turnId })));
+    deps.onMetrics({ kind: 'queue-depth', depth: depth() });
+    draining ??= drain();
+  };
+
   const fill = () => {
     while (jobs.length < PREFETCH_DEPTH && waiting.length > 0) jobs.push(startJob(waiting.shift() as Entry));
   };
@@ -115,11 +128,12 @@ export const createStreamingSpeech = (deps: StreamingSpeechDeps): StreamingSpeec
         const job = jobs[0] as Job;
         const mine = generation;
         const chunks = await job.chunks;
-        if (mine !== generation) continue;
+        if (mine !== generation || jobs[0] !== job) continue;
         jobs.shift();
         fill();
         const controller = new AbortController();
         skipController = controller;
+        playing = { turnId: job.turnId, controller };
         for (const item of chunks) {
           await untilResumed();
           if (mine !== generation || controller.signal.aborted) break;
@@ -127,11 +141,13 @@ export const createStreamingSpeech = (deps: StreamingSpeechDeps): StreamingSpeec
           if (began !== undefined) {
             deps.onMetrics({ kind: 'first-audio', ms: deps.now() - began });
             startedAt.delete(job.turnId);
+            if (turns.has(job.turnId)) timed.add(job.turnId);
           }
           await deps.sink.play(item, SPEED, controller.signal).catch(() => undefined);
         }
       }
     } finally {
+      playing = undefined;
       skipController = undefined;
       draining = undefined;
     }
@@ -139,18 +155,33 @@ export const createStreamingSpeech = (deps: StreamingSpeechDeps): StreamingSpeec
 
   return {
     hold(turnId, utterance) {
+      const state = turns.get(turnId);
+      if (state === 'rejected') return;
+      if (state === 'open') return enqueue(turnId, [utterance]);
       held.set(turnId, [...(held.get(turnId) ?? []), utterance]);
     },
     commit(turnId) {
+      if (turns.get(turnId) === 'rejected') return;
+      turns.set(turnId, 'open');
       const items = held.get(turnId) ?? [];
       held.delete(turnId);
-      if (items.length === 0) return;
-      startedAt.set(turnId, deps.now());
-      waiting.push(...items.map((utterance) => ({ utterance, turnId })));
-      deps.onMetrics({ kind: 'queue-depth', depth: depth() });
-      draining ??= drain();
+      enqueue(turnId, items);
     },
     reject(turnId) {
+      turns.set(turnId, 'rejected');
+      held.delete(turnId);
+      startedAt.delete(turnId);
+      for (let at = waiting.length - 1; at >= 0; at -= 1) if (waiting[at]?.turnId === turnId) waiting.splice(at, 1);
+      for (let at = jobs.length - 1; at >= 0; at -= 1) {
+        if (jobs[at]?.turnId !== turnId) continue;
+        jobs[at]?.controller.abort();
+        jobs.splice(at, 1);
+      }
+      if (playing?.turnId === turnId) playing.controller.abort();
+    },
+    finish(turnId) {
+      turns.delete(turnId);
+      timed.delete(turnId);
       held.delete(turnId);
     },
     pause() {
@@ -172,6 +203,7 @@ export const createStreamingSpeech = (deps: StreamingSpeechDeps): StreamingSpeec
       for (const job of jobs.splice(0)) job.controller.abort();
       skipController?.abort();
       startedAt.clear();
+      for (const turnId of turns.keys()) turns.set(turnId, 'rejected');
       paused = false;
       wake();
     },

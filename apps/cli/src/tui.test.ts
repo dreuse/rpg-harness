@@ -736,3 +736,40 @@ test('rpg-42a.38 the TUI keeps mechanics for a dice game without a sheet and the
     /2 Sheet 3 Event log 4 Mechanics/,
   );
 });
+
+test('rpg-cm63.17: runTui hands the playback control to the audio and /pause reaches it', async () => {
+  const { campaignId, session } = engineSession();
+  const calls: string[] = [];
+  const playback = {
+    pause: () => void calls.push('pause'),
+    resume: () => void calls.push('resume'),
+    skip: () => void calls.push('skip'),
+    stop: () => void calls.push('stop'),
+  };
+  await runTui(
+    session,
+    campaignId,
+    {
+      capabilities: PLAIN_WIDE,
+      audio: (_session, _campaignId, given) =>
+        createTuiAudio(
+          {
+            campaignId,
+            turn: 0,
+            pendingInput: [],
+            preferences: { microphone: 'off', spokenOutput: 'off', locale: 'en-US', speed: 1 },
+          },
+          ['en-US'],
+          () => undefined,
+          undefined,
+          given,
+        ),
+      lines: each(['/pause', '/skip', '/resume', '/stop', 'q']),
+      write: () => {},
+    },
+    undefined,
+    undefined,
+    playback,
+  );
+  assert.deepEqual(calls, ['pause', 'skip', 'resume', 'stop']);
+});

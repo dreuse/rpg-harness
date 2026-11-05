@@ -21,7 +21,7 @@ export type Request = {
 };
 export type Reply = {
   readonly id: number;
-  readonly type: 'Pong' | 'Stopped' | 'Error' | 'Result' | 'Unsubscribed';
+  readonly type: 'Pong' | 'Stopped' | 'Error' | 'Result' | 'Unsubscribed' | 'Played';
   readonly message?: string;
   readonly result?: Result<unknown>;
 };

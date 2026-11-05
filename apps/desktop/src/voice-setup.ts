@@ -2,6 +2,7 @@ import { type AudioFailure, classifyAudioFailure } from '../../../packages/voice
 import type { ModelConsent } from '../../../packages/voice/src/kokoro-model.ts';
 import { speaksLanguage } from '../../../packages/voice/src/kokoro-provider.ts';
 import { DEFAULT_PLAYBACK_SPEED } from '../../../packages/voice/src/playback.ts';
+import type { PlaybackCommand } from '../../../packages/voice/src/playback-controls.ts';
 import type { SpokenOutputMode } from '../../../packages/voice/src/voice.ts';
 import { createVoiceDiagnostics } from '../../../packages/voice/src/voice-diagnostics.ts';
 import type { PreviewAudio, PreviewRequest, VoiceHostStatus, VoiceProviderStatus } from './voice-host.ts';
@@ -40,6 +41,7 @@ export type VoiceBridge = {
   remove(providerId: string): Promise<void>;
   preview(request: PreviewRequest): Promise<PreviewAudio>;
   clearCache(): Promise<void>;
+  playback(command: PlaybackCommand): Promise<boolean>;
   onProgress(listener: (bytes: number) => void): void;
 };
 

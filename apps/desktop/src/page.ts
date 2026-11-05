@@ -2,6 +2,7 @@ import type { CampaignSnapshot } from '../../../packages/client-protocol/src/pro
 import { MOTION_SETTINGS } from '../../../packages/client-protocol/src/visualization.ts';
 import { voiceLocaleFor } from '../../../packages/voice/src/language-voices.ts';
 import { createMicrophoneController } from '../../../packages/voice/src/microphone.ts';
+import type { PlaybackControl } from '../../../packages/voice/src/playback-controls.ts';
 import { createSubtitleTranscript } from '../../../packages/voice/src/subtitles.ts';
 import { type RendererAction, SUPPORTED_LOCALES, translate } from './accessibility.ts';
 import { SETTLE_MS } from './dice.ts';
@@ -49,6 +50,7 @@ import {
   VOICE_NPC_REMOVE,
   VOICE_NPC_SPEAKER,
   VOICE_NPC_VOICE,
+  VOICE_PLAYBACK,
   VOICE_PREVIEW,
   VOICE_REMOVE,
   VOICE_SETUP,
@@ -60,7 +62,13 @@ import {
   MICROPHONE_OFF,
   type OutputChange,
 } from './voice.ts';
-import { type AudioOut, browserAudio, createVoiceSetup, type SpeechPreferences } from './voice-setup.ts';
+import {
+  type AudioOut,
+  browserAudio,
+  createVoiceSetup,
+  type SpeechPreferences,
+  type VoiceBridge,
+} from './voice-setup.ts';
 
 export const FONT_SCALE_PROPERTY = '--font-scale';
 export const ROOT_ID = 'app';
@@ -174,6 +182,13 @@ const isStartControl = (value: string | null | undefined): value is StartControl
 
 const closestTarget = (event: Event) => event.target as unknown as ClickTarget | null;
 
+const playbackOf = (bridge: VoiceBridge): PlaybackControl => ({
+  pause: () => void bridge.playback('pause'),
+  resume: () => void bridge.playback('resume'),
+  skip: () => void bridge.playback('skip'),
+  stop: () => void bridge.playback('stop'),
+});
+
 export const mountPage = ({
   elements: { root, form, input, keys },
   bridge,
@@ -205,6 +220,7 @@ export const mountPage = ({
     openMicrophone,
     submit: client.submit,
     save: client.saveVoice,
+    ...(bridge.voice === undefined ? {} : { playback: playbackOf(bridge.voice) }),
   });
   const setup = createVoiceSetup({
     ...(bridge.voice === undefined ? {} : { bridge: bridge.voice }),
@@ -439,6 +455,7 @@ export const mountPage = ({
     [VOICE_NPC_REMOVE, setup.removeNpcVoice],
     [VOICE_REMOVE, setup.removeModel],
     [VOICE_CLEAR, setup.clearCache],
+    [VOICE_PLAYBACK, voice.playback],
   ];
   const voiceClick = (target: ClickTarget | null) => {
     const value = (name: string) => target?.closest(`[${name}]`)?.getAttribute(name) ?? undefined;

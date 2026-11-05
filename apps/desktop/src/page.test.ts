@@ -867,6 +867,7 @@ const fakeVoiceBridge = () => {
   let installed = false;
   let progress = (_bytes: number) => {};
   const previews: unknown[] = [];
+  const playbackCommands: string[] = [];
   const bridge: VoiceBridge = {
     check: async () => ({ providers: [{ ...VOICE_PROVIDER, installed }], cacheBytes: 0 }),
     download: async () => {
@@ -881,11 +882,15 @@ const fakeVoiceBridge = () => {
       return { chunks: [new Uint8Array([1])], synthesisMs: 5, cacheHit: false };
     },
     clearCache: async () => {},
+    playback: async (command) => {
+      playbackCommands.push(command);
+      return true;
+    },
     onProgress: (listener) => {
       progress = listener;
     },
   };
-  return { bridge, previews };
+  return { bridge, previews, playbackCommands };
 };
 
 const spokenOutputs = (page: ReturnType<typeof fakePage>) =>
@@ -1007,4 +1012,25 @@ test('rpg-cm63.15 page assigns a voice to a known character or to an Other name 
     [CAMPAIGN]: { Ash: 'am_adam', Wren: 'af_heart' },
   });
   assert.doesNotMatch(page.root.innerHTML, /voice-npc-speaker/);
+});
+
+test('rpg-cm63.17 page sends pause, resume, skip and stop to the engine from the voice controls', async () => {
+  const page = fakePage();
+  const voice = fakeVoiceBridge();
+  mount(page, {}, deniedMicrophone, undefined, WIDE_WIDTH, {
+    bridge: { ...page.bridge, voice: voice.bridge },
+    audio: { play: async () => ({ decodeMs: 1 }) },
+  });
+  page.receive(READY);
+  continueHarbor(page);
+  page.receive({ type: 'Snapshot', snapshot: SNAPSHOT });
+  await settle();
+  page.click({ 'data-voice-setup': 'on' });
+  await settle();
+  page.click({ 'data-voice-setup': 'accept' });
+  await settle();
+  await settle();
+  page.click({ 'data-voice-setup': 'finish' });
+  for (const command of ['pause', 'resume', 'skip', 'stop']) page.click({ 'data-voice-playback': command });
+  assert.deepEqual(voice.playbackCommands, ['pause', 'resume', 'skip', 'stop']);
 });

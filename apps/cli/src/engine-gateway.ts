@@ -37,6 +37,7 @@ import {
   performAction,
   storedTurn,
 } from '../../../packages/engine/src/turn.ts';
+import { voiceSettingsOf } from '../../../packages/engine/src/voice-settings.ts';
 import { type CampaignConfig, parseCampaignConfig } from '../../../packages/intent/src/config.ts';
 import { PLAYER_VIEWER } from '../../../packages/memory/src/knowledge.ts';
 import type { ContextPacket } from '../../../packages/memory/src/packet.ts';
@@ -74,6 +75,7 @@ import {
   requestNarration,
   requestSummary,
   storedApiKey,
+  streamNarration,
   summaryRouteOf,
 } from './gm-api.ts';
 import {
@@ -82,6 +84,7 @@ import {
   requestClaudeNarration,
   requestClaudeSummary,
 } from './gm-claude-code.ts';
+import { requestClaudeStream } from './gm-claude-stream.ts';
 import { contextPacketOf, fakeSummarizer, type Summarizer, summarizeCampaign } from './gm-context.ts';
 import { readGmDefaults, writeGmDefaults } from './gm-defaults.ts';
 import { commitProposals, type GmProposal } from './gm-proposals.ts';
@@ -103,9 +106,11 @@ import {
   startingCharacter,
 } from './quickstart.ts';
 import { checkFor } from './roll-visualization.ts';
-import { runTui, type Terminal } from './tui.ts';
+import type { SpeechRuntime } from './speech-runtime.ts';
+import { runTui, type Terminal, type TuiPlayback } from './tui.ts';
 import { runHome } from './tui-home.ts';
 import { guidedStart } from './tui-start.ts';
+import type { TurnSpeech } from './turn-speech.ts';
 import { type CampaignFile, defaultUpdateContext, updateCommand } from './update.ts';
 import { editableSheet, renderView, type ViewName } from './views.ts';
 
@@ -173,6 +178,10 @@ export const narratedTurn = (store: CampaignStore, outcome: GameplayOutcome): Co
   return committed;
 };
 
+type SpeechSource = () => SpeechRuntime | Promise<SpeechRuntime>;
+const SPOKEN_OFF = 'off';
+const NO_NPC_VOICES = { profileOf: () => undefined };
+
 type PacketNarrator = (packet: ContextPacket) => GmTurnReply;
 
 const narratingEngine = (
@@ -203,7 +212,11 @@ const narratingEngine = (
   };
 };
 
-type GmCall = { readonly databasePath: string; readonly model: string | undefined };
+type GmCall = {
+  readonly databasePath: string;
+  readonly model: string | undefined;
+  readonly onSegment?: (segment: string) => void;
+};
 type GmTurnReply = {
   readonly narration: string;
   readonly segments: readonly GmSegment[];
@@ -265,15 +278,22 @@ const chosen = (model: string | undefined) => (model === PROVIDER_DEFAULT_MODEL 
 
 export const apiGameMaster = (route: ApiRoute, summaryRoute: ApiRoute = route): GameMaster =>
   providerGameMaster(
-    (packet, { model }) => requestNarration({ ...route, model: chosen(model) ?? route.model }, packet),
+    (packet, { model, onSegment }) => {
+      const routed = { ...route, model: chosen(model) ?? route.model };
+      return onSegment === undefined ? requestNarration(routed, packet) : streamNarration(routed, packet, onSegment);
+    },
     (level, texts, language, model) =>
       requestSummary({ ...summaryRoute, model: chosen(model) ?? summaryRoute.model }, level, texts, language),
   );
 
 export const claudeCodeGameMaster = (route: ClaudeCodeRoute): GameMaster =>
   providerGameMaster(
-    (packet, { databasePath, model }) =>
-      requestClaudeNarration({ ...route, model: chosen(model) ?? route.model }, packet, databasePath),
+    (packet, { databasePath, model, onSegment }) => {
+      const routed = { ...route, model: chosen(model) ?? route.model };
+      return onSegment === undefined
+        ? requestClaudeNarration(routed, packet, databasePath)
+        : requestClaudeStream(routed, packet, onSegment);
+    },
     (level, texts, language, model) =>
       requestClaudeSummary({ ...route, summaryModel: chosen(model) ?? route.summaryModel }, level, texts, language),
   );
@@ -302,10 +322,13 @@ type Session = {
   database: ReturnType<typeof openDatabase>['database'];
 };
 
+type SpeakTurn = (turnId: string) => Promise<TurnSpeech | undefined>;
+
 const narrateLatest = async (
   { engine, store, campaignId, database }: Session,
-  request: (packet: ContextPacket) => Promise<GmTurnReply>,
+  request: (packet: ContextPacket, onSegment?: (segment: string) => void) => Promise<GmTurnReply>,
   sessionId: string,
+  speak: SpeakTurn,
 ): Promise<readonly GmSegment[]> => {
   const state = engine.getState(campaignId);
   const latest = playTurns(state).at(-1);
@@ -315,19 +338,31 @@ const narrateLatest = async (
   let usage: GmUsage | undefined;
   let segments: readonly GmSegment[] = NO_SEGMENTS;
   let proposals: readonly GmProposal[] = [];
+  const voice = await speak(committed.turn.id);
   const narrator = {
     narrate: async () => {
-      const reply = await request(packet);
+      const reply = await request(packet, voice?.streams ? voice.heard : undefined).catch((error: unknown) => {
+        voice?.abandon();
+        throw error;
+      });
       usage = reply.usage;
       segments = reply.segments;
       proposals = reply.proposals ?? [];
+      voice?.settle(reply);
       return { narration: reply.narration, claims: [] };
     },
   };
   const facts = createFactStore(database).listFacts(campaignId);
-  const outcome = await narrateTurn(store, narrator, committed, { facts, equipment: {}, viewer: PLAYER_VIEWER });
-  if ('inconsistent' in outcome) store.recordNarration(campaignId, committed.turn.id, FAKE_GM_REPLY);
-  else commitProposals(store, createEntityStore(database), createFactStore(database), committed, proposals);
+  const outcome = await narrateTurn(store, narrator, committed, { facts, equipment: {}, viewer: PLAYER_VIEWER }).catch(
+    (error: unknown) => {
+      voice?.abandon();
+      throw error;
+    },
+  );
+  if ('inconsistent' in outcome) {
+    voice?.abandon();
+    store.recordNarration(campaignId, committed.turn.id, FAKE_GM_REPLY);
+  } else commitProposals(store, createEntityStore(database), createFactStore(database), committed, proposals);
   if (usage !== undefined) recordGmUsage(store, { campaignId, turnId: committed.turn.id, sessionId, usage });
   return 'inconsistent' in outcome ? narratorSegments(FAKE_GM_REPLY) : segments;
 };
@@ -358,6 +393,7 @@ const openSession = (
   readOnly = false,
   gm: GameMaster = FAKE_GAME_MASTER,
   rng: Rng = Math.random,
+  speech?: SpeechSource,
   sessionId: string = randomUUID(),
 ): OpenSession => {
   const path = databasePath(dataDir, name);
@@ -374,6 +410,28 @@ const openSession = (
     const session = { engine, store, campaignId: String(row.id), database };
     const gmDefaults = () => readGmDefaults(dataDir);
     let summarized: Promise<void> = Promise.resolve();
+    const speakTurn: SpeakTurn = async (turnId) => {
+      const settings = voiceSettingsOf(engine.getState(session.campaignId).changes);
+      if (speech === undefined || settings === undefined || settings.spokenOutput === SPOKEN_OFF) return undefined;
+      const { campaignId } = session;
+      try {
+        const [{ createTurnSpeech, narratorProfileOf }, { utterancesFor }] = await Promise.all([
+          import('./turn-speech.ts'),
+          import('./turn-utterances.ts'),
+        ]);
+        const narrator = narratorProfileOf(settings.locale);
+        const entities = createEntityStore(database);
+        return createTurnSpeech({
+          speech: (await speech()).speech,
+          turnId,
+          mode: settings.spokenOutput,
+          utterancesOf: (segments) =>
+            utterancesFor({ store, entities, campaignId, turnId, segments, narrator, npcVoices: NO_NPC_VOICES }),
+        });
+      } catch {
+        return undefined;
+      }
+    };
     const narrate = async () => {
       const { model, summaryModel } = {
         ...gmDefaults(),
@@ -381,7 +439,13 @@ const openSession = (
       };
       const segments =
         'request' in gm
-          ? await narrateLatest(session, (packet) => gm.request(packet, { databasePath: path, model }), sessionId)
+          ? await narrateLatest(
+              session,
+              (packet, onSegment) =>
+                gm.request(packet, { databasePath: path, model, ...(onSegment === undefined ? {} : { onSegment }) }),
+              sessionId,
+              speakTurn,
+            )
           : NO_SEGMENTS;
       summarized = summarizeInBackground(session, (level, texts, language) =>
         gm.summarizer(level, texts, language, summaryModel),
@@ -418,8 +482,9 @@ export const openClientSession = (
   name: string,
   gm: GameMaster = FAKE_GAME_MASTER,
   rng: Rng = Math.random,
+  speech?: SpeechSource,
 ) => {
-  const opened = openSession(dataDir, name, false, gm, rng);
+  const opened = openSession(dataDir, name, false, gm, rng, speech);
   const { engine, campaignId, database, narrate, settle, close, sessionId, gmDefaults } = opened;
   try {
     const readWorld = worldOf(database);
@@ -438,11 +503,55 @@ export const openClientSession = (
   }
 };
 
-const playTui = async (dataDir: string, name: string, terminal: Terminal, gm: GameMaster, rng: Rng) => {
-  const { session, campaignId, narrate, settle, close } = openClientSession(dataDir, name, gm, rng);
+const liveRuntimes = new Map<string, SpeechRuntime>();
+
+export type MakeSpeech = (dataDir: string) => SpeechRuntime | Promise<SpeechRuntime>;
+
+const makeLiveSpeech: MakeSpeech = async (dataDir) =>
+  (await import('./speech-runtime.ts')).createLiveSpeechRuntime(dataDir);
+
+export const liveSpeech =
+  (dataDir: string, make: MakeSpeech = makeLiveSpeech): SpeechSource =>
+  async () => {
+    const existing = liveRuntimes.get(dataDir);
+    if (existing !== undefined) return existing;
+    const runtime = await make(dataDir);
+    liveRuntimes.set(dataDir, runtime);
+    return runtime;
+  };
+
+export const disposeSpeech = (dataDir: string) => {
+  liveRuntimes.get(dataDir)?.dispose();
+  liveRuntimes.delete(dataDir);
+};
+
+export const playbackFor = (dataDir: string): TuiPlayback => ({
+  pause: () => liveRuntimes.get(dataDir)?.speech.pause(),
+  resume: () => liveRuntimes.get(dataDir)?.speech.resume(),
+  skip: () => liveRuntimes.get(dataDir)?.speech.skip(),
+  stop: () => liveRuntimes.get(dataDir)?.speech.stop(),
+  diagnostics: () => liveRuntimes.get(dataDir)?.diagnostics.summary(),
+});
+
+const playTui = async (
+  dataDir: string,
+  name: string,
+  terminal: Terminal,
+  gm: GameMaster,
+  rng: Rng,
+  makeSpeech: MakeSpeech,
+) => {
+  const { session, campaignId, narrate, settle, close } = openClientSession(
+    dataDir,
+    name,
+    gm,
+    rng,
+    liveSpeech(dataDir, makeSpeech),
+  );
   try {
-    await runTui(session, campaignId, terminal, narrate, gm.notice);
+    await runTui(session, campaignId, terminal, narrate, gm.notice, playbackFor(dataDir));
   } finally {
+    disposeSpeech(dataDir);
     await settle();
     close();
   }
@@ -543,7 +652,7 @@ const act = async (
   rng: Rng,
   sessionId: string,
 ): Promise<Acted> => {
-  const session = openSession(dataDir, name, false, gm, rng, sessionId);
+  const session = openSession(dataDir, name, false, gm, rng, undefined, sessionId);
   try {
     const { engine, campaignId, database } = session;
     const state = engine.getState(campaignId);
@@ -838,6 +947,7 @@ export const createEngineGateway = (
   dataDir: string,
   gm: GameMaster = FAKE_GAME_MASTER,
   rng: Rng = Math.random,
+  makeSpeech: MakeSpeech = makeLiveSpeech,
 ): CampaignGateway => ({
   home: (terminal) =>
     runHome(
@@ -847,7 +957,7 @@ export const createEngineGateway = (
         archive: (name) => void archiveCampaign(dataDir, name),
         unarchive: (name) => unarchiveCampaign(dataDir, name),
         remove: (name, confirm, archived) => deleteCampaign(dataDir, name, confirm, archived),
-        play: (name, playing) => playTui(dataDir, name, playing, gm, rng),
+        play: (name, playing) => playTui(dataDir, name, playing, gm, rng, makeSpeech),
         start: (lines, locale) => guidedStart(dataDir, lines, createCampaignFrom, locale),
       },
       terminal,
@@ -871,7 +981,7 @@ export const createEngineGateway = (
     if (character !== undefined) yield character;
   },
   view: (name, view) => readView(dataDir, name, view),
-  tui: (name, terminal) => playTui(dataDir, name, terminal, gm, rng),
+  tui: (name, terminal) => playTui(dataDir, name, terminal, gm, rng, makeSpeech),
   start: (lines, locale) => guidedStart(dataDir, lines, createCampaignFrom, locale),
   importRules: (files, lines) => importRules(process.cwd(), files, lines),
   open: async function* (name, _mode, lines, onTurnError) {

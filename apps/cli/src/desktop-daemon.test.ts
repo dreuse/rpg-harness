@@ -820,6 +820,30 @@ describe('serve client-protocol commands over the desktop engine daemon', () => 
   });
 });
 
+describe('rpg-cm63.17 desktop playback controls', () => {
+  it('acknowledges pause, resume, skip and stop and rejects anything else', async (t) => {
+    const daemon = supervise(t, { env: baseEnv() });
+    await daemon.ready();
+    for (const command of ['pause', 'resume', 'skip', 'stop'])
+      assert.equal((await daemon.playback(command)).type, 'Played');
+    assert.equal((await daemon.playback('format-disk')).type, 'Error');
+    assert.equal((await daemon.playback(undefined)).type, 'Error');
+  });
+
+  it('answers a playback command while a narration is still streaming', async (t) => {
+    const provider = await startProviderServer([{ hang: true }]);
+    t.after(provider.close);
+    const { env, campaignId } = await campaignEnv(t);
+    const daemon = supervise(t, { env: { ...env, [API_KEY_ENV]: FAKE_API_KEY, [GM_API_URL_ENV]: provider.url } });
+    await daemon.ready();
+    const before = await snapshotOf(daemon, campaignId);
+    const narrating = daemon.command(actionCommand(before, ACTION));
+    narrating.catch(() => undefined);
+    while (provider.received.length === 0) await setImmediate();
+    assert.equal((await daemon.playback('pause')).type, 'Played');
+  });
+});
+
 describe('desktop does not require unsupported reuse of consumer claude subscription credentials', () => {
   it('scrubs consumer claude variables from the engine environment', () => {
     const env = daemonEnv({ [OAUTH_ENV]: FAKE_SECRET, [CONFIG_DIR_ENV]: FAKE_SECRET, [API_KEY_ENV]: FAKE_API_KEY });

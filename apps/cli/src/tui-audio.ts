@@ -7,10 +7,11 @@ import {
 import type { CampaignId } from '../../../packages/domain/src/campaign.ts';
 import { voiceLocaleFor } from '../../../packages/voice/src/language-voices.ts';
 import { DEFAULT_PLAYBACK_SPEED } from '../../../packages/voice/src/playback.ts';
-import { applyPlaybackCommand, type PlaybackControl } from '../../../packages/voice/src/playback-controls.ts';
+import { applyPlaybackCommand } from '../../../packages/voice/src/playback-controls.ts';
 import { DEFAULT_VOICE_SETTINGS } from '../../../packages/voice/src/voice.ts';
+import type { VoiceDiagnosticsSummary } from '../../../packages/voice/src/voice-diagnostics.ts';
 import { routeVoiceInput, type VoiceSession } from '../../../packages/voice/src/voice-settings.ts';
-import type { TuiAudio } from './tui.ts';
+import type { TuiAudio, TuiPlayback } from './tui.ts';
 
 export type SaveVoice = (settings: SavedVoiceSettings) => string | undefined;
 
@@ -25,9 +26,24 @@ const YES = /^\s*y(?:es)?\s*$/i;
 const LIST = ', ';
 const COMMAND_PREFIX = '/';
 const PLAYBACK = 'Playback: ';
+const DIAGNOSTICS_COMMAND = 'voice';
+const NO_SPEECH = 'Speech: no spoken turn yet.';
 const NEWLINE = '\n';
 const FIRST_TURN = 0;
 const { microphone: MICROPHONE_OFF } = DEFAULT_VOICE_SETTINGS;
+
+const speechLine = (summary: VoiceDiagnosticsSummary | undefined) => {
+  if (summary === undefined || summary.samples === 0) return NO_SPEECH;
+  const errors = Object.values(summary.errors).reduce((sum, count) => sum + (count ?? 0), 0);
+  const parts = [
+    `${summary.samples} samples`,
+    ...(summary.firstAudioMs === undefined ? [] : [`first audio ${summary.firstAudioMs} ms`]),
+    ...(summary.stages.synthesis === undefined ? [] : [`synthesis ${summary.stages.synthesis} ms`]),
+    ...(summary.peakQueueDepth === undefined ? [] : [`peak queue ${summary.peakQueueDepth}`]),
+    `errors ${errors}`,
+  ];
+  return `Speech: ${parts.join(LIST)}`;
+};
 
 const withNotice = (message: string, notice: string | undefined) =>
   notice === undefined ? message : `${message}${NEWLINE}${notice}`;
@@ -37,7 +53,7 @@ export const createTuiAudio = (
   supportedLocales: readonly string[],
   save: SaveVoice,
   grantedAt?: string,
-  playback?: PlaybackControl,
+  playback?: TuiPlayback,
 ): TuiAudio => {
   let session = initial;
   let consentGrantedAt = grantedAt;
@@ -66,8 +82,11 @@ export const createTuiAudio = (
     input: (text, act) => {
       if (pending !== undefined) return answer(text, pending);
       const command = text.trim().slice(COMMAND_PREFIX.length);
-      if (playback !== undefined && text.trim().startsWith(COMMAND_PREFIX) && applyPlaybackCommand(playback, command))
-        return `${PLAYBACK}${command}`;
+      if (playback !== undefined && text.trim().startsWith(COMMAND_PREFIX)) {
+        if (command === DIAGNOSTICS_COMMAND && playback.diagnostics !== undefined)
+          return speechLine(playback.diagnostics());
+        if (applyPlaybackCommand(playback, command)) return `${PLAYBACK}${command}`;
+      }
       const route = routeVoiceInput(session, { source: TYPED, text }, supportedLocales, act);
       if (route.kind === 'action') return route.result;
       if (route.kind === 'settings-rejected')
@@ -82,7 +101,7 @@ export const createTuiAudio = (
   };
 };
 
-export const defaultTuiAudio = (client: ClientSession, campaignId: CampaignId): TuiAudio => {
+export const defaultTuiAudio = (client: ClientSession, campaignId: CampaignId, playback?: TuiPlayback): TuiAudio => {
   const snapshot = () => client.getSnapshot({ version: PROTOCOL_VERSION, type: 'GetCampaignSnapshot', campaignId });
   const current = snapshot();
   const saved = current.ok ? current.value.voice : undefined;
@@ -114,5 +133,6 @@ export const defaultTuiAudio = (client: ClientSession, campaignId: CampaignId): 
     [...new Set([locale, preferences.locale])],
     save,
     consentGrantedAt,
+    playback,
   );
 };

@@ -8,6 +8,7 @@ import { type ContextPacket, frameData, packetParts } from '../../../packages/me
 import type { SecretReader } from '../../../packages/voice/src/providers.ts';
 import { type GmProposal, proposalsOf } from './gm-proposals.ts';
 import { type GmSegment, isRecord, narrationOf, narratorSegments, SEGMENTS_SCHEMA, segmentsOf } from './gm-segments.ts';
+import { sseLinesOf, sseTextDeltasOf } from './gm-sse.ts';
 
 export { isRecord };
 
@@ -72,6 +73,7 @@ const TEXT_BLOCK = 'text';
 const TOOL_USE_BLOCK = 'tool_use';
 const EPHEMERAL_CACHE = { type: 'ephemeral' } as const;
 const DARWIN = 'darwin';
+const STREAMING_SPEECH_MODULE = '../../../packages/voice/src/streaming-speech.ts';
 
 export type ApiRoute = {
   readonly key: string;
@@ -206,7 +208,13 @@ const isRetryable = (status: number) => status === TOO_MANY_REQUESTS || status >
 
 type Prompt = { readonly system: string; readonly content: unknown; readonly tools?: typeof NARRATE_TOOLS };
 
-const post = async ({ key, model, url, timeoutMs }: ApiRoute, { system, content, tools }: Prompt) => {
+type Attempt<T> = { readonly ok: true; readonly value: T } | { readonly ok: false; readonly status: number };
+
+const open = async (
+  { key, model, url, timeoutMs }: ApiRoute,
+  { system, content, tools }: Prompt,
+  stream: boolean,
+): Promise<Attempt<Response>> => {
   try {
     const response = await fetch(url, {
       method: 'POST',
@@ -216,11 +224,12 @@ const post = async ({ key, model, url, timeoutMs }: ApiRoute, { system, content,
         max_tokens: MAX_TOKENS,
         system,
         messages: [{ role: 'user', content }],
+        ...(stream ? { stream } : {}),
         ...tools,
       }),
       signal: AbortSignal.timeout(timeoutMs),
     });
-    if (response.ok) return { ok: true, status: response.status, body: await response.json().catch(() => undefined) };
+    if (response.ok) return { ok: true, value: response };
     await response.body?.cancel();
     return { ok: false, status: response.status };
   } catch (error) {
@@ -230,14 +239,20 @@ const post = async ({ key, model, url, timeoutMs }: ApiRoute, { system, content,
   }
 };
 
-const request = async (route: ApiRoute, prompt: Prompt): Promise<unknown> => {
+const retried = async <T>(route: ApiRoute, run: () => Promise<Attempt<T>>): Promise<T> => {
   for (let attempt = 0; ; attempt += 1) {
-    const { ok, status, body } = await post(route, prompt);
-    if (ok) return body;
+    const result = await run();
+    if (result.ok) return result.value;
+    const { status } = result;
     if (!isRetryable(status)) throw new ProviderError(`The provider refused the request (HTTP ${status}).`, status);
     if (attempt === MAX_RETRIES) throw new ProviderError(`The provider is unavailable (HTTP ${status}).`, status);
     await delay(route.retryDelayMs * RETRY_BACKOFF ** attempt);
   }
+};
+
+const request = async (route: ApiRoute, prompt: Prompt): Promise<unknown> => {
+  const response = await retried(route, () => open(route, prompt, false));
+  return response.json().catch(() => undefined);
 };
 
 export const requestNarration = async (route: ApiRoute, packet: Pick<ContextPacket, 'sections'>): Promise<GmReply> => {
@@ -259,6 +274,68 @@ export const requestNarration = async (route: ApiRoute, packet: Pick<ContextPack
     ...(proposals === undefined ? {} : { proposals }),
     usage: usageOf(isRecord(body) ? body.usage : undefined, route.model),
   };
+};
+
+const DATA_PREFIX = 'data:';
+const MESSAGE_START = 'message_start';
+const MESSAGE_DELTA = 'message_delta';
+
+const streamUsageOf = (line: string): Record<string, unknown> | undefined => {
+  if (!line.startsWith(DATA_PREFIX)) return undefined;
+  try {
+    const event: unknown = JSON.parse(line.slice(DATA_PREFIX.length));
+    if (!isRecord(event)) return undefined;
+    const usage = event.type === MESSAGE_START && isRecord(event.message) ? event.message.usage : event.usage;
+    return (event.type === MESSAGE_START || event.type === MESSAGE_DELTA) && isRecord(usage) ? usage : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
+export const streamNarration = async (
+  route: ApiRoute,
+  packet: Pick<ContextPacket, 'sections'>,
+  onSegment: (segment: string) => void,
+): Promise<GmReply> => {
+  const { instructions, stable, variable } = packetParts(packet);
+  const { segmentDeltas } = await import(STREAMING_SPEECH_MODULE);
+  const response = await retried(route, () =>
+    open(
+      route,
+      {
+        system: instructions,
+        content: [
+          { type: TEXT_BLOCK, text: stable, cache_control: EPHEMERAL_CACHE },
+          { type: TEXT_BLOCK, text: variable },
+        ],
+      },
+      true,
+    ),
+  );
+  if (response.body === null) throw new ProviderError('The provider sent a malformed reply.');
+  const chunks = response.body;
+  let usage: Record<string, unknown> = {};
+  async function* observed(): AsyncGenerator<string> {
+    for await (const line of sseLinesOf(chunks)) {
+      usage = { ...usage, ...streamUsageOf(line) };
+      yield line;
+    }
+  }
+  let raw = '';
+  async function* tapped(): AsyncGenerator<string> {
+    for await (const text of sseTextDeltasOf(observed())) {
+      raw += text;
+      yield text;
+    }
+  }
+  try {
+    for await (const segment of segmentDeltas(tapped())) onSegment(segment);
+  } catch {
+    throw new ProviderError('The provider stream stopped early.');
+  }
+  const narration = raw.trim();
+  if (narration === '') throw new ProviderError('The provider sent a malformed reply.');
+  return { narration, segments: narratorSegments(narration), usage: usageOf(usage, route.model) };
 };
 
 export const requestSummary = async (

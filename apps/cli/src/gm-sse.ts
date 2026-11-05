@@ -1,4 +1,4 @@
-import { isRecord } from './gm-api.ts';
+import { isRecord } from './gm-segments.ts';
 
 const DATA_PREFIX = 'data:';
 const TEXT_DELTA = 'text_delta';

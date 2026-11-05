@@ -99,3 +99,27 @@ test('streamClaudeNarration propagates a throwing onSegment', async (t: TestCont
     /boom/,
   );
 });
+
+test('the first segment reaches the callback before the reply ends', async (t: TestContext) => {
+  const dir = mkdtempSync(join(tmpdir(), 'rpg-stream-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const bin = join(dir, 'claude');
+  const printed = (line: string) => `printf '%s\\n' '${line}'`;
+  writeFileSync(
+    bin,
+    [
+      ...STREAM_OK,
+      printed(delta('The door creaks open slowly. ')),
+      'sleep 0.3',
+      printed(delta('Dust falls.')),
+      printed(resultLine),
+    ].join('\n'),
+  );
+  chmodSync(bin, 0o755);
+  const MIN_GAP_MS = 200;
+  const heard: number[] = [];
+  await streamClaudeNarration(claudeCodeRouteOf(bin, {}), 'sys', 'input', () => void heard.push(Date.now()));
+  const ended = Date.now();
+  assert.equal(heard.length, 2);
+  assert.ok(ended - (heard[0] ?? ended) >= MIN_GAP_MS);
+});

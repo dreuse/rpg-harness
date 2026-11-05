@@ -219,3 +219,62 @@ test('a failing synthesis emits an error metric without text', async () => {
   assert.ok(metrics.some((m) => m.kind === 'error'));
   assert.ok(!JSON.stringify(metrics).includes(SECRET));
 });
+
+test('segments held after commit start synthesis at once and record one first-audio per turn', async () => {
+  const { speech, started, metrics, gates } = harness();
+  speech.commit('t');
+  speech.hold('t', utterance('a'));
+  await tick();
+  assert.deepEqual(started, ['a']);
+  gates.get('a')?.();
+  await tick();
+  speech.hold('t', utterance('b'));
+  await tick();
+  gates.get('b')?.();
+  gates.get('play-a')?.();
+  await tick();
+  assert.equal(metrics.filter((m) => m.kind === 'first-audio').length, 1);
+});
+
+test('reject after commit discards queued and in-flight audio of that turn and aborts what is playing', async () => {
+  const { speech, started, played, gates } = harness();
+  speech.commit('bad');
+  for (const id of ['a', 'b', 'c']) speech.hold('bad', utterance(id));
+  speech.commit('good');
+  speech.hold('good', utterance('g'));
+  await tick();
+  gates.get('a')?.();
+  await tick();
+  assert.deepEqual(played, ['a']);
+  speech.reject('bad');
+  gates.get('b')?.();
+  await tick();
+  assert.ok(!played.includes('b') && !played.includes('c'));
+  assert.ok(started.includes('g'));
+  gates.get('g')?.();
+  await tick();
+  assert.deepEqual(played, ['a', 'g']);
+});
+
+test('segments held for a rejected turn are dropped and a later commit does nothing', async () => {
+  const { speech, started } = harness();
+  speech.reject('t');
+  speech.hold('t', utterance('a'));
+  speech.commit('t');
+  speech.hold('t', utterance('b'));
+  await tick();
+  assert.deepEqual(started, []);
+  assert.equal(speech.depth(), 0);
+});
+
+test('finish forgets the turn so its id can be held again', async () => {
+  const { speech, started } = harness();
+  speech.reject('t');
+  speech.finish('t');
+  speech.hold('t', utterance('a'));
+  await tick();
+  assert.deepEqual(started, []);
+  speech.commit('t');
+  await tick();
+  assert.deepEqual(started, ['a']);
+});

@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
-import { segmentDeltas } from '../../../packages/voice/src/streaming-speech.ts';
+import { type ContextPacket, packetParts } from '../../../packages/memory/src/packet.ts';
 import { type GmReply, isRecord, ProviderError } from './gm-api.ts';
 import { type ClaudeCodeRoute, claudeArgs, MAX_OUTPUT_BYTES, replyOf } from './gm-claude-code.ts';
 
@@ -16,6 +16,7 @@ const RESULT_EVENT = 'result';
 const TEMP_PREFIX = 'rpg-gm-stream-';
 const ABORT_ERROR = 'AbortError';
 const IGNORE = () => {};
+const STREAMING_SPEECH_MODULE = '../../../packages/voice/src/streaming-speech.ts';
 const OUTPUT_TOO_LARGE = 'Claude Code sent too much output.';
 
 export const claudeStreamArgs = (route: ClaudeCodeRoute, system: string, mcpConfig?: string): string[] => {
@@ -96,6 +97,7 @@ export const streamClaudeNarration = async (
         yield line;
       }
     }
+    const { segmentDeltas } = await import(STREAMING_SPEECH_MODULE);
     try {
       for await (const segment of segmentDeltas(textDeltasOf(observed()))) onSegment(segment);
       if (capped) throw new ProviderError(OUTPUT_TOO_LARGE);
@@ -106,4 +108,15 @@ export const streamClaudeNarration = async (
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+};
+
+const PART_SEPARATOR = '\n';
+
+export const requestClaudeStream = (
+  route: ClaudeCodeRoute,
+  packet: Pick<ContextPacket, 'sections'>,
+  onSegment: (segment: string) => void,
+): Promise<GmReply> => {
+  const { instructions, stable, variable } = packetParts(packet);
+  return streamClaudeNarration(route, instructions, [stable, variable].join(PART_SEPARATOR), onSegment);
 };

@@ -60,6 +60,7 @@ test('UI08 preload exposes only the narrow transport bridge', () => {
     'clearCache',
     'download',
     'onProgress',
+    'playback',
     'preview',
     'remove',
   ]);
@@ -107,4 +108,10 @@ test('rpg-cm63.7 preload voice bridge invokes narrow channels and forwards only 
     [CHANNELS.voiceClear],
   ]);
   assert.deepEqual(progress, [[7]]);
+});
+
+test('rpg-cm63.17 preload voice bridge sends playback commands over the playback channel', async () => {
+  const { bridge, invoked } = expose();
+  await bridge.voice.playback('skip');
+  assert.deepEqual(invoked, [[CHANNELS.voicePlayback, 'skip']]);
 });

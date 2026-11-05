@@ -22,16 +22,20 @@ import {
 } from '../../../packages/client-protocol/src/wire.ts';
 import { toGmSettings } from '../../../packages/domain/src/gm.ts';
 import type { Client } from '../../../packages/intent/src/intent.ts';
+import { applyPlaybackCommand } from '../../../packages/voice/src/playback-controls.ts';
 import {
   archiveCampaign,
   createCampaignFrom,
   deleteCampaign,
+  disposeSpeech,
   type GameMaster,
   gameMasterFor,
   isSameCampaignFile,
   listArchivedSummaries,
   listCampaignSummaries,
+  liveSpeech,
   openClientSession,
+  playbackFor,
   summaryOf,
   unarchiveCampaign,
 } from './engine-gateway.ts';
@@ -41,6 +45,8 @@ import { failureOf, planResult } from './quickstart.ts';
 import { dataDirFromEnv } from './setup-check.ts';
 
 const UNSUPPORTED_STORY_MEMORY = 'this daemon does not serve story memory yet';
+const PLAYBACK = 'Playback';
+const UNKNOWN_PLAYBACK = 'Unknown playback command.';
 const INVALID_GM_DEFAULTS = 'GM defaults name an invalid model or budget';
 
 const saveGmDefaults = ({ model, summaryModel, sessionBudgetTokens }: SaveGmDefaults) => {
@@ -141,7 +147,11 @@ const serve = (env: NodeJS.ProcessEnv, gm: GameMaster): Served => {
   const name = env[CAMPAIGN_ENV];
   if (!name) return { problem: NO_CAMPAIGN };
   try {
-    return { name, campaign: openClientSession(dataDirFromEnv(), name, gm), problem: NO_CAMPAIGN };
+    return {
+      name,
+      campaign: openClientSession(dataDirFromEnv(), name, gm, undefined, liveSpeech(dataDirFromEnv())),
+      problem: NO_CAMPAIGN,
+    };
   } catch (error) {
     return { name, problem: messageOf(error) };
   }
@@ -199,7 +209,8 @@ const replier = ({ name, campaign, problem }: Served, gm: GameMaster) => {
   let queue = Promise.resolve();
 
   const serveCampaign = (next: string) => {
-    const opened = openClientSession(dataDirFromEnv(), next, gm);
+    const opened = openClientSession(dataDirFromEnv(), next, gm, undefined, liveSpeech(dataDirFromEnv()));
+    playbackFor(dataDirFromEnv()).stop();
     for (const unsubscribe of subscriptions.values()) unsubscribe();
     subscriptions.clear();
     campaign?.close();
@@ -260,7 +271,10 @@ const replier = ({ name, campaign, problem }: Served, gm: GameMaster) => {
       }
       if (type === 'Shutdown') {
         campaign?.close();
-        return send({ id, type: 'Stopped' }, () => process.exit(EXIT_OK));
+        return send({ id, type: 'Stopped' }, () => {
+          disposeSpeech(dataDirFromEnv());
+          process.exit(EXIT_OK);
+        });
       }
       return send({ id, type: 'Error', message: `Unknown request ${type}.` });
     } catch (error) {
@@ -268,7 +282,22 @@ const replier = ({ name, campaign, problem }: Served, gm: GameMaster) => {
     }
   };
 
+  const requestOf = (input: unknown): Request | undefined => {
+    try {
+      return (typeof input === 'string' ? JSON.parse(input) : input) as Request;
+    } catch {
+      return undefined;
+    }
+  };
+
+  const playback = ({ id, command }: Request) =>
+    applyPlaybackCommand(playbackFor(dataDirFromEnv()), command)
+      ? send({ id, type: 'Played' })
+      : send({ id, type: 'Error', message: UNKNOWN_PLAYBACK });
+
   return (input: unknown) => {
+    const request = requestOf(input);
+    if (request?.type === PLAYBACK) return playback(request);
     queue = queue.then(() => reply(input)).then(IGNORE, IGNORE);
   };
 };
@@ -373,6 +402,8 @@ export const startDaemon = ({ env, onCrash, maxRestarts = MAX_RESTARTS, spawnEng
 
   const command = (input: unknown) => call({ type: 'Command', command: input });
 
+  const playback = (input: unknown) => call({ type: PLAYBACK, command: input });
+
   const subscribe = async (input: unknown, listener: (event: ClientEvent) => void) => {
     const id = nextId++;
     listeners.set(id, listener);
@@ -400,7 +431,7 @@ export const startDaemon = ({ env, onCrash, maxRestarts = MAX_RESTARTS, spawnEng
   };
 
   startEngine();
-  return { ready: () => handshake, request, command, subscribe, stop, restarts: () => restarts };
+  return { ready: () => handshake, request, command, playback, subscribe, stop, restarts: () => restarts };
 };
 
 if (import.meta.main) await runDaemon();

@@ -151,3 +151,32 @@ test('rpg-42a.40 a campaign without a recorded language keeps the system voice l
     opened.close();
   }
 });
+
+test('rpg-cm63.17 tui /voice shows speech diagnostics as numbers only', () => {
+  const playback = {
+    pause() {},
+    resume() {},
+    skip() {},
+    stop() {},
+    diagnostics: () => ({
+      samples: 3,
+      firstAudioMs: 412,
+      cacheHitRate: 0,
+      errors: { timeout: 1 },
+      stages: { synthesis: 300 },
+      peakQueueDepth: 2,
+    }),
+  };
+  const { acted, act } = recorder();
+  const audio = createTuiAudio(session, SUPPORTED_LOCALES, saver().save, undefined, playback);
+  assert.equal(
+    audio.input('/voice', act),
+    'Speech: 3 samples, first audio 412 ms, synthesis 300 ms, peak queue 2, errors 1',
+  );
+  assert.deepEqual(acted, []);
+  const idle = createTuiAudio(session, SUPPORTED_LOCALES, saver().save, undefined, {
+    ...playback,
+    diagnostics: () => undefined,
+  });
+  assert.equal(idle.input('/voice', act), 'Speech: no spoken turn yet.');
+});

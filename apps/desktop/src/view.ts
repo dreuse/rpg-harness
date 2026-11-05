@@ -10,6 +10,7 @@ import { MOTION_SETTINGS } from '../../../packages/client-protocol/src/visualiza
 import type { GmSettings } from '../../../packages/domain/src/gm.ts';
 import { SPOKEN_OUTPUT_MODES } from '../../../packages/domain/src/voice.ts';
 import { MAX_PLAYBACK_SPEED, MIN_PLAYBACK_SPEED } from '../../../packages/voice/src/playback.ts';
+import { PLAYBACK_COMMANDS } from '../../../packages/voice/src/playback-controls.ts';
 import { VOICE_STAGES } from '../../../packages/voice/src/voice-diagnostics.ts';
 import {
   actionForKey,
@@ -136,6 +137,7 @@ export const VOICE_NPC_PREVIEW = 'data-voice-npc-preview';
 export const VOICE_NPC_REMOVE = 'data-voice-npc-remove';
 export const VOICE_REMOVE = 'data-voice-remove';
 export const VOICE_CLEAR = 'data-voice-clear';
+export const VOICE_PLAYBACK = 'data-voice-playback';
 export const VOICE_NPC_NAME = 'voice-npc-name';
 export const VOICE_NPC_SPEAKER = 'voice-npc-speaker';
 export const VOICE_NPC_VOICE = 'voice-npc-voice';
@@ -180,13 +182,16 @@ const voiceOptions = (voices: readonly string[], current: string | undefined, lo
   options(voices, current, (id) => voiceName(locale, id, voices));
 const failureName = (locale: string, code: string) => translate(locale, `voice.failure.${code}`);
 
+const playbackControls = (locale: string) =>
+  `<div role="group" aria-label="${escapeHtml(translate(locale, 'voice.playback'))}" ${VOICE_PLAYBACK}-group>${PLAYBACK_COMMANDS.map((command) => button(VOICE_PLAYBACK, command, translate(locale, `voice.playback.${command}`))).join('')}</div>`;
+
 const basicVoice = ({ preferences }: DesktopVoiceView, setup: VoiceSetupView, locale: string) => {
   const on = preferences.spokenOutput !== 'off';
   const voices = setup.provider?.voices ?? [];
   const languages = [...new Set([...setup.speaking.flatMap(({ languages }) => languages), preferences.locale])];
   return `<fieldset data-voice-basic><legend>${escapeHtml(translate(locale, 'region.voice'))}</legend>${
     on
-      ? button(VOICE_SETUP, 'off', translate(locale, 'voice.turnOff'))
+      ? `${button(VOICE_SETUP, 'off', translate(locale, 'voice.turnOff'))}${playbackControls(locale)}`
       : button(VOICE_SETUP, 'on', translate(locale, 'voice.on'), false, true)
   }${select(
     'voice-mode',

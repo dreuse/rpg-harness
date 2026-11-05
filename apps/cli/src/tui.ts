@@ -20,9 +20,15 @@ import {
 } from '../../../packages/client-protocol/src/visualization.ts';
 import { type CampaignId, OPENING_ACTION_ID } from '../../../packages/domain/src/campaign.ts';
 import { DEFAULT_RULES_USAGE, type RulesUsage, usesDice, usesSheet } from '../../../packages/domain/src/rules-usage.ts';
+import type { PlaybackControl } from '../../../packages/voice/src/playback-controls.ts';
+import type { VoiceDiagnosticsSummary } from '../../../packages/voice/src/voice-diagnostics.ts';
 import { DEFAULT_LOCALE, safeLocale, say } from './messages.ts';
 import { type ColorDepth, colorDepthOf, FRAME_COLUMNS, frame, paint, supportsUnicode } from './theme.ts';
 import { printable } from './views.ts';
+
+export type TuiPlayback = PlaybackControl & {
+  readonly diagnostics?: () => VoiceDiagnosticsSummary | undefined;
+};
 
 export type Capabilities = {
   readonly width: number;
@@ -60,7 +66,7 @@ export type TuiAudio = {
 
 export type Terminal = {
   readonly capabilities: Capabilities;
-  readonly audio?: (session: ClientSession, campaignId: CampaignId) => TuiAudio;
+  readonly audio?: (session: ClientSession, campaignId: CampaignId, playback?: TuiPlayback) => TuiAudio;
   readonly keys?: AsyncIterable<Key>;
   readonly motion?: boolean;
   readonly schedule?: (run: () => void, ms: number) => void;
@@ -564,13 +570,14 @@ export const runTui = async (
   terminal: Terminal,
   narrate: Narrate = async () => {},
   notice?: string,
+  playback?: TuiPlayback,
 ): Promise<void> => {
   const events: ClientEvent[] = [];
   const unsubscribe = session.subscribeEvents(
     { version: PROTOCOL_VERSION, type: 'SubscribeEvents', campaignId },
     (event) => events.push(event),
   );
-  const audio = terminal.audio?.(session, campaignId);
+  const audio = terminal.audio?.(session, campaignId, playback);
   const data = () => read(session, campaignId, events, audio, terminal.locale ?? DEFAULT_LOCALE);
   const send: Act = (input) => {
     const [, name, text] = EDIT_PATTERN.exec(input) ?? [];

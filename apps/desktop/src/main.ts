@@ -7,6 +7,7 @@ import {
 } from '../../../packages/client-protocol/src/guided-start.ts';
 import { localeOf } from '../../../packages/client-protocol/src/locale.ts';
 import { type ClientCommand, failure } from '../../../packages/client-protocol/src/protocol.ts';
+import { isPlaybackCommand } from '../../../packages/voice/src/playback-controls.ts';
 import {
   DAEMON_ENTRY,
   type DaemonOptions,
@@ -31,7 +32,8 @@ export const SMOKE_STATUS = 'rpg-desktop-smoke-status: ';
 
 const TEXT = 'utf8';
 
-export type Daemon = Pick<ReturnType<typeof startEngine>, 'ready' | 'command' | 'subscribe' | 'stop'>;
+export type Daemon = Pick<ReturnType<typeof startEngine>, 'ready' | 'command' | 'subscribe' | 'stop'> &
+  Partial<Pick<ReturnType<typeof startEngine>, 'playback'>>;
 export type WebContentsLike = {
   send(channel: string, ...args: unknown[]): void;
   on(name: 'will-navigate', listener: (event: { preventDefault(): void }) => void): unknown;
@@ -246,9 +248,13 @@ export const startMain = ({
       if (sender !== window.webContents) throw new Error(FOREIGN_SENDER);
       return handler(...args);
     };
+  const handle = (channel: string, handler: (...args: unknown[]) => unknown) =>
+    ipcMain.handle?.(channel, invokedFromWindow(handler));
+  handle(CHANNELS.voicePlayback, async (command) => {
+    if (!isPlaybackCommand(command)) return false;
+    return (await daemon.playback?.(command))?.type === 'Played';
+  });
   if (voice !== undefined) {
-    const handle = (channel: string, handler: (...args: unknown[]) => unknown) =>
-      ipcMain.handle?.(channel, invokedFromWindow(handler));
     handle(CHANNELS.voiceCheck, () => voice.check());
     handle(CHANNELS.voiceDownload, (providerId, consent) =>
       voice.download(providerId, consent, (bytes) => push(CHANNELS.voiceProgress, bytes)),

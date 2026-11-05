@@ -72,6 +72,7 @@ const fakeBridge = ({ installed = false, providers, failPreview, failDownload }:
       calls.push(['clear']);
       cacheBytes = 0;
     },
+    playback: async () => true,
     onProgress: (listener) => {
       progress = listener;
     },

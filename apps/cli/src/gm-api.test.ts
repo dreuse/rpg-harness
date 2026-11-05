@@ -35,6 +35,7 @@ import {
   SUMMARY_PROMPT,
   SYSTEM_PROMPT,
   storedApiKey,
+  streamNarration,
   summaryRouteOf,
 } from './gm-api.ts';
 import { narrationOf, SEGMENTS_SCHEMA } from './gm-segments.ts';
@@ -328,5 +329,66 @@ describe('rpg-42a.28 Anthropic Messages API narrator', () => {
   it('skips the keychain when the environment opts out or the platform has none', async () => {
     assert.equal(await gmSecrets({ [GM_KEYCHAIN_ENV]: KEYCHAIN_OFF }, 'darwin'), undefined);
     assert.equal(await gmSecrets({}, 'linux'), undefined);
+  });
+});
+
+describe('rpg-cm63.17 streamed API narration', () => {
+  const sse = (event: object) => `data: ${JSON.stringify(event)}\n\n`;
+  const delta = (text: string) => sse({ type: 'content_block_delta', delta: { type: 'text_delta', text } });
+  const streamBody = (...texts: string[]) =>
+    [
+      sse({ type: 'message_start', message: { usage: { input_tokens: 900, cache_read_input_tokens: 1200 } } }),
+      ...texts.map(delta),
+      sse({ type: 'message_delta', usage: { output_tokens: 70 } }),
+      sse({ type: 'message_stop' }),
+    ].join('');
+  const FIRST = 'The door creaks open slowly.';
+  const SECOND = 'Dust falls from the beams.';
+
+  it('sends stream:true without the narrate tool and speaks each finished sentence while it streams', async (t) => {
+    const { received, route } = await startProvider(t, [
+      { body: streamBody('The door creaks ', 'open slowly. ', SECOND) },
+    ]);
+    const heard: string[] = [];
+    const reply = await streamNarration(route, packet(), (segment) => heard.push(segment));
+    const body = received[0]?.body;
+    assert.equal(body?.stream, true);
+    assert.equal(body?.tools, undefined);
+    assert.equal(body?.tool_choice, undefined);
+    assert.deepEqual(heard, [FIRST, SECOND]);
+    assert.equal(reply.narration, `${FIRST} ${SECOND}`);
+    assert.deepEqual(reply.segments, [{ text: `${FIRST} ${SECOND}` }]);
+    assert.deepEqual(reply.usage, {
+      model: DEFAULT_GM_MODEL,
+      inputTokens: 900,
+      cacheReadTokens: 1200,
+      cacheWriteTokens: 0,
+      outputTokens: 70,
+    });
+  });
+
+  it('keeps paragraph breaks in the recorded narration while the callback gets trimmed segments', async (t) => {
+    const { route } = await startProvider(t, [{ body: streamBody(`${FIRST}\n\n`, SECOND) }]);
+    const heard: string[] = [];
+    const reply = await streamNarration(route, packet(), (segment) => heard.push(segment));
+    assert.deepEqual(heard, [FIRST, SECOND]);
+    assert.equal(reply.narration, `${FIRST}\n\n${SECOND}`);
+    assert.deepEqual(reply.segments, [{ text: `${FIRST}\n\n${SECOND}` }]);
+  });
+
+  it('retries a retryable status before any text arrives', async (t) => {
+    const { received, route } = await startProvider(t, [{ status: BAD_GATEWAY }, { body: streamBody(FIRST) }]);
+    assert.equal((await streamNarration(route, packet(), () => {})).narration, FIRST);
+    assert.equal(received.length, 2);
+  });
+
+  it('refuses a rejected key and never leaks it', async (t) => {
+    const { route } = await startProvider(t, [{ status: UNAUTHORIZED }]);
+    assertRedacted(await failureOf(streamNarration(route, packet(), () => {})));
+  });
+
+  it('fails when the stream carries no text', async (t) => {
+    const { route } = await startProvider(t, [{ body: streamBody() }]);
+    await failureOf(streamNarration(route, packet(), () => {}));
   });
 });

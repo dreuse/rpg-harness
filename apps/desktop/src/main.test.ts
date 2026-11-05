@@ -485,6 +485,7 @@ test('rpg-cm63.7 main serves voice setup to its own window and forwards download
       CHANNELS.voiceCheck,
       CHANNELS.voiceClear,
       CHANNELS.voiceDownload,
+      CHANNELS.voicePlayback,
       CHANNELS.voicePreview,
       CHANNELS.voiceRemove,
     ].sort(),
@@ -505,4 +506,22 @@ test('rpg-cm63.7 main serves voice setup to its own window and forwards download
     ['clear'],
   ]);
   assert.deepEqual(electron.pushed, [[CHANNELS.voiceProgress, 5]]);
+});
+
+test('rpg-cm63.17 main forwards only valid playback commands from its own window to the engine', async () => {
+  const electron = fakeElectron();
+  const forwarded: unknown[] = [];
+  const daemon = {
+    ...fakeDaemon(),
+    playback: async (input: unknown) => {
+      forwarded.push(input);
+      return { id: 0, type: 'Played' as const };
+    },
+  };
+  start(electron, daemon);
+  await assert.rejects(electron.invokeForeign(CHANNELS.voicePlayback, 'pause'));
+  assert.equal(await electron.invoke(CHANNELS.voicePlayback, 'pause'), true);
+  assert.equal(await electron.invoke(CHANNELS.voicePlayback, 'format-disk'), false);
+  assert.equal(await electron.invoke(CHANNELS.voicePlayback, { command: 'stop' }), false);
+  assert.deepEqual(forwarded, ['pause']);
 });

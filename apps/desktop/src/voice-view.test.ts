@@ -267,3 +267,17 @@ test('rpg-cm63.15 voice controls share the body font and one button alignment', 
     /\[data-voice-npcs\]:has\(#voice-npc-speaker option:checked:not\(\[value=""\]\)\) \[data-voice-npc-other\] \{\s*display: none;/,
   );
 });
+
+test('rpg-cm63.17 voice settings show pause, resume, skip and stop only while spoken output is on', () => {
+  const page = html(ready);
+  assert.match(page, /<div role="group" aria-label="Playback" data-voice-playback-group>/);
+  for (const [command, label] of [
+    ['pause', 'Pause'],
+    ['resume', 'Resume'],
+    ['skip', 'Skip'],
+    ['stop', 'Stop'],
+  ])
+    assert.match(page, new RegExp(`<button type="button" data-voice-playback="${command}">${label}</button>`));
+  assert.doesNotMatch(html(ready, { ...voice.preferences, spokenOutput: 'off' }), /data-voice-playback/);
+  assert.match(html(ready, voice.preferences, 'pt-BR'), /data-voice-playback="pause">Pausar<\/button>/);
+});
