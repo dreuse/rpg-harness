@@ -324,7 +324,7 @@ const soundRow = (settings: SoundSettings, channel: (typeof SOUND_CHANNELS)[numb
 
 export const SOUND_SETUP = 'data-sound-setup';
 
-const soundSetupBody = ({ step, installed, offer, progress }: SoundSetupView, locale: string) => {
+const soundSetupBody = ({ step, installed, offer, progress, retryMinutes }: SoundSetupView, locale: string) => {
   const text = (key: string, values?: Record<string, string | number>, status = false) =>
     `<p${status ? ' role="status" tabindex="-1"' : ''}>${escapeHtml(translate(locale, key, values))}</p>`;
   const download = button(SOUND_SETUP, 'download', translate(locale, 'sound.setup.download'));
@@ -332,7 +332,13 @@ const soundSetupBody = ({ step, installed, offer, progress }: SoundSetupView, lo
     return `${text('sound.setup.consent', { size: offer.sizeMiB, source: URL.parse(offer.source)?.host ?? offer.source })}${button(SOUND_SETUP, 'accept', translate(locale, 'sound.setup.accept'), false, true)}${button(SOUND_SETUP, 'decline', translate(locale, 'sound.setup.decline'))}`;
   if (step === 'downloading')
     return `${text('sound.setup.downloading', undefined, true)}${progress === undefined ? '' : `<div data-voice-progress><progress value="${progress.bytes}" max="${progress.total}" aria-label="${escapeHtml(translate(locale, 'sound.setup.downloading'))}"></progress><span>${escapeHtml(translate(locale, 'voice.setup.progress', { done: mib(progress.bytes), total: mib(progress.total) }))}</span></div>`}`;
-  if (step === 'failed') return `${alert(translate(locale, 'sound.setup.failed'))}${download}`;
+  if (step === 'failed') {
+    const message =
+      retryMinutes === undefined
+        ? translate(locale, 'sound.setup.failed')
+        : translate(locale, 'sound.setup.busy', { minutes: retryMinutes });
+    return `${alert(message)}${download}`;
+  }
   if (installed) return `<p role="status" tabindex="-1">${escapeHtml(translate(locale, 'sound.setup.installed'))}</p>`;
   return offer === undefined ? '' : download;
 };

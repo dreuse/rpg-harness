@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { SoundRateLimitedError } from '../../../packages/voice/src/sound-rate-limit.ts';
 import { DEFAULT_SOUND_SETTINGS } from '../../../packages/voice/src/sound-settings.ts';
 import { DEFAULT_PREFERENCES, parsePreferences, persistedPreferences } from './accessibility.ts';
 import { initialState, viewModel } from './renderer.ts';
@@ -9,6 +10,7 @@ import { createSoundSetup, type SoundSetupView } from './sound-setup.ts';
 import { renderView, SOUND_FIELD_TOGGLE, SOUND_FIELD_VOLUME, soundPanel } from './view.ts';
 
 const WIDE_WIDTH = 1600;
+const RETRY_SECONDS = 541;
 const MUSIC_ON = { ...DEFAULT_SOUND_SETTINGS, music: { enabled: true, volume: 0.25 } };
 
 test('every channel is off by default in the saved preferences', () => {
@@ -58,13 +60,13 @@ const fakeBridge = (first: SoundHostStatus = MISSING) => {
   let status = first;
   const downloads: unknown[] = [];
   let progress: (bytes: number) => void = () => {};
-  let fail = false;
+  let fail: Error | undefined;
   const bridge: SoundBridge = {
     status: async () => status,
     download: async (consent) => {
       downloads.push(consent);
       progress(OFFER.bytes / 2);
-      if (fail) throw new Error('offline');
+      if (fail) throw fail;
       status = PRESENT;
     },
     file: async () => undefined,
@@ -76,8 +78,8 @@ const fakeBridge = (first: SoundHostStatus = MISSING) => {
   return {
     bridge,
     downloads,
-    failNext: () => {
-      fail = true;
+    failNext: (error = new Error('offline')) => {
+      fail = error;
     },
   };
 };
@@ -148,6 +150,41 @@ test('a failed download shows an alert, allows a retry and does not report an in
   const page = soundPanel(DEFAULT_SOUND_SETTINGS, 'en', setup.view());
   assert.match(page, /role="alert"/);
   assert.match(page, /data-sound-setup="download"/);
+});
+
+test('a rate-limited download tells the player to retry in minutes in every locale', async () => {
+  const fake = fakeBridge();
+  fake.failNext(new SoundRateLimitedError(RETRY_SECONDS));
+  const { setup } = await setupOf(fake);
+  setup.ask();
+  await setup.accept();
+  assert.equal(setup.view().retryMinutes, 10);
+  assert.match(
+    soundPanel(DEFAULT_SOUND_SETTINGS, 'en', setup.view()),
+    /The sound host is busy\. Try again in about 10 minutes\./,
+  );
+  assert.match(
+    soundPanel(DEFAULT_SOUND_SETTINGS, 'pt-BR', setup.view()),
+    /O servidor de sons está ocupado\. Tente novamente em cerca de 10 minutos\./,
+  );
+  assert.match(
+    soundPanel(DEFAULT_SOUND_SETTINGS, 'es', setup.view()),
+    /El servidor de sonidos está ocupado\. Inténtalo de nuevo en unos 10 minutos\./,
+  );
+  assert.doesNotMatch(soundPanel(DEFAULT_SOUND_SETTINGS, 'en', setup.view()), /download failed/);
+});
+
+test('a generic failure keeps the generic message and no retry time', async () => {
+  const fake = fakeBridge();
+  fake.failNext();
+  const { setup } = await setupOf(fake);
+  setup.ask();
+  await setup.accept();
+  assert.equal(setup.view().retryMinutes, undefined);
+  assert.match(
+    soundPanel(DEFAULT_SOUND_SETTINGS, 'en', setup.view()),
+    /The sound pack download failed\. Check your connection/,
+  );
 });
 
 test('the download controls are localized in Portuguese', async () => {

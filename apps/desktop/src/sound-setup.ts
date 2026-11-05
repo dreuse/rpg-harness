@@ -1,4 +1,5 @@
 import type { ModelOffer } from '../../../packages/voice/src/kokoro-model.ts';
+import { parseRateLimited, retryMinutes } from '../../../packages/voice/src/sound-rate-limit.ts';
 import type { SoundBridge } from './sound-player.ts';
 
 export type SoundSetupStep = 'idle' | 'consent' | 'downloading' | 'failed';
@@ -7,6 +8,7 @@ export type SoundSetupView = {
   readonly step: SoundSetupStep;
   readonly installed: boolean;
   readonly offer?: ModelOffer;
+  readonly retryMinutes?: number;
   readonly progress?: { readonly bytes: number; readonly total: number };
 };
 
@@ -23,6 +25,7 @@ export const createSoundSetup = ({
   let present = false;
   let offer: ModelOffer | undefined;
   let progress: SoundSetupView['progress'];
+  let retry: number | undefined;
 
   const go = (next: SoundSetupStep) => {
     step = next;
@@ -56,11 +59,14 @@ export const createSoundSetup = ({
     accept: async () => {
       if (step !== 'consent' || offer === undefined) return;
       progress = { bytes: 0, total: offer.bytes };
+      retry = undefined;
       go('downloading');
       try {
         await bridge.download({ accepted: true, ...offer });
-      } catch {
+      } catch (error) {
         progress = undefined;
+        const seconds = parseRateLimited(error instanceof Error ? error.message : '');
+        retry = seconds === undefined ? undefined : retryMinutes(seconds);
         await refresh();
         return go('failed');
       }
@@ -73,6 +79,7 @@ export const createSoundSetup = ({
       step,
       installed: present,
       ...(offer === undefined ? {} : { offer }),
+      ...(retry === undefined ? {} : { retryMinutes: retry }),
       ...(progress === undefined ? {} : { progress }),
     }),
   };

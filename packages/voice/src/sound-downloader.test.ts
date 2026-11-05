@@ -4,8 +4,9 @@ import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, test } from 'node:test';
-import { createSoundManager } from './sound-downloader.ts';
+import { createSoundManager, SOUND_USER_AGENT } from './sound-downloader.ts';
 import type { SoundEntry } from './sound-manifest.ts';
+import { DEFAULT_RETRY_AFTER_SECONDS, parseRateLimited, SoundRateLimitedError } from './sound-rate-limit.ts';
 
 const CONTENT = new TextEncoder().encode('loop-audio');
 const TAMPERED = new TextEncoder().encode('evil-audio');
@@ -192,4 +193,113 @@ test('status and download treat a same-size file with wrong content as not insta
   await manager.download(consent(manager));
   assert.deepEqual(new Uint8Array(await readFile(join(dir, 'music/calm.ogg'))), CONTENT);
   assert.deepEqual(await manager.status(), { installed: true, bytes: CONTENT.length });
+});
+
+const RATE_LIMITED = 429;
+const SERVICE_UNAVAILABLE = 503;
+const SHORT_WAIT_SECONDS = 5;
+const LONG_WAIT_SECONDS = 600;
+const USER_AGENT = 'user-agent';
+const noSleep = async (): Promise<void> => {};
+
+test('sends a named user agent on the first request and on every redirect hop', async () => {
+  const agents: (string | null)[] = [];
+  const redirecting: typeof fetch = async (_input, init) => {
+    agents.push(new Headers(init?.headers).get(USER_AGENT));
+    return agents.length === 1
+      ? new Response(null, { status: REDIRECT, headers: { location: 'https://cdn.example/calm.ogg' } })
+      : new Response(CONTENT);
+  };
+  const manager = createSoundManager({ dir: await tempDir(), sounds: SOUNDS, fetch: redirecting });
+  await manager.download(consent(manager));
+  assert.deepEqual(agents, [SOUND_USER_AGENT, SOUND_USER_AGENT]);
+  assert.match(SOUND_USER_AGENT, /^RPGHarness\/\S+ \(https:\/\/github\.com\/rpg-harness; sound pack downloader\)$/);
+});
+
+for (const status of [RATE_LIMITED, SERVICE_UNAVAILABLE]) {
+  test(`waits once and retries after HTTP ${status} with a short Retry-After`, async () => {
+    const waits: number[] = [];
+    let calls = 0;
+    const flaky: typeof fetch = async () => {
+      calls += 1;
+      return calls === 1
+        ? new Response(null, { status, headers: { 'retry-after': String(SHORT_WAIT_SECONDS) } })
+        : new Response(CONTENT);
+    };
+    const manager = createSoundManager({
+      dir: await tempDir(),
+      sounds: SOUNDS,
+      fetch: flaky,
+      sleep: async (ms) => {
+        waits.push(ms);
+      },
+    });
+    await manager.download(consent(manager));
+    assert.deepEqual(waits, [SHORT_WAIT_SECONDS * 1000]);
+    assert.equal(calls, 2);
+  });
+}
+
+test('throws a typed error after a second rate limit without a third request', async () => {
+  let calls = 0;
+  const limited: typeof fetch = async () => {
+    calls += 1;
+    return new Response(null, { status: RATE_LIMITED, headers: { 'retry-after': '1' } });
+  };
+  const manager = createSoundManager({ dir: await tempDir(), sounds: SOUNDS, fetch: limited, sleep: noSleep });
+  await assert.rejects(manager.download(consent(manager)), SoundRateLimitedError);
+  assert.equal(calls, 2);
+});
+
+for (const header of [String(LONG_WAIT_SECONDS), undefined, 'soon']) {
+  test(`stops with the retry delay when Retry-After is ${header ?? 'missing'}`, async () => {
+    let calls = 0;
+    const limited: typeof fetch = async () => {
+      calls += 1;
+      return new Response(null, {
+        status: RATE_LIMITED,
+        headers: header === undefined ? {} : { 'retry-after': header },
+      });
+    };
+    const manager = createSoundManager({ dir: await tempDir(), sounds: SOUNDS, fetch: limited, sleep: noSleep });
+    const error = await manager.download(consent(manager)).catch((caught: unknown) => caught);
+    assert.ok(error instanceof SoundRateLimitedError);
+    assert.equal(error.retryAfterSeconds, header === '600' ? LONG_WAIT_SECONDS : DEFAULT_RETRY_AFTER_SECONDS);
+    assert.equal(calls, 1);
+    assert.equal(parseRateLimited(error.message), error.retryAfterSeconds);
+  });
+}
+
+test('keeps verified files after a mid-manifest rate limit so a retry resumes', async () => {
+  const second = new TextEncoder().encode('second-audio');
+  const sounds: readonly SoundEntry[] = [
+    SOUNDS[0]!,
+    {
+      ...SOUNDS[0]!,
+      key: 'storm',
+      file: 'music/storm.ogg',
+      url: 'https://sounds.example/storm.ogg',
+      sha256: sha256(second),
+      bytes: second.length,
+    },
+  ];
+  const requested: string[] = [];
+  let limit = true;
+  const host: typeof fetch = async (input) => {
+    requested.push(String(input));
+    if (String(input).endsWith('storm.ogg')) {
+      return limit
+        ? new Response(null, { status: RATE_LIMITED, headers: { 'retry-after': String(LONG_WAIT_SECONDS) } })
+        : new Response(second);
+    }
+    return new Response(CONTENT);
+  };
+  const manager = createSoundManager({ dir: await tempDir(), sounds, fetch: host, sleep: noSleep });
+  await assert.rejects(manager.download(consent(manager)), SoundRateLimitedError);
+  assert.notEqual(manager.pathOf('music', 'calm'), undefined);
+  limit = false;
+  requested.length = 0;
+  await manager.download(consent(manager));
+  assert.deepEqual(requested, ['https://sounds.example/storm.ogg']);
+  assert.equal((await manager.status()).installed, true);
 });

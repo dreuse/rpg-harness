@@ -1,14 +1,17 @@
 import { createHash } from 'node:crypto';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 import { consented, type ModelConsent, type ModelOffer, type ModelStatus } from './kokoro-model.ts';
 import type { SoundEntry, SoundKind } from './sound-manifest.ts';
+import { DEFAULT_RETRY_AFTER_SECONDS, SoundRateLimitedError } from './sound-rate-limit.ts';
 
 export interface SoundManagerOptions {
   readonly dir: string;
   readonly sounds: readonly SoundEntry[];
   readonly fetch?: typeof fetch;
+  readonly sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
 }
 
 export interface SoundManager {
@@ -29,6 +32,26 @@ const MAX_REDIRECTS = 5;
 const REDIRECT_STATUSES: ReadonlySet<number> = new Set([301, 302, 303, 307, 308]);
 const CONTENT_LENGTH = 'content-length';
 const LOCATION = 'location';
+const RETRY_AFTER = 'retry-after';
+const USER_AGENT = 'user-agent';
+const RETRYABLE_STATUSES: ReadonlySet<number> = new Set([429, 503]);
+const MAX_WAIT_SECONDS = 60;
+const MS_PER_SECOND = 1000;
+const APP_NAME = 'RPGHarness';
+const PROJECT_URL = 'https://github.com/rpg-harness';
+const PACKAGE_FILE = join(import.meta.dirname, '..', 'package.json');
+const TEXT = 'utf8';
+
+const wait = (ms: number, signal?: AbortSignal): Promise<void> => delay(ms, undefined, signal ? { signal } : undefined);
+
+const packageVersion = (): string => (JSON.parse(readFileSync(PACKAGE_FILE, TEXT)) as { version: string }).version;
+
+export const SOUND_USER_AGENT = `${APP_NAME}/${packageVersion()} (${PROJECT_URL}; sound pack downloader)`;
+
+const retryAfterSeconds = (response: Response): number => {
+  const header = response.headers.get(RETRY_AFTER);
+  return header !== null && /^\d+$/.test(header.trim()) ? Number(header) : DEFAULT_RETRY_AFTER_SECONDS;
+};
 
 const offerFor = (sounds: readonly SoundEntry[]): ModelOffer => {
   const bytes = sounds.reduce((sum, { bytes: size }) => sum + size, 0);
@@ -75,14 +98,33 @@ const readCapped = async (response: Response, sound: SoundEntry): Promise<Uint8A
   return Buffer.concat(chunks);
 };
 
-export const createSoundManager = ({ dir, sounds, fetch: fetchFile = fetch }: SoundManagerOptions): SoundManager => {
+export const createSoundManager = ({
+  dir,
+  sounds,
+  fetch: fetchFile = fetch,
+  sleep = wait,
+}: SoundManagerOptions): SoundManager => {
   const offer = offerFor(sounds);
   const target = (sound: SoundEntry) => join(dir, sound.file);
 
   const fetchFollowing = async (sound: SoundEntry, signal: AbortSignal | undefined): Promise<Response> => {
     let url = requireHttps(sound.url, sound.file);
+    let waited = false;
+    const init: RequestInit = {
+      redirect: 'manual',
+      headers: { [USER_AGENT]: SOUND_USER_AGENT },
+      ...(signal ? { signal } : {}),
+    };
     for (let hop = 0; hop <= MAX_REDIRECTS; hop += 1) {
-      const response = await fetchFile(url.href, signal ? { signal, redirect: 'manual' } : { redirect: 'manual' });
+      const response = await fetchFile(url.href, init);
+      if (RETRYABLE_STATUSES.has(response.status)) {
+        const seconds = retryAfterSeconds(response);
+        if (waited || seconds > MAX_WAIT_SECONDS) throw new SoundRateLimitedError(seconds);
+        waited = true;
+        await sleep(seconds * MS_PER_SECOND, signal);
+        hop -= 1;
+        continue;
+      }
       if (!REDIRECT_STATUSES.has(response.status)) return response;
       const location = response.headers.get(LOCATION);
       url = requireHttps(location === null ? '' : new URL(location, url).href, sound.file);
