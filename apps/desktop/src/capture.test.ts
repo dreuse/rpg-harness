@@ -29,6 +29,7 @@ const fakeWindow = () => {
         calls.push(
           code.includes('[data-home="continue"]') ? 'select' : `settle ${/data-layout="(\w+)"/.exec(code)?.[1]}`,
         ),
+      insertCSS: async () => '',
     },
   };
   return { window, calls };
@@ -132,4 +133,73 @@ test('rpg-42a.32 capture takes each screenshot from a freshly presented composit
     CAPTURE_THEMES.map(() => `${SCREENSHOT} {"format":"png"}`),
   );
   assert.ok(files.every((file) => PNG.equals(written.get(file) ?? new Uint8Array())));
+});
+
+const settleScript = async () => {
+  const scripts: string[] = [];
+  const { window } = fakeWindow();
+  const executeJavaScript = window.webContents.executeJavaScript;
+  await captureJourney(
+    {
+      ...window,
+      webContents: {
+        ...window.webContents,
+        executeJavaScript: (code) => {
+          scripts.push(code);
+          return executeJavaScript(code);
+        },
+      },
+    },
+    DIR,
+    () => {},
+    [{ script: '', shot: 'home' }],
+  );
+  return scripts.find((code) => code.includes('data-layout')) ?? '';
+};
+
+test('rpg-42a.34 capture waits until focus stays on one element across two animation frames', async () => {
+  const focusMoves = ['body', 'body', 'heading', 'input', 'input', 'input'];
+  let frame = 0;
+  const document = {
+    querySelector: () => ({}),
+    get activeElement() {
+      return focusMoves[Math.min(frame, focusMoves.length - 1)];
+    },
+  };
+  const page = {
+    document,
+    matchMedia: () => ({ matches: true }),
+    setTimeout: (callback: () => void) => queueMicrotask(callback),
+    requestAnimationFrame: (callback: () => void) =>
+      queueMicrotask(() => {
+        frame++;
+        callback();
+      }),
+    Date,
+  };
+  await runInNewContext(await settleScript(), page);
+  assert.equal(document.activeElement, 'input');
+  assert.ok(frame >= focusMoves.indexOf('input') + 2);
+});
+
+test('rpg-42a.34 capture keeps the page focused and hides the text caret only while capturing', async () => {
+  const { window, calls } = fakeWindow();
+  const css: string[] = [];
+  await captureJourney(
+    {
+      ...window,
+      webContents: {
+        ...window.webContents,
+        insertCSS: async (code) => {
+          css.push(code);
+          return '';
+        },
+      },
+    },
+    DIR,
+    () => {},
+    [{ script: '', shot: 'home' }],
+  );
+  assert.ok(calls.includes('Emulation.setFocusEmulationEnabled {"enabled":true}'));
+  assert.deepEqual(css, ['* { caret-color: transparent !important; }']);
 });

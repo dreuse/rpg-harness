@@ -48,10 +48,29 @@ type MediaFeature = { readonly name: string; readonly value: string };
 const MEDIA_JOIN = ' and ';
 const mediaQuery = (features: readonly MediaFeature[]) =>
   features.map(({ name, value }) => `(${name}: ${value})`).join(MEDIA_JOIN);
+const FOCUS_SETTLED = `new Promise((resolve, reject) => {
+  const deadline = Date.now() + ${SETTLE_TIMEOUT_MS};
+  const check = () => {
+    const before = document.activeElement;
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      if (document.activeElement === before) return resolve(true);
+      if (Date.now() > deadline) return reject(new Error('timed out waiting for focus to settle'));
+      check();
+    }));
+  };
+  check();
+})`;
 const settleProbe = (layout: string, features: readonly MediaFeature[]) =>
-  until(
+  `(async () => { await ${until(
     `document.querySelector('main[data-layout="${layout}"]') && matchMedia(${JSON.stringify(mediaQuery(features))}).matches`,
-  );
+  )}; await ${FOCUS_SETTLED}; })()`;
+const FOCUS_EMULATION = 'Emulation.setFocusEmulationEnabled';
+const HIDDEN_CARET = '* { caret-color: transparent !important; }';
+const prepare = async ({ webContents }: CaptureWindow) => {
+  webContents.debugger.attach(DEBUGGER_VERSION);
+  await webContents.debugger.sendCommand(FOCUS_EMULATION, { enabled: true });
+  await webContents.insertCSS(HIDDEN_CARET);
+};
 const SCREENSHOT = 'Page.captureScreenshot';
 const SCREENSHOT_PARAMS = { format: 'png' };
 const BASE64 = 'base64';
@@ -68,6 +87,7 @@ export type CaptureWindow = {
       sendCommand(method: string, params: object): Promise<unknown>;
     };
     executeJavaScript(code: string): Promise<unknown>;
+    insertCSS(css: string): Promise<string>;
   };
 };
 
@@ -77,7 +97,7 @@ export const captureScreens = async (
   write: (path: string, data: Uint8Array) => void,
 ): Promise<string[]> => {
   const { webContents } = window;
-  webContents.debugger.attach(DEBUGGER_VERSION);
+  await prepare(window);
   const files: string[] = [];
   const shoot = async (prefix: string) => {
     for (const { name: themeName, features } of CAPTURE_THEMES) {
@@ -197,7 +217,13 @@ export const JOURNEY: Readonly<Record<'first' | 'reopen', readonly JourneyStep[]
   ],
   reopen: [
     { script: until(`${CONNECTED} && document.querySelector('#home-continue-0')`), shot: 'reopen-home' },
-    { script: steps(click('#home-continue-0'), `await ${until(PLAY_READY)};`), shot: 'continue' },
+    {
+      script: steps(
+        click('#home-continue-0'),
+        `await ${until(`${PLAY_READY} && document.querySelector('[data-rolls] [data-roll]') && ${SETTLED}`)};`,
+      ),
+      shot: 'continue',
+    },
   ],
 };
 
@@ -259,7 +285,7 @@ export const captureJourney = async (
   journey: readonly JourneyStep[],
 ): Promise<string[]> => {
   const { webContents } = window;
-  webContents.debugger.attach(DEBUGGER_VERSION);
+  await prepare(window);
   window.setContentSize(WINDOW_WIDTH, WINDOW_HEIGHT);
   const files: string[] = [];
   for (const { script, shot } of journey) {
