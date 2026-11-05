@@ -91,10 +91,16 @@ import {
   requestClaudeSummary,
 } from './gm-claude-code.ts';
 import { requestClaudeStream } from './gm-claude-stream.ts';
-import { contextPacketOf, fakeSummarizer, type Summarizer, summarizeCampaign } from './gm-context.ts';
+import { contextPacketOf, fakeSummarizer, openingPacketOf, type Summarizer, summarizeCampaign } from './gm-context.ts';
 import { readGmDefaults, writeGmDefaults } from './gm-defaults.ts';
 import { requestFitting, TOO_LONG_MESSAGE } from './gm-limits.ts';
-import { commitProposals, type GmProposal } from './gm-proposals.ts';
+import {
+  commitProposals,
+  ENTITY_PROPOSAL,
+  type EntityProposal,
+  type GmProposal,
+  MAX_FACT_LENGTH,
+} from './gm-proposals.ts';
 import { type GmSegment, narratorSegments } from './gm-segments.ts';
 
 export { FAKE_GM_REPLY } from './gm-api.ts';
@@ -107,10 +113,13 @@ import {
   commandConfig,
   creationRulesFor,
   describeConfig,
+  isPitch,
   type Opening,
   openingFor,
   planCampaign,
   startingCharacter,
+  titleOf,
+  UnknownEdition,
 } from './quickstart.ts';
 import { checkFor } from './roll-visualization.ts';
 import type { SpeechRuntime } from './speech-runtime.ts';
@@ -144,6 +153,11 @@ const DEFAULT_OPENING: Opening = {
   title: 'The Crossroads Inn',
   narration: 'Rain drums on the roof of the Crossroads Inn. A stranger by the fire looks up as you enter.',
 };
+const PITCH_ENTITY_ID = 'campaign-pitch';
+const SETTING_KIND = 'location';
+const KEEP_NAME_HINT = 'To keep a long name as it is, add a pitch: rpg new "<name>" "<pitch>".';
+export const GENERIC_OPENING_NOTICE =
+  'This opening is generic: no AI game master is available to build one from your pitch.';
 const ARCHIVE_DIR = 'archive';
 const NONE = 'none';
 const SAVED_SETTINGS = 'Saved settings:';
@@ -655,35 +669,98 @@ const claimFile = (path: string, name: string) => {
   }
 };
 
-const createCampaign = (
+type Started = {
+  readonly opening: Opening;
+  readonly proposals: readonly GmProposal[];
+  readonly generic: boolean;
+};
+
+type Starter = (databasePath: string) => Promise<Started>;
+
+const createCampaign = async (
   dataDir: string,
   name: string,
-  opening: Opening,
   config: CampaignConfig,
+  start: Starter,
   language?: string,
-): string => {
+): Promise<string> => {
   mkdirSync(dataDir, { recursive: true });
   const path = databasePath(dataDir, name);
   claimFile(path, name);
   let connection: ReturnType<typeof openDatabase> | undefined;
   try {
     connection = openDatabase(path);
-    const store = createCampaignStore(connection.database);
+    const { database } = connection;
+    const store = createCampaignStore(database);
     const campaign = createEngine(store).createCampaign(name, language);
-    openScene(store, {
+    const { opening, proposals, generic } = await start(path);
+    const committed = openScene(store, {
       campaignId: campaign.id,
       actorName: HERO_NAME,
       sceneTitle: opening.title,
       narration: opening.narration,
       config,
     });
+    commitProposals(store, createEntityStore(database), createFactStore(database), committed, proposals);
     connection.close();
+    return generic
+      ? `${sceneText(opening.title, opening.narration)}\n${GENERIC_OPENING_NOTICE}`
+      : sceneText(opening.title, opening.narration);
   } catch (error) {
     connection?.close();
     rmSync(path, { force: true });
     throw error;
   }
-  return sceneText(opening.title, opening.narration);
+};
+
+const settingProposal = (name: string, pitch: string | undefined): readonly EntityProposal[] =>
+  pitch === undefined
+    ? []
+    : [
+        {
+          kind: ENTITY_PROPOSAL,
+          id: PITCH_ENTITY_ID,
+          entityKind: SETTING_KIND,
+          name,
+          facts: [pitch.slice(0, MAX_FACT_LENGTH)],
+          visibility: 'player',
+        },
+      ];
+
+const starterFor =
+  (gm: GameMaster, { name, pitch, config, language }: StartRequest): Starter =>
+  async (databasePath) => {
+    const setting = settingProposal(name, pitch);
+    const generic = { opening: openingFor(config, DEFAULT_OPENING), proposals: setting, generic: true };
+    if (!('request' in gm)) return generic;
+    let reply: GmTurnReply;
+    try {
+      reply = await gm.request(openingPacketOf(pitch ?? name, describeConfig(config), language), {
+        databasePath,
+        model: undefined,
+      });
+    } catch (error) {
+      if (error instanceof ProviderError) return generic;
+      throw error;
+    }
+    if (reply.narration.trim() === '' || reply.narration.endsWith(FAKE_GM_REPLY)) return generic;
+    const proposals = reply.proposals ?? [];
+    const place = proposals.find(
+      (proposal): proposal is EntityProposal =>
+        proposal.kind === ENTITY_PROPOSAL && proposal.entityKind === SETTING_KIND,
+    );
+    return {
+      opening: { title: place?.name ?? name, narration: reply.narration },
+      proposals: [...setting, ...proposals],
+      generic: false,
+    };
+  };
+
+type StartRequest = {
+  readonly name: string;
+  readonly pitch: string | undefined;
+  readonly config: CampaignConfig;
+  readonly language?: string | undefined;
 };
 
 const unfinishedText = (result: Exclude<BuildResult, { status: 'created' }>) =>
@@ -919,11 +996,16 @@ export const deleteCampaign = (dataDir: string, name: string, confirm: string, a
   rmSync(path);
 };
 
-export const createCampaignFrom = (dataDir: string, command: CreateCampaign, client?: string): CampaignSummary => {
-  const { name, language } = command;
+export const createCampaignFrom = async (
+  dataDir: string,
+  command: CreateCampaign,
+  client?: string,
+  gm: GameMaster = FAKE_GAME_MASTER,
+): Promise<CampaignSummary> => {
+  const { name, language, intent } = command;
   const config = commandConfig(command, client);
   const character = startingCharacter(config);
-  createCampaign(dataDir, name, openingFor(config, DEFAULT_OPENING), config, language);
+  await createCampaign(dataDir, name, config, starterFor(gm, { name, pitch: intent, config, language }), language);
   try {
     if (character !== undefined) addCharacter(dataDir, name, character);
   } catch (error) {
@@ -982,6 +1064,22 @@ const newCampaignConfig = (intent: string | undefined, client: string | undefine
       message: error.message,
       client: error.client,
     });
+  }
+};
+
+const pitchConfig = (pitch: string | undefined, derived: boolean, client: string | undefined) => {
+  try {
+    return newCampaignConfig(pitch, client);
+  } catch (error) {
+    if (!derived || error instanceof LocalizedError || error instanceof UnknownEdition) throw error;
+    return newCampaignConfig(undefined, client);
+  }
+};
+
+const uniqueName = (dataDir: string, title: string) => {
+  for (let suffix = 1; ; suffix += 1) {
+    const candidate = suffix === 1 ? title : `${title} ${suffix}`;
+    if (!existsSync(databasePath(dataDir, candidate)) && !existsSync(archivePath(dataDir, candidate))) return candidate;
   }
 };
 
@@ -1054,7 +1152,13 @@ export const createEngineGateway = (
         unarchive: (name) => unarchiveCampaign(dataDir, name),
         remove: (name, confirm, archived) => deleteCampaign(dataDir, name, confirm, archived),
         play: (name, playing) => playTui(dataDir, name, playing, gm, rng, makeSpeech),
-        start: (lines, locale) => guidedStart(dataDir, lines, createCampaignFrom, locale),
+        start: (lines, locale) =>
+          guidedStart(
+            dataDir,
+            lines,
+            (target, command, client) => createCampaignFrom(target, command, client, gm),
+            locale,
+          ),
       },
       terminal,
     ),
@@ -1070,15 +1174,25 @@ export const createEngineGateway = (
       request,
     ),
   create: async function* (name, intent, ask, client, language) {
-    const config = newCampaignConfig(intent, client);
-    const scene = createCampaign(dataDir, name, openingFor(config, DEFAULT_OPENING), config, language);
-    yield `${SAVED_SETTINGS}\n${describeConfig(config)}\n${scene}`;
-    const character = await characterFor(dataDir, name, config, ask);
+    const derived = intent === undefined && isPitch(name);
+    const pitch = derived ? name : intent;
+    const title = derived ? uniqueName(dataDir, titleOf(name)) : name;
+    const config = pitchConfig(pitch, derived, client);
+    const scene = await createCampaign(
+      dataDir,
+      title,
+      config,
+      starterFor(gm, { name: title, pitch, config, language }),
+      language,
+    );
+    yield `${derived ? `Campaign: ${title}\n${KEEP_NAME_HINT}\n` : ''}${SAVED_SETTINGS}\n${describeConfig(config)}\n${scene}`;
+    const character = await characterFor(dataDir, title, config, ask);
     if (character !== undefined) yield character;
   },
   view: (name, view) => readView(dataDir, name, view),
   tui: (name, terminal) => playTui(dataDir, name, terminal, gm, rng, makeSpeech),
-  start: (lines, locale) => guidedStart(dataDir, lines, createCampaignFrom, locale),
+  start: (lines, locale) =>
+    guidedStart(dataDir, lines, (target, command, client) => createCampaignFrom(target, command, client, gm), locale),
   importRules: (files, lines) => importRules(process.cwd(), files, lines),
   open: async function* (name, _mode, lines, onTurnError) {
     yield readView(dataDir, name, RECAP_VIEW);

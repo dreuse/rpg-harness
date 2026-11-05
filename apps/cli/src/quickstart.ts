@@ -203,6 +203,16 @@ const configFor = (intent: CampaignIntent): CampaignConfig => {
 export const planCampaign = (text?: string, choices: Choices = {}): CampaignConfig =>
   configFor(text === undefined ? chosenIntent(choices) : intentFrom(text, choices));
 
+const MAX_TITLE_WORDS = 4;
+const MAX_TITLE_LENGTH = 40;
+const WORD_SEPARATOR = /\s+/;
+
+export const isPitch = (text: string) =>
+  text.trim().split(WORD_SEPARATOR).length > MAX_TITLE_WORDS || text.trim().length > MAX_TITLE_LENGTH;
+
+export const titleOf = (pitch: string) =>
+  pitch.trim().split(WORD_SEPARATOR).slice(0, MAX_TITLE_WORDS).join(' ').slice(0, MAX_TITLE_LENGTH).trim();
+
 export type Opening = { title: string; narration: string };
 
 export const openingFor = ({ genre }: CampaignConfig, fallback: Opening): Opening => {

@@ -35,14 +35,18 @@ import { PLAYER_VIEWER, type Viewer, visibleTo } from '../../../packages/memory/
 import { buildLedger, ledgerAllowance, ledgerLines } from '../../../packages/memory/src/ledger.ts';
 import {
   buildContextPacket,
+  CONTEXT_BUDGETS,
   type ContextBudgetPreset,
   type ContextPacket,
+  type PacketInput,
   RECENT_TURN_LIMIT,
+  STABLE_SECTIONS,
+  VARIABLE_SECTIONS,
 } from '../../../packages/memory/src/packet.ts';
 import { createEntityStore, createFactStore } from '../../../packages/persistence/src/entity-store.ts';
 import { touchesOf, walkGraph } from '../../../packages/persistence/src/graph.ts';
 import { scopedEventsOf, scopeLookupOf, worldOf } from './client-session.ts';
-import { languageInstruction, SYSTEM_PROMPT } from './gm-api.ts';
+import { languageInstruction, OPENING_PROMPT, SYSTEM_PROMPT } from './gm-api.ts';
 import { budgetOf } from './gm-limits.ts';
 import { describeConfig } from './quickstart.ts';
 import { panelsOf } from './views.ts';
@@ -243,3 +247,19 @@ export const summarizeCampaign = async (
   );
   write('campaign', campaignId, condense(state.events, { id: randomUUID(), text }, chapters));
 };
+
+const NO_ITEMS: readonly string[] = [];
+
+export const openingPacketOf = (pitch: string, ruleset: string, language?: string): ContextPacket =>
+  buildContextPacket(
+    {
+      ...(Object.fromEntries(
+        [...STABLE_SECTIONS, ...VARIABLE_SECTIONS].map((name) => [name, NO_ITEMS]),
+      ) as PacketInput),
+      instructions: [SYSTEM_PROMPT, OPENING_PROMPT, ...(language === undefined ? [] : [languageInstruction(language)])],
+      ruleset: [ruleset],
+      setting: [pitch],
+      playerInput: [pitch],
+    },
+    CONTEXT_BUDGETS.compact,
+  );

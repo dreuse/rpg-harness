@@ -5,7 +5,14 @@ import { join } from 'node:path';
 import { type TestContext, test } from 'node:test';
 import { DEFAULT_ADVENTURE_NAME, START_DRAFT_FILE } from '../../../packages/client-protocol/src/guided-start.ts';
 import { FANTASY_PACK } from '../../../packages/content/src/packs.ts';
-import { createCampaignFrom, createEngineGateway, listCampaignSummaries, readCampaignState } from './engine-gateway.ts';
+import {
+  createCampaignFrom,
+  createEngineGateway,
+  FAKE_GAME_MASTER,
+  type GameMaster,
+  listCampaignSummaries,
+  readCampaignState,
+} from './engine-gateway.ts';
 import { visualizationPreferenceOf } from './roll-visualization.ts';
 import { guidedStart } from './tui-start.ts';
 
@@ -22,6 +29,24 @@ const HORROR_INTENT = 'A horror story using the Narrative rules';
 const DICE_ANIMATION_INTENT = 'A fantasy story using the d20-lite rules with dice animation';
 const GUIDED_NAME = 'Ashfall';
 const PLAYER_ACTION = 'I look around';
+const PITCH = 'a fantasy adventure in a drowned chapel';
+const PITCH_NARRATION = 'Water laps at the pews of the drowned chapel.';
+const PITCH_GM: GameMaster = {
+  request: async () => ({
+    narration: PITCH_NARRATION,
+    segments: [{ text: PITCH_NARRATION }],
+    proposals: [
+      {
+        kind: 'entity',
+        id: 'drowned-chapel',
+        entityKind: 'location',
+        name: 'The Drowned Chapel',
+        visibility: 'player',
+      },
+    ],
+  }),
+  summarizer: FAKE_GAME_MASTER.summarizer,
+};
 const SKIPPED_SUMMARY = [
   'Rules: none (default)',
   'Genre: none (default)',
@@ -112,4 +137,18 @@ test('rpg-42a.14 tui closing mid-wizard and reopening restores the step outside 
   const reopened = await answer(dataDir, []);
   assert.match(reopened[0] ?? '', /^Step 4 of 6: Pick your character/);
   assert.ok(reopened[0]?.includes(`1. ${FANTASY_PACK.genre.archetypes[0]?.name}`));
+});
+
+test('rpg-42a.46 tui describe it path opens from the GM with the pitch', async (t) => {
+  const dataDir = tempDataDir(t);
+  const out: string[] = [];
+  const pitchLines = lines([DESCRIBE, PITCH, START]);
+  for await (const text of guidedStart(dataDir, pitchLines, (target, command, client) =>
+    createCampaignFrom(target, command, client, PITCH_GM),
+  ))
+    out.push(text);
+  const { currentScene, turns } = readCampaignState(dataDir, DEFAULT_ADVENTURE_NAME);
+  assert.equal(currentScene?.title, 'The Drowned Chapel');
+  assert.equal(turns[0]?.narration, PITCH_NARRATION);
+  assert.match(out.at(-1) ?? '', /rpg play "My adventure"/);
 });

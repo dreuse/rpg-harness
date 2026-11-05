@@ -77,7 +77,7 @@ const actionFor = (screen: StartScreen, text: string): StartAction | undefined =
 export const guidedStart = async function* (
   dataDir: string,
   lines: AsyncIterable<string>,
-  createCampaignFrom: (dataDir: string, command: CreateCampaign, client?: string) => CampaignSummary,
+  createCampaignFrom: (dataDir: string, command: CreateCampaign, client?: string) => Promise<CampaignSummary>,
   locale = DEFAULT_LOCALE,
 ): AsyncGenerator<string> {
   const options = startOptions();
@@ -104,7 +104,7 @@ export const guidedStart = async function* (
     }
     if (action.kind === 'start') {
       try {
-        const { name } = createCampaignFrom(dataDir, createCommand(draft, TUI_CLIENT, locale), TUI_CLIENT);
+        const { name } = await createCampaignFrom(dataDir, createCommand(draft, TUI_CLIENT, locale), TUI_CLIENT);
         rmSync(draftPath(dataDir), { force: true });
         yield say(locale, 'start.created', { name, quoted: JSON.stringify(name) });
         return;

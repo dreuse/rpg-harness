@@ -171,10 +171,15 @@ const replyCampaigns = (id: number) => {
   }
 };
 
-const changeCampaign = (command: Lifecycle, served: string | undefined, serveCampaign: (name: string) => void) => {
+const changeCampaign = async (
+  command: Lifecycle,
+  served: string | undefined,
+  serveCampaign: (name: string) => void,
+  gm: GameMaster,
+) => {
   const dataDir = dataDirFromEnv();
   if (command.type === 'CreateCampaign') {
-    const created = createCampaignFrom(dataDir, command, DESKTOP_CLIENT);
+    const created = await createCampaignFrom(dataDir, command, DESKTOP_CLIENT, gm);
     serveCampaign(command.name);
     return created;
   }
@@ -191,14 +196,16 @@ const changeCampaign = (command: Lifecycle, served: string | undefined, serveCam
   return { version: PROTOCOL_VERSION, name: command.name };
 };
 
-const replyChange = (
+const replyChange = async (
   id: number,
   command: Lifecycle,
   served: string | undefined,
   serveCampaign: (name: string) => void,
+  gm: GameMaster,
 ) => {
   try {
-    return send({ id, type: 'Result', result: { ok: true, value: changeCampaign(command, served, serveCampaign) } });
+    const value = await changeCampaign(command, served, serveCampaign, gm);
+    return send({ id, type: 'Result', result: { ok: true, value } });
   } catch (error) {
     return send({ id, type: 'Result', result: failureOf(error) });
   }
@@ -225,7 +232,7 @@ const replier = ({ name, campaign, problem }: Served, gm: GameMaster) => {
     if (command.type === 'ListCampaigns') return replyCampaigns(id);
     if (command.type === 'PlanCampaign')
       return send({ id, type: 'Result', result: planResult(command, DESKTOP_CLIENT) });
-    if (!('campaignId' in command)) return replyChange(id, command, name, serveCampaign);
+    if (!('campaignId' in command)) return replyChange(id, command, name, serveCampaign, gm);
     if (campaign === undefined) return send({ id, type: 'Error', message: problem });
     const { session, campaignId, narrate } = campaign;
     if (command.campaignId !== campaignId)

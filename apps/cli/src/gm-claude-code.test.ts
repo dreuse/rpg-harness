@@ -419,6 +419,7 @@ describe('rpg-42a.33 Claude Code CLI game master', () => {
     const { gm } = await gameMasterFor({ ...hermeticGmEnv(), [CLAUDE_BIN_ENV]: bin });
     const gateway = createEngineGateway(dataDir, gm);
     for await (const _ of gateway.create(CAMPAIGN, undefined, NO_CHARACTER));
+    const openingCalls = calls().length;
     const play = async () => {
       const outputs: string[] = [];
       for await (const output of gateway.open(CAMPAIGN, 'play', toAsync([PLAYER_INPUT, PLAYER_INPUT]), assert.ifError))
@@ -427,6 +428,7 @@ describe('rpg-42a.33 Claude Code CLI game master', () => {
     };
     const narrationModels = () =>
       calls()
+        .slice(openingCalls)
         .filter(({ args }) => args.includes('--mcp-config'))
         .map(({ args }) => args.find((arg) => arg.startsWith('--model=')));
     assert.match(gateway.settings(undefined, { model: 'sonnet', sessionBudgetTokens: '100' }), /GM model: sonnet/);

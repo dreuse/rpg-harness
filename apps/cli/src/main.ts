@@ -79,7 +79,7 @@ const COMMANDS = [
   { name: 'start', usage: 'start' },
   {
     name: 'new',
-    usage: 'new <name> [intent] [--client cli|tui|desktop]',
+    usage: 'new <name|pitch> [intent] [--client cli|tui|desktop]',
   },
   { name: 'play', usage: 'play <campaign>' },
   { name: 'resume', usage: 'resume <campaign>' },
