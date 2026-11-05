@@ -465,6 +465,24 @@ main > nav button {
   border: 0;
 }
 
+[data-gm-form] fieldset {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+[data-gm-form] label {
+  display: grid;
+  gap: var(--space-1);
+}
+
+[data-gm-form] button {
+  justify-self: start;
+}
+
+[data-gm-form] legend,
 [data-motion-control] legend {
   margin-block-end: var(--space-1);
   padding: 0;

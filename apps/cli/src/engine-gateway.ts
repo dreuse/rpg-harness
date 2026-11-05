@@ -3,6 +3,7 @@ import { closeSync, existsSync, linkSync, mkdirSync, openSync, readdirSync, rmSy
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { setTimeout as delay } from 'node:timers/promises';
+import { budgetWarning, gmSettingsLines, gmUsageLines } from '../../../packages/client-protocol/src/gm-usage.ts';
 import {
   type CampaignHealth,
   type CampaignSummary,
@@ -19,6 +20,7 @@ import {
   type Turn,
 } from '../../../packages/domain/src/campaign.ts';
 import type { Visibility } from '../../../packages/domain/src/entity.ts';
+import { EMPTY_GM_USAGE_TOTALS, type GmSettings, type GmUsage, toGmSettings } from '../../../packages/domain/src/gm.ts';
 import { commitCharacter, editSheetField, playTurns } from '../../../packages/engine/src/character.ts';
 import { createEngine, type Engine } from '../../../packages/engine/src/engine.ts';
 import {
@@ -28,6 +30,7 @@ import {
   narrateTurn,
   playGameplayTurn,
 } from '../../../packages/engine/src/gameplay.ts';
+import { gmSettingsOf, recordGmUsage } from '../../../packages/engine/src/gm-settings.ts';
 import {
   campaignConfigOf,
   loadState,
@@ -48,6 +51,7 @@ import { type Ask, createCharacter } from './character-creation.ts';
 import {
   campaignSummaryOf,
   createClientSessions,
+  gmSnapshotOf,
   type SheetPort,
   scopedEventsOf,
   type WorldSource,
@@ -64,6 +68,7 @@ import {
   FAKE_ROUTE,
   GM_ROUTE_ENV,
   gmSecrets,
+  PROVIDER_DEFAULT_MODEL,
   ProviderError,
   requestNarration,
   requestSummary,
@@ -77,6 +82,7 @@ import {
   requestClaudeSummary,
 } from './gm-claude-code.ts';
 import { contextPacketOf, fakeSummarizer, type Summarizer, summarizeCampaign } from './gm-context.ts';
+import { readGmDefaults, writeGmDefaults } from './gm-defaults.ts';
 import { importRules } from './import-gateway.ts';
 import type { CampaignGateway } from './main.ts';
 import {
@@ -191,10 +197,13 @@ const narratingEngine = (
   };
 };
 
-type PacketRequest = (packet: ContextPacket, databasePath: string) => Promise<string>;
+type GmCall = { readonly databasePath: string; readonly model: string | undefined };
+type GmTurnReply = { readonly narration: string; readonly usage?: GmUsage };
+type PacketRequest = (packet: ContextPacket, call: GmCall) => Promise<GmTurnReply>;
+type ModelSummarizer = (...[level, texts, model]: [...Parameters<Summarizer>, string?]) => ReturnType<Summarizer>;
 
 export type GameMaster = ({ readonly narrator: PacketNarrator } | { readonly request: PacketRequest }) & {
-  readonly summarizer: Summarizer;
+  readonly summarizer: ModelSummarizer;
   readonly notice?: string;
 };
 
@@ -214,33 +223,42 @@ export const noKeyGameMaster = (): GameMaster => {
   };
 };
 
-const providerGameMaster = (narrate: PacketRequest, summarize: Summarizer): GameMaster => {
+const providerGameMaster = (narrate: PacketRequest, summarize: ModelSummarizer): GameMaster => {
   let failed = false;
   return {
-    request: async (packet, databasePath) => {
-      if (failed) return FAKE_GM_REPLY;
+    request: async (packet, call) => {
+      if (failed) return { narration: FAKE_GM_REPLY };
       try {
-        return await narrate(packet, databasePath);
+        return await narrate(packet, call);
       } catch (error) {
         if (!(error instanceof ProviderError)) throw error;
         failed = true;
-        return withNotice(`The AI game master is unavailable: ${error.message} The built-in narrator takes over.`);
+        return {
+          narration: withNotice(
+            `The AI game master is unavailable: ${error.message} The built-in narrator takes over.`,
+          ),
+        };
       }
     },
-    summarizer: (level, texts) => (failed ? fakeSummarizer(level, texts) : summarize(level, texts)),
+    summarizer: (level, texts, model) => (failed ? fakeSummarizer(level, texts) : summarize(level, texts, model)),
   };
 };
 
+const chosen = (model: string | undefined) => (model === PROVIDER_DEFAULT_MODEL ? undefined : model);
+
 export const apiGameMaster = (route: ApiRoute, summaryRoute: ApiRoute = route): GameMaster =>
   providerGameMaster(
-    (packet) => requestNarration(route, packet),
-    (level, texts) => requestSummary(summaryRoute, level, texts),
+    (packet, { model }) => requestNarration({ ...route, model: chosen(model) ?? route.model }, packet),
+    (level, texts, model) =>
+      requestSummary({ ...summaryRoute, model: chosen(model) ?? summaryRoute.model }, level, texts),
   );
 
 export const claudeCodeGameMaster = (route: ClaudeCodeRoute): GameMaster =>
   providerGameMaster(
-    async (packet, databasePath) => (await requestClaudeNarration(route, packet, databasePath)).narration,
-    (level, texts) => requestClaudeSummary(route, level, texts),
+    (packet, { databasePath, model }) =>
+      requestClaudeNarration({ ...route, model: chosen(model) ?? route.model }, packet, databasePath),
+    (level, texts, model) =>
+      requestClaudeSummary({ ...route, summaryModel: chosen(model) ?? route.summaryModel }, level, texts),
   );
 
 const chosenGameMaster = async (env: NodeJS.ProcessEnv): Promise<{ gm: GameMaster; route: GmRoute }> => {
@@ -269,17 +287,26 @@ type Session = {
 
 const narrateLatest = async (
   { engine, store, campaignId, database }: Session,
-  request: (packet: ContextPacket) => Promise<string>,
+  request: (packet: ContextPacket) => Promise<GmTurnReply>,
+  sessionId: string,
 ) => {
   const state = engine.getState(campaignId);
   const latest = playTurns(state).at(-1);
   const committed = latest === undefined ? undefined : storedTurn(state, latest.actionId);
   if (committed === undefined || committed.turn.narration !== PENDING_NARRATION) return;
   const packet = contextPacketOf(database, state, committed);
-  const narrator = { narrate: async () => ({ narration: await request(packet), claims: [] }) };
+  let usage: GmUsage | undefined;
+  const narrator = {
+    narrate: async () => {
+      const reply = await request(packet);
+      usage = reply.usage;
+      return { narration: reply.narration, claims: [] };
+    },
+  };
   const facts = createFactStore(database).listFacts(campaignId);
   const outcome = await narrateTurn(store, narrator, committed, { facts, equipment: {}, viewer: PLAYER_VIEWER });
   if ('inconsistent' in outcome) store.recordNarration(campaignId, committed.turn.id, FAKE_GM_REPLY);
+  if (usage !== undefined) recordGmUsage(store, { campaignId, turnId: committed.turn.id, sessionId, usage });
 };
 
 const settled = () => delay(SUMMARY_SETTLE_MS, undefined, { ref: false });
@@ -291,7 +318,16 @@ const summarizeInBackground = ({ store, campaignId, database }: Session, summari
   return summarizing;
 };
 
-type OpenSession = Session & { narrate: () => Promise<void>; settle: () => Promise<unknown>; close: () => void };
+type OpenSession = Session & {
+  sessionId: string;
+  gmDefaults: () => GmSettings;
+  narrate: () => Promise<void>;
+  settle: () => Promise<unknown>;
+  close: () => void;
+};
+
+const gmSnapshotFor = ({ database, campaignId }: Session, defaults: GmSettings, sessionId?: string) =>
+  gmSnapshotOf(scopedEventsOf(database)(campaignId), defaults, sessionId);
 
 const openSession = (
   dataDir: string,
@@ -299,6 +335,7 @@ const openSession = (
   readOnly = false,
   gm: GameMaster = FAKE_GAME_MASTER,
   rng: Rng = Math.random,
+  sessionId: string = randomUUID(),
 ): OpenSession => {
   const path = databasePath(dataDir, name);
   if (!existsSync(path)) throw missingCampaign(dataDir, name);
@@ -312,13 +349,19 @@ const openSession = (
     const close = () => connection.close();
     const engine = 'narrator' in gm ? narratingEngine(store, database, gm.narrator, rng) : createEngine(store, rng);
     const session = { engine, store, campaignId: String(row.id), database };
+    const gmDefaults = () => readGmDefaults(dataDir);
     let summarized: Promise<void> = Promise.resolve();
     const narrate = async () => {
-      if ('request' in gm) await narrateLatest(session, (packet) => gm.request(packet, path));
-      summarized = summarizeInBackground(session, gm.summarizer);
+      const { model, summaryModel } = {
+        ...gmDefaults(),
+        ...gmSettingsOf(scopedEventsOf(database)(session.campaignId)),
+      };
+      if ('request' in gm)
+        await narrateLatest(session, (packet) => gm.request(packet, { databasePath: path, model }), sessionId);
+      summarized = summarizeInBackground(session, (level, texts) => gm.summarizer(level, texts, summaryModel));
     };
     const settle = () => Promise.race([summarized, settled()]);
-    return { ...session, narrate, settle, close };
+    return { ...session, sessionId, gmDefaults, narrate, settle, close };
   } catch (error) {
     connection.close();
     throw error;
@@ -349,7 +392,7 @@ export const openClientSession = (
   rng: Rng = Math.random,
 ) => {
   const opened = openSession(dataDir, name, false, gm, rng);
-  const { engine, campaignId, database, narrate, settle, close } = opened;
+  const { engine, campaignId, database, narrate, settle, close, sessionId, gmDefaults } = opened;
   try {
     const readWorld = worldOf(database);
     const sessions = createClientSessions(
@@ -358,6 +401,7 @@ export const openClientSession = (
       scopedEventsOf(database),
       readWorld,
       sheetsOf(opened, readWorld),
+      { sessionId, defaults: gmDefaults },
     );
     return { session: sessions(PLAYER_VIEWER), campaignId, narrate, settle, close };
   } catch (error) {
@@ -455,8 +499,17 @@ const characterFor = async (dataDir: string, name: string, config: CampaignConfi
   return result.status === 'created' ? addCharacter(dataDir, name, build) : unfinishedText(result);
 };
 
-const act = async (dataDir: string, name: string, input: string, gm: GameMaster, rng: Rng): Promise<string> => {
-  const session = openSession(dataDir, name, false, gm, rng);
+type Acted = { readonly narration: string; readonly warning: string | undefined };
+
+const act = async (
+  dataDir: string,
+  name: string,
+  input: string,
+  gm: GameMaster,
+  rng: Rng,
+  sessionId: string,
+): Promise<Acted> => {
+  const session = openSession(dataDir, name, false, gm, rng, sessionId);
   try {
     const { engine, campaignId, database } = session;
     const state = engine.getState(campaignId);
@@ -477,7 +530,8 @@ const act = async (dataDir: string, name: string, input: string, gm: GameMaster,
     );
     await session.narrate();
     const narrated = engine.getState(campaignId).turns.find(({ id }) => id === committed.turn.id);
-    return narrate(actor.name, narrated ?? committed.turn);
+    const warning = budgetWarning(gmSnapshotFor(session, session.gmDefaults(), sessionId));
+    return { narration: narrate(actor.name, narrated ?? committed.turn), warning };
   } finally {
     void session.settle().finally(session.close);
   }
@@ -702,6 +756,54 @@ const restore = (dataDir: string, file: string) => {
   return `Restored campaign ${campaign}. Run rpg resume ${campaign} to continue.`;
 };
 
+export type GmSettingsChanges = Partial<Record<keyof GmSettings, string>>;
+
+const UNSET = 'unset';
+const BUDGET_KEY = 'sessionBudgetTokens';
+const INVALID_GM_SETTINGS =
+  'Choose a model name without spaces or a leading dash, and a session budget that is a whole number of tokens.';
+const APP_DEFAULTS_TITLE = 'App defaults for every campaign:';
+
+const changedSettings = (current: GmSettings, changes: GmSettingsChanges): GmSettings => {
+  const next: Record<string, unknown> = { ...current };
+  for (const [key, value] of Object.entries(changes)) {
+    if (value === undefined) continue;
+    if (value === UNSET) delete next[key];
+    else next[key] = key === BUDGET_KEY ? Number(value) : value;
+  }
+  const valid = toGmSettings(next);
+  if (valid === undefined) throw new Error(INVALID_GM_SETTINGS);
+  return valid;
+};
+
+const gmSettingsCommand = (dataDir: string, name: string | undefined, changes: GmSettingsChanges): string => {
+  if (name === undefined) {
+    const defaults = changedSettings(readGmDefaults(dataDir), changes);
+    writeGmDefaults(dataDir, defaults);
+    return [APP_DEFAULTS_TITLE, ...gmSettingsLines(defaults)].join('\n');
+  }
+  const defaults = readGmDefaults(dataDir);
+  return withSession(dataDir, name, (session) => {
+    const { engine, campaignId, database } = session;
+    const settings = changedSettings(gmSettingsOf(scopedEventsOf(database)(campaignId)), changes);
+    if (Object.values(changes).some((value) => value !== undefined))
+      engine.saveGmSettings({
+        campaignId,
+        actionId: randomUUID(),
+        expectedRevision: engine.getState(campaignId).revision,
+        settings,
+      });
+    const gm = gmSnapshotFor(session, defaults) ?? {
+      settings: defaults,
+      session: EMPTY_GM_USAGE_TOTALS,
+      campaign: EMPTY_GM_USAGE_TOTALS,
+    };
+    return gmUsageLines(gm)
+      .filter((line) => !line.startsWith('This session'))
+      .join('\n');
+  });
+};
+
 export const createEngineGateway = (
   dataDir: string,
   gm: GameMaster = FAKE_GAME_MASTER,
@@ -744,16 +846,21 @@ export const createEngineGateway = (
   importRules: (files, lines) => importRules(process.cwd(), files, lines),
   open: async function* (name, _mode, lines, onTurnError) {
     yield readView(dataDir, name, RECAP_VIEW);
+    const sessionId = randomUUID();
+    let warned = false;
     for await (const line of lines) {
       if (line.trim() === '') continue;
-      let narration: string;
+      let acted: Acted;
       try {
-        narration = await act(dataDir, name, line.trim(), gm, rng);
+        acted = await act(dataDir, name, line.trim(), gm, rng, sessionId);
       } catch (error) {
         onTurnError(error);
         continue;
       }
-      yield narration;
+      yield acted.narration;
+      if (acted.warning !== undefined && !warned) yield acted.warning;
+      warned ||= acted.warning !== undefined;
     }
   },
+  settings: (name, changes) => gmSettingsCommand(dataDir, name, changes),
 });

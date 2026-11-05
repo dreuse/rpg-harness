@@ -773,3 +773,48 @@ test('rpg-42a.21 page keeps Enter and the typed values for sheet inputs', async 
   assert.equal(page.fields[TITLE_INPUT], 'Warden');
   assert.equal(page.focused.at(-1), MIGHT_INPUT);
 });
+
+const GM_FORM = { 'data-gm-form': '' };
+const GM_FIELD = (name: string) => `[data-gm-form] [name="${name}"]`;
+
+test('rpg-42a.37 page saves the GM form, omits empty fields and keeps typed values across redraws', () => {
+  const page = playingSheet();
+  page.fields[GM_FIELD('model')] = ' opus ';
+  page.fields[GM_FIELD('summaryModel')] = '';
+  page.fields[GM_FIELD('sessionBudgetTokens')] = '500';
+  page.receive({ type: 'Snapshot', snapshot: SNAPSHOT });
+  assert.equal(page.fields[GM_FIELD('model')], ' opus ');
+  page.submit(GM_FORM);
+  const saves = page.sent.filter(({ type }) => type === 'SaveGmSettings');
+  assert.equal(saves.length, 1);
+  assert.ok(saves[0]?.type === 'SaveGmSettings');
+  assert.equal(saves[0].model, 'opus');
+  assert.equal(saves[0].sessionBudgetTokens, 500);
+  assert.equal('summaryModel' in saves[0], false);
+  assert.equal(page.prevented() > 0, true);
+});
+
+const GM_DEFAULTS_FORM = { 'data-gm-defaults-form': '' };
+const GM_DEFAULTS_FIELD = (name: string) => `[data-gm-defaults-form] [name="${name}"]`;
+
+test('rpg-42a.37 page saves the app default apart and never copies it into the campaign', () => {
+  const page = playingSheet();
+  page.fields[GM_DEFAULTS_FIELD('model')] = ' sonnet ';
+  page.fields[GM_DEFAULTS_FIELD('sessionBudgetTokens')] = '';
+  page.submit(GM_DEFAULTS_FORM);
+  const defaults = page.sent.filter(({ type }) => type === 'SaveGmDefaults');
+  assert.equal(defaults.length, 1);
+  assert.ok(defaults[0]?.type === 'SaveGmDefaults');
+  assert.equal(defaults[0].model, 'sonnet');
+  assert.equal('sessionBudgetTokens' in defaults[0], false);
+  assert.equal(
+    page.sent.some(({ type }) => type === 'SaveGmSettings'),
+    false,
+  );
+  page.submit(GM_FORM);
+  const save = page.sent.find(({ type }) => type === 'SaveGmSettings');
+  assert.ok(save?.type === 'SaveGmSettings');
+  assert.equal('model' in save, false);
+  assert.equal('summaryModel' in save, false);
+  assert.equal('sessionBudgetTokens' in save, false);
+});

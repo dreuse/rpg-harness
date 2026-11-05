@@ -71,6 +71,10 @@ const setup = (input: readonly string[] = PLAYER_LINES) => {
       calls.push(`update:${JSON.stringify(request)}`);
       yield 'rpg 1.2.0 is up to date.';
     },
+    settings: (name, changes) => {
+      calls.push(`settings:${name ?? ''}:${JSON.stringify(changes)}`);
+      return 'GM model: opus.';
+    },
   };
   const out: string[] = [];
   const err: string[] = [];
@@ -108,6 +112,7 @@ test('help lists every command with a one-line description in plain text', async
       'recap',
       'start',
       'update',
+      'settings',
       'help',
     ]) {
       assert.match(text, new RegExp(`^  ${command}\\b.* - .+$`, 'm'));
@@ -288,6 +293,7 @@ test('gateway failures exit 1 and report the error on stderr', async () => {
       yield 'Checking.';
       broken();
     },
+    settings: broken,
   };
   for (const argv of [
     [],
@@ -428,4 +434,26 @@ test('rpg-42a.16 update options work only with update and update takes no argume
     assert.equal(await main(argv, io, gateway), EXIT_USAGE, argv.join(' '));
     assert.deepEqual(calls, []);
   }
+});
+
+test('rpg-42a.37 settings sets the GM model, summary model and soft budget for a campaign or the app', async () => {
+  const { calls, gateway, io, out } = setup();
+  assert.equal(
+    await main(
+      ['settings', 'Ember', '--model', 'opus', '--summary-model', 'haiku', '--session-budget', '5000'],
+      io,
+      gateway,
+    ),
+    0,
+  );
+  assert.equal(await main(['settings'], io, gateway), 0);
+  assert.deepEqual(calls, [
+    'settings:Ember:{"model":"opus","summaryModel":"haiku","sessionBudgetTokens":"5000"}',
+    'settings::{}',
+  ]);
+  assert.match(out.join(''), /GM model: opus/);
+  const misuse = setup();
+  assert.equal(await main(['list', '--model', 'opus'], misuse.io, misuse.gateway), 2);
+  assert.equal(await main(['settings', 'Ember', 'extra'], misuse.io, misuse.gateway), 2);
+  assert.deepEqual(misuse.calls, []);
 });

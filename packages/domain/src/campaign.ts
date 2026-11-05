@@ -99,6 +99,7 @@ export interface CampaignStore {
   recordChange(change: CampaignChangeRecord): void;
   commitTurn(commit: TurnCommit): CommittedTurn;
   recordNarration(campaignId: CampaignId, turnId: TurnId, narration: string): void;
+  recordUsage(event: CampaignChange): void;
   load(id: CampaignId): CampaignState | undefined;
 }
 

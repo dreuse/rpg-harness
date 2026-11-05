@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { Key } from 'node:readline';
+import { budgetWarning, gmUsageLines } from '../../../packages/client-protocol/src/gm-usage.ts';
 import {
   type CampaignSnapshot,
   type ClientEvent,
@@ -134,7 +135,22 @@ const HELP_LINES = [
   `${QUIT_KEY} - Quit.`,
 ];
 
-const helpLines = ({ audio }: TuiData) => (audio === undefined ? HELP_LINES : [...HELP_LINES, AUDIO_HELP]);
+const GM_SETTINGS_HELP = 'Run rpg settings <campaign> to change the GM model or the session budget.';
+
+const helpLines = ({ audio, snapshot: { gm } }: TuiData) => [
+  ...HELP_LINES,
+  ...(audio === undefined ? [] : [AUDIO_HELP]),
+  ...(gm === undefined ? [] : [...gmUsageLines(gm), GM_SETTINGS_HELP]),
+];
+
+const onceOverBudget = (data: () => TuiData) => {
+  let warned = false;
+  return () => {
+    const warning = warned ? undefined : budgetWarning(data().snapshot.gm);
+    warned ||= warning !== undefined;
+    return warning;
+  };
+};
 const hint = ({ audio }: TuiData) => (audio === undefined ? STATUS_HINT : `${STATUS_HINT}${STATUS_SEPARATOR}${audio}`);
 
 export const PLAIN_TERMINAL: Capabilities = {
@@ -415,6 +431,7 @@ const interactive = async (
 ) => {
   const { motion = false, schedule = setTimeout } = terminal;
   let state = { ...INITIAL_STATE, notice };
+  const budget = onceOverBudget(data);
   let changed: string[] = [];
   let generation = 0;
   const first = data();
@@ -445,6 +462,7 @@ const interactive = async (
     if (state.submitted !== undefined) {
       state = { ...state, notice: act(state.submitted) };
       await narrate();
+      state = { ...state, notice: state.notice ?? budget() };
     }
     const current = data();
     const latest = current.mechanics.slice(seen).at(-1);
@@ -473,6 +491,7 @@ const linear = async (
   const { width } = capabilities;
   const print = (rows: readonly string[]) => terminal.write(`${rows.join(NEWLINE)}${NEWLINE}`);
   const show = ({ id, label }: Pane) => print(section(`${label}:`, paneRows(id, data()), capabilities));
+  const budget = onceOverBudget(data);
   print(renderLinear(data(), terminal.capabilities));
   if (notice !== undefined) print(wrap([notice], width));
   for await (const line of terminal.lines) {
@@ -487,6 +506,8 @@ const linear = async (
       await narrate();
       if (notice === undefined) show(CONVERSATION);
       else print(wrap([notice], width));
+      const warning = budget();
+      if (warning !== undefined) print(wrap([warning], width));
     }
   }
 };

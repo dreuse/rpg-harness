@@ -29,6 +29,7 @@ import {
   GM_ROUTE_ENV,
   gmRouteOf,
   ProviderError,
+  SUMMARY_MODEL_ENV,
   SUMMARY_PROMPT,
   SYSTEM_PROMPT,
 } from './gm-api.ts';
@@ -133,6 +134,10 @@ const packet = (input: Partial<PacketInput> = {}) =>
     CONTEXT_BUDGETS.standard,
   );
 
+const toAsync = async function* (lines: readonly string[]) {
+  yield* lines;
+};
+
 const failureOf = async (pending: Promise<unknown>) => {
   const error = await pending.then(
     () => assert.fail('expected a provider error'),
@@ -181,6 +186,16 @@ describe('rpg-42a.33 Claude Code CLI game master', () => {
     assertSafe(args);
   });
 
+  it('rpg-42a.37: passes a chosen model alias as one --model= argument and omits the Claude Code default', () => {
+    const route = claudeCodeRouteOf(CLAUDE_BIN, {});
+    for (const alias of ['haiku', 'sonnet', 'opus', 'fable'])
+      assert.deepEqual(
+        claudeArgs({ ...route, model: alias }, SYSTEM_PROMPT).filter((arg) => arg.startsWith('--model')),
+        [`--model=${alias}`],
+      );
+    assert.ok(!claudeArgs({ ...route, model: 'default' }, SYSTEM_PROMPT).some((arg) => arg.startsWith('--model')));
+  });
+
   it('only lets the GM read game state, never write it', () => {
     assert.deepEqual(READ_ONLY_GAME_TOOLS, [
       'mcp__rpg__get_campaign',
@@ -200,8 +215,14 @@ describe('rpg-42a.33 Claude Code CLI game master', () => {
       DATABASE,
     );
     assert.equal(reply.narration, NARRATION);
-    assert.deepEqual(reply.usage, { input_tokens: 120, output_tokens: 40, cache_read_input_tokens: 80 });
-    assert.equal(reply.totalCostUsd, COST_USD);
+    assert.deepEqual(reply.usage, {
+      model: 'default',
+      inputTokens: 120,
+      cacheReadTokens: 80,
+      cacheWriteTokens: 0,
+      outputTokens: 40,
+      costUsd: COST_USD,
+    });
     const [call] = calls();
     assert.ok(call !== undefined);
     assert.ok(call.input.startsWith(DATA_OPEN));
@@ -244,6 +265,14 @@ describe('rpg-42a.33 Claude Code CLI game master', () => {
     assert.equal(valueAfter(call?.args ?? [], '--append-system-prompt'), SUMMARY_PROMPT);
     assert.ok(!call?.args.includes('--mcp-config'));
     assert.equal(call?.input.split(DATA_CLOSE).length, 2);
+    assert.ok(call?.args.includes(`--model=${MODEL_ALIAS}`));
+  });
+
+  it('rpg-42a.37: summarizes with a cheap model unless another one is chosen', async (t) => {
+    const { bin, calls } = fakeClaude(t);
+    await requestClaudeSummary({ ...routeFor(bin, { [SUMMARY_MODEL_ENV]: 'sonnet' }), model: 'opus' }, 'scene', []);
+    assert.ok(calls()[0]?.args.includes('--model=sonnet'));
+    assert.equal(claudeCodeRouteOf(bin, {}).summaryModel, MODEL_ALIAS);
   });
 
   it('rejects an error result, a non-zero exit and a malformed reply after bounded retries', async (t) => {
@@ -318,6 +347,55 @@ describe('rpg-42a.33 Claude Code CLI game master', () => {
     assert.equal(gmRouteOf({ [API_KEY_ENV]: KEY, [GM_ROUTE_ENV]: 'claude-code' }), 'fake');
     assert.equal(gmRouteOf({ [API_KEY_ENV]: KEY }), 'api');
     assert.equal(gmRouteOf({}), 'fake');
+  });
+
+  it('rpg-42a.37: plays with the campaign model, then the app default, and records usage per turn', async (t) => {
+    const { bin, calls } = fakeClaude(t);
+    const dataDir = mkdtempSync(join(tmpdir(), 'rpg-claude-gm-'));
+    t.after(() => rmSync(dataDir, { recursive: true, force: true }));
+    const { gm } = await gameMasterFor({ ...hermeticGmEnv(), [CLAUDE_BIN_ENV]: bin });
+    const gateway = createEngineGateway(dataDir, gm);
+    for await (const _ of gateway.create(CAMPAIGN, undefined, NO_CHARACTER));
+    const play = async () => {
+      const outputs: string[] = [];
+      for await (const output of gateway.open(CAMPAIGN, 'play', toAsync([PLAYER_INPUT, PLAYER_INPUT]), assert.ifError))
+        outputs.push(output);
+      return outputs;
+    };
+    const narrationModels = () =>
+      calls()
+        .filter(({ args }) => args.includes('--mcp-config'))
+        .map(({ args }) => args.find((arg) => arg.startsWith('--model=')));
+    assert.match(gateway.settings(undefined, { model: 'sonnet', sessionBudgetTokens: '100' }), /GM model: sonnet/);
+    const warnings = (await play()).filter((output) => /more than the 100 token budget/.test(output));
+    assert.equal(warnings.length, 1);
+    gateway.settings(CAMPAIGN, { model: 'opus' });
+    await play();
+    gateway.settings(CAMPAIGN, { model: 'unset' });
+    await play();
+    assert.deepEqual(
+      narrationModels(),
+      ['sonnet', 'sonnet', 'opus', 'opus', 'sonnet', 'sonnet'].map((alias) => `--model=${alias}`),
+    );
+    const report = gateway.settings(CAMPAIGN, {});
+    assert.match(report, /This campaign: 6 GM turns, 1440 tokens .*\$0\.0738/);
+    assert.match(report, /Session budget: 100 tokens/);
+    assert.throws(() => gateway.settings(CAMPAIGN, { model: '--dangerously-skip-permissions' }), /model/);
+    assert.throws(() => gateway.settings(CAMPAIGN, { sessionBudgetTokens: 'lots' }), /budget/);
+  });
+
+  it('rpg-42a.37: env model ids with @ or / and odd ids still narrate and record usage', async (t) => {
+    const { bin } = fakeClaude(t);
+    for (const model of ['claude-sonnet-4@20250514', 'anthropic/claude-x', 'odd model!']) {
+      const dataDir = mkdtempSync(join(tmpdir(), 'rpg-claude-gm-'));
+      t.after(() => rmSync(dataDir, { recursive: true, force: true }));
+      const { gm } = await gameMasterFor({ ...hermeticGmEnv(), [CLAUDE_BIN_ENV]: bin, [GM_MODEL_ENV]: model });
+      const gateway = createEngineGateway(dataDir, gm);
+      for await (const _ of gateway.create(CAMPAIGN, undefined, NO_CHARACTER));
+      for await (const _ of gateway.open(CAMPAIGN, 'play', toAsync([PLAYER_INPUT]), assert.ifError));
+      assert.equal(readCampaignState(dataDir, CAMPAIGN).turns.at(-1)?.narration, NARRATION);
+      assert.match(gateway.settings(CAMPAIGN, {}), /This campaign: 1 GM turns/);
+    }
   });
 
   it('narrates a played turn through Claude Code with the campaign database as the game server', async (t) => {

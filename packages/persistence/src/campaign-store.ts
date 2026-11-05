@@ -218,6 +218,12 @@ export const createCampaignStore = (database: DatabaseSync): CampaignStore => ({
       `turn ${turnId}`,
       database.prepare(RECORD_NARRATION).run(narration, turnId, campaignId).changes !== NO_CHANGES,
     ),
+  recordUsage: (event) =>
+    inTransaction(database, () => {
+      const current = database.prepare(SELECT_REVISION).get(event.campaignId);
+      if (current === undefined) throw new CampaignNotFoundError(event.campaignId);
+      appendCampaignChange(database, event.campaignId, event, Number(current.revision));
+    }),
   load: (id) => {
     const row = database.prepare(SELECT_CAMPAIGN).get(id);
     if (row === undefined) return undefined;

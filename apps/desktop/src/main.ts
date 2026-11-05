@@ -104,7 +104,13 @@ const HOME_CHANGES: ReadonlySet<string> = new Set([
   'DeleteCampaign',
 ]);
 
-const ACTIONS: ReadonlySet<string> = new Set(['SubmitPlayerAction', 'SaveVoiceSettings', 'EditSheetField']);
+const ACTIONS: ReadonlySet<string> = new Set([
+  'SubmitPlayerAction',
+  'SaveVoiceSettings',
+  'SaveGmSettings',
+  'SaveGmDefaults',
+  'EditSheetField',
+]);
 
 export const daemonTransport = (daemon: Pick<Daemon, 'ready' | 'command' | 'subscribe'>): Transport => {
   let onLine = (_line: string) => {};

@@ -161,6 +161,7 @@ const inMemorySession = (): ClientSession & { commit(event: DomainEvent): void }
     subscribeEvents: (command, listener) => log.subscribe(command.fromRevision ?? 0, listener),
     editSheetField: () => ({ ok: true, value: { revision } }),
     saveVoiceSettings: () => ({ ok: true, value: { revision } }),
+    saveGmSettings: () => ({ ok: true, value: { revision } }),
   };
 };
 
@@ -230,7 +231,18 @@ test('UI01: clients cannot bypass the engine or trust unsolicited model state wr
     'SubscribeEvents',
     'EditSheetField',
     'SaveVoiceSettings',
+    'SaveGmSettings',
+    'SaveGmDefaults',
   ]);
+  const defaultsSave = { ...envelope, type: 'SaveGmDefaults', actionId: 'action-5' };
+  assert.ok(parseCommand({ ...defaultsSave, model: 'sonnet', sessionBudgetTokens: 900 }).ok);
+  assert.equal(code(parseCommand({ ...defaultsSave, expectedRevision: 2 })), 'UnexpectedField');
+  assert.equal(code(parseCommand({ ...defaultsSave, model: 7 })), 'MalformedCommand');
+  const gmSave = { ...envelope, type: 'SaveGmSettings', actionId: 'action-4', expectedRevision: 2 };
+  assert.ok(parseCommand({ ...gmSave, model: 'opus', summaryModel: 'haiku', sessionBudgetTokens: 5000 }).ok);
+  assert.ok(parseCommand(gmSave).ok);
+  assert.equal(code(parseCommand({ ...gmSave, apiKey: 'sk-live' })), 'UnexpectedField');
+  assert.equal(code(parseCommand({ ...gmSave, sessionBudgetTokens: '5000' })), 'MalformedCommand');
   assert.equal(code(parseCommand({ ...VOICE_SAVE, speed: '1.5' })), 'MalformedCommand');
   assert.equal(code(parseCommand({ ...VOICE_SAVE, providerKey: 'sk-live' })), 'UnexpectedField');
   for (const type of ['WriteState', 'SetState', 'CommitEvent', '__proto__', 'toString']) {

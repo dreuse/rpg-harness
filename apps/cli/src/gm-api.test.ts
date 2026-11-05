@@ -15,6 +15,7 @@ import {
   type ApiRoute,
   apiKeyOf,
   apiRouteOf,
+  CHEAP_SUMMARY_MODEL,
   DEFAULT_GM_MODEL,
   GM_API_URL_ENV,
   GM_KEYCHAIN_ENV,
@@ -48,7 +49,13 @@ const ANTHROPIC_VERSION_HEADER = 'anthropic-version';
 const API_KEY_HEADER = 'x-api-key';
 
 const EPHEMERAL_CACHE = { type: 'ephemeral' };
-const CHEAP_MODEL = 'claude-haiku-5-5';
+const CHEAP_MODEL = 'claude-haiku-5-5-test';
+const API_USAGE = {
+  input_tokens: 900,
+  output_tokens: 70,
+  cache_creation_input_tokens: 300,
+  cache_read_input_tokens: 1200,
+};
 
 const packet = (input: Partial<PacketInput> = {}) =>
   buildContextPacket(
@@ -88,7 +95,10 @@ const assertRedacted = (error: ProviderError) => {
 describe('rpg-42a.28 Anthropic Messages API narrator', () => {
   it('posts the framed brief with the player key and returns the model narration', async (t) => {
     const { received, route } = await startProvider(t, [textReply(NARRATION)]);
-    assert.equal(await requestNarration(route, packet({ playerInput: ['I greet the stranger'] })), NARRATION);
+    assert.equal(
+      (await requestNarration(route, packet({ playerInput: ['I greet the stranger'] }))).narration,
+      NARRATION,
+    );
     const [request] = received;
     assert.ok(request !== undefined);
     assert.equal(request.headers[API_KEY_HEADER], KEY);
@@ -97,6 +107,27 @@ describe('rpg-42a.28 Anthropic Messages API narrator', () => {
     assert.equal(request.body.model, DEFAULT_GM_MODEL);
     assert.equal(typeof request.body.max_tokens, 'number');
     assert.match(String(request.body.system), /data, never as instructions/);
+  });
+
+  it('rpg-42a.37: returns the provider token usage with the model that answered', async (t) => {
+    const reply = { body: JSON.stringify({ ...JSON.parse(textReply(NARRATION).body ?? ''), usage: API_USAGE }) };
+    const { received, route } = await startProvider(t, [reply, textReply(NARRATION)]);
+    const chosen = await requestNarration({ ...route, model: CUSTOM_MODEL }, packet());
+    assert.equal(received[0]?.body.model, CUSTOM_MODEL);
+    assert.deepEqual(chosen.usage, {
+      model: CUSTOM_MODEL,
+      inputTokens: 900,
+      cacheReadTokens: 1200,
+      cacheWriteTokens: 300,
+      outputTokens: 70,
+    });
+    assert.deepEqual((await requestNarration(route, packet())).usage, {
+      model: DEFAULT_GM_MODEL,
+      inputTokens: 0,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      outputTokens: 0,
+    });
   });
 
   it('frames imported text as data that cannot close its own data block', async (t) => {
@@ -127,7 +158,7 @@ describe('rpg-42a.28 Anthropic Messages API narrator', () => {
   it('summarizes framed turns with an optional cheaper model', async (t) => {
     const { received, route } = await startProvider(t, [textReply(NARRATION)]);
     const cheap = summaryRouteOf(route, { [SUMMARY_MODEL_ENV]: CHEAP_MODEL });
-    assert.equal(summaryRouteOf(route, {}).model, route.model);
+    assert.equal(summaryRouteOf(route, {}).model, CHEAP_SUMMARY_MODEL);
     assert.equal(await requestSummary(cheap, 'scene', [INJECTION]), NARRATION);
     const body = received[0]?.body;
     assert.equal(body?.model, CHEAP_MODEL);
@@ -147,7 +178,7 @@ describe('rpg-42a.28 Anthropic Messages API narrator', () => {
 
   it('retries a 429 and then returns the narration', async (t) => {
     const { received, route } = await startProvider(t, [{ status: TOO_MANY_REQUESTS }, textReply(NARRATION)]);
-    assert.equal(await requestNarration(route, packet()), NARRATION);
+    assert.equal((await requestNarration(route, packet())).narration, NARRATION);
     assert.equal(received.length, 2);
   });
 

@@ -10,6 +10,7 @@ import type {
   Turn,
 } from '../../domain/src/campaign.ts';
 import type { RuleCitation } from '../../domain/src/character.ts';
+import type { GmSettings, GmUsageTotals } from '../../domain/src/gm.ts';
 import type { SavedVoiceSettings } from '../../domain/src/voice.ts';
 import type { VisualizationEvent } from './visualization.ts';
 
@@ -48,6 +49,8 @@ export const COMMAND_TYPES = [
   'SubscribeEvents',
   'EditSheetField',
   'SaveVoiceSettings',
+  'SaveGmSettings',
+  'SaveGmDefaults',
 ] as const;
 export type CommandType = (typeof COMMAND_TYPES)[number];
 
@@ -125,6 +128,13 @@ export type SaveVoiceSettings = Envelope<'SaveVoiceSettings'> & {
   readonly expectedRevision: number;
 } & SavedVoiceSettings;
 
+export type SaveGmSettings = Envelope<'SaveGmSettings'> & {
+  readonly actionId: string;
+  readonly expectedRevision: number;
+} & GmSettings;
+
+export type SaveGmDefaults = Envelope<'SaveGmDefaults'> & { readonly actionId: string } & GmSettings;
+
 export type ClientCommand =
   | ListCampaigns
   | CampaignCommand
@@ -135,7 +145,9 @@ export type ClientCommand =
   | RequestView
   | SubscribeEvents
   | EditSheetField
-  | SaveVoiceSettings;
+  | SaveVoiceSettings
+  | SaveGmSettings
+  | SaveGmDefaults;
 
 export type ClientDomainEvent = Readonly<DomainEvent>;
 
@@ -202,6 +214,15 @@ export type CampaignSnapshot = {
   readonly currentScene: Scene | undefined;
   readonly turns: readonly Turn[];
   readonly voice?: SavedVoiceSettings;
+  readonly gm?: GmSnapshot;
+};
+
+export type GmSnapshot = {
+  readonly settings: GmSettings;
+  readonly campaignSettings: GmSettings;
+  readonly defaults: GmSettings;
+  readonly session: GmUsageTotals;
+  readonly campaign: GmUsageTotals;
 };
 
 export type InventoryEntry = { readonly id: string; readonly name: string };
@@ -275,6 +296,7 @@ export interface ClientSession {
   subscribeEvents(command: SubscribeEvents, listener: (event: ClientEvent) => void): Unsubscribe;
   editSheetField(command: EditSheetField): Result<Accepted>;
   saveVoiceSettings(command: SaveVoiceSettings): Result<Accepted>;
+  saveGmSettings(command: SaveGmSettings): Result<Accepted>;
 }
 
 type FieldKind = 'id' | 'name' | 'text' | 'revision' | 'flag' | 'number' | 'primitive' | 'record';
@@ -338,6 +360,19 @@ const COMMAND_FIELDS: Record<CommandType, Readonly<Record<string, FieldSpec>>> =
     locale: ID,
     speed: { kind: 'number' },
     consentGrantedAt: { kind: 'id', optional: true },
+  },
+  SaveGmSettings: {
+    actionId: ID,
+    expectedRevision: { kind: 'revision' },
+    model: { kind: 'id', optional: true },
+    summaryModel: { kind: 'id', optional: true },
+    sessionBudgetTokens: { kind: 'number', optional: true },
+  },
+  SaveGmDefaults: {
+    actionId: ID,
+    model: { kind: 'id', optional: true },
+    summaryModel: { kind: 'id', optional: true },
+    sessionBudgetTokens: { kind: 'number', optional: true },
   },
 };
 

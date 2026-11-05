@@ -11,6 +11,8 @@ import {
   bindKeys,
   cssEscape,
   DECLINE,
+  GM_DEFAULTS_FORM,
+  GM_FORM,
   HOME_ATTRIBUTE,
   HOME_NAME,
   HOME_SEARCH,
@@ -65,6 +67,11 @@ const HOME_REGION = '[data-region="campaigns"]';
 const KEEP_ENTER_REGIONS = [START_REGION, HOME_REGION, '[data-region="status"]', '[data-region="sheet"]'];
 const SHEET_INPUT_SELECTOR = `#${SHEET_INPUT}`;
 const SHEET_FORM_SELECTOR = `[${SHEET_FORM}]`;
+const GM_FORM_SELECTOR = `[${GM_FORM}]`;
+const GM_DEFAULTS_FORM_SELECTOR = `[${GM_DEFAULTS_FORM}]`;
+const GM_FORM_SELECTORS = [GM_FORM_SELECTOR, GM_DEFAULTS_FORM_SELECTOR];
+const GM_FIELDS = ['model', 'summaryModel', 'sessionBudgetTokens'] as const;
+const GM_BUDGET_FIELD = 'sessionBudgetTokens';
 const SHEET_FIRST_INPUT = `${SHEET_FORM_SELECTOR} input`;
 const SHEET_EDIT_SELECTOR = '#sheet-edit';
 const HEADING_SELECTOR = '#heading-status';
@@ -154,11 +161,24 @@ export const mountPage = ({
   let shownPane: Region | undefined;
   let shownPlaying = false;
   const entryValue = () => root.querySelector<HTMLInputElement>(ENTRY_SELECTOR)?.value;
+  const gmFormInputs = (form: string) =>
+    GM_FIELDS.map((name) => root.querySelector<HTMLInputElement>(`${form} [name="${name}"]`));
+  const gmInputs = () => GM_FORM_SELECTORS.flatMap(gmFormInputs);
+  const gmTypedIn = (form: string) => {
+    const fields = gmFormInputs(form);
+    const entries = GM_FIELDS.flatMap((name, index) => {
+      const typed = fields[index]?.value?.trim() ?? '';
+      if (typed === '') return [];
+      return [[name, name === GM_BUDGET_FIELD ? Number(typed) : typed] as const];
+    });
+    return Object.fromEntries(entries);
+  };
   const render = () => {
     const model = viewModel(client.state(), width(), preferences);
     const focused = selectorOf(root.querySelector<HTMLElement>(FOCUSED_SELECTOR));
     const typed = entryValue();
     const sheetTyped = sheetInputs().map((field) => ({ field, value: field?.value, checked: field?.checked }));
+    const gmTyped = gmInputs().map((field) => (field?.value === field?.defaultValue ? undefined : field?.value));
     const caret = root.querySelector<HTMLInputElement>(ENTRY_SELECTOR);
     const selection = { start: caret?.selectionStart ?? null, end: caret?.selectionEnd ?? null };
     const opened = DISCLOSURE_SELECTORS.map(
@@ -190,6 +210,10 @@ export const mountPage = ({
       if (field === null || !kept?.field) return;
       if (kept.value !== undefined) field.value = kept.value;
       if (kept.checked !== undefined) field.checked = kept.checked;
+    });
+    gmInputs().forEach((field, index) => {
+      const kept = gmTyped[index];
+      if (field !== null && kept !== undefined) field.value = kept;
     });
     if (focused !== undefined) root.querySelector<HTMLElement>(focused)?.focus();
     if (focused === ENTRY_SELECTOR && selection.start !== null && selection.end !== null)
@@ -374,6 +398,14 @@ export const mountPage = ({
     if (query !== undefined && query !== client.state().home.query) client.search(query);
   });
   root.addEventListener(SUBMIT, (event) => {
+    if (closestTarget(event)?.closest(GM_FORM_SELECTOR)) {
+      event.preventDefault();
+      return client.saveGm(gmTypedIn(GM_FORM_SELECTOR));
+    }
+    if (closestTarget(event)?.closest(GM_DEFAULTS_FORM_SELECTOR)) {
+      event.preventDefault();
+      return client.saveGmDefaults(gmTypedIn(GM_DEFAULTS_FORM_SELECTOR));
+    }
     if (closestTarget(event)?.closest(SHEET_FORM_SELECTOR)) {
       event.preventDefault();
       return saveSheet();

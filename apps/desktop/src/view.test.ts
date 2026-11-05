@@ -526,10 +526,54 @@ test('rpg-42a.22 the play view has a home button and a settings menu holding mot
   );
   assert.match(
     html,
-    /<details data-settings><summary id="settings-toggle">Settings<\/summary><div><fieldset data-motion-control><legend>Motion<\/legend>[\s\S]*<\/fieldset><p data-voice-summary>Voice off · English · normal speed<\/p><p>[^<]*set mic to push-to-talk[^<]*<\/p><\/div><\/details>/,
+    /<details data-settings><summary id="settings-toggle">Settings<\/summary><div><fieldset data-motion-control><legend>Motion<\/legend>[\s\S]*<\/fieldset><p data-voice-summary>Voice off · English · normal speed<\/p><p>[^<]*set mic to push-to-talk[^<]*<\/p><form data-gm-form>[\s\S]*<\/form><\/div><\/details>/,
   );
   assert.doesNotMatch(html, /data-region="voice"|data-region="campaigns"|data-start-open/);
   assert.ok(html.indexOf('data-settings') < html.indexOf('data-columns'));
+});
+
+test('rpg-42a.37 settings hold a GM model form with hints, usage and a soft budget warning', () => {
+  const snapshot = state.snapshot as NonNullable<DesktopState['snapshot']>;
+  const usage = {
+    turns: 2,
+    inputTokens: 600,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+    outputTokens: 100,
+    costUsd: 0.01,
+    pricedTurns: 2,
+  };
+  const gm = {
+    settings: { model: 'opus', summaryModel: 'haiku', sessionBudgetTokens: 500 },
+    campaignSettings: { model: 'opus', sessionBudgetTokens: 500 },
+    defaults: { summaryModel: 'haiku' },
+    session: usage,
+    campaign: usage,
+  };
+  const html = renderView(viewModel({ ...state, snapshot: { ...snapshot, gm } }, WIDE_WIDTH), 'en');
+  assert.match(html, /<form data-gm-form><fieldset><legend>GM model for this campaign<\/legend>/);
+  assert.match(html, /<form data-gm-form>[\s\S]*?<input name="model" list="gm-models" value="opus" placeholder=""/);
+  assert.match(
+    html,
+    /<form data-gm-form>[\s\S]*?<input name="summaryModel" list="gm-models" value="" placeholder="haiku"/,
+  );
+  assert.match(
+    html,
+    /<form data-gm-form>[\s\S]*?<input name="sessionBudgetTokens" type="number" min="1" step="1" value="500" placeholder=""/,
+  );
+  assert.match(html, /<form data-gm-defaults-form><fieldset><legend>App default GM model<\/legend>/);
+  assert.match(html, /<form data-gm-defaults-form>[\s\S]*?<input name="summaryModel" list="gm-models" value="haiku"/);
+  assert.match(html, /<form data-gm-defaults-form>[\s\S]*?<button type="submit">Save app default<\/button>/);
+  assert.match(html, /<option value="haiku">cheaper and faster<\/option>/);
+  assert.match(html, /<option value="default">usual model of your GM route<\/option>/);
+  assert.doesNotMatch(html, /Claude Code default/);
+  assert.match(html, /This session: 2 GM turns, 700 tokens/);
+  assert.match(html, /<p role="status">This session used more than the 500 token budget\. Play goes on\.<\/p>/);
+  const spanish = renderView(viewModel(state, WIDE_WIDTH), 'es');
+  assert.match(spanish, /<legend>Modelo del GM para esta campaña<\/legend>/);
+  assert.match(spanish, /<legend>Modelo del GM por defecto de la app<\/legend>/);
+  assert.match(spanish, /<option value="opus">narración más rica, cuesta más<\/option>/);
+  assert.doesNotMatch(spanish, /GM turns/);
 });
 
 test('rpg-42a.22 the sheet names the existing character even before it has stats', () => {
@@ -719,7 +763,7 @@ test('rpg-42a.29: editing shows native inputs with one Save and one Cancel for t
     html,
     /<div data-actions><button type="submit" id="sheet-save" data-primary>Save<\/button><button type="button" id="sheet-cancel" data-sheet-action="cancel">Cancel<\/button><\/div><\/form>/,
   );
-  assert.equal(html.match(/type="submit"/g)?.length, 1);
+  assert.equal(html.slice(html.indexOf('<form data-sheet-form')).match(/type="submit"/g)?.length, 1);
   assert.doesNotMatch(html, /id="sheet-edit"/);
   assert.match(
     renderView(viewModel(editing(), WIDE_WIDTH), 'en'),

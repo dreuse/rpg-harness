@@ -371,6 +371,51 @@ test('A21 a disconnect clears pending voice saves', () => {
   assert.equal(client.voicePending(), false);
 });
 
+test('rpg-42a.37: GM settings save at the snapshot revision and usage reaches the view', () => {
+  const { wire, client } = connectedClient();
+  const saved = client.saveGm({ model: 'opus', sessionBudgetTokens: 500 });
+  assert.equal(saved.ok, true);
+  assert.deepEqual(wire.sent.at(-1), {
+    version: PROTOCOL_VERSION,
+    type: 'SaveGmSettings',
+    campaignId: CAMPAIGN,
+    actionId: 'a0',
+    expectedRevision: 1,
+    model: 'opus',
+    sessionBudgetTokens: 500,
+  });
+  wire.receive({ type: 'Rejected', actionId: 'a0', error: { code: 'Rejected', message: 'bad model' } });
+  assert.deepEqual(client.state().rejected.at(-1), { actionId: 'a0', input: 'GM settings', message: 'bad model' });
+  const usage = {
+    turns: 1,
+    inputTokens: 1,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+    outputTokens: 1,
+    costUsd: 0,
+    pricedTurns: 0,
+  };
+  const gm = {
+    settings: { model: 'opus' },
+    campaignSettings: { model: 'opus' },
+    defaults: {},
+    session: usage,
+    campaign: usage,
+  };
+  wire.receive({ type: 'Snapshot', snapshot: { ...snapshotAt(2), gm } });
+  assert.deepEqual(viewModel(client.state(), WIDE_WIDTH).gm, gm);
+  assert.equal(client.saveGmDefaults({ model: 'sonnet' }).ok, true);
+  assert.deepEqual(wire.sent.at(-1), {
+    version: PROTOCOL_VERSION,
+    type: 'SaveGmDefaults',
+    campaignId: CAMPAIGN,
+    actionId: 'a1',
+    model: 'sonnet',
+  });
+  wire.receive({ type: 'Rejected', actionId: 'a1', error: { code: 'Rejected', message: 'bad default' } });
+  assert.deepEqual(client.state().rejected.at(-1), { actionId: 'a1', input: 'GM settings', message: 'bad default' });
+});
+
 const NOW = Date.parse('2026-11-04T12:00:00.000Z');
 const HOUR_MS = 3_600_000;
 const HARBOR = {

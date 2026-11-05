@@ -135,6 +135,7 @@ test('a stale revision from the engine maps to a StaleRevision tool error', () =
     renameCampaign: rejectStale,
     submitAction: rejectStale,
     saveVoiceSettings: rejectStale,
+    saveGmSettings: rejectStale,
   };
   assert.equal(errorCode(callTool(stale, 'rename_campaign', { id: MISSING_ID, name: SECOND_NAME })), 'StaleRevision');
 });

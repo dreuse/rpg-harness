@@ -14,6 +14,7 @@ import {
   EVENT_COMMITTED,
   type EventCommitted,
   failure,
+  type GmSnapshot,
   type ListCampaigns,
   PROTOCOL_VERSION,
   parseCommand,
@@ -38,9 +39,11 @@ import {
   StaleRevisionError,
 } from '../../../packages/domain/src/campaign.ts';
 import type { CampaignEntity, Relationship, Visibility } from '../../../packages/domain/src/entity.ts';
+import { EMPTY_GM_USAGE_TOTALS, type GmSettings } from '../../../packages/domain/src/gm.ts';
 import { playTurns, SHEET_FIELD_EDITED } from '../../../packages/engine/src/character.ts';
 import { currentEncounter } from '../../../packages/engine/src/encounter.ts';
 import type { Engine } from '../../../packages/engine/src/engine.ts';
+import { gmSettingsOf, gmUsageOf } from '../../../packages/engine/src/gm-settings.ts';
 import { CHECK_RESOLVED, campaignConfigOf } from '../../../packages/engine/src/turn.ts';
 import { voiceSettingsOf } from '../../../packages/engine/src/voice-settings.ts';
 import { parseCampaignConfig } from '../../../packages/intent/src/config.ts';
@@ -171,12 +174,28 @@ const guarded = <T>(run: () => Result<T>): Result<T> => {
   return result.ok ? result.value : result;
 };
 
+export type GmSessionContext = { readonly sessionId?: string; readonly defaults?: () => GmSettings };
+
+export const gmSnapshotOf = (
+  events: Parameters<typeof gmUsageOf>[0],
+  defaults: GmSettings,
+  sessionId: string | undefined,
+): GmSnapshot | undefined => {
+  const campaignSettings = gmSettingsOf(events);
+  const settings = { ...defaults, ...campaignSettings };
+  const campaign = gmUsageOf(events);
+  if (Object.keys(settings).length === 0 && campaign.turns === 0) return undefined;
+  const session = sessionId === undefined ? EMPTY_GM_USAGE_TOTALS : gmUsageOf(events, sessionId);
+  return { settings, campaignSettings, defaults, session, campaign };
+};
+
 export const createClientSessions = (
   engine: Engine,
   campaignId: CampaignId,
   readEvents: EventSource,
   readWorld: WorldSource = NO_WORLD,
   sheets?: SheetPort,
+  { sessionId, defaults = () => ({}) }: GmSessionContext = {},
 ) => {
   const log = createEventLog({ campaignId, branchId: MAIN_BRANCH });
   const scopes = new Map<EventId, Scoped>();
@@ -209,7 +228,9 @@ export const createClientSessions = (
     sync();
     const state = engine.getState(campaignId);
     const { campaign, revision, characters, currentScene } = state;
-    const voice = voiceSettingsOf(readEvents(campaignId));
+    const events = readEvents(campaignId);
+    const voice = voiceSettingsOf(events);
+    const gm = gmSnapshotOf(events, defaults(), sessionId);
     return deepFreeze(
       structuredClone({
         version: PROTOCOL_VERSION,
@@ -220,6 +241,7 @@ export const createClientSessions = (
         currentScene,
         turns: playTurns(state),
         ...(voice === undefined ? {} : { voice }),
+        ...(gm === undefined ? {} : { gm }),
       }),
     );
   };
@@ -364,6 +386,16 @@ export const createClientSessions = (
         const { version: _, type: __, campaignId: ___, actionId, expectedRevision, ...settings } = accepted.value;
         return attempt(() => {
           engine.saveVoiceSettings({ campaignId, actionId, expectedRevision, settings });
+          sync();
+          return { revision: engine.getState(campaignId).revision };
+        });
+      },
+      saveGmSettings: (command) => {
+        const accepted = accept<typeof command>(command, 'SaveGmSettings');
+        if (!accepted.ok) return accepted;
+        const { version: _, type: __, campaignId: ___, actionId, expectedRevision, ...settings } = accepted.value;
+        return attempt(() => {
+          engine.saveGmSettings({ campaignId, actionId, expectedRevision, settings });
           sync();
           return { revision: engine.getState(campaignId).revision };
         });

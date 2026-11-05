@@ -403,6 +403,30 @@ describe('serve client-protocol commands over the desktop engine daemon', () => 
     assert.deepEqual((await snapshotOf(supervise(t, { env }), campaignId)).voice, settings);
   });
 
+  it('rpg-42a.37: saves the campaign GM model and shows it in the next snapshot', async (t) => {
+    const { env, campaignId } = await campaignEnv(t);
+    const daemon = supervise(t, { env });
+    const { revision } = await snapshotOf(daemon, campaignId);
+    const save = { ...snapshotCommand(campaignId), type: 'SaveGmSettings', actionId: 'gm', model: 'opus' };
+    acceptedValue<Accepted>(await daemon.command({ ...save, expectedRevision: revision }));
+    assert.deepEqual((await snapshotOf(daemon, campaignId)).gm?.settings, { model: 'opus' });
+  });
+
+  it('rpg-42a.37: saves the app-default GM model without touching the campaign', async (t) => {
+    const { env, campaignId } = await campaignEnv(t);
+    const daemon = supervise(t, { env });
+    const { revision } = await snapshotOf(daemon, campaignId);
+    const save = { ...snapshotCommand(campaignId), type: 'SaveGmDefaults', actionId: 'gm-defaults' };
+    acceptedValue(await daemon.command({ ...save, model: 'sonnet', sessionBudgetTokens: 900 }));
+    const { gm, revision: after } = await snapshotOf(daemon, campaignId);
+    assert.equal(after, revision);
+    assert.deepEqual(gm?.defaults, { model: 'sonnet', sessionBudgetTokens: 900 });
+    assert.deepEqual(gm?.campaignSettings, {});
+    assert.deepEqual(gm?.settings, { model: 'sonnet', sessionBudgetTokens: 900 });
+    const bad = await daemon.command({ ...save, model: '--dangerously-skip-permissions' });
+    assert.equal(bad.result?.ok, false);
+  });
+
   it('serves campaign panels and the sheet view', async (t) => {
     const { env, campaignId } = await campaignEnv(t);
     const daemon = supervise(t, { env });

@@ -34,6 +34,7 @@ import { parseViewDescriptor } from '../../../packages/client-protocol/src/view-
 import { VISUALIZATION_EVENT, type VisualizationEvent } from '../../../packages/client-protocol/src/visualization.ts';
 import type { Ready } from '../../../packages/client-protocol/src/wire.ts';
 import type { CampaignId } from '../../../packages/domain/src/campaign.ts';
+import type { GmSettings } from '../../../packages/domain/src/gm.ts';
 import { componentValue, DEFAULT_PREFERENCES, translate, type UiPreferences } from './accessibility.ts';
 import { effectiveMotion, parseVisualization, ROLL_HISTORY, rollPlan } from './dice.ts';
 
@@ -57,6 +58,7 @@ const DESKTOP_CLIENT = 'desktop';
 const OPTIONS_REQUEST = planCommand(INITIAL_DRAFT);
 const NO_REVISION = -1;
 const VOICE_SAVE_INPUT = 'voice settings';
+const GM_SAVE_INPUT = 'GM settings';
 const STALE_REVISION = 'StaleRevision';
 export const UNGROUPED = '';
 const LIST_CAMPAIGNS: ClientCommand = { version: PROTOCOL_VERSION, type: 'ListCampaigns' };
@@ -269,6 +271,7 @@ export const viewModel = (
     motion: preferences.motion,
     panels: state.panels,
     rejected: state.rejected,
+    gm: state.snapshot?.gm,
     start: state.start.open ? startScreen(state.start.draft, state.start.options, state.start.plan) : undefined,
     created: state.start.created,
   };
@@ -343,6 +346,7 @@ export const createDesktopClient = ({
   let resendOnSnapshot = false;
   const voiceSaves = new Map<unknown, SaveVoiceSettings>();
   const sheetEdits = new Map<unknown, string>();
+  const gmSaves = new Set<unknown>();
   let queuedEdits: (readonly [string, unknown])[] = [];
   const retried = new Set<unknown>();
   let staleSaves: SaveVoiceSettings[] = [];
@@ -358,6 +362,7 @@ export const createDesktopClient = ({
   const disconnect = (error: string) => {
     voiceSaves.clear();
     sheetEdits.clear();
+    gmSaves.clear();
     queuedEdits = [];
     retried.clear();
     staleSaves = [];
@@ -414,8 +419,31 @@ export const createDesktopClient = ({
     if (message === undefined) refresh();
   };
 
+  const settleGm = (actionId: unknown, message?: string) => {
+    gmSaves.delete(actionId);
+    if (message !== undefined)
+      update({ rejected: [...state.rejected, { actionId: String(actionId), input: GM_SAVE_INPUT, message }] });
+    refresh();
+  };
+
+  const saveGmCommand = (fieldsOf: (snapshot: CampaignSnapshot) => object): Result<ClientCommand> => {
+    const { snapshot } = state;
+    if (snapshot === undefined) return failure('Rejected', 'no campaign selected yet');
+    const parsed = parseCommand({
+      version: PROTOCOL_VERSION,
+      campaignId: snapshot.campaignId,
+      actionId: newActionId(),
+      ...fieldsOf(snapshot),
+    });
+    if (!parsed.ok) return parsed;
+    if ('actionId' in parsed.value) gmSaves.add(parsed.value.actionId);
+    send(parsed.value);
+    return parsed;
+  };
+
   const settle = (actionId: unknown, message?: string, code?: unknown) => {
     if (voiceSaves.has(actionId)) return settleVoice(actionId, message, code);
+    if (gmSaves.has(actionId)) return settleGm(actionId, message);
     const edited = sheetEdits.get(actionId);
     if (edited !== undefined) return settleEdit(actionId, edited, message);
     const action = state.outbox.find((queued) => queued.actionId === actionId);
@@ -719,6 +747,9 @@ export const createDesktopClient = ({
       send(save);
       return { ok: true, value: save };
     },
+    saveGm: (settings: GmSettings) =>
+      saveGmCommand((snapshot) => ({ type: 'SaveGmSettings', expectedRevision: snapshot.revision, ...settings })),
+    saveGmDefaults: (settings: GmSettings) => saveGmCommand(() => ({ type: 'SaveGmDefaults', ...settings })),
     retry: () => {
       if (state.connection.status !== 'disconnected') return;
       update({ connection: { status: 'reconnecting', attempts: state.connection.attempts + 1 } });

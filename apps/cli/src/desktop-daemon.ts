@@ -5,8 +5,10 @@ import { fileURLToPath } from 'node:url';
 import {
   type CampaignCommand,
   type ClientEvent,
+  failure,
   PROTOCOL_VERSION,
   parseCommand,
+  type SaveGmDefaults,
   type Unsubscribe,
 } from '../../../packages/client-protocol/src/protocol.ts';
 import {
@@ -18,6 +20,7 @@ import {
   type Request,
   type RequestType,
 } from '../../../packages/client-protocol/src/wire.ts';
+import { toGmSettings } from '../../../packages/domain/src/gm.ts';
 import type { Client } from '../../../packages/intent/src/intent.ts';
 import {
   archiveCampaign,
@@ -33,8 +36,18 @@ import {
   unarchiveCampaign,
 } from './engine-gateway.ts';
 import { API_KEY_ENV, gmRouteOf } from './gm-api.ts';
+import { writeGmDefaults } from './gm-defaults.ts';
 import { failureOf, planResult } from './quickstart.ts';
 import { dataDirFromEnv } from './setup-check.ts';
+
+const INVALID_GM_DEFAULTS = 'GM defaults name an invalid model or budget';
+
+const saveGmDefaults = ({ model, summaryModel, sessionBudgetTokens }: SaveGmDefaults) => {
+  const settings = toGmSettings({ model, summaryModel, sessionBudgetTokens });
+  if (settings === undefined) return failure('Rejected', INVALID_GM_DEFAULTS);
+  writeGmDefaults(dataDirFromEnv(), settings);
+  return { ok: true, value: settings } as const;
+};
 
 export { API_KEY_ENV, gmRouteOf };
 export const CAMPAIGN_ENV = 'RPG_CAMPAIGN';
@@ -219,6 +232,8 @@ const replier = ({ name, campaign, problem }: Served, gm: GameMaster) => {
     if (command.type === 'EditSheetField') return send({ id, type: 'Result', result: session.editSheetField(command) });
     if (command.type === 'SaveVoiceSettings')
       return send({ id, type: 'Result', result: session.saveVoiceSettings(command) });
+    if (command.type === 'SaveGmSettings') return send({ id, type: 'Result', result: session.saveGmSettings(command) });
+    if (command.type === 'SaveGmDefaults') return send({ id, type: 'Result', result: saveGmDefaults(command) });
     subscriptions.get(id)?.();
     subscriptions.set(
       id,

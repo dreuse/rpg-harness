@@ -2,6 +2,7 @@ import { accessSync, constants, statSync } from 'node:fs';
 import { delimiter, join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { GmRoute } from '../../../packages/client-protocol/src/wire.ts';
+import { type GmUsage, ROUTE_DEFAULT_MODEL } from '../../../packages/domain/src/gm.ts';
 import type { SummaryLevel } from '../../../packages/memory/src/history.ts';
 import { type ContextPacket, frameData, packetParts } from '../../../packages/memory/src/packet.ts';
 import type { SecretReader } from '../../../packages/voice/src/providers.ts';
@@ -11,6 +12,8 @@ export const GM_MODEL_ENV = 'RPG_GM_MODEL';
 export const GM_API_URL_ENV = 'RPG_GM_API_URL';
 export const SUMMARY_MODEL_ENV = 'RPG_SUMMARY_MODEL';
 export const DEFAULT_GM_MODEL = 'claude-sonnet-5-5';
+export const CHEAP_SUMMARY_MODEL = 'claude-haiku-5-5';
+export const PROVIDER_DEFAULT_MODEL = ROUTE_DEFAULT_MODEL;
 export const ANTHROPIC_MESSAGES_URL = 'https://api.anthropic.com/v1/messages';
 export const GM_TIMEOUT_MS = 30_000;
 export const MAX_RETRIES = 2;
@@ -126,8 +129,24 @@ export const storedApiKey = async (
 
 export const summaryRouteOf = (route: ApiRoute, env: NodeJS.ProcessEnv): ApiRoute => ({
   ...route,
-  model: env[SUMMARY_MODEL_ENV]?.trim() || route.model,
+  model: env[SUMMARY_MODEL_ENV]?.trim() || CHEAP_SUMMARY_MODEL,
 });
+
+export type GmReply = { readonly narration: string; readonly usage: GmUsage };
+
+const countOf = (value: unknown) => (Number.isSafeInteger(value) && Number(value) >= 0 ? Number(value) : 0);
+
+export const usageOf = (usage: unknown, model: string, costUsd?: unknown): GmUsage => {
+  const counts = isRecord(usage) ? usage : {};
+  return {
+    model,
+    inputTokens: countOf(counts.input_tokens),
+    cacheReadTokens: countOf(counts.cache_read_input_tokens),
+    cacheWriteTokens: countOf(counts.cache_creation_input_tokens),
+    outputTokens: countOf(counts.output_tokens),
+    ...(typeof costUsd === 'number' && Number.isFinite(costUsd) && costUsd >= 0 ? { costUsd } : {}),
+  };
+};
 
 export const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null;
@@ -169,26 +188,27 @@ const post = async ({ key, model, url, timeoutMs }: ApiRoute, { system, content 
   }
 };
 
-const request = async (route: ApiRoute, prompt: Prompt): Promise<string> => {
+const request = async (route: ApiRoute, prompt: Prompt): Promise<unknown> => {
   for (let attempt = 0; ; attempt += 1) {
     const { ok, status, body } = await post(route, prompt);
-    if (ok) return narrationOf(body);
+    if (ok) return body;
     if (!isRetryable(status)) throw new ProviderError(`The provider refused the request (HTTP ${status}).`, status);
     if (attempt === MAX_RETRIES) throw new ProviderError(`The provider is unavailable (HTTP ${status}).`, status);
     await delay(route.retryDelayMs * RETRY_BACKOFF ** attempt);
   }
 };
 
-export const requestNarration = (route: ApiRoute, packet: Pick<ContextPacket, 'sections'>): Promise<string> => {
+export const requestNarration = async (route: ApiRoute, packet: Pick<ContextPacket, 'sections'>): Promise<GmReply> => {
   const { instructions, stable, variable } = packetParts(packet);
-  return request(route, {
+  const body = await request(route, {
     system: instructions,
     content: [
       { type: TEXT_BLOCK, text: stable, cache_control: EPHEMERAL_CACHE },
       { type: TEXT_BLOCK, text: variable },
     ],
   });
+  return { narration: narrationOf(body), usage: usageOf(isRecord(body) ? body.usage : undefined, route.model) };
 };
 
-export const requestSummary = (route: ApiRoute, level: SummaryLevel, texts: readonly string[]): Promise<string> =>
-  request(route, { system: SUMMARY_PROMPT, content: frameData({ level, texts }) });
+export const requestSummary = async (route: ApiRoute, level: SummaryLevel, texts: readonly string[]): Promise<string> =>
+  narrationOf(await request(route, { system: SUMMARY_PROMPT, content: frameData({ level, texts }) }));

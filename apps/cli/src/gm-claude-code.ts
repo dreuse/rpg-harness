@@ -5,7 +5,17 @@ import { join } from 'node:path';
 import { CAMPAIGN_TOOLS } from '../../../packages/mcp/src/tools.ts';
 import type { SummaryLevel } from '../../../packages/memory/src/history.ts';
 import { type ContextPacket, frameData, packetParts } from '../../../packages/memory/src/packet.ts';
-import { GM_MODEL_ENV, isRecord, ProviderError, SUMMARY_PROMPT, SYSTEM_PROMPT } from './gm-api.ts';
+import {
+  GM_MODEL_ENV,
+  type GmReply,
+  isRecord,
+  PROVIDER_DEFAULT_MODEL,
+  ProviderError,
+  SUMMARY_MODEL_ENV,
+  SUMMARY_PROMPT,
+  SYSTEM_PROMPT,
+  usageOf,
+} from './gm-api.ts';
 
 export const GM_PROFILE_ENV = 'RPG_GM_PROFILE';
 export const FULL_PROFILE = 'full';
@@ -13,6 +23,7 @@ export const LEAN_PROFILE = 'lean';
 export type GmProfile = typeof FULL_PROFILE | typeof LEAN_PROFILE;
 export const CLAUDE_TIMEOUT_MS = 120_000;
 export const CLAUDE_MAX_RETRIES = 1;
+export const CHEAP_CLAUDE_MODEL = 'haiku';
 export const CHILD_ENV_KEYS: readonly string[] = [
   'PATH',
   'HOME',
@@ -51,15 +62,10 @@ export type ClaudeCodeRoute = {
   readonly bin: string;
   readonly profile: GmProfile;
   readonly model: string | undefined;
+  readonly summaryModel: string;
   readonly timeoutMs: number;
   readonly env: NodeJS.ProcessEnv;
   readonly gameServer: boolean;
-};
-
-export type ClaudeReply = {
-  readonly narration: string;
-  readonly usage: Readonly<Record<string, number>>;
-  readonly totalCostUsd: number | undefined;
 };
 
 export const claudeCodeRouteOf = (
@@ -70,6 +76,7 @@ export const claudeCodeRouteOf = (
   bin,
   profile: env[GM_PROFILE_ENV]?.trim() === LEAN_PROFILE ? LEAN_PROFILE : FULL_PROFILE,
   model: env[GM_MODEL_ENV]?.trim() || undefined,
+  summaryModel: env[SUMMARY_MODEL_ENV]?.trim() || CHEAP_CLAUDE_MODEL,
   timeoutMs: CLAUDE_TIMEOUT_MS,
   env: Object.fromEntries(CHILD_ENV_KEYS.flatMap((name) => (env[name] === undefined ? [] : [[name, env[name]]]))),
   gameServer: versions.electron === undefined,
@@ -90,7 +97,7 @@ export const claudeArgs = ({ profile, model }: ClaudeCodeRoute, system: string, 
   READ_ONLY_GAME_TOOLS.join(TOOL_SEPARATOR),
   '--disallowedTools',
   WRITE_GAME_TOOLS.join(TOOL_SEPARATOR),
-  ...(model === undefined ? [] : [`--model=${model}`]),
+  ...(model === undefined || model === PROVIDER_DEFAULT_MODEL ? [] : [`--model=${model}`]),
 ];
 
 const gameMcpConfig = (databasePath: string) => ({
@@ -138,14 +145,7 @@ const parsed = (stdout: string): unknown => {
   }
 };
 
-const numbersOf = (value: unknown): Record<string, number> =>
-  isRecord(value)
-    ? Object.fromEntries(
-        Object.entries(value).flatMap(([name, count]) => (typeof count === 'number' ? [[name, count]] : [])),
-      )
-    : {};
-
-const replyOf = ({ code, stdout }: Exit): ClaudeReply => {
+const replyOf = ({ code, stdout }: Exit, model: string | undefined): GmReply => {
   if (code !== 0) throw new ProviderError(`Claude Code stopped with exit code ${code}.`);
   const body = parsed(stdout);
   if (!isRecord(body)) throw new ProviderError('Claude Code sent a malformed reply.');
@@ -155,8 +155,7 @@ const replyOf = ({ code, stdout }: Exit): ClaudeReply => {
     );
   const narration = typeof body.result === 'string' ? body.result.trim() : '';
   if (narration === '') throw new ProviderError('Claude Code sent a malformed reply.');
-  const cost = body.total_cost_usd;
-  return { narration, usage: numbersOf(body.usage), totalCostUsd: typeof cost === 'number' ? cost : undefined };
+  return { narration, usage: usageOf(body.usage, model ?? PROVIDER_DEFAULT_MODEL, body.total_cost_usd) };
 };
 
 const attempt = async (route: ClaudeCodeRoute, system: string, input: string, databasePath?: string) => {
@@ -165,7 +164,7 @@ const attempt = async (route: ClaudeCodeRoute, system: string, input: string, da
     const config = databasePath === undefined || !route.gameServer ? undefined : join(dir, MCP_CONFIG_FILE);
     if (config !== undefined && databasePath !== undefined)
       writeFileSync(config, JSON.stringify(gameMcpConfig(databasePath)), { mode: PRIVATE_FILE_MODE });
-    return replyOf(await run(route, claudeArgs(route, system, config), input, dir));
+    return replyOf(await run(route, claudeArgs(route, system, config), input, dir), route.model);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -185,7 +184,7 @@ export const requestClaudeNarration = (
   route: ClaudeCodeRoute,
   packet: Pick<ContextPacket, 'sections'>,
   databasePath: string,
-): Promise<ClaudeReply> => {
+): Promise<GmReply> => {
   const { stable, variable } = packetParts(packet);
   return request(route, SYSTEM_PROMPT, [stable, variable].join(PART_SEPARATOR), databasePath);
 };
@@ -194,4 +193,5 @@ export const requestClaudeSummary = async (
   route: ClaudeCodeRoute,
   level: SummaryLevel,
   texts: readonly string[],
-): Promise<string> => (await request(route, SUMMARY_PROMPT, frameData({ level, texts }))).narration;
+): Promise<string> =>
+  (await request({ ...route, model: route.summaryModel }, SUMMARY_PROMPT, frameData({ level, texts }))).narration;

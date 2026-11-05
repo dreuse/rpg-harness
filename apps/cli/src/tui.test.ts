@@ -653,3 +653,36 @@ test('rpg-42a.33 the TUI says in plain words which game master is active', async
     assert.ok(output.join('').includes(notice));
   }
 });
+
+test('rpg-42a.37: TUI help shows GM model and token use, and a crossed budget warns once without blocking', async () => {
+  const { engine, campaignId, session } = engineSession();
+  const used = {
+    turns: 1,
+    inputTokens: 50,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+    outputTokens: 10,
+    costUsd: 0,
+    pricedTurns: 0,
+  };
+  const settings = { model: 'haiku', sessionBudgetTokens: 10 };
+  const gm = { settings, campaignSettings: settings, defaults: {}, session: used, campaign: used };
+  const withGm: ClientSession = {
+    ...session,
+    getSnapshot: (command) => {
+      const result = session.getSnapshot(command);
+      return result.ok ? { ok: true, value: { ...result.value, gm } } : result;
+    },
+  };
+  const output: string[] = [];
+  await runTui(withGm, campaignId, {
+    capabilities: PLAIN_WIDE,
+    lines: each(['?', ACTION, ACTION, 'q']),
+    write: (text) => output.push(text),
+  });
+  const printed = output.join('');
+  assert.match(printed, /Help:[\s\S]*GM model: haiku \(cheaper and faster\)[\s\S]*This session: 1 GM turns, 60 tokens/);
+  const helpAndOneNotice = 3;
+  assert.equal(printed.split('more than the 10 token budget').length, helpAndOneNotice);
+  assert.equal(engine.getState(campaignId).turns.filter(({ input }) => input === ACTION).length, 2);
+});

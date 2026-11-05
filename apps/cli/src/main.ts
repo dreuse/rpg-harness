@@ -1,6 +1,7 @@
 import { parseArgs } from 'node:util';
 import { CLIENTS } from '../../../packages/intent/src/intent.ts';
 import type { Ask } from './character-creation.ts';
+import type { GmSettingsChanges } from './engine-gateway.ts';
 import { PLAIN_TERMINAL, type Terminal } from './tui.ts';
 import type { UpdateRequest } from './update.ts';
 import { printable, VIEW_NAMES, type ViewName } from './views.ts';
@@ -13,6 +14,7 @@ const HELP_HINT = 'Run rpg help for usage.';
 const VOICE_COMMAND = 'tui';
 const UPDATE_COMMAND = 'update';
 const CLIENT_COMMAND = 'new';
+const SETTINGS_COMMAND = 'settings';
 const OPTIONS = {
   help: { type: 'boolean', short: 'h' },
   voice: { type: 'boolean' },
@@ -20,6 +22,9 @@ const OPTIONS = {
   check: { type: 'boolean' },
   'auto-check': { type: 'boolean' },
   'pre-release': { type: 'boolean' },
+  model: { type: 'string' },
+  'summary-model': { type: 'string' },
+  'session-budget': { type: 'string' },
 } as const;
 
 export type CampaignMode = 'play' | 'resume';
@@ -44,6 +49,7 @@ export type CampaignGateway = {
   tui: (campaign: string, terminal: Terminal) => Promise<void>;
   start: (lines: AsyncIterable<string>) => AsyncIterable<string>;
   update: (request: UpdateRequest) => AsyncIterable<string>;
+  settings: (campaign: string | undefined, changes: GmSettingsChanges) => string;
 };
 
 export type Io = {
@@ -105,6 +111,12 @@ const COMMANDS = [
     usage: 'update [--check] [--no-auto-check] [--pre-release]',
     description:
       'Download a verified new version that installs the next time you start rpg. --check only shows the version and notes. --no-auto-check stops the daily check. --pre-release offers test versions.',
+  },
+  {
+    name: SETTINGS_COMMAND,
+    usage: 'settings [campaign] [--model <name>] [--summary-model <name>] [--session-budget <tokens>]',
+    description:
+      'Show or set the AI game master model, the cheaper summary model and a soft token budget per session. Without a campaign it sets the app default. Claude Code takes default, haiku, sonnet, opus or fable; the API takes a model id. Use unset to clear a value. The budget only warns. Also shows the tokens and cost used so far.',
   },
   { name: 'help', usage: 'help', description: 'Show this help.' },
 ] as const;
@@ -218,6 +230,10 @@ export const main = async (argv: readonly string[], io: Io, gateway: CampaignGat
   const updateOption = [check, autoCheck, preRelease].some((value) => value !== undefined);
   if (updateOption && command !== UPDATE_COMMAND)
     return usageError(io, `Options --check, --auto-check and --pre-release work only with ${UPDATE_COMMAND}.`);
+  const { model, 'summary-model': summaryModel, 'session-budget': sessionBudgetTokens } = parsed.values;
+  const settingsOption = [model, summaryModel, sessionBudgetTokens].some((value) => value !== undefined);
+  if (settingsOption && command !== SETTINGS_COMMAND)
+    return usageError(io, `Options --model, --summary-model and --session-budget work only with ${SETTINGS_COMMAND}.`);
   const wantsHelp = parsed.values.help === true || command === 'help';
   if (wantsHelp) {
     const extra = parsed.values.help === true ? parsed.positionals : rest;
@@ -298,6 +314,15 @@ export const main = async (argv: readonly string[], io: Io, gateway: CampaignGat
         ...(preRelease !== undefined && { preRelease }),
       }),
     );
+  }
+  if (command === SETTINGS_COMMAND) {
+    const [name, ...extra] = rest;
+    if (name !== undefined && name.trim() === '') return usageError(io, 'Missing campaign name for settings.');
+    if (extra.length > 0) return usageError(io, `Unexpected argument: ${extra[0]}.`);
+    const changes = Object.fromEntries(
+      Object.entries({ model, summaryModel, sessionBudgetTokens }).filter(([, value]) => value !== undefined),
+    );
+    return run(io, () => [gateway.settings(name, changes)]);
   }
   return usageError(io, `Unsupported command: ${command}.`);
 };

@@ -1,5 +1,13 @@
+import {
+  budgetWarning,
+  GM_MODEL_CHOICES,
+  gmUsageLines,
+  modelHintOf,
+} from '../../../packages/client-protocol/src/gm-usage.ts';
 import { loadStartDraft, type StartScreen } from '../../../packages/client-protocol/src/guided-start.ts';
+import type { GmSnapshot } from '../../../packages/client-protocol/src/protocol.ts';
 import { MOTION_SETTINGS } from '../../../packages/client-protocol/src/visualization.ts';
+import type { GmSettings } from '../../../packages/domain/src/gm.ts';
 import {
   actionForKey,
   loadPreferences,
@@ -112,8 +120,40 @@ const voiceSettings = (voice: DesktopVoiceView | undefined, locale: string) =>
     ? ''
     : `<p data-voice-summary>${escapeHtml(voiceLabel(locale, voice.preferences))}</p><p>${escapeHtml(translate(locale, 'voice.hint'))}</p>`;
 
+export const GM_FORM = 'data-gm-form';
+export const GM_DEFAULTS_FORM = 'data-gm-defaults-form';
+const GM_MODELS_LIST = 'gm-models';
+const GM_HELP_ID = 'gm-help';
+
+const GM_MODEL_INPUT = ` list="${GM_MODELS_LIST}"`;
+const GM_BUDGET_INPUT = ' type="number" min="1" step="1"';
+
+const gmInput = (locale: string, name: keyof GmSettings, values: GmSettings, placeholders: GmSettings) =>
+  `<label>${escapeHtml(translate(locale, `gmModel.${name}`))} <input name="${name}"${name === 'sessionBudgetTokens' ? GM_BUDGET_INPUT : GM_MODEL_INPUT} value="${escapeHtml(String(values[name] ?? ''))}" placeholder="${escapeHtml(String(placeholders[name] ?? ''))}" aria-describedby="${GM_HELP_ID}"></label>`;
+
+const gmInputs = (locale: string, values: GmSettings, placeholders: GmSettings) =>
+  `${gmInput(locale, 'model', values, placeholders)}${gmInput(locale, 'summaryModel', values, placeholders)}${gmInput(locale, 'sessionBudgetTokens', values, placeholders)}`;
+
+const gmUsage = (gm: GmSnapshot | undefined) => {
+  if (gm === undefined) return '';
+  const warning = budgetWarning(gm);
+  return gmUsageLines(gm)
+    .map((line) => `<p${line === warning ? ' role="status"' : ''}>${escapeHtml(line)}</p>`)
+    .join('');
+};
+
+const gmSettings = (gm: GmSnapshot | undefined, locale: string) => {
+  const campaign = gm?.campaignSettings ?? {};
+  const defaults = gm?.defaults ?? {};
+  const options = GM_MODEL_CHOICES.map(
+    (choice) =>
+      `<option value="${choice}">${escapeHtml(translate(locale, `gmModel.hint.${modelHintOf(choice)}`))}</option>`,
+  ).join('');
+  return `<form ${GM_FORM}><fieldset><legend>${escapeHtml(translate(locale, 'gmModel.legend'))}</legend>${gmInputs(locale, campaign, defaults)}<datalist id="${GM_MODELS_LIST}">${options}</datalist><p id="${GM_HELP_ID}">${escapeHtml(translate(locale, 'gmModel.help'))}</p><button type="submit">${escapeHtml(translate(locale, 'gmModel.save'))}</button></fieldset></form>${gmUsage(gm)}<form ${GM_DEFAULTS_FORM}><fieldset><legend>${escapeHtml(translate(locale, 'gmModel.defaultsLegend'))}</legend>${gmInputs(locale, defaults, {})}<button type="submit">${escapeHtml(translate(locale, 'gmModel.saveDefaults'))}</button></fieldset></form>`;
+};
+
 const settingsMenu = (model: ViewModel, locale: string, voice: DesktopVoiceView | undefined) =>
-  `<details data-settings><summary id="settings-toggle">${escapeHtml(translate(locale, 'settings.label'))}</summary><div>${motionControl(model.motion, locale)}${voiceSettings(voice, locale)}</div></details>`;
+  `<details data-settings><summary id="settings-toggle">${escapeHtml(translate(locale, 'settings.label'))}</summary><div>${motionControl(model.motion, locale)}${voiceSettings(voice, locale)}${gmSettings(model.gm, locale)}</div></details>`;
 
 export const HOME_ATTRIBUTE = 'data-home';
 export const HOME_NAME = 'data-name';

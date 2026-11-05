@@ -15,6 +15,7 @@ import { CAMPAIGN_CONFIGURED, MAIN_BRANCH, StaleRevisionError } from '../../../p
 import type { Visibility } from '../../../packages/domain/src/entity.ts';
 import { CHARACTER_CREATED, editSheetField, SHEET_FIELD_EDITED } from '../../../packages/engine/src/character.ts';
 import { createEngine } from '../../../packages/engine/src/engine.ts';
+import { recordGmUsage } from '../../../packages/engine/src/gm-settings.ts';
 import { openScene } from '../../../packages/engine/src/turn.ts';
 import { type CampaignConfig, generateCampaignConfig } from '../../../packages/intent/src/config.ts';
 import { createCampaignIntent } from '../../../packages/intent/src/intent.ts';
@@ -879,5 +880,43 @@ test('A21: SaveVoiceSettings commits through the engine and the snapshot reads i
   });
   assert.equal(unconsented.ok ? undefined : unconsented.error.code, 'Rejected');
   const stale = session.saveVoiceSettings({ ...save, actionId: 'voice-3', expectedRevision: OPENING_REVISION });
+  assert.equal(stale.ok ? undefined : stale.error.code, 'StaleRevision');
+});
+
+test('rpg-42a.37: SaveGmSettings persists per campaign and the snapshot shows session and campaign usage', () => {
+  const { database, engine, campaignId, envelope } = setup();
+  const store = createCampaignStore(database);
+  const usage = { model: 'haiku', inputTokens: 100, cacheReadTokens: 50, cacheWriteTokens: 10, outputTokens: 20 };
+  const defaults = { summaryModel: 'haiku', sessionBudgetTokens: 900 };
+  const session = createClientSessions(engine, campaignId, scopedEventsOf(database), worldOf(database), undefined, {
+    sessionId: 'session-now',
+    defaults: () => defaults,
+  })(PLAYER_VIEWER);
+  const read = () => {
+    const snapshot = session.getSnapshot({ ...envelope, type: 'GetCampaignSnapshot' });
+    assert.ok(snapshot.ok);
+    return snapshot.value;
+  };
+  assert.deepEqual(read().gm?.settings, defaults);
+  assert.deepEqual(read().gm?.campaignSettings, {});
+  assert.deepEqual(read().gm?.defaults, defaults);
+  const save = { ...envelope, type: 'SaveGmSettings', actionId: 'gm-1', model: 'opus' } as const;
+  assert.deepEqual(session.saveGmSettings({ ...save, expectedRevision: OPENING_REVISION }), {
+    ok: true,
+    value: { revision: OPENING_REVISION + 1 },
+  });
+  recordGmUsage(store, { campaignId, turnId: 'turn-a', sessionId: 'session-before', usage });
+  recordGmUsage(store, { campaignId, turnId: 'turn-b', sessionId: 'session-now', usage: { ...usage, costUsd: 0.5 } });
+  const { gm, revision } = read();
+  assert.equal(revision, OPENING_REVISION + 1);
+  assert.deepEqual(gm?.settings, { ...defaults, model: 'opus' });
+  assert.deepEqual(gm?.campaignSettings, { model: 'opus' });
+  assert.equal(gm?.session.turns, 1);
+  assert.equal(gm?.session.costUsd, 0.5);
+  assert.equal(gm?.campaign.turns, 2);
+  assert.equal(gm?.campaign.inputTokens, 200);
+  const bad = session.saveGmSettings({ ...save, actionId: 'gm-2', model: '--x', expectedRevision: revision });
+  assert.equal(bad.ok ? undefined : bad.error.code, 'Rejected');
+  const stale = session.saveGmSettings({ ...save, actionId: 'gm-3', expectedRevision: OPENING_REVISION });
   assert.equal(stale.ok ? undefined : stale.error.code, 'StaleRevision');
 });
