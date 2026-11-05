@@ -10,6 +10,7 @@ import {
   CAPTURE_STATUS,
   captureJourney,
   captureScreens,
+  headlessRun,
   isJourneyPhase,
   JOURNEY,
   JOURNEY_ENV,
@@ -106,6 +107,7 @@ const offerUpdate = async (dataDir: string) => {
     await dialog.showMessageBox({ message: 'The update was rejected and deleted.', detail: result.reason });
 };
 
+const ACCESSORY_POLICY = 'accessory';
 const SCALE_SWITCH = 'force-device-scale-factor';
 const CAPTURE_SCALE = '1';
 
@@ -113,11 +115,15 @@ if (process.env[CAPTURE_ENV] || process.env[JOURNEY_ENV]) app.commandLine.append
 
 app.on('window-all-closed', () => app.quit());
 
+const headless = headlessRun(process.env, process.platform);
+
 app.whenReady().then(() => {
+  if (headless.accessory) app.setActivationPolicy(ACCESSORY_POLICY);
   protocol.handle(APP_SCHEME, (request) => serveAsset(APP_ROOT, request.url));
   if (process.env[SMOKE_ENV]) reportStatusAndQuit();
   startMain({
     BrowserWindow,
+    hidden: headless.hidden,
     ipcMain,
     fs: { readFileSync, writeFileSync, mkdirSync },
     env: process.env,

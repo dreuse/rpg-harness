@@ -43,6 +43,7 @@ export type WebContentsLike = {
 export type WindowOptions = {
   readonly width: number;
   readonly height: number;
+  readonly show?: false;
   readonly webPreferences: typeof WINDOW_SECURITY & { readonly preload: string };
 };
 export type BrowserWindowLike = {
@@ -70,6 +71,7 @@ export type MainOptions = {
   readonly page: string;
   readonly startDaemon?: (options: DaemonOptions) => Daemon;
   readonly voice?: VoiceHost;
+  readonly hidden?: boolean;
 };
 export const FOREIGN_SENDER = 'ipc sender is not the app window';
 
@@ -188,6 +190,7 @@ export const startMain = ({
   page,
   startDaemon = startEngine,
   voice,
+  hidden = false,
 }: MainOptions) => {
   const preferencesPath = join(dataDir, PREFERENCES_FILE);
   const systemLocale = localeOf(env, SUPPORTED_LOCALES);
@@ -195,6 +198,7 @@ export const startMain = ({
   const window = new BrowserWindow({
     width: WINDOW_WIDTH,
     height: WINDOW_HEIGHT,
+    ...(hidden ? { show: false as const } : {}),
     webPreferences: { preload, ...WINDOW_SECURITY },
   });
   const push = (channel: string, value: string | number) => {

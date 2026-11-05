@@ -1,5 +1,5 @@
 import { join } from 'node:path';
-import { WINDOW_HEIGHT, WINDOW_WIDTH } from './main.ts';
+import { SMOKE_ENV, WINDOW_HEIGHT, WINDOW_WIDTH } from './main.ts';
 import { BRIDGE_KEY } from './preload.ts';
 import { COMPACT_MAX_WIDTH, MEDIUM_MAX_WIDTH } from './renderer.ts';
 import { decodePng } from './ux-check.ts';
@@ -118,6 +118,12 @@ export const captureScreens = async (
 };
 
 export const JOURNEY_ENV = 'RPG_DESKTOP_JOURNEY';
+const MACOS = 'darwin';
+export const headlessRun = (env: NodeJS.ProcessEnv, platform: string) => {
+  const hidden = Boolean(env[SMOKE_ENV]);
+  return { hidden, accessory: hidden && platform === MACOS };
+};
+
 export const JOURNEY_ERROR = 'rpg-desktop-journey-error: ';
 export const JOURNEY_ACTION = 'I try to climb the wall';
 export const JOURNEY_EDIT = { fieldId: 'might', value: 8 } as const;

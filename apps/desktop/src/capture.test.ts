@@ -2,7 +2,15 @@ import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { runInNewContext } from 'node:vm';
-import { CAPTURE_LAYOUTS, CAPTURE_THEMES, type CaptureWindow, captureJourney, captureScreens } from './capture.ts';
+import {
+  CAPTURE_LAYOUTS,
+  CAPTURE_THEMES,
+  type CaptureWindow,
+  captureJourney,
+  captureScreens,
+  headlessRun,
+} from './capture.ts';
+import { SMOKE_ENV } from './main.ts';
 import { layoutFor } from './renderer.ts';
 
 const DIR = '/shots';
@@ -202,4 +210,13 @@ test('rpg-42a.34 capture keeps the page focused and hides the text caret only wh
   );
   assert.ok(calls.includes('Emulation.setFocusEmulationEnabled {"enabled":true}'));
   assert.deepEqual(css, ['* { caret-color: transparent !important; }']);
+});
+
+test('rpg-42a.63 smoke runs hide the window and drop the Dock icon on macOS', () => {
+  assert.deepEqual(headlessRun({ [SMOKE_ENV]: '1' }, 'darwin'), { hidden: true, accessory: true });
+  assert.deepEqual(headlessRun({ [SMOKE_ENV]: '1' }, 'linux'), { hidden: true, accessory: false });
+});
+
+test('rpg-42a.63 a normal launch keeps the window shown and the default activation policy', () => {
+  assert.deepEqual(headlessRun({}, 'darwin'), { hidden: false, accessory: false });
 });

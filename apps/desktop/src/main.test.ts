@@ -560,3 +560,23 @@ test('rpg-cm63.22 main answers a diagnostics request with nothing when the engin
   start(electron, fakeDaemon());
   assert.equal(await electron.invoke(CHANNELS.voiceDiagnostics), undefined);
 });
+
+const showOption = (windows: readonly { options: unknown }[]) =>
+  (windows[0]?.options as { show?: boolean } | undefined)?.show;
+
+test('rpg-42a.63 main creates a hidden window only when asked', () => {
+  const shown = fakeElectron();
+  start(shown);
+  assert.equal(showOption(shown.windows), undefined);
+  const hidden = fakeElectron();
+  startMain({
+    ...hidden,
+    hidden: true,
+    env: HERMETIC_LOCALE,
+    dataDir: DATA_DIR,
+    preload: PRELOAD,
+    page: PAGE,
+    startDaemon: () => fakeDaemon(),
+  });
+  assert.equal(showOption(hidden.windows), false);
+});
