@@ -250,3 +250,106 @@ test('rpg-cm63.18: an assigned character voice is used when that npc speaks', as
   assert.equal(spoken.find(({ text }) => text === GUARD_LINE)?.profile.fallbacks[0]?.voiceId, 'assigned');
   assert.notEqual(spoken.find(({ text }) => text === MONK_LINE)?.profile.fallbacks[0]?.voiceId, 'assigned');
 });
+
+const FEMALE_VOICE = { providerId: 'fake-tts', voiceId: 'af_quiet' };
+const MALE_VOICE = { providerId: 'fake-tts', voiceId: 'am_gruff' };
+const INSTALLED = [FEMALE_VOICE, MALE_VOICE];
+
+const autoSpeech = async (t: TestContext, installed: readonly (typeof FEMALE_VOICE)[] = INSTALLED) => {
+  const base = await setup(t);
+  const { store, entities, campaignId, lastTurnId } = base;
+  const speakAuto = (
+    segments: Parameters<typeof utterancesFor>[0]['segments'],
+    assigned: Parameters<typeof assignedNpcVoices>[0]['assigned'] = {},
+  ) =>
+    utterancesFor({
+      store,
+      entities,
+      campaignId,
+      turnId: lastTurnId(),
+      segments,
+      narrator: NARRATOR,
+      npcVoices: assignedNpcVoices({ entities, campaignId, narrator: NARRATOR, assigned }),
+      installed: () => installed,
+    });
+  return { ...base, speakAuto };
+};
+
+test('rpg-cm63.27: an unassigned npc gets a deterministic installed voice that is stored', async (t: TestContext) => {
+  const { speakAuto, stateOf, profileSets } = await autoSpeech(t);
+  const [utterance] = speakAuto([{ speakerId: GUARD_ID, text: GUARD_LINE }]);
+  assert.equal(utterance?.profile.id, GUARD_ID);
+  assert.ok(INSTALLED.some((voice) => voice.voiceId === utterance?.profile.fallbacks[0]?.voiceId));
+  assert.equal(profileSets(GUARD_ID).length, 1);
+  assert.deepEqual(voiceProfileOf(stateOf().events, GUARD_ID), utterance?.profile);
+});
+
+test('rpg-cm63.27: the next turn reuses the stored npc voice without a new event', async (t: TestContext) => {
+  const { speakAuto, stateOf, profileSets, playSecondTurn } = await autoSpeech(t);
+  const [first] = speakAuto([{ speakerId: GUARD_ID, text: GUARD_LINE }]);
+  playSecondTurn();
+  const revision = stateOf().revision;
+  const [second] = speakAuto([{ speakerId: GUARD_ID, text: GUARD_LINE }]);
+  assert.deepEqual(second?.profile, first?.profile);
+  assert.equal(profileSets(GUARD_ID).length, 1);
+  assert.equal(stateOf().revision, revision);
+});
+
+test('rpg-cm63.27: a player-assigned name wins over the automatic pick', async (t: TestContext) => {
+  const { speakAuto, profileSets } = await autoSpeech(t);
+  const assigned = { providerId: 'fake-tts', voiceId: 'chosen' };
+  const [utterance] = speakAuto([{ speakerId: GUARD_ID, text: GUARD_LINE }], { [GUARD_ID]: assigned });
+  assert.equal(utterance?.profile.fallbacks[0]?.voiceId, 'chosen');
+  assert.equal(profileSets(GUARD_ID).length, 0);
+});
+
+test('rpg-cm63.27: without installed voices the narrator voice is used and nothing is stored', async (t: TestContext) => {
+  const { speakAuto, profileSets, stateOf } = await autoSpeech(t, []);
+  const revision = stateOf().revision;
+  const [utterance] = speakAuto([{ speakerId: GUARD_ID, text: GUARD_LINE }]);
+  assert.equal(utterance?.profile, NARRATOR);
+  assert.equal(profileSets(GUARD_ID).length, 0);
+  assert.equal(stateOf().revision, revision);
+});
+
+test('rpg-cm63.27: the narrator and non-npc speakers never get a pick', async (t: TestContext) => {
+  const { speakAuto, profileSets, stateOf } = await autoSpeech(t);
+  const revision = stateOf().revision;
+  const utterances = speakAuto([
+    { speakerId: 'narrator', text: NARRATOR_LINE },
+    { speakerId: GHOST_ID, text: MONK_LINE },
+  ]);
+  assert.ok(utterances.every(({ profile }) => profile === NARRATOR));
+  assert.equal(profileSets('narrator').length + profileSets(GHOST_ID).length, 0);
+  assert.equal(stateOf().revision, revision);
+});
+
+test('rpg-cm63.27: an entity gender narrows the automatic pick', async (t: TestContext) => {
+  const { speakAuto, entities, campaignId } = await autoSpeech(t);
+  entities.saveEntity({ ...npc(MONK_ID, campaignId), data: { gender: 'male' } });
+  const [utterance] = speakAuto([{ speakerId: MONK_ID, text: MONK_LINE }]);
+  assert.deepEqual(utterance?.profile.fallbacks, [MALE_VOICE]);
+});
+
+test('rpg-cm63.27: an important npc keeps the cinematic voice over the automatic pick', async (t: TestContext) => {
+  const { speakAuto, stateOf } = await autoSpeech(t);
+  const [utterance] = speakAuto([{ speakerId: MONK_ID, text: MONK_LINE, important: true }]);
+  assert.deepEqual(utterance?.profile, voiceProfileOf(stateOf().events, MONK_ID));
+  assert.equal(stateOf().events.filter((event) => event.type === VOICE_PROFILE_SET).length, 1);
+});
+
+test('rpg-cm63.27: the saved speed paces an automatic npc voice without being persisted', async (t: TestContext) => {
+  const { store, entities, campaignId, lastTurnId, stateOf } = await autoSpeech(t);
+  const [utterance] = utterancesFor({
+    store,
+    entities,
+    campaignId,
+    turnId: lastTurnId(),
+    segments: [{ speakerId: GUARD_ID, text: GUARD_LINE }],
+    narrator: { ...NARRATOR, pace: FAST },
+    npcVoices: assignedNpcVoices({ entities, campaignId, narrator: NARRATOR, assigned: {} }),
+    installed: () => INSTALLED,
+  });
+  assert.equal(utterance?.profile.pace, FAST);
+  assert.equal(voiceProfileOf(stateOf().events, GUARD_ID)?.pace, NARRATOR.pace);
+});

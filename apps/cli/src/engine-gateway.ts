@@ -524,11 +524,13 @@ const openSession = (
           { assignedNpcVoices, utterancesFor },
           { voiceLocaleFor },
           { prepareVoice },
+          { installedVoices },
         ] = await Promise.all([
           import('./turn-speech.ts'),
           import('./turn-utterances.ts'),
           import('../../../packages/voice/src/language-voices.ts'),
           import('./speech-runtime.ts'),
+          import('../../../packages/voice/src/npc-voice.ts'),
         ]);
         const campaignLanguage = campaignLanguageOf(changes);
         const narrator = narratorProfileOf(
@@ -544,7 +546,16 @@ const openSession = (
           turnId,
           mode: settings.spokenOutput,
           utterancesOf: (segments) =>
-            utterancesFor({ store, entities, campaignId, turnId, segments, narrator, npcVoices }),
+            utterancesFor({
+              store,
+              entities,
+              campaignId,
+              turnId,
+              segments,
+              narrator,
+              npcVoices,
+              installed: () => installedVoices(runtime.providers, narrator.language),
+            }),
         });
       } catch {
         return undefined;
