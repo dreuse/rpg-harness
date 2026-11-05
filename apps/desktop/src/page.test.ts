@@ -1062,6 +1062,92 @@ test('rpg-cm63.15 page assigns a voice to a known character or to an Other name 
   });
 });
 
+test('rpg-cm63.14 page forgets a deleted campaign voice overrides in the saved preferences', async () => {
+  const page = fakePage();
+  const voice = installedVoiceBridge();
+  const preferences: unknown[] = [];
+  mount(page, {}, deniedMicrophone, undefined, WIDE_WIDTH, {
+    bridge: { ...page.bridge, voice: voice.bridge, savePreferences: (saved) => preferences.push(saved) },
+    audio: { play: async () => ({ decodeMs: 1 }) },
+  });
+  page.receive(READY);
+  continueHarbor(page);
+  page.receive({ type: 'Snapshot', snapshot: { ...SNAPSHOT, speakers: [{ id: 'guard', name: 'Guard' }] } });
+  page.click({ 'data-voice-setup': 'on' });
+  await settle();
+  await settle();
+  page.click({ 'data-voice-setup': 'finish' });
+  page.fields['#voice-npc-speaker'] = 'Guard';
+  page.fields['#voice-npc-voice'] = 'am_adam';
+  page.click({ 'data-voice-npc': 'add' });
+  assert.deepEqual((preferences.at(-1) as UiPreferences).speech.npcVoices, { [CAMPAIGN]: { Guard: 'am_adam' } });
+  page.receive({ type: 'Campaigns', campaigns: [SNAPSHOT.campaign] });
+  page.click({ 'data-home': 'delete', 'data-name': HARBOR });
+  page.click({ 'data-home': 'confirm' });
+  assert.deepEqual((preferences.at(-1) as UiPreferences).speech.npcVoices, {});
+});
+
+test('rpg-cm63.14 page keys NPC voices by the current snapshot while a voice save is pending', async () => {
+  const page = fakePage();
+  const voice = installedVoiceBridge();
+  const preferences: unknown[] = [];
+  mount(page, {}, deniedMicrophone, undefined, WIDE_WIDTH, {
+    bridge: { ...page.bridge, voice: voice.bridge, savePreferences: (saved) => preferences.push(saved) },
+    audio: { play: async () => ({ decodeMs: 1 }) },
+  });
+  page.receive(READY);
+  continueHarbor(page);
+  page.click({ 'data-voice-setup': 'on' });
+  await settle();
+  await settle();
+  page.click({ 'data-voice-setup': 'finish' });
+  page.receive({ type: 'Snapshot', snapshot: SNAPSHOT });
+  await settle();
+  page.change({ 'data-voice-field': 'spokenOutput' }, 'cinematic');
+  await settle();
+  assert.ok(saves(page).length > 0);
+  const other = 'c2';
+  const ember = { id: other, name: 'Ember' };
+  page.click({ 'data-home': 'continue', 'data-name': ember.name });
+  page.receive({
+    type: 'Changed',
+    command: page.sent.findLast(({ type }) => type === 'OpenCampaign'),
+    result: { ok: true, value: ember },
+  });
+  page.receive({
+    type: 'Snapshot',
+    snapshot: { ...SNAPSHOT, campaignId: other, revision: 2, speakers: [{ id: 'guard', name: 'Guard' }] },
+  });
+  page.fields['#voice-npc-speaker'] = 'Guard';
+  page.fields['#voice-npc-voice'] = 'am_adam';
+  page.click({ 'data-voice-npc': 'add' });
+  assert.deepEqual((preferences.at(-1) as UiPreferences).speech.npcVoices, { [other]: { Guard: 'am_adam' } });
+});
+
+test('rpg-cm63.14 page forgets an archived deleted campaign voice overrides', async () => {
+  const page = fakePage();
+  const voice = installedVoiceBridge();
+  const preferences: unknown[] = [];
+  mount(page, {}, deniedMicrophone, undefined, WIDE_WIDTH, {
+    bridge: { ...page.bridge, voice: voice.bridge, savePreferences: (saved) => preferences.push(saved) },
+    audio: { play: async () => ({ decodeMs: 1 }) },
+  });
+  page.receive(READY);
+  continueHarbor(page);
+  page.receive({ type: 'Snapshot', snapshot: { ...SNAPSHOT, speakers: [{ id: 'guard', name: 'Guard' }] } });
+  page.click({ 'data-voice-setup': 'on' });
+  await settle();
+  await settle();
+  page.click({ 'data-voice-setup': 'finish' });
+  page.fields['#voice-npc-speaker'] = 'Guard';
+  page.fields['#voice-npc-voice'] = 'am_adam';
+  page.click({ 'data-voice-npc': 'add' });
+  page.receive({ type: 'Campaigns', campaigns: [], archived: [SNAPSHOT.campaign] });
+  page.click({ 'data-home': 'delete', 'data-name': HARBOR, 'data-archived': '' });
+  page.click({ 'data-home': 'confirm' });
+  assert.deepEqual((preferences.at(-1) as UiPreferences).speech.npcVoices, {});
+});
+
 test('rpg-cm63.17 page sends pause, resume, skip and stop to the engine from the voice controls', async () => {
   const page = fakePage();
   const voice = fakeVoiceBridge();

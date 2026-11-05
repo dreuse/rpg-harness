@@ -275,12 +275,12 @@ export const mountPage = ({
     audio: speechAudio,
     speech: saved.speech,
     language: () => voice.view().preferences.locale,
-    campaign: () => loaded?.campaignId,
-    speakers: () => loaded?.speakers?.map(({ name }) => name) ?? [],
+    campaign: () => client.state().snapshot?.campaignId,
+    speakers: () => client.state().snapshot?.speakers?.map(({ name }) => name) ?? [],
     speed: () => voice.view().preferences.speed,
     saveSpeech: (speech: SpeechPreferences) => {
       saved = { ...saved, speech };
-      voice.setNpcVoices(assignmentsOf(speech, loaded?.campaignId, setup.view().provider?.id));
+      voice.setNpcVoices(assignmentsOf(speech, client.state().snapshot?.campaignId, setup.view().provider?.id));
       bridge.savePreferences?.(saved);
       preferences = withSystem();
     },
@@ -448,8 +448,17 @@ export const mountPage = ({
     const next = playable[(playable.findIndex(({ id }) => id === selected) + 1) % playable.length];
     if (next !== undefined) continueCampaign(next.name);
   };
+  const confirmHome = () => {
+    const { home, campaigns, archived: archivedCampaigns } = client.state();
+    const { confirm } = home;
+    client.confirmHome();
+    if (confirm?.kind !== 'delete') return;
+    const listed = confirm.archived === true ? archivedCampaigns : campaigns;
+    const id = listed.find(({ name }) => name === confirm.name)?.id;
+    if (id) setup.forgetCampaign(id);
+  };
   const homeAction = (action: string | null, name: string | null, archived: boolean) => {
-    if (action === 'confirm') return client.confirmHome();
+    if (action === 'confirm') return confirmHome();
     if (action === 'cancel') return cancelHome();
     if (action === 'undo') return client.undoArchive();
     if (name === null) return;

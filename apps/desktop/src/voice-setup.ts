@@ -308,6 +308,10 @@ export const createVoiceSetup = ({
     save({ ...speech, npcVoices: Object.keys(voices).length === 0 ? others : { ...others, [id]: voices } });
   };
 
+  const forgetCampaign = (id: string) => {
+    if (Object.hasOwn(speech.npcVoices, id)) saveNpcVoices(id, NO_NPC_VOICES);
+  };
+
   const setNpcVoice = (name: string, voice: string) => {
     const id = campaign();
     const speaker = name.trim();
@@ -403,6 +407,7 @@ export const createVoiceSetup = ({
     observe,
     update,
     setNpcVoice,
+    forgetCampaign,
     removeNpcVoice,
     removeModel,
     clearCache,
