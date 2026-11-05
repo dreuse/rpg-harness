@@ -1412,3 +1412,68 @@ test('rpg-42a.88 page lists the installed narrator voices on the begin step, pre
   assert.equal(preferences.at(-1)?.speech?.narratorVoice, 'am_adam');
   assert.equal(page.saved.at(-1)?.choices.narratorVoice, 'am_adam');
 });
+
+const REPLAY_TURN = {
+  id: 't1',
+  campaignId: CAMPAIGN,
+  sceneId: 's1',
+  actionId: 'r1',
+  actorId: 'hero',
+  input: 'look',
+  narration: 'The gate opens.',
+};
+const REPLAY_BUTTON = { 'data-replay': 'r1' };
+
+const replayPage = async (spoken: boolean) => {
+  const page = fakePage();
+  const voice = fakeVoiceBridge();
+  const stops: string[] = [];
+  const timers: (() => void)[] = [];
+  mount(page, {}, deniedMicrophone, undefined, WIDE_WIDTH, {
+    bridge: { ...page.bridge, voice: voice.bridge },
+    audio: { play: async () => ({ decodeMs: 1, durationMs: 10 }), stop: () => stops.push('stop') },
+    schedule: (run) => timers.push(run),
+  });
+  page.receive(READY);
+  continueHarbor(page);
+  page.receive({ type: 'Snapshot', snapshot: { ...SNAPSHOT, turns: [REPLAY_TURN] } });
+  await settle();
+  if (spoken) {
+    page.click({ 'data-voice-setup': 'on' });
+    await settle();
+    page.click({ 'data-voice-setup': 'accept' });
+    await settle();
+    await settle();
+    page.click({ 'data-voice-setup': 'finish' });
+  }
+  const replays = () => voice.previews.filter((request) => (request as { text?: string }).text !== undefined);
+  return { page, voice, stops, timers, replays };
+};
+
+test('rpg-cm63.46 page replays a narration turn through the voice bridge and stops on a second press or Escape', async () => {
+  const { page, voice, stops, timers, replays } = await replayPage(true);
+  assert.match(page.root.innerHTML, /data-replay="r1" aria-label="Play this passage"/);
+  page.click(REPLAY_BUTTON);
+  await settle();
+  assert.deepEqual(replays(), [
+    { providerId: 'kokoro', voiceId: 'af_heart', language: 'en', speed: 1, text: 'The gate opens.' },
+  ]);
+  assert.deepEqual(voice.playbackCommands, ['stop']);
+  assert.match(page.root.innerHTML, /aria-label="Stop this passage" aria-pressed="true"/);
+  page.click(REPLAY_BUTTON);
+  assert.deepEqual(stops, ['stop']);
+  assert.match(page.root.innerHTML, /aria-label="Play this passage"/);
+  page.click(REPLAY_BUTTON);
+  await settle();
+  page.press('Escape');
+  assert.equal(stops.length, 2);
+  assert.match(page.root.innerHTML, /aria-label="Play this passage"/);
+  for (const run of timers.splice(0)) run();
+  await settle();
+  assert.equal(replays().length, 2);
+});
+
+test('rpg-cm63.46 page shows no replay button before a voice is installed and spoken', async () => {
+  const { page } = await replayPage(false);
+  assert.doesNotMatch(page.root.innerHTML, /data-replay/);
+});

@@ -321,6 +321,7 @@ test('rpg-cm63.7 without a voice bridge the setup reports unavailable and text p
 
 test('rpg-cm63.7 browser audio decodes every chunk, queues them in order and applies the volume', async () => {
   const started: [number, number][] = [];
+  const stopped: number[] = [];
   let gainValue = -1;
   let contexts = 0;
   let clock = 0;
@@ -347,6 +348,7 @@ test('rpg-cm63.7 browser audio decodes every chunk, queues them in order and app
           buffer: undefined as { duration: number } | undefined,
           connect: () => {},
           start: (at: number) => started.push([at, source.buffer?.duration ?? 0]),
+          stop: () => stopped.push(source.buffer?.duration ?? 0),
         };
         return source;
       },
@@ -362,6 +364,9 @@ test('rpg-cm63.7 browser audio decodes every chunk, queues them in order and app
   ]);
   assert.equal(gainValue, 0.3);
   assert.equal(contexts, 1);
+  audio.stop?.();
+  audio.stop?.();
+  assert.deepEqual(stopped, [2, 5, 1]);
 });
 
 const ENGINE_SUMMARY = { samples: 3, cacheHitRate: 0, errors: { timeout: 1 }, stages: {}, peakQueueDepth: 4 };

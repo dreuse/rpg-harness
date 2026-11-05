@@ -15,6 +15,7 @@ import {
   createVoiceHost,
   fakeVoiceProviders,
   type HostedProvider,
+  MAX_SPEECH_CHARS,
   mlxAudioProviders,
   PREVIEW_LINES,
   voiceProviders,
@@ -186,6 +187,19 @@ test('rpg-cm63.7 voice host previews a fixed line in the campaign language and c
   assert.equal((await host.check()).cacheBytes, 0);
 });
 
+test('rpg-cm63.46 voice host speaks the given text and replays it from the audio cache', async () => {
+  const { host, spoken } = setup(true);
+  const request = { ...PREVIEW, voiceId: 'am_adam', text: 'The door creaks.' };
+  const first = await host.preview(request);
+  assert.equal(first.cacheHit, false);
+  assert.equal(spoken.join(' '), request.text);
+  const again = await host.preview(request);
+  assert.equal(again.cacheHit, true);
+  assert.deepEqual(again.chunks, first.chunks);
+  assert.equal(spoken.length, 1);
+  assert.equal((await host.preview({ ...request, text: 'Another line.' })).cacheHit, false);
+});
+
 test('rpg-cm63.7 voice host rejects previews it cannot speak instead of guessing', async () => {
   const { host, spoken } = setup(true);
   const invalid = [
@@ -193,7 +207,10 @@ test('rpg-cm63.7 voice host rejects previews it cannot speak instead of guessing
     { ...PREVIEW, voiceId: 'pf_dora' },
     { ...PREVIEW, language: 'pt-BR' },
     { ...PREVIEW, speed: 9 },
-    { ...PREVIEW, text: 'say anything' },
+    { ...PREVIEW, text: '' },
+    { ...PREVIEW, text: 7 },
+    { ...PREVIEW, text: 'x'.repeat(MAX_SPEECH_CHARS + 1) },
+    { ...PREVIEW, language: 'xx', text: 'Hello' },
     'nonsense',
   ];
   for (const request of invalid) await assert.rejects(host.preview(request), RangeError);

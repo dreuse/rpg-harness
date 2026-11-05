@@ -33,6 +33,7 @@ import {
   PANE_ATTRIBUTE,
   queryPreferences,
   queryStart,
+  REPLAY,
   ROLL_OFFER_ATTRIBUTE,
   renderView,
   SETTINGS_PANEL,
@@ -76,6 +77,7 @@ import {
   MICROPHONE_OFF,
   type OutputChange,
 } from './voice.ts';
+import { createReplay } from './voice-replay.ts';
 import {
   type AudioOut,
   browserAudio,
@@ -104,6 +106,7 @@ const RETRY_SELECTOR = '[data-action="retry"]';
 const TABINDEX = 'tabindex';
 const PROGRAMMATIC_FOCUS = '-1';
 const NO_CAMPAIGN = '';
+const NO_VOICE_BRIDGE = 'voice bridge is unavailable';
 const FIRST_TURN = 0;
 const START_REGION = '[data-region="start"]';
 const ENTRY_SELECTOR = `#${START_ENTRY}`;
@@ -160,6 +163,7 @@ const FOCUS_ATTRIBUTES = [
   MOTION_ATTRIBUTE,
   VOICE_SETUP,
   VOICE_PREVIEW,
+  REPLAY,
 ];
 const FOCUS_REGIONS: Partial<Record<RendererAction, Region>> = {
   focusConversation: 'conversation',
@@ -274,6 +278,12 @@ export const mountPage = ({
       );
       return played;
     },
+    stop: () => {
+      audio.stop?.();
+      previewRun += 1;
+      previewing = false;
+      syncSpeaking();
+    },
   };
   const setup = createVoiceSetup({
     ...(bridge.voice === undefined ? {} : { bridge: bridge.voice }),
@@ -296,6 +306,22 @@ export const mountPage = ({
     bridge.sound === undefined
       ? undefined
       : createSoundSetup({ bridge: bridge.sound, changed: () => render(), installed: () => void sound?.refresh() });
+  const replay = createReplay({
+    preview: (request) => bridge.voice?.preview(request) ?? Promise.reject(new Error(NO_VOICE_BRIDGE)),
+    stopLive: () => void bridge.voice?.playback('stop'),
+    audio: speechAudio,
+    provider: () => setup.view().provider?.id,
+    voiceOf: setup.voiceOf,
+    language: () => voice.view().preferences.locale,
+    speed: () => voice.view().preferences.speed,
+    volume: () => setup.view().speech.volume,
+    wait: (ms) => new Promise((resolve) => schedule(resolve, ms)),
+    changed: () => render(),
+  });
+  const replayTurn = (actionId: string) => {
+    const narration = client.state().snapshot?.turns.find((turn) => turn.actionId === actionId)?.narration;
+    if (narration !== undefined) void replay.toggle(actionId, [{ text: narration }]);
+  };
   const startVoices = (): StartVoices => {
     const { provider, narratorVoice } = setup.view();
     return { ids: provider?.voices ?? [], current: narratorVoice };
@@ -338,8 +364,13 @@ export const mountPage = ({
     );
     syncSpeaking();
     const setupView = setup.view();
+    const available = voice.view().preferences.spokenOutput !== 'off' && setupView.provider?.installed === true;
     root.innerHTML = renderView(
-      soundSetup === undefined ? model : { ...model, soundSetup: soundSetup.view() },
+      {
+        ...model,
+        ...(soundSetup === undefined ? {} : { soundSetup: soundSetup.view() }),
+        replay: { available, playing: replay.playing() },
+      },
       preferences.locale,
       shownPane,
       voice.view(),
@@ -523,6 +554,7 @@ export const mountPage = ({
     if (region !== undefined) return focusRegion(region);
     if (action === 'newAdventure') return client.openStart();
     const target = event.target as ClickTarget | undefined;
+    if (action === 'closeMenu') replay.stop();
     if (action === 'closeMenu' && target?.closest(SHEET_FORM_SELECTOR)) return sheetAction('cancel');
     if (action === 'closeMenu') return closeMenu(target);
     if (
@@ -657,6 +689,8 @@ export const mountPage = ({
     if (target?.closest(`[${START_OPEN}]`)) return client.openStart();
     const option = target?.closest(`[${START_OPTION}]`)?.getAttribute(START_OPTION);
     if (option !== undefined && option !== null) return startOption(option);
+    const replayed = target?.closest(`[${REPLAY}]`)?.getAttribute(REPLAY);
+    if (replayed !== undefined && replayed !== null) return replayTurn(replayed);
     const preview = target?.closest(`[${START_PREVIEW}]`)?.getAttribute(START_PREVIEW);
     if (preview !== undefined && preview !== null) return startPreview(preview);
     const edit = target?.closest(`[${START_EDIT}]`)?.getAttribute(START_EDIT);

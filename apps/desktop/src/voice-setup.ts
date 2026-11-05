@@ -52,6 +52,7 @@ export type AudioOut = {
     chunks: readonly Uint8Array[],
     volume: number,
   ): Promise<{ readonly decodeMs: number; readonly durationMs?: number }>;
+  stop?(): void;
 };
 
 type DecodedAudio = { readonly duration: number };
@@ -65,12 +66,18 @@ export type AudioContextLike = {
     buffer: DecodedAudio | null | undefined;
     connect(target: unknown): unknown;
     start(at: number): void;
+    stop(): void;
   };
 };
 
 export const browserAudio = (context: () => AudioContextLike, now = () => performance.now()): AudioOut => {
   let shared: AudioContextLike | undefined;
+  const playing = new Set<ReturnType<AudioContextLike['createBufferSource']>>();
   return {
+    stop: () => {
+      for (const source of playing) source.stop();
+      playing.clear();
+    },
     play: async (chunks, volume) => {
       shared ??= context();
       const audio = shared;
@@ -88,6 +95,7 @@ export const browserAudio = (context: () => AudioContextLike, now = () => perfor
         source.buffer = buffer;
         source.connect(gain);
         source.start(at);
+        playing.add(source);
         at += buffer.duration;
       }
       return { decodeMs, durationMs: (at - begin) * MS_PER_SECOND };
@@ -327,15 +335,18 @@ export const createVoiceSetup = ({
     saveNpcVoices(id, rest);
   };
 
-  const preview = async (speaker?: string) => {
+  const voiceOf = (speaker?: string) => {
     const provider = active();
-    if (provider === undefined) return;
+    if (provider === undefined) return undefined;
     const voices = npcVoicesOf(campaign());
     const override = speaker === undefined || !Object.hasOwn(voices, speaker) ? undefined : voices[speaker];
-    await play(
-      provider,
-      override !== undefined && provider.voices.includes(override) ? override : narratorOf(provider),
-    );
+    return override !== undefined && provider.voices.includes(override) ? override : narratorOf(provider);
+  };
+
+  const preview = async (speaker?: string) => {
+    const provider = active();
+    const voiceId = voiceOf(speaker);
+    if (provider !== undefined && voiceId !== undefined) await play(provider, voiceId);
   };
 
   const previewVoice = async (voiceId: string) => {
@@ -402,6 +413,7 @@ export const createVoiceSetup = ({
       go('closed');
     },
     preview,
+    voiceOf,
     previewVoice,
     refresh,
     observe,

@@ -39,6 +39,7 @@ export const FAKE_VOICE_ROUTE = 'fake';
 export const VOICE_MODELS_DIR = 'voice-models';
 export const MLX_AUDIO_SUBDIR = 'mlx-audio';
 export const AUDIO_CACHE_DIR = 'audio-cache';
+export const MAX_SPEECH_CHARS = 4000;
 export const PREVIEW_CACHE_BYTES = 8 * 1024 * 1024;
 export const PREVIEW_LINES: Readonly<Record<string, string>> = {
   en: 'Welcome, traveller. Your story begins here.',
@@ -69,6 +70,7 @@ export type PreviewRequest = {
   readonly voiceId: string;
   readonly language: string;
   readonly speed: number;
+  readonly text?: string;
 };
 export type PreviewAudio = {
   readonly chunks: readonly Uint8Array[];
@@ -88,7 +90,7 @@ export type VoiceHost = {
 const PREVIEW_EVENT = 'voice-preview';
 const PREVIEW_SPEAKER = 'narrator';
 const NO_STYLE = '';
-const REQUEST_FIELDS = ['providerId', 'voiceId', 'language', 'speed'];
+const REQUEST_FIELDS = ['providerId', 'voiceId', 'language', 'speed', 'text'];
 const BYTES_PER_MIB = 1024 * 1024;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -144,10 +146,12 @@ export const createVoiceHost = ({
       throw new RangeError('preview request is invalid');
     const { providerId, voiceId, language, speed } = value;
     const hosted = find(providerId);
-    const text = typeof language === 'string' ? previewLine(language) : undefined;
+    const text = 'text' in value ? value.text : typeof language === 'string' ? previewLine(language) : undefined;
     if (typeof voiceId !== 'string' || !hosted.capabilities.voices.includes(voiceId))
       throw new RangeError('preview voice is not offered by this provider');
-    if (typeof language !== 'string' || text === undefined || !speaksLanguage(hosted.capabilities, language))
+    if (typeof text !== 'string' || text.trim() === '' || text.length > MAX_SPEECH_CHARS)
+      throw new RangeError('preview text is invalid');
+    if (typeof language !== 'string' || !speaksLanguage(hosted.capabilities, language))
       throw new RangeError('preview language is not spoken by this provider');
     if (typeof speed !== 'number' || !(speed >= MIN_PLAYBACK_SPEED && speed <= MAX_PLAYBACK_SPEED))
       throw new RangeError('preview speed is out of range');

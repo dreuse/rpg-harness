@@ -242,6 +242,18 @@ section[data-region="start"]:not(:has(h2)) {
   margin-inline: auto;
 }
 
+[data-replay] {
+  justify-self: start;
+  min-width: var(--target-min);
+  padding: var(--space-1) var(--space-2);
+  line-height: 1;
+}
+
+[data-replay]:focus-visible {
+  outline: var(--focus-width) solid var(--focus);
+  outline-offset: var(--focus-offset);
+}
+
 [data-speaker="player"] {
   justify-self: end;
   max-width: var(--bubble-max);

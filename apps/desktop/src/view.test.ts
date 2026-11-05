@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { INITIAL_DRAFT, START_STEPS, type StartDraft } from '../../../packages/client-protocol/src/guided-start.ts';
 import { type CampaignSummary, PROTOCOL_VERSION } from '../../../packages/client-protocol/src/protocol.ts';
@@ -1020,4 +1021,35 @@ test('rpg-42a.88 the begin step groups each question under a heading and preview
   assert.match(html, /data-start-control="skip">Skip</);
   const quiet = startHtml(guideAt('begin'));
   assert.doesNotMatch(quiet, /data-start-preview|Spoken story|Narrator voice/);
+});
+
+const REPLAY_NAMES = [
+  ['en', 'Play this passage', 'Stop this passage'],
+  ['pt-BR', 'Ouvir esta passagem', 'Parar esta passagem'],
+  ['es', 'Escuchar este pasaje', 'Detener este pasaje'],
+] as const;
+
+test('rpg-cm63.46 each narration turn gets a replay button named in the player language', () => {
+  const model = viewModel(state, WIDE_WIDTH);
+  for (const [locale, play, stop] of REPLAY_NAMES) {
+    const idle = renderView({ ...model, replay: { available: true } }, locale);
+    assert.match(idle, new RegExp(`<button type="button" data-replay="a0" aria-label="${play}">`));
+    const playing = renderView({ ...model, replay: { available: true, playing: 'a0' } }, locale);
+    assert.match(
+      playing,
+      new RegExp(`<button type="button" data-replay="a0" aria-label="${stop}" aria-pressed="true">`),
+    );
+  }
+});
+
+test('rpg-cm63.46 the replay button is hidden while spoken output is off or no voice is installed', () => {
+  const model = viewModel(state, WIDE_WIDTH);
+  assert.doesNotMatch(renderView(model, 'en'), /data-replay/);
+  assert.doesNotMatch(renderView({ ...model, replay: { available: false } }, 'en'), /data-replay/);
+});
+
+test('rpg-cm63.46 the replay button has a visible focus style', () => {
+  const css = readFileSync(new URL('./view.css', import.meta.url), 'utf8');
+  assert.match(css, /\[data-replay\]/);
+  assert.match(css, /\[data-replay\]:focus-visible/);
 });

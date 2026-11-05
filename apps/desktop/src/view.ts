@@ -41,7 +41,11 @@ import type { DesktopVoiceView } from './voice.ts';
 import { packName, providerName, voiceName } from './voice-names.ts';
 import { MAX_NPC_NAME_LENGTH, MAX_VOLUME, MIN_VOLUME, type VoiceSetupView } from './voice-setup.ts';
 
-export type ViewModel = ReturnType<typeof viewModel> & { readonly soundSetup?: SoundSetupView };
+export type ReplayView = { readonly available: boolean; readonly playing?: string | undefined };
+export type ViewModel = ReturnType<typeof viewModel> & {
+  readonly soundSetup?: SoundSetupView;
+  readonly replay?: ReplayView;
+};
 export type KeyEventLike = {
   readonly key: string;
   readonly altKey: boolean;
@@ -103,6 +107,12 @@ const gmLine = (locale: string, narration: string, pending: boolean) =>
     ? systemLine(translate(locale, pending ? 'label.pending' : 'label.no-reply'))
     : speaker(locale, 'gm', narration);
 
+const replayButton = (locale: string, actionId: string, narration: string, replay: ReplayView | undefined) => {
+  if (replay?.available !== true || narration.trim() === '') return '';
+  const playing = replay.playing === actionId;
+  return `<button type="button" ${REPLAY}="${escapeHtml(actionId)}" aria-label="${escapeHtml(translate(locale, playing ? 'replay.stop' : 'replay.play'))}"${playing ? ' aria-pressed="true"' : ''}><span aria-hidden="true">${playing ? REPLAY_STOP_ICON : REPLAY_PLAY_ICON}</span></button>`;
+};
+
 const GM_FIELD = 'gm';
 
 const diagnostics = ({ diagnostics: { pid, gm, error, attempts } }: ViewModel, locale: string) =>
@@ -137,6 +147,9 @@ export const VOICE_NPC_REMOVE = 'data-voice-npc-remove';
 export const VOICE_REMOVE = 'data-voice-remove';
 export const VOICE_CLEAR = 'data-voice-clear';
 export const VOICE_PLAYBACK = 'data-voice-playback';
+export const REPLAY = 'data-replay';
+const REPLAY_PLAY_ICON = '\u25B6';
+const REPLAY_STOP_ICON = '\u25A0';
 export const VOICE_NPC_NAME = 'voice-npc-name';
 export const VOICE_NPC_SPEAKER = 'voice-npc-speaker';
 export const VOICE_NPC_VOICE = 'voice-npc-voice';
@@ -624,7 +637,7 @@ const REGION_BODIES: Readonly<Record<Region, (model: ViewModel, locale: string) 
     `<ol aria-live="polite">${model.conversation
       .map(
         ({ actionId, input, narration, pending, noRoll }) =>
-          `<li data-action-id="${escapeHtml(actionId)}"${pending ? ' aria-busy="true"' : ''}>${actionId === OPENING_ACTION_ID ? '' : speaker(locale, 'player', input)}${gmLine(locale, narration, pending)}${noRoll === undefined ? '' : systemLine(translate(locale, `noRoll.${noRoll}`))}</li>`,
+          `<li data-action-id="${escapeHtml(actionId)}"${pending ? ' aria-busy="true"' : ''}>${actionId === OPENING_ACTION_ID ? '' : speaker(locale, 'player', input)}${gmLine(locale, narration, pending)}${pending ? '' : replayButton(locale, actionId, narration, model.replay)}${noRoll === undefined ? '' : systemLine(translate(locale, `noRoll.${noRoll}`))}</li>`,
       )
       .join(
         '',
