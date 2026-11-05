@@ -8,6 +8,7 @@ import { createMicrophoneController, type MicrophoneSource } from './microphone.
 import { createOutputQueue, type PlaybackEvent } from './playback.ts';
 import { startTranscription } from './stt.ts';
 import { createSubtitleTranscript } from './subtitles.ts';
+import { TEST_AUDIO_FORMAT } from './test-audio-format.ts';
 import type { SpeechChunk, TtsProvider } from './tts.ts';
 import { createTurnDetector, type TurnOptions, type VoiceTurn } from './turns.ts';
 import {
@@ -172,6 +173,7 @@ test('latency from end of speech to transcript and to first audio stays within b
   let firstAudioAt: number | undefined;
   const { provider } = ttsProvider(async () => tick(TTS_FIRST_AUDIO_LATENCY_MS));
   const queue = createOutputQueue({
+    audioFormat: TEST_AUDIO_FORMAT,
     sink: {
       play: async () => {
         firstAudioAt ??= now();
@@ -207,6 +209,7 @@ test('barge-in cancels playback and pending speech, and the cancelled line is ne
     if (item.eventId === HANGING_EVENT) await new Promise((resolve) => signal.addEventListener('abort', resolve));
   };
   const queue = createOutputQueue({
+    audioFormat: TEST_AUDIO_FORMAT,
     sink: {
       play: async (chunk) => {
         played.push(chunk.utteranceEventId);
@@ -282,6 +285,7 @@ test('stt transcript is only a proposal and subtitles match the committed uttera
   const shown: (string | undefined)[] = [];
   const { provider } = ttsProvider(async () => {});
   const queue = createOutputQueue({
+    audioFormat: TEST_AUDIO_FORMAT,
     sink: { play: async () => void shown.push(transcript.current()?.text) },
     speech: { settings: ENABLED, providers: [provider], rate: RATE, budget: BUDGET },
     onEvent: (event) => {
@@ -324,6 +328,7 @@ test('disabling voice stops capture and output while the text path keeps working
   const events: PlaybackEvent[] = [];
   const { provider, spoken } = ttsProvider(async () => {});
   const queue = createOutputQueue({
+    audioFormat: TEST_AUDIO_FORMAT,
     sink: { play: async () => assert.fail('no audio when voice is off') },
     speech: { settings: DISABLED, providers: [provider], rate: RATE, budget: BUDGET },
     onEvent: (event) => events.push(event),
@@ -357,6 +362,7 @@ test('mic capture is never activated silently and audio is not stored indefinite
   const ledger = createUsageLedger({ rate: RATE, cap: BUDGET });
   const { provider, spoken } = ttsProvider(async () => {});
   const defaultOutcome = await speakWithBudget({
+    audioFormat: TEST_AUDIO_FORMAT,
     utterance: utterance('ev-default'),
     settings: DEFAULT_VOICE_SETTINGS,
     providers: [provider],
@@ -370,6 +376,7 @@ test('mic capture is never activated silently and audio is not stored indefinite
 
   for (const eventId of ['ev-a', 'ev-b', 'ev-c']) {
     const outcome = await speakWithBudget({
+      audioFormat: TEST_AUDIO_FORMAT,
       utterance: utterance(eventId),
       settings: ENABLED,
       providers: [provider],
@@ -387,6 +394,7 @@ test('subtitles accompany spoken output and text fallback works when audio is un
   const { provider } = ttsProvider(async () => {});
   const live: (string | undefined)[] = [];
   const speaking = createOutputQueue({
+    audioFormat: TEST_AUDIO_FORMAT,
     sink: { play: async () => void live.push(transcript.current()?.text) },
     speech: { settings: ENABLED, providers: [provider], rate: RATE, budget: BUDGET },
     onEvent: (event) => transcript.onPlayback(event),
@@ -398,6 +406,7 @@ test('subtitles accompany spoken output and text fallback works when audio is un
   assert.deepEqual(live, [NARRATION]);
 
   const unavailable = createOutputQueue({
+    audioFormat: TEST_AUDIO_FORMAT,
     sink: { play: async () => assert.fail('no audio without a provider') },
     speech: { settings: ENABLED, providers: [], rate: RATE, budget: BUDGET },
     onEvent: (event) => transcript.onPlayback(event),

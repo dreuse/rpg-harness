@@ -52,11 +52,22 @@ export const createAudioCache = (maxBytes: number): AudioCache => {
   };
 };
 
-export const audioCacheKey = (providerId: string, voiceId: string, utterance: CommittedUtterance): string => {
+export interface AudioFormat {
+  readonly modelVersion: string;
+  readonly outputFormat: string;
+}
+
+export const audioCacheKey = (
+  providerId: string,
+  voiceId: string,
+  utterance: CommittedUtterance,
+  { modelVersion, outputFormat }: AudioFormat,
+): string => {
   const { language, pace, style, pronunciations } = utterance.profile;
   const sortedPronunciations = Object.entries(pronunciations).sort(([left], [right]) => left.localeCompare(right));
   return JSON.stringify([
     providerId,
+    modelVersion,
     voiceId,
     language,
     pace,
@@ -64,6 +75,7 @@ export const audioCacheKey = (providerId: string, voiceId: string, utterance: Co
     sortedPronunciations,
     utterance.text,
     utterance.delivery ?? null,
+    outputFormat,
   ]);
 };
 
@@ -131,6 +143,7 @@ export interface BudgetedSpeakOptions extends Omit<SpeakOptions, 'rate' | 'budge
   readonly ledger: UsageLedger;
   readonly cache?: AudioCache;
   readonly safeToCache?: boolean;
+  readonly audioFormat: AudioFormat;
   readonly budget?: number;
 }
 
@@ -157,7 +170,7 @@ const findCached = (options: BudgetedSpeakOptions, cache: AudioCache): SpeechOut
   const consented = consent.granted ? consent.providerIds : [];
   for (const { providerId, voiceId } of options.utterance.profile.fallbacks) {
     if (!consented.includes(providerId)) continue;
-    const chunks = cache.get(audioCacheKey(providerId, voiceId, options.utterance));
+    const chunks = cache.get(audioCacheKey(providerId, voiceId, options.utterance, options.audioFormat));
     if (!chunks) continue;
     options.ledger.countCacheHit(providerId, voiceId);
     return { kind: 'speech', chunks: replay(chunks, options.utterance.eventId) };
@@ -193,6 +206,6 @@ export const speakWithBudget = async (requested: BudgetedSpeakOptions): Promise<
   if (outcome.kind !== 'speech' || !choice) return outcome;
   options.ledger.charge(choice.providerId, choice.voiceId, options.utterance.text.length);
   if (!cache) return outcome;
-  const key = audioCacheKey(choice.providerId, choice.voiceId, options.utterance);
+  const key = audioCacheKey(choice.providerId, choice.voiceId, options.utterance, options.audioFormat);
   return { kind: 'speech', chunks: store(outcome.chunks, cache, key) };
 };

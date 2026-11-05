@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createOutputQueue, type PlaybackSink } from './playback.ts';
 import { createSubtitleTranscript } from './subtitles.ts';
+import { TEST_AUDIO_FORMAT } from './test-audio-format.ts';
 import type { CommittedUtterance, VoiceProfile, VoiceSettings } from './voice.ts';
 
 const PROFILE: VoiceProfile = {
@@ -96,6 +97,7 @@ const mutedSetup = () => {
   const transcript = createSubtitleTranscript({ now: tickingClock() });
   const sink: PlaybackSink = { play: async () => undefined };
   const queue = createOutputQueue({
+    audioFormat: TEST_AUDIO_FORMAT,
     sink,
     speech: { settings: MUTED, providers: [], rate: RATE, budget: BUDGET },
     onEvent: transcript.onPlayback,

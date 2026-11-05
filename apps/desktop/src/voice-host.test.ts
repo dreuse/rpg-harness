@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, test } from 'node:test';
 import type { ModelConsent, ModelManager } from '../../../packages/voice/src/kokoro-model.ts';
 import {
   createKokoroProvider,
@@ -12,6 +15,13 @@ const OFFER = { source: 'https://models.example/kokoro', bytes: 10, sizeMiB: 0 }
 const NARRATOR = 'af_heart';
 const AUDIO = new Uint8Array([1, 2, 3]);
 const STEP_MS = 7;
+const CACHE_DIR_PREFIX = 'rpg-voice-host-';
+
+let cacheDir = '';
+beforeEach(() => {
+  cacheDir = mkdtempSync(join(tmpdir(), CACHE_DIR_PREFIX));
+});
+afterEach(() => rmSync(cacheDir, { recursive: true, force: true }));
 
 const MIB = 1024 * 1024;
 const BIG_OFFER = { source: 'https://models.example/kokoro', bytes: 3 * MIB, sizeMiB: 3 };
@@ -67,7 +77,7 @@ const setup = (installed = false, modelOptions: ModelOptions = {}) => {
     provider,
   };
   let clock = 0;
-  const host = createVoiceHost({ providers: [hosted], now: () => (clock += STEP_MS) });
+  const host = createVoiceHost({ providers: [hosted], cacheDir, now: () => (clock += STEP_MS) });
   return { host, spoken, calls, unloaded: () => unloaded };
 };
 
@@ -152,7 +162,7 @@ test('rpg-cm63.7 voice host previews a fixed line in the campaign language and c
   const again = await host.preview(PREVIEW);
   assert.equal(again.cacheHit, true);
   assert.equal(spoken.length, 2);
-  assert.equal((await host.check()).cacheBytes, AUDIO.byteLength * 2);
+  assert.ok((await host.check()).cacheBytes >= AUDIO.byteLength * 2);
   host.clearCache();
   assert.equal((await host.check()).cacheBytes, 0);
 });
@@ -182,7 +192,7 @@ test('rpg-cm63.7 voice host removes an installed model and unloads its provider'
 
 test('rpg-cm63.7 fake voice route downloads with progress and previews valid wav without network', async () => {
   const ticks: (() => void)[] = [];
-  const host = createVoiceHost({ providers: fakeVoiceProviders((run) => ticks.push(run)) });
+  const host = createVoiceHost({ cacheDir, providers: fakeVoiceProviders((run) => ticks.push(run)) });
   const [provider] = (await host.check()).providers;
   assert.ok(provider && !provider.installed);
   const progress: number[] = [];
@@ -196,4 +206,23 @@ test('rpg-cm63.7 fake voice route downloads with progress and previews valid wav
   const { chunks } = await host.preview({ ...PREVIEW, providerId: provider.id });
   assert.ok(chunks.length > 0);
   assert.ok(chunks.every((chunk) => new TextDecoder().decode(chunk.subarray(0, 4)) === 'RIFF'));
+});
+
+test('rpg-cm63.8 a preview cached by one host is a cache hit for a new host over the same directory', async () => {
+  const first = setup(true);
+  const firstPreview = await first.host.preview(PREVIEW);
+  const second = setup(true);
+  const secondPreview = await second.host.preview(PREVIEW);
+  assert.equal(firstPreview.cacheHit, false);
+  assert.equal(secondPreview.cacheHit, true);
+  assert.deepEqual(second.spoken, []);
+  assert.deepEqual(secondPreview.chunks, firstPreview.chunks);
+});
+
+test('rpg-cm63.8 clearing the cache removes persisted previews', async () => {
+  const { host } = setup(true);
+  await host.preview(PREVIEW);
+  host.clearCache();
+  assert.equal((await host.check()).cacheBytes, 0);
+  assert.equal((await setup(true).host.preview(PREVIEW)).cacheHit, false);
 });

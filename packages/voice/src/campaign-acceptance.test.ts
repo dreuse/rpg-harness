@@ -5,6 +5,7 @@ import { createVoiceActionSubmitter, type RecoveryEvent, transcribeTurn } from '
 import { createOutputQueue } from './playback.ts';
 import { NARRATOR_SPEAKER, type OutputSegment, routeSegments } from './speaker-routing.ts';
 import { createSubtitleTranscript, type SubtitleTranscript } from './subtitles.ts';
+import { TEST_AUDIO_FORMAT } from './test-audio-format.ts';
 import type { TtsProvider } from './tts.ts';
 import { createTurnDetector, type TurnOptions, type VoiceTurn } from './turns.ts';
 import type { AudioInputProvider, VoiceProfile, VoiceSettings } from './voice.ts';
@@ -206,6 +207,7 @@ const speak = async (
   transcript: SubtitleTranscript,
 ) => {
   const queue = createOutputQueue({
+    audioFormat: TEST_AUDIO_FORMAT,
     sink: { play: async () => {} },
     speech: { settings, providers: [devices.tts], rate: RATE, budget: BUDGET },
     onEvent: (event) => transcript.onPlayback(event),

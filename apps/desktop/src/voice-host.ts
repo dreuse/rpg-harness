@@ -1,5 +1,7 @@
+import { rmSync } from 'node:fs';
 import { join } from 'node:path';
-import { audioCacheKey, createAudioCache } from '../../../packages/voice/src/audio-budget.ts';
+import { audioCacheKey } from '../../../packages/voice/src/audio-budget.ts';
+import { createFileAudioCache } from '../../../packages/voice/src/audio-cache-store.ts';
 import { createKokoroJsEngine, KOKORO_MODEL_DIR_ENV } from '../../../packages/voice/src/kokoro-js-engine.ts';
 import {
   createKokoroModelManager,
@@ -11,6 +13,7 @@ import {
 import {
   createKokoroProvider,
   KOKORO_CAPABILITIES,
+  KOKORO_MIME_TYPE,
   KOKORO_PROVIDER_ID,
   type KokoroCapabilities,
   type KokoroEngine,
@@ -27,6 +30,7 @@ import type { CommittedUtterance } from '../../../packages/voice/src/voice.ts';
 export const VOICE_ROUTE_ENV = 'RPG_VOICE';
 export const FAKE_VOICE_ROUTE = 'fake';
 export const VOICE_MODELS_DIR = 'voice-models';
+export const AUDIO_CACHE_DIR = 'audio-cache';
 export const PREVIEW_CACHE_BYTES = 8 * 1024 * 1024;
 export const PREVIEW_LINES: Readonly<Record<string, string>> = {
   en: 'Welcome, traveller. Your story begins here.',
@@ -109,14 +113,16 @@ const previewLine = (language: string) => {
 
 export const createVoiceHost = ({
   providers,
+  cacheDir,
   now = performance.now.bind(performance),
   cacheLimit = PREVIEW_CACHE_BYTES,
 }: {
   readonly providers: readonly HostedProvider[];
+  readonly cacheDir: string;
   readonly now?: () => number;
   readonly cacheLimit?: number;
 }): VoiceHost => {
-  let cache = createAudioCache(cacheLimit);
+  let cache = createFileAudioCache(cacheDir, cacheLimit);
   const downloads = new Map<string, Promise<void>>();
   const find = (id: unknown) => {
     const hosted = providers.find((candidate) => candidate.id === id);
@@ -177,7 +183,10 @@ export const createVoiceHost = ({
     preview: async (value) => {
       const { hosted, voiceId, utterance } = request(value);
       const started = now();
-      const key = audioCacheKey(hosted.id, voiceId, utterance);
+      const key = audioCacheKey(hosted.id, voiceId, utterance, {
+        modelVersion: hosted.model.offer.source,
+        outputFormat: KOKORO_MIME_TYPE,
+      });
       const cached = cache.get(key);
       if (cached !== undefined)
         return { chunks: cached.map(({ audio }) => audio), synthesisMs: now() - started, cacheHit: true };
@@ -189,7 +198,8 @@ export const createVoiceHost = ({
       return { chunks: chunks.map(({ audio }) => audio), synthesisMs, cacheHit: false };
     },
     clearCache: () => {
-      cache = createAudioCache(cacheLimit);
+      rmSync(cacheDir, { recursive: true, force: true });
+      cache = createFileAudioCache(cacheDir, cacheLimit);
     },
   };
 };
@@ -285,6 +295,7 @@ export const fakeVoiceProviders = (schedule: (run: () => void, ms: number) => vo
 
 export const voiceHostFromEnv = (env: NodeJS.ProcessEnv, dataDir: string): VoiceHost =>
   createVoiceHost({
+    cacheDir: join(dataDir, AUDIO_CACHE_DIR),
     providers:
       env[VOICE_ROUTE_ENV] === FAKE_VOICE_ROUTE
         ? fakeVoiceProviders()

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createOutputQueue, type PlaybackEvent } from './playback.ts';
 import { NARRATOR_SPEAKER, type OutputSegment, routeSegments, UncommittedSegmentError } from './speaker-routing.ts';
+import { TEST_AUDIO_FORMAT } from './test-audio-format.ts';
 import type { SpeechChunk, TtsProvider } from './tts.ts';
 import type { VoiceProfile, VoiceSettings } from './voice.ts';
 
@@ -133,6 +134,7 @@ test('no speaker attribution changes during interrupted output', async () => {
   const events: PlaybackEvent[] = [];
   const voices: string[] = [];
   const queue = createOutputQueue({
+    audioFormat: TEST_AUDIO_FORMAT,
     sink: {
       async play(chunk) {
         voices.push(`${chunk.utteranceEventId}:${chunk.voiceId}`);

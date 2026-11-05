@@ -1,5 +1,11 @@
 import { MAX_VOICE_SPEED, MIN_VOICE_SPEED } from '../../client-protocol/src/protocol.ts';
-import { type AudioCache, speakWithBudget, type UsageLedger, type UsageReport } from './audio-budget.ts';
+import {
+  type AudioCache,
+  type AudioFormat,
+  speakWithBudget,
+  type UsageLedger,
+  type UsageReport,
+} from './audio-budget.ts';
 import { type SpeakOptions, type SpeechChunk, speakOrText, type TextFallbackReason } from './tts.ts';
 import type { CommittedUtterance } from './voice.ts';
 
@@ -32,6 +38,7 @@ export interface OutputQueueDeps {
   readonly onEvent: (event: PlaybackEvent) => void;
   readonly ledger?: UsageLedger;
   readonly cache?: AudioCache;
+  readonly audioFormat: AudioFormat;
 }
 
 export interface InterruptOptions {
@@ -78,6 +85,7 @@ export const createOutputQueue = (deps: OutputQueueDeps): OutputQueue => {
           utterance,
           signal,
           ledger: deps.ledger,
+          audioFormat: deps.audioFormat,
           ...(deps.cache && { cache: deps.cache, safeToCache: true }),
         })
       : speakOrText({ ...deps.speech, utterance, signal });

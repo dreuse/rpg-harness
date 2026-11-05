@@ -12,6 +12,7 @@ import {
   voiceActionId,
 } from './fallback.ts';
 import { createOutputQueue, type PlaybackEvent } from './playback.ts';
+import { TEST_AUDIO_FORMAT } from './test-audio-format.ts';
 import { type SpeechChunk, speakOrText, type TtsProvider } from './tts.ts';
 import type { VoiceTurn } from './turns.ts';
 import type {
@@ -196,6 +197,7 @@ test('recover gracefully from a missing speaker while subtitles keep the text', 
     },
   };
   const queue = createOutputQueue({
+    audioFormat: TEST_AUDIO_FORMAT,
     sink: reportSinkFailures(missingSpeaker, (event) => recovery.push(event)),
     speech: { settings: SETTINGS, providers: [speaking], rate: RATE, budget: BUDGET },
     onEvent: (event) => playback.push(event),

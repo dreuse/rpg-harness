@@ -1,6 +1,12 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { audioCacheKey, createAudioCache, createUsageLedger, speakWithBudget } from './audio-budget.ts';
+import {
+  type AudioFormat,
+  audioCacheKey,
+  createAudioCache,
+  createUsageLedger,
+  speakWithBudget,
+} from './audio-budget.ts';
 import type { SpeechChunk, SpeechOutcome, TtsProvider } from './tts.ts';
 import type { CommittedUtterance, VoiceProfile, VoiceSettings } from './voice.ts';
 
@@ -28,6 +34,7 @@ const CHUNK_COUNT = 2;
 const ROOMY_CACHE_BYTES = 1024;
 const TINY_CACHE_BYTES = CHUNK_COUNT;
 const TAMPER_BYTE = 255;
+const FORMAT: AudioFormat = { modelVersion: 'v1', outputFormat: 'audio/wav' };
 
 const fake = (id: string): TtsProvider & { calls: number } => {
   const provider = {
@@ -63,7 +70,7 @@ test('A16: cache safe repeated output and show model/voice costs and limits', as
   const provider = fake('a');
   const ledger = createUsageLedger({ rate: RATE, cap: COST * 3 });
   const cache = createAudioCache(ROOMY_CACHE_BYTES);
-  const base = { settings: SETTINGS, providers: [provider], ledger, cache, safeToCache: true };
+  const base = { audioFormat: FORMAT, settings: SETTINGS, providers: [provider], ledger, cache, safeToCache: true };
 
   const first = await drain(await speakWithBudget({ ...base, utterance: UTTERANCE }));
   const repeat = await drain(await speakWithBudget({ ...base, utterance: REPEAT }));
@@ -82,11 +89,28 @@ test('A16: cache safe repeated output and show model/voice costs and limits', as
   });
 });
 
+test('A16: cache key depends on provider, model version, voice, language, delivery, format and text', () => {
+  const key = audioCacheKey('a', 'a-voice', UTTERANCE, FORMAT);
+  assert.equal(key, audioCacheKey('a', 'a-voice', REPEAT, FORMAT));
+  assert.notEqual(key, audioCacheKey('b', 'a-voice', UTTERANCE, FORMAT));
+  assert.notEqual(key, audioCacheKey('a', 'b-voice', UTTERANCE, FORMAT));
+  assert.notEqual(key, audioCacheKey('a', 'a-voice', { ...UTTERANCE, text: 'other' }, FORMAT));
+  assert.notEqual(key, audioCacheKey('a', 'a-voice', { ...UTTERANCE, profile: { ...PROFILE, pace: 2 } }, FORMAT));
+  assert.notEqual(key, audioCacheKey('a', 'a-voice', { ...UTTERANCE, profile: { ...PROFILE, style: 'x' } }, FORMAT));
+  assert.notEqual(
+    key,
+    audioCacheKey('a', 'a-voice', { ...UTTERANCE, profile: { ...PROFILE, language: 'pt-BR' } }, FORMAT),
+  );
+  assert.notEqual(key, audioCacheKey('a', 'a-voice', { ...UTTERANCE, delivery: { emotion: 'angry' } }, FORMAT));
+  assert.notEqual(key, audioCacheKey('a', 'a-voice', UTTERANCE, { ...FORMAT, modelVersion: 'v2' }));
+  assert.notEqual(key, audioCacheKey('a', 'a-voice', UTTERANCE, { ...FORMAT, outputFormat: 'audio/mpeg' }));
+});
+
 test('A16: full output audio is not replayed for cinematic delivery', async () => {
   const provider = fake('a');
   const cache = createAudioCache(ROOMY_CACHE_BYTES);
   const ledger = createUsageLedger({ rate: RATE });
-  const base = { providers: [provider], ledger, cache, safeToCache: true };
+  const base = { audioFormat: FORMAT, providers: [provider], ledger, cache, safeToCache: true };
   const delivered = { ...UTTERANCE, delivery: { emotion: 'angry', intensity: 1 } };
 
   await drain(
@@ -103,7 +127,7 @@ test('A16: output not marked safe is never cached', async () => {
   const provider = fake('a');
   const cache = createAudioCache(ROOMY_CACHE_BYTES);
   const ledger = createUsageLedger({ rate: RATE });
-  const base = { settings: SETTINGS, providers: [provider], ledger, cache };
+  const base = { audioFormat: FORMAT, settings: SETTINGS, providers: [provider], ledger, cache };
 
   await drain(await speakWithBudget({ ...base, utterance: UTTERANCE }));
   await drain(await speakWithBudget({ ...base, utterance: REPEAT }));
@@ -112,16 +136,6 @@ test('A16: output not marked safe is never cached', async () => {
   assert.equal(cache.bytes, 0);
   assert.equal(ledger.report().remaining, undefined);
   assert.equal(ledger.report().spent, COST * 2);
-});
-
-test('A16: cache key depends on provider, voice, text and voice settings', () => {
-  const key = audioCacheKey('a', 'a-voice', UTTERANCE);
-  assert.equal(key, audioCacheKey('a', 'a-voice', REPEAT));
-  assert.notEqual(key, audioCacheKey('b', 'a-voice', UTTERANCE));
-  assert.notEqual(key, audioCacheKey('a', 'b-voice', UTTERANCE));
-  assert.notEqual(key, audioCacheKey('a', 'a-voice', { ...UTTERANCE, text: 'other' }));
-  assert.notEqual(key, audioCacheKey('a', 'a-voice', { ...UTTERANCE, profile: { ...PROFILE, pace: 2 } }));
-  assert.notEqual(key, audioCacheKey('a', 'a-voice', { ...UTTERANCE, delivery: { emotion: 'angry' } }));
 });
 
 test('A16: cache evicts least recently used entries past its byte bound', () => {
@@ -150,7 +164,7 @@ test('A16: cache evicts least recently used entries past its byte bound', () => 
 test('A16: a budget cap falls back to text instead of blocking gameplay', async () => {
   const provider = fake('a');
   const ledger = createUsageLedger({ rate: RATE, cap: COST });
-  const base = { settings: SETTINGS, providers: [provider], ledger };
+  const base = { audioFormat: FORMAT, settings: SETTINGS, providers: [provider], ledger };
 
   await drain(await speakWithBudget({ ...base, utterance: UTTERANCE }));
   const capped = await speakWithBudget({ ...base, utterance: REPEAT });
@@ -164,7 +178,7 @@ test('A16: cached output still plays after the budget cap is reached', async () 
   const provider = fake('a');
   const ledger = createUsageLedger({ rate: RATE, cap: COST });
   const cache = createAudioCache(ROOMY_CACHE_BYTES);
-  const base = { settings: SETTINGS, providers: [provider], ledger, cache, safeToCache: true };
+  const base = { audioFormat: FORMAT, settings: SETTINGS, providers: [provider], ledger, cache, safeToCache: true };
 
   await drain(await speakWithBudget({ ...base, utterance: UTTERANCE }));
   const repeat = await drain(await speakWithBudget({ ...base, utterance: REPEAT }));
@@ -176,7 +190,7 @@ test('A16: cached output still plays after the budget cap is reached', async () 
 test('A16: cache respects voice-off settings', async () => {
   const cache = createAudioCache(ROOMY_CACHE_BYTES);
   const ledger = createUsageLedger({ rate: RATE });
-  const base = { providers: [fake('a')], ledger, cache, safeToCache: true };
+  const base = { audioFormat: FORMAT, providers: [fake('a')], ledger, cache, safeToCache: true };
   await drain(await speakWithBudget({ ...base, settings: SETTINGS, utterance: UTTERANCE }));
 
   const off = await speakWithBudget({ ...base, settings: { ...SETTINGS, spokenOutput: 'off' }, utterance: REPEAT });
@@ -188,7 +202,7 @@ test('A16b: cache copies buffers on store and on replay', async () => {
   const provider = fake('a');
   const ledger = createUsageLedger({ rate: RATE });
   const cache = createAudioCache(ROOMY_CACHE_BYTES);
-  const base = { settings: SETTINGS, providers: [provider], ledger, cache, safeToCache: true };
+  const base = { audioFormat: FORMAT, settings: SETTINGS, providers: [provider], ledger, cache, safeToCache: true };
 
   const first = await drain(await speakWithBudget({ ...base, utterance: UTTERANCE }));
   first[0]?.audio.fill(TAMPER_BYTE);

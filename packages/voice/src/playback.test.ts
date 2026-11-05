@@ -9,6 +9,7 @@ import {
   type PlaybackEvent,
   type PlaybackSink,
 } from './playback.ts';
+import { TEST_AUDIO_FORMAT } from './test-audio-format.ts';
 import type { SpeechChunk, TtsProvider } from './tts.ts';
 import type { CommittedUtterance, VoiceProfile, VoiceSettings } from './voice.ts';
 
@@ -93,6 +94,7 @@ const setup = (options: SetupOptions = {}) => {
     },
   };
   const queue = createOutputQueue({
+    audioFormat: TEST_AUDIO_FORMAT,
     sink,
     speech: {
       settings: options.settings ?? SETTINGS,
@@ -273,6 +275,7 @@ test('interrupt with dropPending discards queued utterances', async () => {
 
 const isolated = (onEvent: (event: PlaybackEvent) => void, firstChunkTimeoutMs = TIMEOUT_MS) =>
   createOutputQueue({
+    audioFormat: TEST_AUDIO_FORMAT,
     sink: { play: async () => {} },
     speech: { settings: SETTINGS, providers: [provider()], rate: RATE, budget: BUDGET, firstChunkTimeoutMs },
     onEvent,

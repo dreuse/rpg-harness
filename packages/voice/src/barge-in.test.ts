@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createBargeIn } from './barge-in.ts';
 import { createOutputQueue, type InterruptOptions, type PlaybackEvent } from './playback.ts';
+import { TEST_AUDIO_FORMAT } from './test-audio-format.ts';
 import type { SpeechChunk, TtsProvider } from './tts.ts';
 import { createTurnDetector, type TurnMode, type TurnOptions, type VoiceTurn } from './turns.ts';
 import type { CommittedUtterance, MicrophoneMode, VoiceProfile, VoiceSettings } from './voice.ts';
@@ -55,6 +56,7 @@ const setup = (microphone: MicrophoneMode, interrupt?: InterruptOptions) => {
     firstChunk = resolve;
   });
   const queue = createOutputQueue({
+    audioFormat: TEST_AUDIO_FORMAT,
     sink: { play: async () => firstChunk() },
     speech: { settings: settingsFor(microphone), providers: [hangingProvider], rate: RATE, budget: BUDGET },
     onEvent: (event) => events.push(event),
