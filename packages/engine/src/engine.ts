@@ -17,7 +17,7 @@ import type { GmSettings } from '../../domain/src/gm.ts';
 import { isLocale, type SavedVoiceSettings } from '../../domain/src/voice.ts';
 import type { Rng } from '../../rules/src/dice.ts';
 import { type GmSettingsSave, saveGmSettings } from './gm-settings.ts';
-import { type Check, type NoCheck, type PlayerAction, performAction } from './turn.ts';
+import { type Check, type NoCheck, type PlayerAction, performAction, type ReportedRoll } from './turn.ts';
 import { saveVoiceSettings, type VoiceSettingsSave } from './voice-settings.ts';
 
 export type CampaignLanguageSave = {
@@ -32,7 +32,7 @@ export type Engine = {
   getCampaign(id: CampaignId): Campaign;
   getState(id: CampaignId): CampaignState;
   renameCampaign(id: CampaignId, name: string): Campaign;
-  submitAction(action: PlayerAction, check?: Check | NoCheck): CommittedTurn;
+  submitAction(action: PlayerAction, check?: Check | NoCheck | ReportedRoll): CommittedTurn;
   setCampaignLanguage(save: CampaignLanguageSave): string;
   saveVoiceSettings(save: VoiceSettingsSave): SavedVoiceSettings;
   saveGmSettings(save: GmSettingsSave): GmSettings;

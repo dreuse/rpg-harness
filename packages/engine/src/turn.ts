@@ -17,6 +17,7 @@ import {
   type NoCheckReason,
   OPENING_ACTION_ID,
   PLAYER_ACTION_SUBMITTED,
+  ROLL_REPORTED,
   SCENE_OPENED,
   type SceneId,
   StaleRevisionError,
@@ -41,9 +42,13 @@ export type CheckResolution = {
   readonly rolls: readonly RollEvent[];
   readonly events: readonly { readonly event: string }[];
   readonly bonus?: number;
+  readonly source?: typeof PLAYER_SOURCE;
+  readonly reported?: readonly number[];
 };
+export const PLAYER_SOURCE = 'player';
 export type Check = (actionId: string, rng: Rng) => CheckResolution;
 export type NoCheck = { readonly noCheck: NoCheckReason };
+export type ReportedRoll = { readonly reportedRoll: readonly number[] };
 export type Step = readonly [type: string, payload: Record<string, unknown>, visibility?: TurnVisibility];
 
 export { CHECK_RESOLVED, CHECK_SKIPPED };
@@ -197,16 +202,25 @@ export const replayOf = (
 export const performAction = (
   store: CampaignStore,
   action: PlayerAction,
-  check?: Check | NoCheck,
+  check?: Check | NoCheck | ReportedRoll,
   rng: Rng = Math.random,
 ): CommittedTurn => {
   const state = loadState(store, action.campaignId);
   const stored = replayOf(store, state, action);
   if (stored !== undefined) return stored;
   validate(state, action);
-  if (typeof check === 'function')
+  if (typeof check === 'function') {
+    const { reported, ...resolution } = check(action.actionId, rng);
+    const report: Step[] =
+      reported === undefined ? [] : [[ROLL_REPORTED, { values: reported, source: PLAYER_SOURCE }, PLAYER_VISIBLE]];
     return commit(store, action, [
-      [CHECK_RESOLVED, { resolution: { ok: true, ...check(action.actionId, rng) } }, PLAYER_VISIBLE],
+      ...report,
+      [CHECK_RESOLVED, { resolution: { ok: true, ...resolution } }, PLAYER_VISIBLE],
+    ]);
+  }
+  if (check !== undefined && 'reportedRoll' in check)
+    return commit(store, action, [
+      [ROLL_REPORTED, { values: check.reportedRoll, source: PLAYER_SOURCE }, PLAYER_VISIBLE],
     ]);
   if (check !== undefined) return commit(store, action, [[CHECK_SKIPPED, { reason: check.noCheck }, PLAYER_VISIBLE]]);
   return store.commitTurn({

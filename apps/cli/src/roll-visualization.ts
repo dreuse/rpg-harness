@@ -1,6 +1,7 @@
 import {
   type MechanicResult,
   type MechanicReveal,
+  PLAYER_ROLLED,
   toVisualizationEvent,
   type ViewerScope,
   type VisualizationEvent,
@@ -14,7 +15,7 @@ import type {
 } from '../../../packages/domain/src/campaign.ts';
 import { CHARACTER_KIND, parseCharacterProfile } from '../../../packages/domain/src/character.ts';
 import type { CampaignEntity, Visibility } from '../../../packages/domain/src/entity.ts';
-import type { GmSettings } from '../../../packages/domain/src/gm.ts';
+import { DEFAULT_WHO_ROLLS, type GmSettings, type WhoRolls } from '../../../packages/domain/src/gm.ts';
 import {
   DEFAULT_RULES_STRICTNESS,
   type RulesStrictness,
@@ -27,7 +28,14 @@ import {
   pendingCheckOffer,
 } from '../../../packages/engine/src/check-offer.ts';
 import { gmSettingsOf } from '../../../packages/engine/src/gm-settings.ts';
-import { type Check, campaignConfigOf, type NoCheck } from '../../../packages/engine/src/turn.ts';
+import { reportedCheck, reportedRoll, rollExpressionOf } from '../../../packages/engine/src/roll-report.ts';
+import {
+  type Check,
+  campaignConfigOf,
+  type NoCheck,
+  PLAYER_SOURCE,
+  type ReportedRoll,
+} from '../../../packages/engine/src/turn.ts';
 import { type CampaignConfig, parseCampaignConfig } from '../../../packages/intent/src/config.ts';
 import {
   ATTRIBUTE_AVERAGE,
@@ -53,6 +61,8 @@ import {
 } from '../../../packages/rules/src/dice-pool-lite.ts';
 import type { ActionResolution } from '../../../packages/rules/src/resolve.ts';
 import { isRecord, type ManifestIssue, type RulePackManifest } from '../../../packages/rules/src/rulepack.ts';
+
+import { LocalizedError } from './messages.ts';
 
 export const DICE_MECHANIC = 'dice';
 export const POOL_MECHANIC = 'dice-pool';
@@ -281,12 +291,41 @@ export const offeredCheckFor = (
 
 const acceptsOffer = (input: string) => wordsOf(input).some((word) => ATTEMPT_WORDS.has(word));
 
-export const checkForAction = (
+const TYPED_REPORT = /\b(?:i\s+rolled|rolled|rolei|tirei|saiu)\s+(?:a\s+|um\s+)?(\d{1,4})\b/iu;
+const FIRST_GROUP = 1;
+const NEEDS_REPORT = 'rollReport.needed';
+
+export const whoRollsFor = (state: StrictnessState, defaults: GmSettings = {}): WhoRolls =>
+  ({ ...defaults, ...gmSettingsOf(state.changes) }).whoRolls ?? DEFAULT_WHO_ROLLS;
+
+export const rollExpressionFor = (
   events: readonly CampaignEvent[],
-  { input, rollOfferId }: { readonly input: string; readonly rollOfferId?: string | undefined },
+  offer: CheckOffer,
   actorId: CharacterId,
   entities = NO_ENTITIES,
-  strictness: RulesStrictness = DEFAULT_RULES_STRICTNESS,
+): string | undefined => {
+  const offered = offeredCheckFor(events, offer, actorId, entities);
+  return offered === undefined ? undefined : rollExpressionOf(offered);
+};
+
+const typedReportOf = (input: string) => {
+  const found = TYPED_REPORT.exec(input)?.[FIRST_GROUP];
+  return found === undefined ? undefined : [Number(found)];
+};
+
+export type ActionRoll = {
+  readonly input: string;
+  readonly rollOfferId?: string | undefined;
+  readonly reportedRoll?: readonly number[] | undefined;
+  readonly whoRolls?: WhoRolls | undefined;
+};
+
+const appCheckFor = (
+  events: readonly CampaignEvent[],
+  { input, rollOfferId }: ActionRoll,
+  actorId: CharacterId,
+  entities: readonly CampaignEntity[],
+  strictness: RulesStrictness,
 ): Check | NoCheck | undefined => {
   const offer = pendingCheckOffer(events);
   if (rollOfferId !== undefined && offer?.offerId !== rollOfferId) throw new RangeError(CLOSED_OFFER);
@@ -302,6 +341,33 @@ export const checkForAction = (
   );
 };
 
+export const checkForAction = (
+  events: readonly CampaignEvent[],
+  action: ActionRoll,
+  actorId: CharacterId,
+  entities = NO_ENTITIES,
+  strictness: RulesStrictness = DEFAULT_RULES_STRICTNESS,
+): Check | NoCheck | ReportedRoll | undefined => {
+  const { input, whoRolls = DEFAULT_WHO_ROLLS } = action;
+  const offer = pendingCheckOffer(events);
+  const offerOpen = offer !== undefined && !offerFollowsPlayerAction(events);
+  const base = appCheckFor(events, action, actorId, entities, strictness);
+  const typed = whoRolls === DEFAULT_WHO_ROLLS ? undefined : typedReportOf(input);
+  const usableTyped = typed !== undefined && (offerOpen || typeof base === 'function') ? typed : undefined;
+  const reported = action.reportedRoll ?? usableTyped;
+  if (reported === undefined) {
+    if (typeof base === 'function' && whoRolls === 'me')
+      throw new LocalizedError(NEEDS_REPORT, { expression: rollExpressionOf(base) });
+    return base;
+  }
+  const offered =
+    offer !== undefined && (offerOpen || action.reportedRoll !== undefined)
+      ? offeredCheckFor(events, offer, actorId, entities)
+      : undefined;
+  const check = offered ?? (typeof base === 'function' ? base : undefined);
+  return check === undefined ? reportedRoll(reported) : reportedCheck(check, reported);
+};
+
 const revealsOf = ({ pool, draws }: RollEvent): MechanicReveal[] =>
   pool.dice.flatMap(({ sides }, index) => (draws[index] ?? []).map((face) => ({ kind: 'die', sides, face }) as const));
 
@@ -310,6 +376,7 @@ export const rollResult = (
   visibility: Visibility,
   outcome?: string,
   bonus = NO_BONUS,
+  source?: typeof PLAYER_ROLLED,
 ): MechanicResult => ({
   resultId: roll.rollId,
   mechanic: DICE_MECHANIC,
@@ -318,6 +385,7 @@ export const rollResult = (
   modifier: roll.pool.modifier + bonus,
   total: roll.total + bonus,
   ...(outcome === undefined ? {} : { outcome }),
+  ...(source === undefined ? {} : { source }),
 });
 
 const outcomeOf = ({ ok, events, error }: Readonly<Record<string, unknown>>) => {
@@ -336,9 +404,10 @@ export const resultsOf = (payload: unknown, visibility: Visibility): MechanicRes
   if (!isRecord(resolution) || !Array.isArray(resolution.rolls)) return [];
   const outcome = outcomeOf(resolution);
   const bonus = Number.isFinite(resolution.bonus) ? Number(resolution.bonus) : NO_BONUS;
+  const source = resolution.source === PLAYER_SOURCE ? PLAYER_ROLLED : undefined;
   return resolution.rolls.flatMap((stored) => {
     const replayed = replayRoll(stored);
-    return replayed.ok ? [rollResult(replayed.event, visibility, outcome, bonus)] : [];
+    return replayed.ok ? [rollResult(replayed.event, visibility, outcome, bonus, source)] : [];
   });
 };
 

@@ -265,6 +265,7 @@ const indicator = ({ mechanic, frames, final }: VisualizationEvent, locale = DEF
     ...(final.outcome === undefined
       ? []
       : [say(locale, 'dice.outcome', { value: outcomeText(say, locale, final.outcome) })]),
+    ...(final.source === undefined ? [] : [say(locale, 'dice.reported')]),
   ].join('; ');
 
 const spinning = ({ mechanic, frames }: VisualizationEvent, step: number, tumbles: readonly number[][]) =>
@@ -297,7 +298,14 @@ const conversation = ({ currentScene, characters, turns, rollOffer, noRoll }: Ca
     narration.trim() === '' ? say(locale, 'tui.noReply') : narration,
     ...(noRoll?.actionId === actionId ? [say(locale, `noRoll.${noRoll.reason}`)] : []),
   ]);
-  const offer = rollOffer === undefined ? [] : [say(locale, 'tui.rollOffer', { label: rollOffer.label })];
+  const offer =
+    rollOffer === undefined
+      ? []
+      : [
+          rollOffer.expression === undefined
+            ? say(locale, 'tui.rollOffer', { label: rollOffer.label })
+            : say(locale, 'tui.rollOfferPhysical', { label: rollOffer.label, expression: rollOffer.expression }),
+        ];
   return rows.length === 0 || currentScene === undefined
     ? [...rows, ...offer]
     : [say(locale, 'tui.scene', { title: currentScene.title }), ...rows, ...offer];

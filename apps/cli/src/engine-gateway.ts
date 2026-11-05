@@ -133,7 +133,13 @@ import {
   titleOf,
   UnknownEdition,
 } from './quickstart.ts';
-import { checkForAction, checkRulesFor, enforcedStrictnessFor, rulesStrictnessFor } from './roll-visualization.ts';
+import {
+  checkForAction,
+  checkRulesFor,
+  enforcedStrictnessFor,
+  rulesStrictnessFor,
+  whoRollsFor,
+} from './roll-visualization.ts';
 import type { SoundRequest } from './sound-command.ts';
 import { SOUND_SETTINGS_FILE } from './sound-files.ts';
 import type { SoundRuntime } from './sound-runtime.ts';
@@ -957,7 +963,7 @@ const act = async (
       },
       checkForAction(
         state.events,
-        { input },
+        { input, whoRolls: whoRollsFor(state, session.gmDefaults()) },
         actor.id,
         worldOf(database)(campaignId, actor.id).entities,
         rulesStrictnessFor(state, session.gmDefaults()),

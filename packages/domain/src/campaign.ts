@@ -22,6 +22,7 @@ export const CHECK_SKIPPED = 'CheckSkipped';
 export const NO_CHECK_REASONS = ['no-rulebook', 'dice-off', 'unsupported-rulebook', 'missing-scores'] as const;
 export type NoCheckReason = (typeof NO_CHECK_REASONS)[number];
 export const CHECK_OFFERED = 'CheckOffered';
+export const ROLL_REPORTED = 'RollReported';
 export const EVENT_BUCKETS = ['background', 'emerging', 'major', 'critical'] as const;
 export type EventBucket = (typeof EVENT_BUCKETS)[number];
 

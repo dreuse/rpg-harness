@@ -1,0 +1,180 @@
+import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { describe, it, type TestContext } from 'node:test';
+import { PROTOCOL_VERSION } from '../../../packages/client-protocol/src/protocol.ts';
+import { CHECK_RESOLVED, ROLL_REPORTED } from '../../../packages/domain/src/campaign.ts';
+import { D20_SIDES } from '../../../packages/rules/src/d20-lite.ts';
+import {
+  createEngineGateway,
+  FAKE_GAME_MASTER,
+  FAKE_GM_REPLY,
+  type GameMaster,
+  openClientSession,
+  readCampaignState,
+} from './engine-gateway.ts';
+import type { GmProposal } from './gm-proposals.ts';
+import { resultsOf } from './roll-visualization.ts';
+
+const CAMPAIGN = 'hollow-lantern';
+const D20_PITCH = 'A fantasy story using the d20-lite rules';
+const GM_ONLY_PITCH = 'A fantasy story with no rulebook';
+const SETUP = 'Old Tam sets down his mug and stares at you.';
+const FIRST_INPUT = 'I slashed my sword on his head';
+const ATTACK_OFFER: GmProposal = {
+  kind: 'check',
+  id: 'tam-attack',
+  ruleId: 'attack.melee',
+  target: 'Old Tam',
+  label: 'Attack Old Tam with your sword',
+};
+const REPORTED = 17;
+
+const physicalTable = async (t: TestContext, whoRolls: string, pitch = D20_PITCH, offer = true) => {
+  const dataDir = mkdtempSync(join(tmpdir(), 'rpg-roll-report-'));
+  t.after(() => rmSync(dataDir, { recursive: true, force: true }));
+  const describeHero = async () => 'Wren, a scout. Might 3, Agility 2, Wits 2, Presence 1';
+  for await (const _ of createEngineGateway(dataDir).create(CAMPAIGN, pitch, describeHero));
+  let calls = 0;
+  const gm: GameMaster = {
+    request: async () => {
+      calls += 1;
+      const reply = { narration: calls === 1 ? SETUP : FAKE_GM_REPLY };
+      return { ...reply, segments: [{ text: reply.narration }], proposals: calls === 1 && offer ? [ATTACK_OFFER] : [] };
+    },
+    summarizer: FAKE_GAME_MASTER.summarizer,
+  };
+  const { session, campaignId, close, narrate } = openClientSession(dataDir, CAMPAIGN, gm);
+  t.after(close);
+  const envelope = { version: PROTOCOL_VERSION, campaignId } as const;
+  const snapshot = () => {
+    const result = session.getSnapshot({ ...envelope, type: 'GetCampaignSnapshot' });
+    assert.ok(result.ok);
+    return result.value;
+  };
+  const say = async (input: string, extra: { rollOfferId?: string; reportedRoll?: number[] } = {}) => {
+    const before = snapshot();
+    const submitted = session.submitPlayerAction({
+      ...envelope,
+      type: 'SubmitPlayerAction',
+      actionId: randomUUID(),
+      expectedRevision: before.revision,
+      sceneId: before.currentScene?.id ?? '',
+      actorId: before.characters[0]?.id ?? '',
+      input,
+      ...extra,
+    });
+    if (submitted.ok) await narrate();
+    return submitted;
+  };
+  const saved = session.saveGmSettings({
+    ...envelope,
+    type: 'SaveGmSettings',
+    actionId: 'who-rolls',
+    expectedRevision: snapshot().revision,
+    whoRolls,
+  } as never);
+  assert.ok(saved.ok, saved.ok ? '' : saved.error.message);
+  const eventsOfType = (type: string) => readCampaignState(dataDir, CAMPAIGN).events.filter((e) => e.type === type);
+  return { say, snapshot, eventsOfType };
+};
+
+const drawsOf = (events: readonly { readonly payload: Readonly<Record<string, unknown>> }[]) =>
+  (events[0]?.payload.resolution as { rolls: { draws: number[][] }[] } | undefined)?.rolls[0]?.draws;
+
+describe('rpg-42a.83 physical dice', () => {
+  it('shows the dice expression on the pending offer when the player rolls', async (t) => {
+    const { say, snapshot } = await physicalTable(t, 'me');
+    await say(FIRST_INPUT);
+    assert.equal(snapshot().rollOffer?.expression, `1d${D20_SIDES}`);
+  });
+
+  it('resolves the offered check from a reported value and marks it as player-rolled', async (t) => {
+    const { say, snapshot, eventsOfType } = await physicalTable(t, 'me');
+    await say(FIRST_INPUT);
+    const done = await say('Rolled it', { rollOfferId: 'tam-attack', reportedRoll: [REPORTED] });
+    assert.ok(done.ok, done.ok ? '' : done.error.message);
+    assert.deepEqual(drawsOf(eventsOfType(CHECK_RESOLVED)), [[REPORTED]]);
+    assert.equal(eventsOfType(ROLL_REPORTED).length, 1);
+    assert.equal(snapshot().rollOffer, undefined);
+    const [result] = resultsOf(eventsOfType(CHECK_RESOLVED)[0]?.payload, 'public');
+    assert.equal(result?.source, 'player');
+  });
+
+  it('rejects an out-of-range report in the campaign language and writes nothing', async (t) => {
+    const { say, eventsOfType } = await physicalTable(t, 'me');
+    await say(FIRST_INPUT);
+    const rejected = await say('Rolled it', { rollOfferId: 'tam-attack', reportedRoll: [D20_SIDES + 1] });
+    assert.ok(!rejected.ok);
+    assert.match(rejected.error.message, /1d20.*1.*20/);
+    assert.equal(eventsOfType(CHECK_RESOLVED).length, 0);
+    assert.equal(eventsOfType(ROLL_REPORTED).length, 0);
+  });
+
+  it('accepts a typed "I rolled 17" for the pending check', async (t) => {
+    const { say, eventsOfType } = await physicalTable(t, 'me');
+    await say(FIRST_INPUT);
+    const done = await say('I rolled 17');
+    assert.ok(done.ok, done.ok ? '' : done.error.message);
+    assert.deepEqual(drawsOf(eventsOfType(CHECK_RESOLVED)), [[REPORTED]]);
+  });
+
+  it('asks for the roll instead of rolling for the player', async (t) => {
+    const { say, eventsOfType } = await physicalTable(t, 'me');
+    await say(FIRST_INPUT);
+    const refused = await say('Yes, go ahead', { rollOfferId: 'tam-attack' });
+    assert.ok(!refused.ok);
+    assert.match(refused.error.message, /1d20/);
+    assert.equal(eventsOfType(CHECK_RESOLVED).length, 0);
+  });
+
+  it('lets the app roll when the player picks "ask each time" and reports nothing', async (t) => {
+    const { say, eventsOfType } = await physicalTable(t, 'ask');
+    await say(FIRST_INPUT);
+    await say('Yes, go ahead', { rollOfferId: 'tam-attack' });
+    assert.equal(eventsOfType(CHECK_RESOLVED).length, 1);
+    assert.equal(eventsOfType(ROLL_REPORTED).length, 0);
+  });
+
+  it('does not read "I rolled 17" as a report when the app rolls', async (t) => {
+    const { say, eventsOfType } = await physicalTable(t, 'app');
+    await say(FIRST_INPUT);
+    await say('I rolled 17');
+    assert.equal(eventsOfType(ROLL_REPORTED).length, 0);
+  });
+
+  it('records a report without a RulePack and resolves nothing', async (t) => {
+    const { say, eventsOfType } = await physicalTable(t, 'me', GM_ONLY_PITCH, false);
+    const done = await say('I rolled for the lock', { reportedRoll: [REPORTED] });
+    assert.ok(done.ok, done.ok ? '' : done.error.message);
+    assert.equal(eventsOfType(ROLL_REPORTED).length, 1);
+    assert.equal(eventsOfType(CHECK_RESOLVED).length, 0);
+  });
+
+  it('validates a report sent without the offer id against the pending offer', async (t) => {
+    const { say, snapshot, eventsOfType } = await physicalTable(t, 'me');
+    await say(FIRST_INPUT);
+    const rejected = await say('Rolled it', { reportedRoll: [D20_SIDES + 1] });
+    assert.ok(!rejected.ok);
+    assert.equal(eventsOfType(ROLL_REPORTED).length, 0);
+    assert.ok(snapshot().rollOffer);
+  });
+
+  it('resolves a self-started check from a roll typed in the same action', async (t) => {
+    const { say, eventsOfType } = await physicalTable(t, 'me', D20_PITCH, false);
+    const done = await say('I attack the goblin, I rolled 14');
+    assert.ok(done.ok, done.ok ? '' : done.error.message);
+    assert.deepEqual(drawsOf(eventsOfType(CHECK_RESOLVED)), [[14]]);
+  });
+
+  it('ignores a typed roll once the player has acted after the offer', async (t) => {
+    const { say, eventsOfType } = await physicalTable(t, 'me');
+    await say(FIRST_INPUT);
+    await say('I look at the bar');
+    await say('I rolled 17');
+    assert.equal(eventsOfType(ROLL_REPORTED).length, 0);
+    assert.equal(eventsOfType(CHECK_RESOLVED).length, 0);
+  });
+});

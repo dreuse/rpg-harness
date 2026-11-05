@@ -9,6 +9,7 @@ import {
 } from '../../../packages/domain/src/campaign.ts';
 import { CHARACTER_CREATED, SHEET_FIELD_EDITED } from '../../../packages/engine/src/character.ts';
 import { GM_SETTINGS_SAVED } from '../../../packages/engine/src/gm-settings.ts';
+import type { ReportedRoll } from '../../../packages/engine/src/turn.ts';
 import { generateCampaignConfig } from '../../../packages/intent/src/config.ts';
 import { createCampaignIntent } from '../../../packages/intent/src/intent.ts';
 import {
@@ -181,7 +182,8 @@ test('built-in dice rulepacks let a campaign turn dice visualization on', () => 
   }
 });
 
-const rollOnly = (check: ReturnType<typeof checkForOrReason>) => (typeof check === 'function' ? check : undefined);
+const rollOnly = (check: ReturnType<typeof checkForOrReason> | ReportedRoll) =>
+  typeof check === 'function' ? check : undefined;
 const checkFor = (...args: Parameters<typeof checkForOrReason>) => rollOnly(checkForOrReason(...args));
 const checkForAction = (...args: Parameters<typeof checkForActionOrReason>) =>
   rollOnly(checkForActionOrReason(...args));

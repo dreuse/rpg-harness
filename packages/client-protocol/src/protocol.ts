@@ -118,6 +118,7 @@ export type SubmitPlayerAction = Envelope<'SubmitPlayerAction'> & {
   readonly actorId: CharacterId;
   readonly input: string;
   readonly rollOfferId?: string;
+  readonly reportedRoll?: readonly number[];
 };
 export type SelectCapability = Envelope<'SelectCapability'> & {
   readonly capabilityId: string;
@@ -243,6 +244,7 @@ export type RollOffer = {
   readonly ruleId: string;
   readonly target: string;
   readonly label: string;
+  readonly expression?: string;
 };
 
 export type NoRoll = { readonly actionId: string; readonly reason: NoCheckReason };
@@ -362,6 +364,7 @@ type FieldKind =
   | 'revision'
   | 'flag'
   | 'number'
+  | 'numbers'
   | 'primitive'
   | 'record'
   | 'locale'
@@ -408,6 +411,7 @@ const COMMAND_FIELDS: Record<CommandType, Readonly<Record<string, FieldSpec>>> =
     actorId: ID,
     input: { kind: 'text' },
     rollOfferId: { kind: 'id', optional: true },
+    reportedRoll: { kind: 'numbers', optional: true },
   },
   SelectCapability: { capabilityId: ID, enabled: { kind: 'flag' } },
   RequestView: { viewId: ID },
@@ -436,6 +440,7 @@ const COMMAND_FIELDS: Record<CommandType, Readonly<Record<string, FieldSpec>>> =
     summaryModel: { kind: 'id', optional: true },
     sessionBudgetTokens: { kind: 'number', optional: true },
     rulesStrictness: { kind: 'id', optional: true },
+    whoRolls: { kind: 'id', optional: true },
   },
   SaveGmDefaults: {
     actionId: ID,
@@ -443,6 +448,7 @@ const COMMAND_FIELDS: Record<CommandType, Readonly<Record<string, FieldSpec>>> =
     summaryModel: { kind: 'id', optional: true },
     sessionBudgetTokens: { kind: 'number', optional: true },
     rulesStrictness: { kind: 'id', optional: true },
+    whoRolls: { kind: 'id', optional: true },
   },
   SetCampaignLanguage: { actionId: ID, expectedRevision: { kind: 'revision' }, language: { kind: 'locale' } },
   GetStoryMemory: {},
@@ -457,6 +463,8 @@ const COMMAND_FIELDS: Record<CommandType, Readonly<Record<string, FieldSpec>>> =
   },
 };
 
+const MAX_REPORTED_DICE = 100;
+
 const FIELD_CHECKS: Record<FieldKind, (value: unknown) => boolean> = {
   id: (value) => typeof value === 'string' && value.length > 0,
   name: (value) => FIELD_CHECKS.id(value) && (value as string).length <= MAX_CAMPAIGN_NAME_LENGTH,
@@ -464,6 +472,8 @@ const FIELD_CHECKS: Record<FieldKind, (value: unknown) => boolean> = {
   revision: (value) => Number.isSafeInteger(value) && (value as number) >= 0,
   flag: (value) => typeof value === 'boolean',
   number: (value) => typeof value === 'number' && Number.isFinite(value),
+  numbers: (value) =>
+    Array.isArray(value) && value.length <= MAX_REPORTED_DICE && value.every((entry) => FIELD_CHECKS.number(entry)),
   primitive: (value) => FIELD_CHECKS.text(value) || FIELD_CHECKS.flag(value) || FIELD_CHECKS.number(value),
   record: (value) => isRecord(value),
   locale: isLocale,

@@ -2,12 +2,16 @@ import { isRulesStrictness, type RulesStrictness } from './rules-usage.ts';
 
 export const MODEL_NAME = /^[A-Za-z0-9][\w.:@/[\]-]{0,127}$/;
 export const ROUTE_DEFAULT_MODEL = 'default';
+export const WHO_ROLLS = ['app', 'me', 'ask'] as const;
+export type WhoRolls = (typeof WHO_ROLLS)[number];
+export const DEFAULT_WHO_ROLLS: WhoRolls = 'app';
 
 export interface GmSettings {
   readonly model?: string;
   readonly summaryModel?: string;
   readonly sessionBudgetTokens?: number;
   readonly rulesStrictness?: RulesStrictness;
+  readonly whoRolls?: WhoRolls;
 }
 
 export interface GmUsage {
@@ -49,6 +53,8 @@ const isModel = (value: unknown): value is string => typeof value === 'string' &
 const isCount = (value: unknown): value is number => Number.isSafeInteger(value) && (value as number) >= 0;
 const isCost = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value) && value >= 0;
 
+const isWhoRolls = (value: unknown): value is WhoRolls => WHO_ROLLS.includes(value as WhoRolls);
+
 const optional = <T>(value: unknown, valid: (value: unknown) => value is T): { ok: boolean; value?: T } =>
   value === undefined ? { ok: true } : valid(value) ? { ok: true, value } : { ok: false };
 
@@ -58,12 +64,15 @@ export const toGmSettings = (value: unknown): GmSettings | undefined => {
   const summaryModel = optional(value.summaryModel, isModel);
   const budget = optional(value.sessionBudgetTokens, isCount);
   const strictness = optional(value.rulesStrictness, isRulesStrictness);
-  if (!model.ok || !summaryModel.ok || !budget.ok || !strictness.ok || budget.value === 0) return undefined;
+  const whoRolls = optional(value.whoRolls, isWhoRolls);
+  if (!model.ok || !summaryModel.ok || !budget.ok || !strictness.ok || !whoRolls.ok || budget.value === 0)
+    return undefined;
   return {
     ...(model.value === undefined ? {} : { model: model.value }),
     ...(summaryModel.value === undefined ? {} : { summaryModel: summaryModel.value }),
     ...(budget.value === undefined ? {} : { sessionBudgetTokens: budget.value }),
     ...(strictness.value === undefined ? {} : { rulesStrictness: strictness.value }),
+    ...(whoRolls.value === undefined ? {} : { whoRolls: whoRolls.value }),
   };
 };
 

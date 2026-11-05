@@ -548,7 +548,7 @@ const rollOfferButton = ({ rollOffer }: ViewModel, locale: string) =>
     : button(
         ROLL_OFFER_ATTRIBUTE,
         rollOffer.offerId,
-        `${translate(locale, 'roll.offer')}${LABEL_SEPARATOR}${rollOffer.label}`,
+        `${translate(locale, 'roll.offer')}${LABEL_SEPARATOR}${rollOffer.label}${rollOffer.expression === undefined ? '' : ` (${rollOffer.expression})`}`,
         false,
         true,
       );

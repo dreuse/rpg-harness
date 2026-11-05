@@ -2,6 +2,7 @@ import type { Visibility } from '../../domain/src/entity.ts';
 import { deepFreeze, PROTOCOL_VERSION, type ProtocolVersion } from './protocol.ts';
 
 export const VISUALIZATION_EVENT = 'MechanicVisualized';
+export const PLAYER_ROLLED = 'player';
 
 export const VIEWER_SCOPES = ['player', 'gm'] as const;
 export type ViewerScope = (typeof VIEWER_SCOPES)[number];
@@ -20,6 +21,7 @@ export type MechanicResult = {
   readonly modifier?: number;
   readonly total?: number;
   readonly outcome?: string;
+  readonly source?: typeof PLAYER_ROLLED;
 };
 
 export type VisualizationFrame = { readonly step: number; readonly reveal: MechanicReveal };
@@ -28,6 +30,7 @@ export type VisualizationFinal = {
   readonly total: number | undefined;
   readonly outcome: string | undefined;
   readonly modifier?: number;
+  readonly source?: typeof PLAYER_ROLLED;
 };
 
 export type VisualizationEvent = {
@@ -78,8 +81,12 @@ export const outcomeText = (translate: (locale: string, key: string) => string, 
   return text === key ? label : text;
 };
 
-const finalOf = ({ total, outcome, modifier }: MechanicResult): VisualizationFinal =>
-  modifier === undefined ? { total, outcome } : { total, outcome, modifier };
+const finalOf = ({ total, outcome, modifier, source }: MechanicResult): VisualizationFinal => ({
+  total,
+  outcome,
+  ...(modifier === undefined ? {} : { modifier }),
+  ...(source === undefined ? {} : { source }),
+});
 
 export const toVisualizationEvent = (
   result: MechanicResult,

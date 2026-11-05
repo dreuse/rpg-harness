@@ -4,6 +4,7 @@ import {
   DEFAULT_LOCALE,
   type Params,
 } from '../../../packages/client-protocol/src/locale.ts';
+import { RollReportError } from '../../../packages/engine/src/roll-report.ts';
 
 export { DEFAULT_LOCALE, safeLocale } from '../../../packages/client-protocol/src/locale.ts';
 
@@ -37,6 +38,8 @@ export const CLI_CATALOG: Catalog = {
     'language.set': 'Story language set to {language}.',
     'help.roll': '/roll - Roll the check the GM offered.',
     'tui.rollOffer': 'Roll offered: {label}. Type /roll or say you attempt it.',
+    'tui.rollOfferPhysical':
+      'Roll offered: {label}. Roll {expression} yourself and type the result, for example "I rolled 17".',
     'tui.noRoll': 'No roll is offered right now.',
     'noRoll.no-rulebook': 'No roll: this campaign has no rulebook. The GM decides the outcome.',
     'noRoll.dice-off': 'No roll: dice are off. The GM decides the outcome.',
@@ -46,6 +49,9 @@ export const CLI_CATALOG: Catalog = {
     'help.quit': '{key} - Quit.',
     'dice.modifier': 'modifier {value}',
     'dice.total': 'total {value}',
+    'dice.reported': 'rolled by you',
+    'rollReport.needed': 'You roll this one. Roll {expression} and report the result, for example "I rolled 17".',
+    'rollReport.outOfRange': '{expression} can only give {min} to {max}. Roll again or check the dice.',
     'dice.outcome': 'outcome {value}',
     'outcome.success': 'success',
     'outcome.failure': 'failure',
@@ -188,6 +194,8 @@ export const CLI_CATALOG: Catalog = {
     'language.set': 'Idioma da história: {language}.',
     'help.roll': '/roll - Faz a rolagem que o mestre ofereceu.',
     'tui.rollOffer': 'Rolagem oferecida: {label}. Digite /roll ou diga que tenta.',
+    'tui.rollOfferPhysical':
+      'Rolagem oferecida: {label}. Role {expression} você mesmo e digite o resultado, por exemplo "tirei 17".',
     'tui.noRoll': 'Nenhuma rolagem é oferecida agora.',
     'noRoll.no-rulebook': 'Sem rolagem: esta campanha não tem livro de regras. O mestre decide o resultado.',
     'noRoll.dice-off': 'Sem rolagem: os dados estão desligados. O mestre decide o resultado.',
@@ -199,6 +207,9 @@ export const CLI_CATALOG: Catalog = {
     'help.quit': '{key} - Sai.',
     'dice.modifier': 'modificador {value}',
     'dice.total': 'total {value}',
+    'dice.reported': 'rolada por você',
+    'rollReport.needed': 'Esta rolagem é sua. Role {expression} e informe o resultado, por exemplo "tirei 17".',
+    'rollReport.outOfRange': '{expression} só dá de {min} a {max}. Role de novo ou confira os dados.',
     'dice.outcome': 'resultado {value}',
     'outcome.success': 'sucesso',
     'outcome.failure': 'falha',
@@ -329,6 +340,6 @@ export class LocalizedError extends Error {
 }
 
 export const errorText = (locale: string, error: unknown) => {
-  if (error instanceof LocalizedError) return say(locale, error.key, error.params);
+  if (error instanceof LocalizedError || error instanceof RollReportError) return say(locale, error.key, error.params);
   return error instanceof Error ? error.message : String(error);
 };

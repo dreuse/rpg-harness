@@ -44,12 +44,18 @@ import {
   StaleRevisionError,
 } from '../../../packages/domain/src/campaign.ts';
 import type { CampaignEntity, Relationship, Visibility } from '../../../packages/domain/src/entity.ts';
-import { EMPTY_GM_USAGE_TOTALS, type GmSettings, ledgerTotals } from '../../../packages/domain/src/gm.ts';
+import {
+  DEFAULT_WHO_ROLLS,
+  EMPTY_GM_USAGE_TOTALS,
+  type GmSettings,
+  ledgerTotals,
+} from '../../../packages/domain/src/gm.ts';
 import { playTurns, SHEET_FIELD_EDITED } from '../../../packages/engine/src/character.ts';
 import { pendingCheckOffer } from '../../../packages/engine/src/check-offer.ts';
 import { currentEncounter } from '../../../packages/engine/src/encounter.ts';
 import { campaignLanguageOf, type Engine } from '../../../packages/engine/src/engine.ts';
 import { contextDroppedOften, gmSettingsOf } from '../../../packages/engine/src/gm-settings.ts';
+import { RollReportError } from '../../../packages/engine/src/roll-report.ts';
 import { campaignConfigOf } from '../../../packages/engine/src/turn.ts';
 import { voiceSettingsOf } from '../../../packages/engine/src/voice-settings.ts';
 import { parseCampaignConfig } from '../../../packages/intent/src/config.ts';
@@ -57,13 +63,16 @@ import { type Scoped, type Viewer, visibleTo } from '../../../packages/memory/sr
 import { createEntityStore } from '../../../packages/persistence/src/entity-store.ts';
 import { type EventQuery, listScopedEvents } from '../../../packages/persistence/src/event-store.ts';
 import { rangeIssue } from '../../../packages/rules/src/character-builder.ts';
+import { DEFAULT_LOCALE, errorText, LocalizedError } from './messages.ts';
 import { creationRulesFor, usageFor } from './quickstart.ts';
 import {
   checkForAction,
   emitVisualizations,
   resultsOf,
+  rollExpressionFor,
   rulesStrictnessFor,
   visualizationPreferenceOf,
+  whoRollsFor,
 } from './roll-visualization.ts';
 import { panelsOf, printable, sheetFields, type ViewSource } from './views.ts';
 
@@ -187,6 +196,11 @@ const redactSheetFieldEdited = (
   const shown = visibilities === undefined ? isOwner : traitShownTo(viewer, actorId, visibilities[String(fieldId)]);
   return shown ? committed : deepFreeze({ ...committed, event: { ...event, payload: { actorId } } });
 };
+
+const localizedFailure = (error: unknown, language: string | undefined) =>
+  error instanceof LocalizedError || error instanceof RollReportError
+    ? new Error(errorText(language ?? DEFAULT_LOCALE, error), { cause: error })
+    : error;
 
 const attempt = <T>(run: () => T): Result<T> => {
   try {
@@ -318,7 +332,17 @@ export const createClientSessions = (
     const language = campaignLanguageOf(state.changes);
     const gm = gmSnapshotOf(state, defaults(), sessionId);
     const config = savedConfig(state.events);
-    const rollOffer = pendingCheckOffer(state.events);
+    const pending = pendingCheckOffer(state.events);
+    const expression =
+      pending !== undefined && whoRollsFor(state, defaults()) !== DEFAULT_WHO_ROLLS
+        ? rollExpressionFor(
+            state.events,
+            pending,
+            characters[0]?.id ?? '',
+            readWorld(campaignId, characters[0]?.id).entities,
+          )
+        : undefined;
+    const rollOffer = pending === undefined || expression === undefined ? pending : { ...pending, expression };
     const noRoll = noRollOf(state);
     return deepFreeze(
       structuredClone({
@@ -434,18 +458,23 @@ export const createClientSessions = (
       submitPlayerAction: (command) => {
         const accepted = accept<typeof command>(command, 'SubmitPlayerAction');
         if (!accepted.ok) return accepted;
-        const { actionId, expectedRevision, sceneId, actorId, input, rollOfferId } = accepted.value;
+        const { actionId, expectedRevision, sceneId, actorId, input, rollOfferId, reportedRoll } = accepted.value;
         return attempt(() => {
-          engine.submitAction(
-            { campaignId, actionId, expectedRevision, sceneId, actorId, input, intent: input },
-            checkForAction(
-              engine.getState(campaignId).events,
-              { input, rollOfferId },
-              actorId,
-              readWorld(campaignId, actorId).entities,
-              rulesStrictnessFor(engine.getState(campaignId), defaults()),
-            ),
-          );
+          const state = engine.getState(campaignId);
+          try {
+            engine.submitAction(
+              { campaignId, actionId, expectedRevision, sceneId, actorId, input, intent: input },
+              checkForAction(
+                state.events,
+                { input, rollOfferId, reportedRoll, whoRolls: whoRollsFor(state, defaults()) },
+                actorId,
+                readWorld(campaignId, actorId).entities,
+                rulesStrictnessFor(state, defaults()),
+              ),
+            );
+          } catch (error) {
+            throw localizedFailure(error, campaignLanguageOf(state.changes));
+          }
           sync();
           return { revision: engine.getState(campaignId).revision };
         });

@@ -81,6 +81,7 @@ export const rollSummary = ({ groups, tokens, final }: RollPlan, locale: string)
     ...(final.modifier === undefined ? [] : [translate(locale, 'roll.modifier', { value: signed(final.modifier) })]),
     ...(final.total === undefined ? [] : [translate(locale, 'roll.total', { value: final.total })]),
     ...(final.outcome === undefined ? [] : [outcomeText(translate, locale, final.outcome)]),
+    ...(final.source === undefined ? [] : [translate(locale, 'roll.reported')]),
   ].join(PART_SEPARATOR);
 
 const dieHtml = (shape: string, sides: number) => (faces: readonly number[]) =>
