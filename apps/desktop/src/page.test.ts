@@ -7,6 +7,8 @@ import { DEFAULT_PREFERENCES, MAX_FONT_SCALE, type UiPreferences } from './acces
 import { FONT_SCALE_PROPERTY, mountPage, type PageElements, type PageOptions } from './page.ts';
 import { PREFERENCES_QUERY, START_QUERY } from './preload.ts';
 import type { KeyEventLike } from './view.ts';
+import type { VoiceProviderStatus } from './voice-host.ts';
+import type { VoiceBridge } from './voice-setup.ts';
 
 const CAMPAIGN = 'c1';
 const WIDE_WIDTH = 1600;
@@ -139,6 +141,8 @@ const fakePage = () => {
       listeners.get('keys:keydown')?.(event(attributes, key, keys)),
     submit: (attributes: Record<string, string>) => listeners.get('root:submit')?.(event(attributes)),
     type: () => listeners.get('root:input')?.(event({})),
+    change: (attributes: Record<string, string>, value: string) =>
+      listeners.get('root:change')?.({ ...event(attributes), target: { ...target(attributes), value } }),
   };
 };
 
@@ -817,4 +821,102 @@ test('rpg-42a.37 page saves the app default apart and never copies it into the c
   assert.equal('model' in save, false);
   assert.equal('summaryModel' in save, false);
   assert.equal('sessionBudgetTokens' in save, false);
+});
+
+const VOICE_PROVIDER: VoiceProviderStatus = {
+  id: 'kokoro',
+  languages: ['en'],
+  voices: ['af_heart', 'am_adam'],
+  narrator: 'af_heart',
+  installed: false,
+  bytes: 0,
+  offer: { source: 'https://models.example/kokoro', bytes: 100, sizeMiB: 0 },
+};
+
+const fakeVoiceBridge = () => {
+  let installed = false;
+  let progress = (_bytes: number) => {};
+  const previews: unknown[] = [];
+  const bridge: VoiceBridge = {
+    check: async () => ({ providers: [{ ...VOICE_PROVIDER, installed }], cacheBytes: 0 }),
+    download: async () => {
+      progress(50);
+      installed = true;
+    },
+    remove: async () => {
+      installed = false;
+    },
+    preview: async (request) => {
+      previews.push(request);
+      return { chunks: [new Uint8Array([1])], synthesisMs: 5, cacheHit: false };
+    },
+    clearCache: async () => {},
+    onProgress: (listener) => {
+      progress = listener;
+    },
+  };
+  return { bridge, previews };
+};
+
+const spokenOutputs = (page: ReturnType<typeof fakePage>) =>
+  page.sent
+    .filter(({ type }) => type === 'SaveVoiceSettings')
+    .map((command) => 'spokenOutput' in command && command.spokenOutput);
+
+test('rpg-cm63.7 page turns voice on in one step and changes mode mid-campaign without restart', async () => {
+  const page = fakePage();
+  const voice = fakeVoiceBridge();
+  const played: number[] = [];
+  const preferences: unknown[] = [];
+  mount(page, {}, deniedMicrophone, undefined, WIDE_WIDTH, {
+    bridge: { ...page.bridge, voice: voice.bridge, savePreferences: (saved) => preferences.push(saved) },
+    audio: {
+      play: async (_chunks, volume) => {
+        played.push(volume);
+        return { decodeMs: 1 };
+      },
+    },
+  });
+  page.receive(READY);
+  continueHarbor(page);
+  page.receive({ type: 'Snapshot', snapshot: SNAPSHOT });
+  await settle();
+  page.click({ 'data-voice-setup': 'on' });
+  await settle();
+  assert.match(page.root.innerHTML, /data-voice-step="consent"/);
+  assert.equal(page.focused.at(-1), '[data-voice-step] [data-primary]');
+  page.click({ 'data-voice-setup': 'accept' });
+  await settle();
+  await settle();
+  assert.match(page.root.innerHTML, /data-voice-step="ready"/);
+  assert.deepEqual(voice.previews, [{ providerId: 'kokoro', voiceId: 'af_heart', language: 'en', speed: 1 }]);
+  assert.deepEqual(played, [1]);
+  assert.deepEqual(spokenOutputs(page), ['narrator']);
+  page.click({ 'data-voice-setup': 'finish' });
+  assert.doesNotMatch(page.root.innerHTML, /data-voice-step=/);
+  assert.equal(page.focused.at(-1), '#settings-toggle');
+  page.change({ 'data-voice-field': 'spokenOutput' }, 'cinematic');
+  page.change({ 'data-voice-field': 'volume' }, '0.25');
+  page.change({ 'data-voice-field': 'narratorVoice' }, 'am_adam');
+  assert.deepEqual(spokenOutputs(page), ['narrator', 'cinematic']);
+  assert.match(page.root.innerHTML, /<option value="cinematic" selected>/);
+  assert.deepEqual((preferences.at(-1) as UiPreferences).speech, {
+    volume: 0.25,
+    npcVoices: {},
+    narratorVoice: 'am_adam',
+  });
+  page.click({ 'data-voice-setup': 'off' });
+  assert.deepEqual(spokenOutputs(page), ['narrator', 'cinematic', 'off']);
+});
+
+test('rpg-cm63.7 page without a voice bridge keeps text play and reports voice unavailable', async () => {
+  const page = fakePage();
+  mount(page);
+  page.receive(READY);
+  continueHarbor(page);
+  await settle();
+  page.click({ 'data-voice-setup': 'on' });
+  await settle();
+  assert.match(page.root.innerHTML, /data-voice-step="unavailable"/);
+  assert.deepEqual(spokenOutputs(page), []);
 });

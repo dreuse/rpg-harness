@@ -128,7 +128,7 @@ const WIDE_LAYOUT = 'wide';
 const JOURNEY_RULESET = 'd20-lite';
 const JOURNEY_FEATURE = 'Dice animation';
 const JOURNEY_CHARACTER = 'A scout named Wren with might 6, agility 5, wits 7 and presence 4.';
-const RANDOM_REGIONS = '[data-rolls]';
+const RANDOM_REGIONS = '[data-rolls], [data-voice-progress], [data-voice-diagnostics]';
 const CONNECTED = `document.querySelector('[role=status]')?.textContent.startsWith('Connected')`;
 const PLAY_READY = `document.querySelector('main[data-screen="play"] [data-region="conversation"] li:not([aria-busy])') && document.querySelector('[data-region="sheet"] h3')`;
 const GM_REPLIED = `((gm) => gm && gm.textContent.trim() !== gm.querySelector('[data-speaker-label]').textContent.trim())(document.querySelector('[data-region="conversation"] li:last-child [data-speaker="gm"]'))`;
@@ -214,6 +214,42 @@ export const JOURNEY: Readonly<Record<'first' | 'reopen', readonly JourneyStep[]
         `await ${until(`${SHEET_VALUE} && ${SETTLED}`)};`,
       ),
       shot: 'sheet-saved',
+    },
+    {
+      script: steps(
+        `document.querySelector('[data-settings]').open = true;`,
+        click('[data-voice-setup="on"]'),
+        `await ${until(`document.querySelector('[data-voice-step="consent"]')`)};`,
+      ),
+      shot: 'voice-consent',
+    },
+    {
+      script: steps(
+        click('[data-voice-setup="accept"]'),
+        `await ${until(`document.querySelector('[data-voice-step="downloading"] progress')`)};`,
+      ),
+      shot: 'voice-download',
+    },
+    {
+      script: until(`document.querySelector('[data-voice-step="ready"]')`),
+      shot: 'voice-ready',
+    },
+    {
+      script: steps(
+        click('[data-voice-setup="finish"]'),
+        `await ${until(`!document.querySelector('[data-voice-step]')`)};`,
+        `document.querySelector('[data-settings]').open = true;`,
+        `document.querySelector('[data-voice-advanced]').open = true;`,
+        `document.querySelector('[data-voice-advanced]').scrollIntoView({ block: 'start' });`,
+      ),
+      shot: 'voice-settings',
+    },
+    {
+      script: steps(
+        click('[data-voice-setup="off"]'),
+        `await ${until(`document.querySelector('[data-voice-setup="on"]')`)};`,
+        `document.querySelector('[data-settings]').open = false;`,
+      ),
     },
   ],
   reopen: [

@@ -451,7 +451,12 @@ main > nav button {
   padding: var(--space-3);
 }
 
-[data-settings] > div > p:last-child {
+[data-settings] > div {
+  max-block-size: 80vh;
+  overflow-y: auto;
+}
+
+[data-settings] [data-voice-summary] + p {
   color: var(--text-muted);
   font-size: calc(var(--text-sm) * var(--font-scale, 1));
 }
@@ -487,6 +492,91 @@ main > nav button {
   margin-block-end: var(--space-1);
   padding: 0;
   font-weight: var(--weight-strong);
+}
+
+[data-voice-basic],
+[data-voice-npcs] {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: var(--space-2);
+  border: var(--border-width) solid var(--border-strong);
+  border-radius: var(--radius-1);
+}
+
+[data-voice-basic] legend,
+[data-voice-npcs] legend,
+[data-voice-advanced] > summary,
+[data-voice-advanced] h3 {
+  padding: 0;
+  font-size: inherit;
+  font-weight: var(--weight-strong);
+}
+
+[data-voice-row] {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 3fr) auto;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+[data-voice-row] > :is(select, input) {
+  min-block-size: var(--target-min);
+}
+
+[data-voice-row] > :is(select, input):last-child {
+  grid-column: 2 / -1;
+}
+
+[data-voice-advanced] > div {
+  display: grid;
+  gap: var(--space-3);
+  margin-block-start: var(--space-2);
+}
+
+[data-voice-advanced] :is(ul, h3, p, dl) {
+  margin: 0;
+}
+
+[data-voice-advanced] ul {
+  display: grid;
+  gap: var(--space-2);
+  padding: 0;
+  list-style: none;
+}
+
+[data-voice-diagnostics] {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--space-1) var(--space-3);
+}
+
+[data-voice-diagnostics] dd {
+  margin: 0;
+}
+
+[data-region="voice-setup"] [role="dialog"] {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+[data-region="voice-setup"] [role="dialog"] > p {
+  flex-basis: 100%;
+  margin: 0;
+}
+
+[data-voice-progress] {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-basis: 100%;
+}
+
+[data-voice-progress] progress {
+  flex: 1;
+  block-size: var(--space-3);
 }
 
 [data-home="delete"] {

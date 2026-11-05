@@ -120,7 +120,7 @@ const localeOf = (tag: string): Intl.Locale | undefined => {
   }
 };
 
-export const speaksLanguage = (capabilities: KokoroCapabilities, tag: string): boolean => {
+export const speaksLanguage = (capabilities: Pick<KokoroCapabilities, 'languages'>, tag: string): boolean => {
   const wanted = localeOf(tag)?.maximize();
   return capabilities.languages.some((entry) => {
     const offered = localeOf(entry);

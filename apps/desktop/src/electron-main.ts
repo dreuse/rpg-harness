@@ -18,6 +18,7 @@ import { SMOKE_ENV, SMOKE_STATUS, startMain, utilityEngine } from './main.ts';
 import { PLATFORMS } from './packaging.ts';
 import { APP_ROOT, APP_SCHEME, bundlePreload, PAGE_URL, PRELOAD_SOURCE, serveAsset } from './serve.ts';
 import { offerDesktopUpdate, UPDATE_CHOICES } from './update.ts';
+import { voiceHostFromEnv } from './voice-host.ts';
 
 const TEXT = 'utf8';
 const NEWLINE = '\n';
@@ -123,6 +124,7 @@ app.whenReady().then(() => {
     preload: writePreload(),
     page: PAGE_URL,
     startDaemon: (options) => startDaemon({ ...options, spawnEngine: utilityEngine(utilityProcess.fork) }),
+    voice: voiceHostFromEnv(process.env, dataDirFromEnv()),
   });
   if (app.isPackaged && !process.env[SMOKE_ENV]) offerUpdate(dataDirFromEnv()).catch(() => undefined);
 });

@@ -10,13 +10,19 @@ const EVENT = { sender: 'secret' };
 
 const fakeIpc = () => {
   const sent: unknown[][] = [];
+  const invoked: unknown[][] = [];
   const listeners = new Map<string, (event: unknown, ...args: unknown[]) => void>();
   return {
     sent,
+    invoked,
     emit: (channel: string, ...args: unknown[]) => listeners.get(channel)?.(EVENT, ...args),
     ipcRenderer: {
       send: (channel: string, ...args: unknown[]) => {
         sent.push([channel, ...args]);
+      },
+      invoke: async (channel: string, ...args: unknown[]) => {
+        invoked.push([channel, ...args]);
+        return channel;
       },
       on: (channel: string, listener: (event: unknown, ...args: unknown[]) => void) => {
         listeners.set(channel, listener);
@@ -47,6 +53,15 @@ test('UI08 preload exposes only the narrow transport bridge', () => {
     'savePreferences',
     'saveStart',
     'send',
+    'voice',
+  ]);
+  assert.deepEqual(Object.keys(bridge.voice).sort(), [
+    'check',
+    'clearCache',
+    'download',
+    'onProgress',
+    'preview',
+    'remove',
   ]);
 });
 
@@ -70,4 +85,26 @@ test('UI08 preload forwards lines without leaking the ipc event', () => {
   ]);
   assert.deepEqual(lines, [[LINE]]);
   assert.deepEqual(closes, [[ERROR]]);
+});
+
+test('rpg-cm63.7 preload voice bridge invokes narrow channels and forwards only progress bytes', async () => {
+  const { bridge, invoked, emit } = expose();
+  const consent = { accepted: true, source: 'https://models.example', bytes: 1, sizeMiB: 0 } as const;
+  const request = { providerId: 'kokoro', voiceId: 'af_heart', language: 'en', speed: 1 };
+  const progress: unknown[][] = [];
+  bridge.voice.onProgress((...args) => progress.push(args));
+  assert.equal(await bridge.voice.check(), CHANNELS.voiceCheck);
+  await bridge.voice.download('kokoro', consent);
+  await bridge.voice.remove('kokoro');
+  await bridge.voice.preview(request);
+  await bridge.voice.clearCache();
+  emit(CHANNELS.voiceProgress, 7);
+  assert.deepEqual(invoked, [
+    [CHANNELS.voiceCheck],
+    [CHANNELS.voiceDownload, 'kokoro', consent],
+    [CHANNELS.voiceRemove, 'kokoro'],
+    [CHANNELS.voicePreview, request],
+    [CHANNELS.voiceClear],
+  ]);
+  assert.deepEqual(progress, [[7]]);
 });

@@ -13,6 +13,7 @@ import {
   type VoiceConsent,
 } from '../../../packages/voice/src/voice.ts';
 import type { VoicePreferences } from '../../../packages/voice/src/voice-settings.ts';
+import { DEFAULT_SPEECH, isSpeechPreferences, type SpeechPreferences, withoutFlatNpcVoices } from './voice-setup.ts';
 
 export const MIN_FONT_SCALE = 0.75;
 export const MAX_FONT_SCALE = 2;
@@ -27,6 +28,7 @@ export type UiPreferences = {
   readonly motion: MotionSetting;
   readonly keyboard: boolean;
   readonly voice: SavedVoice;
+  readonly speech: SpeechPreferences;
 };
 
 export const DEFAULT_PREFERENCES: UiPreferences = {
@@ -42,6 +44,7 @@ export const DEFAULT_PREFERENCES: UiPreferences = {
     speed: DEFAULT_PLAYBACK_SPEED,
     consent: DEFAULT_VOICE_SETTINGS.consent,
   },
+  speech: DEFAULT_SPEECH,
 };
 
 const MICROPHONE_MODES: readonly unknown[] = ['off', 'push-to-talk', 'hands-free'] satisfies MicrophoneMode[];
@@ -90,7 +93,9 @@ export const parsePreferences = (input: unknown): Result<UiPreferences> => {
     motion,
     keyboard,
     voice: savedVoice,
+    speech: savedSpeech,
   } = { ...DEFAULT_PREFERENCES, ...input };
+  const speech = withoutFlatNpcVoices(savedSpeech);
   const voice = isRecord(savedVoice) ? { ...DEFAULT_PREFERENCES.voice, ...savedVoice } : savedVoice;
   if (typeof fontScale !== 'number' || !Number.isFinite(fontScale))
     return failure('MalformedCommand', 'fontScale must be a finite number');
@@ -99,6 +104,8 @@ export const parsePreferences = (input: unknown): Result<UiPreferences> => {
   if (!isMotion(motion)) return failure('MalformedCommand', 'motion must be full, reduced or off');
   if (typeof keyboard !== 'boolean') return failure('MalformedCommand', 'keyboard must be a flag');
   if (!isSavedVoice(voice)) return failure('MalformedCommand', 'voice settings are invalid');
+  if (!isSpeechPreferences(speech)) return failure('MalformedCommand', 'speech settings are invalid');
+  const { providerId, narratorVoice, volume, npcVoices } = speech;
   const { microphone, spokenOutput, locale: voiceLocale, speed, consent } = voice;
   return {
     ok: true,
@@ -109,6 +116,12 @@ export const parsePreferences = (input: unknown): Result<UiPreferences> => {
       motion,
       keyboard,
       voice: { microphone, spokenOutput, locale: voiceLocale, speed, consent },
+      speech: {
+        ...(providerId === undefined ? {} : { providerId }),
+        ...(narratorVoice === undefined ? {} : { narratorVoice }),
+        volume,
+        npcVoices: Object.fromEntries(Object.entries(npcVoices).map(([id, voices]) => [id, { ...voices }])),
+      },
     },
   };
 };
@@ -225,6 +238,55 @@ const CATALOG: Readonly<Record<string, Readonly<Record<string, string>>>> = {
     'voice.consent': 'Allow microphone capture for this campaign?',
     'voice.allow': 'Allow microphone',
     'voice.decline': 'Keep typing',
+    'voice.on': 'Turn voice on',
+    'voice.turnOff': 'Turn voice off',
+    'voice.mode': 'Spoken output',
+    'voice.narrator': 'Narrator voice',
+    'voice.preview': 'Preview',
+    'voice.previewLabel': 'Preview the voice of {name}',
+    'voice.language': 'Language',
+    'voice.speedLabel': 'Speed',
+    'voice.volume': 'Volume',
+    'voice.advanced': 'Advanced voice settings',
+    'voice.provider': 'Voice provider',
+    'voice.npcs': 'Character voices',
+    'voice.npcName': 'Character name',
+    'voice.npcVoice': 'Character voice',
+    'voice.npcAdd': 'Add character voice',
+    'voice.npcRemove': 'Remove',
+    'voice.npcRemoveLabel': 'Remove the voice of {name}',
+    'voice.models': 'Installed voice models',
+    'voice.noModels': 'No voice models installed.',
+    'voice.size': '{size} MiB',
+    'voice.remove': 'Remove',
+    'voice.cache': 'Audio cache: {size} KiB',
+    'voice.clear': 'Clear cache',
+    'voice.diagnostics': 'Voice diagnostics',
+    'voice.diagnostics.firstAudio': 'Time to first audio',
+    'voice.diagnostics.cacheHits': 'Cache hit rate',
+    'voice.diagnostics.errors': 'Errors',
+    'voice.diagnostics.none': 'none',
+    'voice.diagnostics.ms': '{value} ms',
+    'voice.diagnostics.percent': '{value}%',
+    'voice.stage.synthesis': 'Speech synthesis',
+    'voice.stage.transfer': 'Transfer',
+    'voice.stage.decode': 'Decoding',
+    'voice.setup': 'Voice setup',
+    'region.voice-setup': 'Voice setup',
+    'voice.setup.checking': 'Checking voices on this computer…',
+    'voice.setup.consent':
+      'Use the {provider} voice on this computer? It needs a one-time download of {size} MiB from {source}.',
+    'voice.setup.accept': 'Download and continue',
+    'voice.setup.decline': 'Not now',
+    'voice.setup.downloading': 'Downloading the voice model',
+    'voice.setup.progress': '{done} of {total} MiB',
+    'voice.setup.previewing': 'Playing the narrator…',
+    'voice.setup.ready': 'Voice is on. You heard the narrator.',
+    'voice.setup.again': 'Play again',
+    'voice.setup.done': 'Done',
+    'voice.setup.unavailable': 'No voice speaks this language on this computer yet. The story stays in text.',
+    'voice.setup.failed': 'Voice could not start ({reason}). The story stays in text.',
+    'voice.setup.retry': 'Try again',
     'region.start': 'New adventure',
     'start.open': 'New adventure',
     'start.first': 'Start your first adventure',

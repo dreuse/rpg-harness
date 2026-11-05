@@ -274,3 +274,39 @@ test('A18: browser microphone source asks permission, lists inputs and streams c
   unsubscribe();
   assert.equal(listeners.size, 0);
 });
+
+test('rpg-cm63.7 mode, language and speed change mid-campaign without restart and typed play keeps working', async () => {
+  const saved: SavedVoiceSettings[] = [];
+  const submitted: string[] = [];
+  let opened = 0;
+  const voice = createDesktopVoice({
+    session,
+    providerIds: [],
+    save: (settings) => saved.push(settings),
+    supportedLocales: SUPPORTED_LOCALES,
+    subtitles: { current: () => undefined },
+    openMicrophone: () => {
+      opened += 1;
+      return { start: async () => DENIED, stop: () => {} };
+    },
+    submit: (input): Result<SubmitPlayerAction> => {
+      submitted.push(input);
+      return failure('Rejected', 'offline');
+    },
+  });
+  voice.change({ spokenOutput: 'cinematic' });
+  voice.change({ speed: 1.5, locale: 'en-US' });
+  voice.change({ speed: 9 });
+  voice.change({ spokenOutput: 'shout' as never });
+  assert.deepEqual(
+    saved.map(({ spokenOutput, speed }) => [spokenOutput, speed]),
+    [
+      ['cinematic', 1],
+      ['cinematic', 1.5],
+    ],
+  );
+  assert.equal(voice.view().preferences.spokenOutput, 'cinematic');
+  assert.equal(opened, 0);
+  await voice.say('I open the door');
+  assert.deepEqual(submitted, ['I open the door']);
+});

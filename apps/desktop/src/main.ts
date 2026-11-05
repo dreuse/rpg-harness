@@ -17,6 +17,7 @@ import {
 import { loadPreferences, parsePreferences } from './accessibility.ts';
 import { CHANNELS, PREFERENCES_QUERY, START_QUERY } from './preload.ts';
 import type { Transport } from './renderer.ts';
+import type { VoiceHost } from './voice-host.ts';
 
 export const PREFERENCES_FILE = 'desktop-preferences.json';
 export const ENGINE_CRASHED = 'Engine crashed.';
@@ -48,6 +49,7 @@ export type BrowserWindowLike = {
 };
 export type IpcMainLike = {
   on(channel: string, listener: (event: { readonly sender: unknown }, ...args: unknown[]) => void): void;
+  handle?(channel: string, listener: (event: { readonly sender: unknown }, ...args: unknown[]) => unknown): void;
 };
 export type PreferencesFs = {
   readFileSync(path: string, encoding: typeof TEXT): string;
@@ -63,7 +65,9 @@ export type MainOptions = {
   readonly preload: string;
   readonly page: string;
   readonly startDaemon?: (options: DaemonOptions) => Daemon;
+  readonly voice?: VoiceHost;
 };
+export const FOREIGN_SENDER = 'ipc sender is not the app window';
 
 export type UtilityProcessLike = {
   readonly pid: number | undefined;
@@ -176,6 +180,7 @@ export const startMain = ({
   preload,
   page,
   startDaemon = startEngine,
+  voice,
 }: MainOptions) => {
   const preferencesPath = join(dataDir, PREFERENCES_FILE);
   const startPath = join(dataDir, START_DRAFT_FILE);
@@ -184,7 +189,7 @@ export const startMain = ({
     height: WINDOW_HEIGHT,
     webPreferences: { preload, ...WINDOW_SECURITY },
   });
-  const push = (channel: string, value: string) => {
+  const push = (channel: string, value: string | number) => {
     if (!window.isDestroyed()) window.webContents.send(channel, value);
   };
   const daemon = startDaemon({ env: engineEnv(env), onCrash: () => push(CHANNELS.close, ENGINE_CRASHED) });
@@ -233,6 +238,23 @@ export const startMain = ({
       if (isDeepStrictEqual(draft, input)) save(startPath, draft);
     }),
   );
+  const invokedFromWindow =
+    (handler: (...args: unknown[]) => unknown) =>
+    async ({ sender }: { readonly sender: unknown }, ...args: unknown[]) => {
+      if (sender !== window.webContents) throw new Error(FOREIGN_SENDER);
+      return handler(...args);
+    };
+  if (voice !== undefined) {
+    const handle = (channel: string, handler: (...args: unknown[]) => unknown) =>
+      ipcMain.handle?.(channel, invokedFromWindow(handler));
+    handle(CHANNELS.voiceCheck, () => voice.check());
+    handle(CHANNELS.voiceDownload, (providerId, consent) =>
+      voice.download(providerId, consent, (bytes) => push(CHANNELS.voiceProgress, bytes)),
+    );
+    handle(CHANNELS.voiceRemove, (providerId) => voice.remove(providerId));
+    handle(CHANNELS.voicePreview, (request) => voice.preview(request));
+    handle(CHANNELS.voiceClear, () => voice.clearCache());
+  }
   const preferences = loadPreferences(() => fs.readFileSync(preferencesPath, TEXT));
   const url = new URL(page);
   url.searchParams.set(PREFERENCES_QUERY, JSON.stringify(preferences));

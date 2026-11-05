@@ -26,6 +26,7 @@ import {
   WINDOW_SECURITY,
 } from './main.ts';
 import { CHANNELS, PREFERENCES_QUERY, START_QUERY } from './preload.ts';
+import type { VoiceHost } from './voice-host.ts';
 
 const DATA_DIR = '/data';
 const PRELOAD = '/app/preload.js';
@@ -238,11 +239,17 @@ const fakeElectron = (files: Record<string, string> = {}) => {
       made.push(path);
     },
   };
+  const invokers = new Map<string, (event: { sender: unknown }, ...args: unknown[]) => unknown>();
   const ipcMain = {
     on: (channel: string, listener: (event: { sender: unknown }, ...args: unknown[]) => void) => {
       handlers.set(channel, listener);
     },
+    handle: (channel: string, listener: (event: { sender: unknown }, ...args: unknown[]) => unknown) => {
+      invokers.set(channel, listener);
+    },
   };
+  const invoke = async (channel: string, sender: unknown, ...args: unknown[]) =>
+    invokers.get(channel)?.({ sender }, ...args);
   const ipc = (channel: string, ...args: unknown[]) => handlers.get(channel)?.({ sender: webContents }, ...args);
   const foreign = (channel: string, ...args: unknown[]) => handlers.get(channel)?.({ sender: {} }, ...args);
   return {
@@ -250,6 +257,9 @@ const fakeElectron = (files: Record<string, string> = {}) => {
     ipcMain,
     fs,
     ipc,
+    invoke: (channel: string, ...args: unknown[]) => invoke(channel, webContents, ...args),
+    invokeForeign: (channel: string, ...args: unknown[]) => invoke(channel, {}, ...args),
+    channels: () => [...invokers.keys()],
     foreign,
     pushed,
     written,
@@ -261,10 +271,11 @@ const fakeElectron = (files: Record<string, string> = {}) => {
   };
 };
 
-const start = (electron: ReturnType<typeof fakeElectron>, daemon = fakeDaemon()) => {
+const start = (electron: ReturnType<typeof fakeElectron>, daemon = fakeDaemon(), voice?: VoiceHost) => {
   const options: DaemonOptions[] = [];
   const main = startMain({
     ...electron,
+    ...(voice === undefined ? {} : { voice }),
     env: { [API_KEY_ENV]: API_KEY, CLAUDE_CODE_OAUTH_TOKEN: CONSUMER_TOKEN },
     dataDir: DATA_DIR,
     preload: PRELOAD,
@@ -419,4 +430,56 @@ test('rpg-42a.14 main keeps guided start progress in the app data dir and restor
     const restored = new URL(reopened.windows[0]?.url ?? PAGE).searchParams.get(START_QUERY);
     assert.deepEqual(JSON.parse(restored ?? ''), expected);
   }
+});
+
+test('rpg-cm63.7 main serves voice setup to its own window and forwards download progress', async () => {
+  const electron = fakeElectron();
+  const calls: unknown[][] = [];
+  const voice: VoiceHost = {
+    check: async () => {
+      calls.push(['check']);
+      return { providers: [], cacheBytes: 0 };
+    },
+    download: async (providerId, consent, onProgress) => {
+      calls.push(['download', providerId, consent]);
+      onProgress(5);
+    },
+    remove: async (providerId) => {
+      calls.push(['remove', providerId]);
+    },
+    preview: async (request) => {
+      calls.push(['preview', request]);
+      return { chunks: [], synthesisMs: 0, cacheHit: false };
+    },
+    clearCache: () => {
+      calls.push(['clear']);
+    },
+  };
+  start(electron, fakeDaemon(), voice);
+  assert.deepEqual(
+    electron.channels().sort(),
+    [
+      CHANNELS.voiceCheck,
+      CHANNELS.voiceClear,
+      CHANNELS.voiceDownload,
+      CHANNELS.voicePreview,
+      CHANNELS.voiceRemove,
+    ].sort(),
+  );
+  await assert.rejects(electron.invokeForeign(CHANNELS.voiceCheck));
+  await assert.rejects(electron.invokeForeign(CHANNELS.voiceDownload, 'kokoro', {}));
+  assert.deepEqual(calls, []);
+  assert.deepEqual(await electron.invoke(CHANNELS.voiceCheck), { providers: [], cacheBytes: 0 });
+  await electron.invoke(CHANNELS.voiceDownload, 'kokoro', { accepted: true });
+  await electron.invoke(CHANNELS.voiceRemove, 'kokoro');
+  await electron.invoke(CHANNELS.voicePreview, { providerId: 'kokoro' });
+  await electron.invoke(CHANNELS.voiceClear);
+  assert.deepEqual(calls, [
+    ['check'],
+    ['download', 'kokoro', { accepted: true }],
+    ['remove', 'kokoro'],
+    ['preview', { providerId: 'kokoro' }],
+    ['clear'],
+  ]);
+  assert.deepEqual(electron.pushed, [[CHANNELS.voiceProgress, 5]]);
 });

@@ -54,6 +54,34 @@ test('A18 saved voice settings default off and reject invalid input', () => {
   }
 });
 
+test('rpg-cm63.7 saved speech settings default to full volume and reject invalid input', () => {
+  assert.deepEqual(DEFAULT_PREFERENCES.speech, { volume: 1, npcVoices: {} });
+  const speech = {
+    providerId: 'kokoro',
+    narratorVoice: 'am_adam',
+    volume: 0.5,
+    npcVoices: { 'campaign-a': { Guard: 'bf_emma' } },
+  };
+  const parsed = parsePreferences({ speech });
+  assert.deepEqual(parsed.ok && parsed.value.speech, speech);
+  const extra = parsePreferences({ speech: { ...speech, apiKey: 'sk-live' } });
+  assert.deepEqual(extra.ok && extra.value.speech, speech);
+  const legacy = parsePreferences({ speech: { ...speech, npcVoices: { Guard: 'bf_emma' } } });
+  assert.deepEqual(legacy.ok && legacy.value.speech, { ...speech, npcVoices: {} });
+  for (const invalid of [
+    'loud',
+    { volume: 2 },
+    { volume: 0.5, npcVoices: [] },
+    { volume: 0.5, npcVoices: { 'campaign-a': { '': 'af_heart' } } },
+    { volume: 0.5, npcVoices: { 'campaign-a': { Guard: 1 } } },
+    { volume: 0.5, npcVoices: { 'campaign-a': [] } },
+    { volume: 0.5, npcVoices: { '': { Guard: 'af_heart' } } },
+    { volume: 0.5, npcVoices: {}, narratorVoice: '' },
+  ]) {
+    assert.equal(parsePreferences({ speech: invalid }).ok, false, JSON.stringify(invalid));
+  }
+});
+
 test('UI10 saved preferences load and fall back to defaults without throwing', () => {
   assert.deepEqual(
     loadPreferences(() => '{"locale":"es"}'),

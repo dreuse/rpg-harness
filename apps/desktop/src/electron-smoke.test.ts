@@ -32,6 +32,7 @@ import {
 } from './capture.ts';
 import { SMOKE_ENV, SMOKE_STATUS, WINDOW_HEIGHT, WINDOW_WIDTH } from './main.ts';
 import { auditPage, BLOCKING_IMPACTS, decodePng, pixelDiffRatio } from './ux-check.ts';
+import { FAKE_VOICE_ROUTE, VOICE_ROUTE_ENV } from './voice-host.ts';
 
 const APP_DIR = join(import.meta.dirname, '..');
 const REPO_ROOT = join(APP_DIR, '..', '..');
@@ -85,7 +86,14 @@ const skip =
 const run = async (dataDir: string, extra: NodeJS.ProcessEnv, app = APP_DIR) => {
   const env = Object.fromEntries(KEPT_ENV.flatMap((key) => (process.env[key] ? [[key, process.env[key]]] : [])));
   const { stdout } = await promisify(execFile)(binary as string, [app], {
-    env: { ...env, ...extra, [SMOKE_ENV]: ENABLED, [DATA_DIR_ENV]: dataDir, [GM_ROUTE_ENV]: FAKE_ROUTE },
+    env: {
+      ...env,
+      ...extra,
+      [SMOKE_ENV]: ENABLED,
+      [DATA_DIR_ENV]: dataDir,
+      [GM_ROUTE_ENV]: FAKE_ROUTE,
+      [VOICE_ROUTE_ENV]: FAKE_VOICE_ROUTE,
+    },
     timeout: LAUNCH_TIMEOUT_MS,
   });
   return stdout;

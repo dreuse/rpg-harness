@@ -85,6 +85,13 @@ test('downloads into the app data dir after consent and verifies checksums', asy
   assert.deepEqual(await manager.status(), { installed: true, bytes: TOTAL_BYTES });
 });
 
+test('rpg-cm63.7 reports download progress as total bytes received so far', async () => {
+  const { manager, consent } = await setup();
+  const progress: number[] = [];
+  await manager.download(consent, undefined, (bytes) => progress.push(bytes));
+  assert.deepEqual(progress, [CONTENT.length, TOTAL_BYTES]);
+});
+
 test('rejects a checksum mismatch and deletes the download', async () => {
   const { dir, manager, consent } = await setup(OTHER);
   await assert.rejects(manager.download(consent), /checksum mismatch/);

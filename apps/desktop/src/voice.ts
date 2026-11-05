@@ -1,10 +1,12 @@
 import type { Result, SavedVoiceSettings, SubmitPlayerAction } from '../../../packages/client-protocol/src/protocol.ts';
+import { SPOKEN_OUTPUT_MODES } from '../../../packages/domain/src/voice.ts';
 import type { AudioFailure, TurnTranscription } from '../../../packages/voice/src/fallback.ts';
 import type {
   MicrophoneController,
   MicrophoneSource,
   TypedFallbackReason,
 } from '../../../packages/voice/src/microphone.ts';
+import { MAX_PLAYBACK_SPEED, MIN_PLAYBACK_SPEED } from '../../../packages/voice/src/playback.ts';
 import type { SttFallbackReason } from '../../../packages/voice/src/stt.ts';
 import type { SubtitleTranscript } from '../../../packages/voice/src/subtitles.ts';
 import {
@@ -17,6 +19,7 @@ import {
   type RequestSource,
   routeVoiceInput,
   type VoiceInputRoute,
+  type VoicePreferences,
   type VoiceSession,
   type VoiceSettingsIssueCode,
 } from '../../../packages/voice/src/voice-settings.ts';
@@ -49,6 +52,21 @@ const RECORDER_STOP = 'stop';
 const CHUNK_MS = 250;
 export const { microphone: MICROPHONE_OFF } = DEFAULT_VOICE_SETTINGS;
 const SAVED_FIELDS = ['microphone', 'spokenOutput', 'locale', 'speed', 'consentGrantedAt'] as const;
+
+export type OutputChange = Partial<Omit<VoicePreferences, 'microphone'>>;
+
+const canonical = (locale: string) => {
+  try {
+    return Intl.getCanonicalLocales(locale)[0];
+  } catch {
+    return undefined;
+  }
+};
+
+const validChange = ({ spokenOutput, locale, speed }: OutputChange, supportedLocales: readonly string[]) =>
+  (spokenOutput === undefined || SPOKEN_OUTPUT_MODES.includes(spokenOutput)) &&
+  (speed === undefined || (speed >= MIN_PLAYBACK_SPEED && speed <= MAX_PLAYBACK_SPEED)) &&
+  (locale === undefined || supportedLocales.some((entry) => canonical(entry) === canonical(locale)));
 
 const sameSettings = (left: SavedVoiceSettings, right: SavedVoiceSettings) =>
   SAVED_FIELDS.every((field) => left[field] === right[field]);
@@ -178,6 +196,12 @@ export const createDesktopVoice = (options: DesktopVoiceOptions) => {
     await listen();
   };
 
+  const change = (patch: OutputChange) => {
+    if (!validChange(patch, supportedLocales)) return;
+    session = { ...session, preferences: { ...session.preferences, ...patch } };
+    save(saved());
+  };
+
   const heard = async (turn: TurnTranscription): Promise<Route | undefined> => {
     if (turn.kind === 'typed-input-only') {
       fallback = turn.reason;
@@ -201,7 +225,7 @@ export const createDesktopVoice = (options: DesktopVoiceOptions) => {
     asking: asking !== undefined,
   });
 
-  return { say, heard, view, load, start: listen, allow: () => answer(true), decline: () => answer(false) };
+  return { say, change, heard, view, load, start: listen, allow: () => answer(true), decline: () => answer(false) };
 };
 
 export type DesktopVoiceView = ReturnType<ReturnType<typeof createDesktopVoice>['view']>;

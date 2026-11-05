@@ -38,8 +38,25 @@ import {
   START_TITLE,
   type StartControl,
   VOICE_ATTRIBUTE,
+  VOICE_CLEAR,
+  VOICE_FIELD,
+  VOICE_NPC,
+  VOICE_NPC_NAME,
+  VOICE_NPC_PREVIEW,
+  VOICE_NPC_REMOVE,
+  VOICE_NPC_VOICE,
+  VOICE_PREVIEW,
+  VOICE_REMOVE,
+  VOICE_SETUP,
 } from './view.ts';
-import { browserMicrophone, createDesktopVoice, type DesktopVoiceOptions, MICROPHONE_OFF } from './voice.ts';
+import {
+  browserMicrophone,
+  createDesktopVoice,
+  type DesktopVoiceOptions,
+  MICROPHONE_OFF,
+  type OutputChange,
+} from './voice.ts';
+import { type AudioOut, browserAudio, createVoiceSetup, type SpeechPreferences } from './voice-setup.ts';
 
 export const FONT_SCALE_PROPERTY = '--font-scale';
 export const ROOT_ID = 'app';
@@ -50,6 +67,10 @@ const CLICK = 'click';
 const SUBMIT = 'submit';
 const RESIZE = 'resize';
 const INPUT = 'input';
+const CHANGE = 'change';
+const OUTPUT_FIELDS = ['spokenOutput', 'locale', 'speed'];
+const SPEECH_FIELDS = ['providerId', 'narratorVoice', 'volume'];
+const NUMBER_FIELDS = ['speed', 'volume'];
 const RETRY_SELECTOR = '[data-action="retry"]';
 const TABINDEX = 'tabindex';
 const PROGRAMMATIC_FOCUS = '-1';
@@ -62,7 +83,8 @@ const OPEN_SELECTOR = `[${START_OPEN}]`;
 const FOCUSED_SELECTOR = ':focus';
 const STEP_INDEX = /^\d+$/;
 const ARCHIVED_SELECTOR = '[data-archived]';
-const DISCLOSURE_SELECTORS = ['[data-diagnostics]', ARCHIVED_SELECTOR, '[data-settings]'];
+const SETTINGS_SELECTOR = '[data-settings]';
+const DISCLOSURE_SELECTORS = ['[data-diagnostics]', ARCHIVED_SELECTOR, SETTINGS_SELECTOR, '[data-voice-advanced]'];
 const HOME_REGION = '[data-region="campaigns"]';
 const KEEP_ENTER_REGIONS = [START_REGION, HOME_REGION, '[data-region="status"]', '[data-region="sheet"]'];
 const SHEET_INPUT_SELECTOR = `#${SHEET_INPUT}`;
@@ -77,6 +99,10 @@ const SHEET_EDIT_SELECTOR = '#sheet-edit';
 const HEADING_SELECTOR = '#heading-status';
 const FIRST_CONTINUE_SELECTOR = '#home-continue-0';
 const OPEN_MENU_SELECTOR = 'details[open]';
+const SETTINGS_TOGGLE_SELECTOR = '#settings-toggle';
+const SETUP_DIALOG_SELECTOR = '[data-voice-step]';
+const SETUP_PRIMARY_SELECTOR = `${SETUP_DIALOG_SELECTOR} [data-primary]`;
+const SETUP_CLOSED = 'closed';
 const MENU_TOGGLE_SELECTOR = 'summary';
 const SEARCH_SELECTOR = `#${HOME_SEARCH}`;
 const CANCEL_SELECTOR = '#home-cancel';
@@ -84,7 +110,16 @@ const LOG_SELECTOR = '[data-region="conversation"] > ol';
 const SKIP_SELECTOR = '[data-roll-skip]';
 const MOTION_ATTRIBUTE = 'data-motion';
 const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)';
-const FOCUS_ATTRIBUTES = [START_TITLE, START_OPTION, START_CONTROL, START_OPEN, PANE_ATTRIBUTE, MOTION_ATTRIBUTE];
+const FOCUS_ATTRIBUTES = [
+  START_TITLE,
+  START_OPTION,
+  START_CONTROL,
+  START_OPEN,
+  PANE_ATTRIBUTE,
+  MOTION_ATTRIBUTE,
+  VOICE_SETUP,
+  VOICE_PREVIEW,
+];
 const FOCUS_REGIONS: Partial<Record<RendererAction, Region>> = {
   focusConversation: 'conversation',
   focusSheet: 'sheet',
@@ -100,13 +135,14 @@ export type PageElements = {
 };
 export type PageOptions = {
   readonly elements: PageElements;
-  readonly bridge: Transport & Partial<Pick<Bridge, 'saveStart' | 'savePreferences'>>;
+  readonly bridge: Transport & Partial<Pick<Bridge, 'saveStart' | 'savePreferences' | 'voice'>>;
   readonly search: string;
   readonly width: () => number;
   readonly newActionId: () => string;
   readonly openMicrophone: DesktopVoiceOptions['openMicrophone'];
   readonly schedule?: (run: () => void, ms: number) => void;
   readonly prefersReducedMotion?: () => boolean;
+  readonly audio?: AudioOut;
 };
 
 const systemReducedMotion = () => globalThis.matchMedia?.(REDUCED_MOTION_QUERY).matches === true;
@@ -136,6 +172,7 @@ export const mountPage = ({
   openMicrophone,
   schedule = setTimeout,
   prefersReducedMotion = systemReducedMotion,
+  audio = browserAudio(() => new AudioContext()),
 }: PageOptions) => {
   let saved = queryPreferences(search);
   const withSystem = () => ({ ...saved, reducedMotion: saved.reducedMotion || prefersReducedMotion() });
@@ -156,10 +193,26 @@ export const mountPage = ({
     submit: client.submit,
     save: client.saveVoice,
   });
+  const setup = createVoiceSetup({
+    ...(bridge.voice === undefined ? {} : { bridge: bridge.voice }),
+    audio,
+    speech: saved.speech,
+    language: () => voice.view().preferences.locale,
+    campaign: () => loaded?.campaignId,
+    speed: () => voice.view().preferences.speed,
+    saveSpeech: (speech: SpeechPreferences) => {
+      saved = { ...saved, speech };
+      bridge.savePreferences?.(saved);
+      preferences = withSystem();
+    },
+    setOutput: (spokenOutput) => voice.change({ spokenOutput }),
+    changed: () => render(),
+  });
   let loaded: CampaignSnapshot | undefined;
   let shownStep: string | undefined;
   let shownPane: Region | undefined;
   let shownPlaying = false;
+  let shownVoiceStep = SETUP_CLOSED;
   const entryValue = () => root.querySelector<HTMLInputElement>(ENTRY_SELECTOR)?.value;
   const gmFormInputs = (form: string) =>
     GM_FIELDS.map((name) => root.querySelector<HTMLInputElement>(`${form} [name="${name}"]`));
@@ -184,7 +237,8 @@ export const mountPage = ({
     const opened = DISCLOSURE_SELECTORS.map(
       (selector) => root.querySelector<HTMLDetailsElement>(selector)?.open === true,
     );
-    root.innerHTML = renderView(model, preferences.locale, shownPane, voice.view());
+    const setupView = setup.view();
+    root.innerHTML = renderView(model, preferences.locale, shownPane, voice.view(), setupView);
     root.style.setProperty(FONT_SCALE_PROPERTY, String(model.fontScale));
     DISCLOSURE_SELECTORS.forEach((selector, index) => {
       const details = root.querySelector<HTMLDetailsElement>(selector);
@@ -202,6 +256,14 @@ export const mountPage = ({
     if (model.start?.step !== shownStep) {
       shownStep = model.start?.step;
       return root.querySelector<HTMLElement>(shownStep === undefined ? OPEN_SELECTOR : TITLE_SELECTOR)?.focus();
+    }
+    if (setupView.step !== shownVoiceStep) {
+      shownVoiceStep = setupView.step;
+      if (shownVoiceStep === SETUP_CLOSED) return root.querySelector<HTMLElement>(SETTINGS_TOGGLE_SELECTOR)?.focus();
+      return (
+        root.querySelector<HTMLElement>(SETUP_PRIMARY_SELECTOR) ??
+        root.querySelector<HTMLElement>(SETUP_DIALOG_SELECTOR)
+      )?.focus();
     }
     const entry = root.querySelector<HTMLInputElement>(ENTRY_SELECTOR);
     if (entry !== null && typed !== undefined) entry.value = typed;
@@ -335,6 +397,49 @@ export const mountPage = ({
     if (action === 'retry') return client.retry();
     if (action === 'nextCampaign') return nextCampaign();
   };
+  const setupActions: Readonly<Record<string, () => unknown>> = {
+    on: () => {
+      const settings = root.querySelector<HTMLDetailsElement>(SETTINGS_SELECTOR);
+      if (settings !== null) settings.open = false;
+      return setup.turnOn();
+    },
+    off: setup.turnOff,
+    accept: setup.accept,
+    decline: setup.decline,
+    finish: setup.finish,
+  };
+  const voiceClicks: readonly [string, (value: string) => unknown][] = [
+    [VOICE_SETUP, (action) => setupActions[action]?.()],
+    [VOICE_PREVIEW, () => setup.preview()],
+    [VOICE_NPC_PREVIEW, setup.preview],
+    [
+      VOICE_NPC,
+      () =>
+        setup.setNpcVoice(
+          root.querySelector<HTMLInputElement>(`#${VOICE_NPC_NAME}`)?.value ?? '',
+          root.querySelector<HTMLSelectElement>(`#${VOICE_NPC_VOICE}`)?.value ?? '',
+        ),
+    ],
+    [VOICE_NPC_REMOVE, setup.removeNpcVoice],
+    [VOICE_REMOVE, setup.removeModel],
+    [VOICE_CLEAR, setup.clearCache],
+  ];
+  const voiceClick = (target: ClickTarget | null) => {
+    const value = (name: string) => target?.closest(`[${name}]`)?.getAttribute(name) ?? undefined;
+    const found = voiceClicks.find(([name]) => value(name) !== undefined);
+    if (found === undefined) return false;
+    const [name, run] = found;
+    void run(value(name) ?? '');
+    return true;
+  };
+  const voiceField = (field: string, raw: unknown) => {
+    const value = NUMBER_FIELDS.includes(field) ? Number(raw) : String(raw);
+    if (OUTPUT_FIELDS.includes(field)) {
+      voice.change({ [field]: value } as OutputChange);
+      return render();
+    }
+    if (SPEECH_FIELDS.includes(field)) setup.update({ [field]: value });
+  };
   const loadVoice = ({ snapshot }: DesktopState) => {
     if (snapshot === undefined || snapshot === loaded || client.voicePending()) return;
     loaded = snapshot;
@@ -369,6 +474,7 @@ export const mountPage = ({
     }
     const pane = target?.closest(`[${PANE_ATTRIBUTE}]`)?.getAttribute(PANE_ATTRIBUTE);
     if (isRegion(pane)) return showPane(pane);
+    if (voiceClick(target)) return;
     const answer = target?.closest(`[${VOICE_ATTRIBUTE}]`)?.getAttribute(VOICE_ATTRIBUTE);
     if (answer === ALLOW) return void voice.allow().then(render);
     if (answer === DECLINE) return void voice.decline().then(render);
@@ -396,6 +502,10 @@ export const mountPage = ({
   root.addEventListener(INPUT, () => {
     const query = root.querySelector<HTMLInputElement>(SEARCH_SELECTOR)?.value;
     if (query !== undefined && query !== client.state().home.query) client.search(query);
+  });
+  root.addEventListener(CHANGE, (event) => {
+    const field = closestTarget(event)?.closest(`[${VOICE_FIELD}]`)?.getAttribute(VOICE_FIELD);
+    if (field !== undefined && field !== null) voiceField(field, (event.target as { value?: unknown }).value);
   });
   root.addEventListener(SUBMIT, (event) => {
     if (closestTarget(event)?.closest(GM_FORM_SELECTOR)) {
@@ -425,6 +535,7 @@ export const mountPage = ({
   bindKeys(keys, () => preferences, run);
   render();
   voice.start().then(render);
+  void setup.refresh();
   return { ...client, render };
 };
 

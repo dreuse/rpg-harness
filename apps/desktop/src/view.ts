@@ -8,6 +8,9 @@ import { loadStartDraft, type StartScreen } from '../../../packages/client-proto
 import type { GmSnapshot } from '../../../packages/client-protocol/src/protocol.ts';
 import { MOTION_SETTINGS } from '../../../packages/client-protocol/src/visualization.ts';
 import type { GmSettings } from '../../../packages/domain/src/gm.ts';
+import { SPOKEN_OUTPUT_MODES } from '../../../packages/domain/src/voice.ts';
+import { MAX_PLAYBACK_SPEED, MIN_PLAYBACK_SPEED } from '../../../packages/voice/src/playback.ts';
+import { VOICE_STAGES } from '../../../packages/voice/src/voice-diagnostics.ts';
 import {
   actionForKey,
   loadPreferences,
@@ -27,6 +30,7 @@ import {
   type viewModel,
 } from './renderer.ts';
 import type { DesktopVoiceView } from './voice.ts';
+import { MAX_NPC_NAME_LENGTH, MAX_VOLUME, MIN_VOLUME, type VoiceSetupView } from './voice-setup.ts';
 
 export type ViewModel = ReturnType<typeof viewModel>;
 export type KeyEventLike = {
@@ -115,10 +119,144 @@ export const NAV_ATTRIBUTE = 'data-nav';
 const homeNav = (locale: string) =>
   `<button type="button" id="nav-home" ${NAV_ATTRIBUTE}="home" aria-label="${escapeHtml(translate(locale, 'nav.homeLabel'))}">${escapeHtml(translate(locale, 'nav.home'))}</button>`;
 
-const voiceSettings = (voice: DesktopVoiceView | undefined, locale: string) =>
+export const VOICE_SETUP = 'data-voice-setup';
+export const VOICE_FIELD = 'data-voice-field';
+export const VOICE_PREVIEW = 'data-voice-preview';
+export const VOICE_NPC = 'data-voice-npc';
+export const VOICE_NPC_PREVIEW = 'data-voice-npc-preview';
+export const VOICE_NPC_REMOVE = 'data-voice-npc-remove';
+export const VOICE_REMOVE = 'data-voice-remove';
+export const VOICE_CLEAR = 'data-voice-clear';
+export const VOICE_NPC_NAME = 'voice-npc-name';
+export const VOICE_NPC_VOICE = 'voice-npc-voice';
+export const NARRATOR_PREVIEW = 'narrator';
+const BYTES_PER_KIB = 1024;
+const BYTES_PER_MIB = BYTES_PER_KIB * BYTES_PER_KIB;
+const PERCENT = 100;
+const VOLUME_STEP = 0.05;
+const SPEED_STEP = 0.1;
+
+const labelled = (id: string, label: string, control: string, extra = '') =>
+  `<div data-voice-row><label for="${id}">${escapeHtml(label)}</label>${control}${extra}</div>`;
+const options = (
+  values: readonly string[],
+  current: string | undefined,
+  label: (value: string) => string = (value) => value,
+) =>
+  values
+    .map(
+      (value) =>
+        `<option value="${escapeHtml(value)}"${value === current ? ' selected' : ''}>${escapeHtml(label(value))}</option>`,
+    )
+    .join('');
+const select = (id: string, field: string, label: string, body: string, extra = '') =>
+  labelled(id, label, `<select id="${id}" ${VOICE_FIELD}="${field}">${body}</select>`, extra);
+const range = (id: string, field: string, label: string, [min, max, step]: readonly number[], value: number) =>
+  labelled(
+    id,
+    label,
+    `<input id="${id}" type="range" min="${min}" max="${max}" step="${step}" value="${value}" ${VOICE_FIELD}="${field}">`,
+  );
+const mib = (bytes: number) => Math.round(bytes / BYTES_PER_MIB);
+const ms = (locale: string, value: number) => translate(locale, 'voice.diagnostics.ms', { value: Math.round(value) });
+
+const basicVoice = ({ preferences }: DesktopVoiceView, setup: VoiceSetupView, locale: string) => {
+  const on = preferences.spokenOutput !== 'off';
+  const voices = setup.provider?.voices ?? [];
+  const languages = [...new Set([...setup.speaking.flatMap(({ languages }) => languages), preferences.locale])];
+  return `<fieldset data-voice-basic><legend>${escapeHtml(translate(locale, 'region.voice'))}</legend>${
+    on
+      ? button(VOICE_SETUP, 'off', translate(locale, 'voice.turnOff'))
+      : button(VOICE_SETUP, 'on', translate(locale, 'voice.on'), false, true)
+  }${select(
+    'voice-mode',
+    'spokenOutput',
+    translate(locale, 'voice.mode'),
+    options(SPOKEN_OUTPUT_MODES, preferences.spokenOutput, (mode) => translate(locale, `voice.output.${mode}`)),
+  )}${
+    voices.length === 0
+      ? ''
+      : select(
+          'voice-narrator',
+          'narratorVoice',
+          translate(locale, 'voice.narrator'),
+          options(voices, setup.narratorVoice),
+          button(VOICE_PREVIEW, NARRATOR_PREVIEW, translate(locale, 'voice.preview')),
+        )
+  }${select('voice-language', 'locale', translate(locale, 'voice.language'), options(languages, preferences.locale))}${range('voice-speed', 'speed', translate(locale, 'voice.speedLabel'), [MIN_PLAYBACK_SPEED, MAX_PLAYBACK_SPEED, SPEED_STEP], preferences.speed)}${range('voice-volume', 'volume', translate(locale, 'voice.volume'), [MIN_VOLUME, MAX_VOLUME, VOLUME_STEP], setup.speech.volume)}</fieldset>`;
+};
+
+const npcRow =
+  (locale: string) =>
+  ([name, voice]: readonly [string, string]) =>
+    `<li>${escapeHtml(name)} · ${escapeHtml(voice)} <button type="button" ${VOICE_NPC_PREVIEW}="${escapeHtml(name)}" aria-label="${escapeHtml(translate(locale, 'voice.previewLabel', { name }))}">${escapeHtml(translate(locale, 'voice.preview'))}</button><button type="button" ${VOICE_NPC_REMOVE}="${escapeHtml(name)}" aria-label="${escapeHtml(translate(locale, 'voice.npcRemoveLabel', { name }))}">${escapeHtml(translate(locale, 'voice.npcRemove'))}</button></li>`;
+
+const npcVoices = (setup: VoiceSetupView, locale: string) => {
+  const rows = Object.entries(setup.npcVoices);
+  const voices = setup.provider?.voices ?? [];
+  return `<fieldset data-voice-npcs><legend>${escapeHtml(translate(locale, 'voice.npcs'))}</legend>${rows.length === 0 ? '' : `<ul>${rows.map(npcRow(locale)).join('')}</ul>`}${
+    voices.length === 0
+      ? ''
+      : `${labelled(VOICE_NPC_NAME, translate(locale, 'voice.npcName'), `<input id="${VOICE_NPC_NAME}" maxlength="${MAX_NPC_NAME_LENGTH}">`)}${labelled(VOICE_NPC_VOICE, translate(locale, 'voice.npcVoice'), `<select id="${VOICE_NPC_VOICE}">${options(voices, voices[0])}</select>`)}${button(VOICE_NPC, 'add', translate(locale, 'voice.npcAdd'))}`
+  }</fieldset>`;
+};
+
+const installedModels = ({ providers }: VoiceSetupView, locale: string) => {
+  const installed = providers.filter(({ installed }) => installed);
+  return `<h3>${escapeHtml(translate(locale, 'voice.models'))}</h3>${
+    installed.length === 0
+      ? `<p>${escapeHtml(translate(locale, 'voice.noModels'))}</p>`
+      : `<ul>${installed.map(({ id, bytes }) => `<li>${escapeHtml(id)} · ${escapeHtml(translate(locale, 'voice.size', { size: mib(bytes) }))} ${button(VOICE_REMOVE, id, translate(locale, 'voice.remove'))}</li>`).join('')}</ul>`
+  }`;
+};
+
+const voiceDiagnostics = (
+  { diagnostics: { firstAudioMs, cacheHitRate, errors, stages } }: VoiceSetupView,
+  locale: string,
+) => {
+  const failures = Object.entries(errors).map(([code, count]) => `${code}: ${count}`);
+  const rows: [string, string][] = [
+    [
+      translate(locale, 'voice.diagnostics.firstAudio'),
+      firstAudioMs === undefined ? translate(locale, 'voice.diagnostics.none') : ms(locale, firstAudioMs),
+    ],
+    [
+      translate(locale, 'voice.diagnostics.cacheHits'),
+      translate(locale, 'voice.diagnostics.percent', { value: Math.round(cacheHitRate * PERCENT) }),
+    ],
+    [
+      translate(locale, 'voice.diagnostics.errors'),
+      failures.length === 0 ? translate(locale, 'voice.diagnostics.none') : failures.join(ISSUE_SEPARATOR),
+    ],
+    ...VOICE_STAGES.flatMap((stage): [string, string][] => {
+      const value = stages[stage];
+      return value === undefined ? [] : [[translate(locale, `voice.stage.${stage}`), ms(locale, value)]];
+    }),
+  ];
+  return `<h3>${escapeHtml(translate(locale, 'voice.diagnostics'))}</h3><dl data-voice-diagnostics>${rows.map(([name, value]) => `<dt>${escapeHtml(name)}</dt><dd>${escapeHtml(value)}</dd>`).join('')}</dl>`;
+};
+
+const advancedVoice = (setup: VoiceSetupView, locale: string) =>
+  `<details data-voice-advanced><summary>${escapeHtml(translate(locale, 'voice.advanced'))}</summary><div>${
+    setup.speaking.length === 0
+      ? ''
+      : select(
+          'voice-provider',
+          'providerId',
+          translate(locale, 'voice.provider'),
+          options(
+            setup.speaking.map(({ id }) => id),
+            setup.provider?.id,
+          ),
+        )
+  }${npcVoices(setup, locale)}${installedModels(setup, locale)}<p>${escapeHtml(translate(locale, 'voice.cache', { size: Math.round(setup.cacheBytes / BYTES_PER_KIB) }))} ${button(VOICE_CLEAR, 'cache', translate(locale, 'voice.clear'))}</p>${voiceDiagnostics(setup, locale)}</div></details>`;
+
+const voiceSettings = (voice: DesktopVoiceView | undefined, setup: VoiceSetupView | undefined, locale: string) =>
   voice === undefined
     ? ''
-    : `<p data-voice-summary>${escapeHtml(voiceLabel(locale, voice.preferences))}</p><p>${escapeHtml(translate(locale, 'voice.hint'))}</p>`;
+    : `<p data-voice-summary>${escapeHtml(voiceLabel(locale, voice.preferences))}</p><p>${escapeHtml(translate(locale, 'voice.hint'))}</p>${
+        setup === undefined ? '' : `${basicVoice(voice, setup, locale)}${advancedVoice(setup, locale)}`
+      }`;
 
 export const GM_FORM = 'data-gm-form';
 export const GM_DEFAULTS_FORM = 'data-gm-defaults-form';
@@ -152,8 +290,53 @@ const gmSettings = (gm: GmSnapshot | undefined, locale: string) => {
   return `<form ${GM_FORM}><fieldset><legend>${escapeHtml(translate(locale, 'gmModel.legend'))}</legend>${gmInputs(locale, campaign, defaults)}<datalist id="${GM_MODELS_LIST}">${options}</datalist><p id="${GM_HELP_ID}">${escapeHtml(translate(locale, 'gmModel.help'))}</p><button type="submit">${escapeHtml(translate(locale, 'gmModel.save'))}</button></fieldset></form>${gmUsage(gm)}<form ${GM_DEFAULTS_FORM}><fieldset><legend>${escapeHtml(translate(locale, 'gmModel.defaultsLegend'))}</legend>${gmInputs(locale, defaults, {})}<button type="submit">${escapeHtml(translate(locale, 'gmModel.saveDefaults'))}</button></fieldset></form>`;
 };
 
-const settingsMenu = (model: ViewModel, locale: string, voice: DesktopVoiceView | undefined) =>
-  `<details data-settings><summary id="settings-toggle">${escapeHtml(translate(locale, 'settings.label'))}</summary><div>${motionControl(model.motion, locale)}${voiceSettings(voice, locale)}${gmSettings(model.gm, locale)}</div></details>`;
+const settingsMenu = (
+  model: ViewModel,
+  locale: string,
+  voice: DesktopVoiceView | undefined,
+  setup: VoiceSetupView | undefined,
+) =>
+  `<details data-settings><summary id="settings-toggle">${escapeHtml(translate(locale, 'settings.label'))}</summary><div>${motionControl(model.motion, locale)}${voiceSettings(voice, setup, locale)}${gmSettings(model.gm, locale)}</div></details>`;
+
+const setupBody = ({ step, provider, progress, error }: VoiceSetupView, locale: string): string => {
+  const text = (key: string, values?: Record<string, string | number>) =>
+    `<p>${escapeHtml(translate(locale, key, values))}</p>`;
+  switch (step) {
+    case 'checking':
+      return `<p role="status">${escapeHtml(translate(locale, 'voice.setup.checking'))}</p>`;
+    case 'consent':
+      return provider === undefined
+        ? ''
+        : `${text('voice.setup.consent', { provider: provider.id, size: provider.offer.sizeMiB, source: provider.offer.source })}${button(VOICE_SETUP, 'accept', translate(locale, 'voice.setup.accept'), false, true)}${button(VOICE_SETUP, 'decline', translate(locale, 'voice.setup.decline'))}`;
+    case 'downloading':
+      return `${text('voice.setup.downloading')}${
+        progress === undefined
+          ? ''
+          : `<div data-voice-progress><progress value="${progress.bytes}" max="${progress.total}" aria-label="${escapeHtml(translate(locale, 'voice.setup.downloading'))}"></progress><span>${escapeHtml(translate(locale, 'voice.setup.progress', { done: mib(progress.bytes), total: mib(progress.total) }))}</span></div>`
+      }`;
+    case 'previewing':
+      return `<p role="status">${escapeHtml(translate(locale, 'voice.setup.previewing'))}</p>`;
+    case 'ready':
+      return `${text('voice.setup.ready')}${button(VOICE_PREVIEW, NARRATOR_PREVIEW, translate(locale, 'voice.setup.again'))}${button(VOICE_SETUP, 'finish', translate(locale, 'voice.setup.done'), false, true)}`;
+    case 'unavailable':
+      return `${text('voice.setup.unavailable')}${button(VOICE_SETUP, 'finish', translate(locale, 'voice.setup.done'), false, true)}`;
+    case 'failed':
+      return `${alert(translate(locale, 'voice.setup.failed', { reason: error ?? '' }))}${button(VOICE_SETUP, 'on', translate(locale, 'voice.setup.retry'))}${button(VOICE_SETUP, 'finish', translate(locale, 'voice.setup.done'), false, true)}`;
+    default:
+      return '';
+  }
+};
+
+const renderSetup = (setup: VoiceSetupView | undefined, locale: string) => {
+  const body = setup === undefined ? '' : setupBody(setup, locale);
+  return body === ''
+    ? ''
+    : section(
+        'voice-setup',
+        locale,
+        `<div role="dialog" tabindex="-1" data-voice-step="${setup?.step}" aria-label="${escapeHtml(translate(locale, 'voice.setup'))}">${body}</div>`,
+      );
+};
 
 export const HOME_ATTRIBUTE = 'data-home';
 export const HOME_NAME = 'data-name';
@@ -476,18 +659,29 @@ const mainOpen = (model: ViewModel, screen: 'home' | 'play') =>
 const renderHome = (model: ViewModel, locale: string) =>
   `${mainOpen(model, 'home')}${pane(STATUS, locale, REGION_BODIES.status(model, locale), false)}${renderStart(model, locale)}${pane('campaigns', locale, REGION_BODIES.campaigns(model, locale), false)}</main>`;
 
-const playHeader = (model: ViewModel, locale: string, voice: DesktopVoiceView | undefined) =>
+const playHeader = (
+  model: ViewModel,
+  locale: string,
+  voice: DesktopVoiceView | undefined,
+  setup: VoiceSetupView | undefined,
+) =>
   pane(
     STATUS,
     locale,
-    `${homeNav(locale)}${header(model, locale)}${connection(model, locale)}${settingsMenu(model, locale, voice)}`,
+    `${homeNav(locale)}${header(model, locale)}${connection(model, locale)}${settingsMenu(model, locale, voice, setup)}`,
     false,
   );
 
-const renderPlay = (model: ViewModel, locale: string, shown: Region, voice: DesktopVoiceView | undefined) => {
+const renderPlay = (
+  model: ViewModel,
+  locale: string,
+  shown: Region,
+  voice: DesktopVoiceView | undefined,
+  setup: VoiceSetupView | undefined,
+) => {
   const [single, ...rest] = model.layout.columns;
   const tabbed = single !== undefined && rest.length === 0;
-  return `${mainOpen(model, 'play')}${playHeader(model, locale, voice)}${renderStart(model, locale)}${tabbed ? paneSwitcher(single, shown, locale) : ''}<div data-columns>${model.layout.columns
+  return `${mainOpen(model, 'play')}${playHeader(model, locale, voice, setup)}${renderSetup(setup, locale)}${renderStart(model, locale)}${tabbed ? paneSwitcher(single, shown, locale) : ''}<div data-columns>${model.layout.columns
     .map(
       (column) =>
         `<div>${column.map((region) => pane(region, locale, REGION_BODIES[region](model, locale), tabbed && region !== shown)).join('')}</div>`,
@@ -500,8 +694,9 @@ export const renderView = (
   locale: string,
   shown: Region = DEFAULT_PANE,
   voice?: DesktopVoiceView,
+  setup?: VoiceSetupView,
 ): string =>
-  `${model.playing ? renderPlay(model, locale, shown, voice) : renderHome(model, locale)}${voice === undefined ? '' : renderVoice(voice, locale)}`;
+  `${model.playing ? renderPlay(model, locale, shown, voice, setup) : renderHome(model, locale)}${voice === undefined ? '' : renderVoice(voice, locale)}`;
 
 export const keyName = (event: KeyEventLike) =>
   [

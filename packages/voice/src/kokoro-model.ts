@@ -33,7 +33,7 @@ export interface ModelManagerOptions {
 export interface ModelManager {
   readonly offer: ModelOffer;
   status(): Promise<ModelStatus>;
-  download(consent: ModelConsent, signal?: AbortSignal): Promise<void>;
+  download(consent: ModelConsent, signal?: AbortSignal, onProgress?: (bytes: number) => void): Promise<void>;
   remove(): Promise<void>;
 }
 
@@ -90,7 +90,11 @@ export const createKokoroModelManager = ({
   const root = kokoroModelRoot(dir);
   const offer = offerFor(files, source);
 
-  const downloadFile = async (file: ModelFile, signal: AbortSignal | undefined): Promise<void> => {
+  const downloadFile = async (
+    file: ModelFile,
+    signal: AbortSignal | undefined,
+    received: (bytes: number) => void,
+  ): Promise<void> => {
     const target = join(root, file.path);
     const partial = `${target}${PARTIAL_SUFFIX}`;
     await mkdir(dirname(target), { recursive: true });
@@ -104,6 +108,7 @@ export const createKokoroModelManager = ({
         for await (const chunk of response.body) {
           hash.update(chunk);
           await handle.write(chunk);
+          received(chunk.byteLength);
         }
       } finally {
         await handle.close();
@@ -125,11 +130,16 @@ export const createKokoroModelManager = ({
         bytes: sizes.reduce<number>((sum, size) => sum + (size ?? 0), 0),
       };
     },
-    download: async (consent, signal) => {
+    download: async (consent, signal, onProgress) => {
       if (!consented(consent, offer)) {
         throw new Error('model download needs explicit consent to the offered size and source');
       }
-      for (const file of files) await downloadFile(file, signal);
+      let total = 0;
+      const received = (bytes: number) => {
+        total += bytes;
+        onProgress?.(total);
+      };
+      for (const file of files) await downloadFile(file, signal, received);
     },
     remove: () => rm(root, { recursive: true, force: true }),
   };

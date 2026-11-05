@@ -1,6 +1,7 @@
 import type { StartDraft } from '../../../packages/client-protocol/src/guided-start.ts';
 import type { UiPreferences } from './accessibility.ts';
 import type { Transport } from './renderer.ts';
+import type { VoiceBridge } from './voice-setup.ts';
 
 export const BRIDGE_KEY = 'rpg';
 export const PREFERENCES_QUERY = 'preferences';
@@ -12,14 +13,22 @@ export const CHANNELS = {
   close: 'rpg:close',
   preferences: 'rpg:preferences',
   start: 'rpg:start',
+  voiceCheck: 'rpg:voice:check',
+  voiceDownload: 'rpg:voice:download',
+  voiceProgress: 'rpg:voice:progress',
+  voiceRemove: 'rpg:voice:remove',
+  voicePreview: 'rpg:voice:preview',
+  voiceClear: 'rpg:voice:clear',
 } as const;
 
 export type Bridge = Transport & {
   savePreferences(preferences: UiPreferences): void;
   saveStart(draft: StartDraft): void;
+  voice: VoiceBridge;
 };
 export type IpcRendererLike = {
   send(channel: string, ...args: unknown[]): void;
+  invoke(channel: string, ...args: unknown[]): Promise<unknown>;
   on(channel: string, listener: (event: unknown, ...args: unknown[]) => void): void;
 };
 export type ContextBridgeLike = { exposeInMainWorld(key: string, api: Bridge): void };
@@ -38,4 +47,12 @@ export const exposeBridge = ({
     onClose: (listener) => ipcRenderer.on(CHANNELS.close, (_event, error) => listener(String(error))),
     savePreferences: (preferences) => ipcRenderer.send(CHANNELS.preferences, preferences),
     saveStart: (draft) => ipcRenderer.send(CHANNELS.start, draft),
+    voice: {
+      check: () => ipcRenderer.invoke(CHANNELS.voiceCheck) as never,
+      download: (providerId, consent) => ipcRenderer.invoke(CHANNELS.voiceDownload, providerId, consent) as never,
+      remove: (providerId) => ipcRenderer.invoke(CHANNELS.voiceRemove, providerId) as never,
+      preview: (request) => ipcRenderer.invoke(CHANNELS.voicePreview, request) as never,
+      clearCache: () => ipcRenderer.invoke(CHANNELS.voiceClear) as never,
+      onProgress: (listener) => ipcRenderer.on(CHANNELS.voiceProgress, (_event, bytes) => listener(Number(bytes))),
+    },
   });
