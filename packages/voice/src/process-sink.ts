@@ -25,6 +25,22 @@ export const PLAYER_COMMANDS: Readonly<Partial<Record<NodeJS.Platform, readonly 
   darwin: ['/usr/bin/afplay'],
   linux: ['/usr/bin/paplay'],
 };
+export const WINDOWS_WAV_ONLY_MESSAGE = 'The Windows player decodes WAV only.';
+const WINDOWS_PLATFORM = 'win32';
+const WINDOWS_COMMAND = 'powershell.exe';
+const WINDOWS_FLAGS = ['-NoProfile', '-NonInteractive', '-EncodedCommand'] as const;
+const POWERSHELL_QUOTES = /['\u2018\u2019\u201A\u201B]/g;
+
+export const windowsPlayerScript = (file: string): string =>
+  `(New-Object System.Media.SoundPlayer '${file.replace(POWERSHELL_QUOTES, (quote) => quote + quote)}').PlaySync()`;
+
+const playerInvocation = (platform: NodeJS.Platform, file: string): readonly [string, ...string[]] | undefined => {
+  if (platform === WINDOWS_PLATFORM)
+    return [WINDOWS_COMMAND, ...WINDOWS_FLAGS, Buffer.from(windowsPlayerScript(file), 'utf16le').toString('base64')];
+  const player = PLAYER_COMMANDS[platform];
+  return player === undefined ? undefined : [...player, file];
+};
+const WAV_MIME_TYPE = 'audio/wav';
 export const NO_PLAYER_MESSAGE = 'No audio player is available on this platform.';
 
 const TEMP_PREFIX = 'rpg-voice-';
@@ -45,15 +61,17 @@ export const createProcessSink = ({
   return {
     play: (chunk, _speed, signal) =>
       new Promise<void>((resolve, reject) => {
-        const player = PLAYER_COMMANDS[platform];
-        if (player === undefined) return reject(new Error(NO_PLAYER_MESSAGE));
+        if (platform !== WINDOWS_PLATFORM && PLAYER_COMMANDS[platform] === undefined)
+          return reject(new Error(NO_PLAYER_MESSAGE));
         if (signal.aborted) return resolve();
+        if (platform === WINDOWS_PLATFORM && chunk.mimeType !== WAV_MIME_TYPE)
+          return reject(new Error(WINDOWS_WAV_ONLY_MESSAGE));
         dir ??= mkdtempSync(join(tmpdir(), TEMP_PREFIX));
         const extension = EXTENSIONS[chunk.mimeType] ?? DEFAULT_EXTENSION;
         const file = join(dir, `${counter++}.${extension}`);
         writeFileSync(file, chunk.audio, { mode: PRIVATE_FILE_MODE });
-        const [command, ...flags] = player;
-        const child = spawn(command, [...flags, file]);
+        const [command, ...args] = playerInvocation(platform, file) as readonly [string, ...string[]];
+        const child = spawn(command, args);
         current = child;
         const finish = (error?: Error) => {
           signal.removeEventListener('abort', stop);
@@ -67,8 +85,8 @@ export const createProcessSink = ({
         child.on('close', () => finish());
         child.on('error', finish);
       }),
-    pause: () => void current?.kill('SIGSTOP'),
-    resume: () => void current?.kill('SIGCONT'),
+    pause: () => void (platform === WINDOWS_PLATFORM ? undefined : current?.kill('SIGSTOP')),
+    resume: () => void (platform === WINDOWS_PLATFORM ? undefined : current?.kill('SIGCONT')),
     dispose: () => {
       current?.kill('SIGKILL');
       if (dir !== undefined) rmSync(dir, { recursive: true, force: true });

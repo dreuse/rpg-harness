@@ -3,7 +3,7 @@ import { EventEmitter } from 'node:events';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { createProcessSink, type PlayerProcess, type SpawnPlayer } from './process-sink.ts';
+import { createProcessSink, type PlayerProcess, type SpawnPlayer, windowsPlayerScript } from './process-sink.ts';
 import type { SpeechChunk } from './tts.ts';
 
 const AUDIO = new Uint8Array([1, 2, 3]);
@@ -26,11 +26,15 @@ class FakePlayer extends EventEmitter implements PlayerProcess {
   }
 }
 
+const windowsScript = (args: readonly string[]) => Buffer.from(args.at(-1) ?? '', 'base64').toString('utf16le');
+const windowsFile = (args: readonly string[]) =>
+  /SoundPlayer '(.*)'\)\.PlaySync/.exec(windowsScript(args))?.[1]?.replaceAll("''", "'");
+
 const harness = (platform: NodeJS.Platform = 'darwin') => {
   const spawned: { command: string; args: readonly string[]; file: string | undefined; bytes: Uint8Array }[] = [];
   const players: FakePlayer[] = [];
   const spawn: SpawnPlayer = (command, args) => {
-    const file = args.at(-1);
+    const file = platform === 'win32' ? windowsFile(args) : args.at(-1);
     spawned.push({
       command,
       args,
@@ -92,9 +96,51 @@ test('an already aborted signal never starts a player', async (t) => {
 });
 
 test('a platform without a player rejects so the turn stays in text', async (t) => {
-  const { sink } = harness('win32');
+  const { sink } = harness('freebsd');
   t.after(() => sink.dispose());
   await assert.rejects(sink.play(chunk(), 1, new AbortController().signal), /audio player/);
+});
+
+test('windows plays wav through powershell with the temp file path inside the encoded script', async (t) => {
+  const { sink, spawned, players } = harness('win32');
+  t.after(() => sink.dispose());
+  const done = sink.play(chunk(), 1, new AbortController().signal);
+  await tick();
+  assert.equal(spawned[0]?.command, 'powershell.exe');
+  assert.ok(spawned[0]?.args.includes('-NoProfile'));
+  assert.ok(spawned[0]?.args.includes('-EncodedCommand'));
+  assert.match(spawned[0]?.file ?? '', /\.wav$/);
+  assert.deepEqual([...(spawned[0]?.bytes ?? [])], [...AUDIO]);
+  players[0]?.emit('close', 0);
+  await done;
+  assert.equal(existsSync(spawned[0]?.file ?? ''), false);
+});
+
+test('the windows script escapes every powershell quote so a path stays a literal', () => {
+  const script = windowsPlayerScript("C:\\Users\\O'Brien \u2018x\\a;calc.wav");
+  assert.equal(
+    script,
+    "(New-Object System.Media.SoundPlayer 'C:\\Users\\O''Brien \u2018\u2018x\\a;calc.wav').PlaySync()",
+  );
+});
+
+test('windows rejects a format the player cannot decode', async (t) => {
+  const { sink, spawned } = harness('win32');
+  t.after(() => sink.dispose());
+  await assert.rejects(sink.play(chunk('audio/mpeg'), 1, new AbortController().signal), /WAV/);
+  assert.equal(spawned.length, 0);
+});
+
+test('windows pause and resume send no signals', async (t) => {
+  const { sink, players } = harness('win32');
+  t.after(() => sink.dispose());
+  const done = sink.play(chunk(), 1, new AbortController().signal);
+  await tick();
+  sink.pause?.();
+  sink.resume?.();
+  assert.deepEqual(players[0]?.signals, []);
+  players[0]?.emit('close', 0);
+  await done;
 });
 
 test('a player that cannot start rejects the play', async (t) => {
