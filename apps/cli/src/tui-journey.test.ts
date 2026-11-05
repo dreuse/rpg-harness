@@ -28,7 +28,7 @@ const QUIT = 'q';
 const MECHANICS_PANE = '4';
 const SHEET_PANE = '2';
 const TYPE_KEY = 'i';
-const FIRST_RUN = [NEW, GUIDE, CONTINUE, FIRST, D20_LITE, CHARACTER, DICE_ANIMATION, CONTINUE, START, FIRST];
+const FIRST_RUN = [NEW, GUIDE, CONTINUE, FIRST, D20_LITE, CHARACTER, DICE_ANIMATION, CONTINUE, CONTINUE, START, FIRST];
 const REOPEN = [FIRST];
 
 const key = (sequence: string, name = sequence): Key => ({ sequence, name });

@@ -137,6 +137,7 @@ const JOURNEY_GUIDE = 'Guide me';
 const JOURNEY_FEATURE = 'Dice animation';
 const DICELESS_RULESET = 'Story only';
 const DICELESS_NAME = 'Mara';
+const DICE_QUESTION = 'Who rolls the dice';
 const DICELESS_CHARACTER = 'A lighthouse keeper named Mara who hears the sea talk.';
 const UNUSED_PARTS = '[data-region="sheet"], [data-rolls], [data-motion-control]';
 const PORTUGUESE_GUIDE = 'Me guie';
@@ -229,9 +230,12 @@ const guideFromRules = (feature: string, ruleset: string) => [
   `document.querySelector('[data-start-form]').requestSubmit();`,
   `await ${until(`document.querySelector('[data-start-title="features"]')`)};`,
   `${clickOption(feature)} await ${until(`document.querySelector('[data-start-option][aria-pressed="true"]')`)};`,
+  nextStep('begin'),
+];
+const BEGIN_TO_SUMMARY = steps(
   nextStep('summary'),
   `await ${until(`document.querySelector('[data-start-control="start"]:not([disabled])')`)};`,
-];
+);
 const guide = (guideOption: string, feature: string, ruleset: string) =>
   steps(...guideToRules(guideOption), ...guideFromRules(feature, ruleset));
 const PORTUGUESE_TO_RULES = steps(...guideToRules(PORTUGUESE_GUIDE));
@@ -257,8 +261,8 @@ const DICELESS_TO_SUMMARY = steps(
   `document.querySelector('[data-start-form]').requestSubmit();`,
   `await ${until(`document.querySelector('[data-start-title="features"]')`)};`,
   `if ([...document.querySelectorAll('[data-start-option]')].some((option) => option.textContent.includes(${JSON.stringify(JOURNEY_FEATURE)}))) throw new Error('diceless guided start offers dice animation');`,
-  nextStep('summary'),
-  `await ${until(`document.querySelector('[data-start-control="start"]:not([disabled])')`)};`,
+  nextStep('begin'),
+  `if ([...document.querySelectorAll('[data-start-options] h3, h3')].some((heading) => heading.textContent === ${JSON.stringify(DICE_QUESTION)})) throw new Error('diceless begin step asks who rolls the dice');`,
 );
 const DICELESS_PLAY = steps(
   JOURNEY_LISTENER,
@@ -277,7 +281,8 @@ export const JOURNEY: Readonly<Record<'first' | 'reopen' | 'portuguese' | 'dicel
   first: [
     { script: FIRST_HOME, shot: 'first-run-home' },
     { script: OPEN_START, shot: 'guided-start' },
-    { script: guide(JOURNEY_GUIDE, JOURNEY_FEATURE, JOURNEY_RULESET), shot: 'guided-summary' },
+    { script: guide(JOURNEY_GUIDE, JOURNEY_FEATURE, JOURNEY_RULESET), shot: 'guided-begin' },
+    { script: BEGIN_TO_SUMMARY, shot: 'guided-summary' },
     { script: FIRST_TURN, shot: 'first-roll' },
     {
       script: steps(
@@ -340,7 +345,8 @@ export const JOURNEY: Readonly<Record<'first' | 'reopen' | 'portuguese' | 'dicel
     { script: FIRST_HOME },
     { script: OPEN_START },
     { script: DICELESS_TO_RULES, shot: 'diceless-rules' },
-    { script: DICELESS_TO_SUMMARY, shot: 'diceless-summary' },
+    { script: DICELESS_TO_SUMMARY, shot: 'diceless-begin' },
+    { script: BEGIN_TO_SUMMARY, shot: 'diceless-summary' },
     { script: DICELESS_PLAY, shot: 'diceless-play' },
     { script: OPEN_SOUND, shot: 'sound-settings' },
   ],
@@ -348,7 +354,8 @@ export const JOURNEY: Readonly<Record<'first' | 'reopen' | 'portuguese' | 'dicel
     { script: FIRST_HOME, shot: 'pt-BR-first-run-home' },
     { script: OPEN_START, shot: 'pt-BR-guided-start' },
     { script: PORTUGUESE_TO_RULES, shot: 'pt-BR-rules' },
-    { script: steps(...guideFromRules(PORTUGUESE_FEATURE, PORTUGUESE_RULESET)) },
+    { script: steps(...guideFromRules(PORTUGUESE_FEATURE, PORTUGUESE_RULESET)), shot: 'pt-BR-begin' },
+    { script: BEGIN_TO_SUMMARY, shot: 'pt-BR-summary' },
     { script: FIRST_TURN, shot: 'pt-BR-play' },
     { script: SET_UP_VOICE },
     { script: FINISH_VOICE_SETUP, shot: 'pt-BR-voice-basic' },

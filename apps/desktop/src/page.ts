@@ -1,3 +1,4 @@
+import type { StartVoices } from '../../../packages/client-protocol/src/guided-start.ts';
 import type { CampaignSnapshot } from '../../../packages/client-protocol/src/protocol.ts';
 import { MOTION_SETTINGS } from '../../../packages/client-protocol/src/visualization.ts';
 import { DUCK_RELEASE_MS } from '../../../packages/voice/src/ducking-sink.ts';
@@ -49,7 +50,9 @@ import {
   START_FORM,
   START_OPEN,
   START_OPTION,
+  START_PREVIEW,
   START_TITLE,
+  START_VOICE,
   STORY_LANGUAGE_ATTRIBUTE,
   type StartControl,
   VOICE_ATTRIBUTE,
@@ -94,6 +97,7 @@ const INPUT = 'input';
 const CHANGE = 'change';
 const OUTPUT_FIELDS = ['spokenOutput', 'locale', 'speed'];
 const NO_DURATION_MS = 0;
+const NARRATOR_FIELD = 'narratorVoice';
 const SPEECH_FIELDS = ['providerId', 'narratorVoice', 'volume'];
 const NUMBER_FIELDS = ['speed', 'volume'];
 const RETRY_SELECTOR = '[data-action="retry"]';
@@ -238,6 +242,7 @@ export const mountPage = ({
     startDraft: queryStart(search),
     saveStart: (draft) => bridge.saveStart?.(draft),
     locale: () => preferences.locale,
+    voices: () => startVoices(),
   });
   const { consent, ...voicePreferences } = preferences.voice;
   const voice = createDesktopVoice({
@@ -291,6 +296,10 @@ export const mountPage = ({
     bridge.sound === undefined
       ? undefined
       : createSoundSetup({ bridge: bridge.sound, changed: () => render(), installed: () => void sound?.refresh() });
+  const startVoices = (): StartVoices => {
+    const { provider, narratorVoice } = setup.view();
+    return { ids: provider?.voices ?? [], current: narratorVoice };
+  };
   let loaded: CampaignSnapshot | undefined;
   let shownStep: string | undefined;
   let shownPane: Region | undefined;
@@ -311,7 +320,7 @@ export const mountPage = ({
     return Object.fromEntries(entries);
   };
   const render = () => {
-    const model = viewModel(client.state(), width(), preferences);
+    const model = viewModel(client.state(), width(), preferences, undefined, startVoices());
     const focused = selectorOf(root.querySelector<HTMLElement>(FOCUSED_SELECTOR));
     const typed = entryValue();
     const sheetTyped = sheetInputs().map((field) => ({ field, value: field?.value, checked: field?.checked }));
@@ -410,8 +419,15 @@ export const mountPage = ({
     const option = client.startScreen().options[Number(index)];
     if (option === undefined) return;
     const step = shownStep;
-    client.startAction(option.action);
+    const { action } = option;
+    if (action.kind === 'set' && action.field === NARRATOR_FIELD && typeof action.value === 'string')
+      setup.update({ narratorVoice: action.value });
+    client.startAction(action);
     if (shownStep === step) root.querySelector<HTMLElement>(`[${START_OPTION}="${index}"]`)?.focus();
+  };
+  const startPreview = (index: string) => {
+    const preview = client.startScreen().options[Number(index)]?.preview;
+    if (preview?.kind === 'preview') void setup.previewVoice(preview.voice);
   };
   const editableFields = () =>
     client.state().sheetEditing
@@ -641,6 +657,8 @@ export const mountPage = ({
     if (target?.closest(`[${START_OPEN}]`)) return client.openStart();
     const option = target?.closest(`[${START_OPTION}]`)?.getAttribute(START_OPTION);
     if (option !== undefined && option !== null) return startOption(option);
+    const preview = target?.closest(`[${START_PREVIEW}]`)?.getAttribute(START_PREVIEW);
+    if (preview !== undefined && preview !== null) return startPreview(preview);
     const edit = target?.closest(`[${START_EDIT}]`)?.getAttribute(START_EDIT);
     if (edit !== undefined && edit !== null) return startEdit(edit);
     const control = target?.closest(`[${START_CONTROL}]`)?.getAttribute(START_CONTROL);
@@ -680,6 +698,7 @@ export const mountPage = ({
     const { checked, value } = event.target as { checked?: unknown; value?: unknown };
     if (toggled !== undefined && toggled !== null) return changeSound(toggled, { enabled: checked === true });
     if (sized !== undefined && sized !== null) return changeSound(sized, { volume: Number(value) });
+    if (closestTarget(event)?.closest(`[${START_VOICE}]`)) return startOption(String(value));
     const field = closestTarget(event)?.closest(`[${VOICE_FIELD}]`)?.getAttribute(VOICE_FIELD);
     if (field !== undefined && field !== null) voiceField(field, (event.target as { value?: unknown }).value);
   });

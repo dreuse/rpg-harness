@@ -14,7 +14,7 @@ import type { RuleCitation } from '../../domain/src/character.ts';
 import type { GmSettings, GmUsageTotals } from '../../domain/src/gm.ts';
 import type { RulesUsage } from '../../domain/src/rules-usage.ts';
 import { CLAIM_KINDS, type ClaimKind, type StoryMemory } from '../../domain/src/story-memory.ts';
-import { isLocale, type SavedVoiceSettings } from '../../domain/src/voice.ts';
+import { isLocale, type SavedVoiceSettings, type SpokenOutputMode } from '../../domain/src/voice.ts';
 import type { VisualizationEvent } from './visualization.ts';
 
 export type { StoryMemory, StoryMemoryEntry, StoryMemoryGroup } from '../../domain/src/story-memory.ts';
@@ -85,8 +85,12 @@ type Header<T extends CommandType> = { readonly version: ProtocolVersion; readon
 type Envelope<T extends CommandType> = Header<T> & { readonly campaignId: CampaignId };
 
 export type ListCampaigns = Header<'ListCampaigns'>;
+export type CampaignPlay = Pick<GmSettings, 'rulesStrictness' | 'whoRolls'> & {
+  readonly spokenOutput?: SpokenOutputMode;
+};
 export type CreateCampaign = Header<'CreateCampaign'> & {
   readonly name: string;
+  readonly play?: CampaignPlay;
   readonly intent?: string;
   readonly choices?: Readonly<Record<string, unknown>>;
   readonly language?: string;
@@ -396,7 +400,12 @@ const PLAN_SPECS: Readonly<Record<string, FieldSpec>> = {
 
 const COMMAND_FIELDS: Record<CommandType, Readonly<Record<string, FieldSpec>>> = {
   ListCampaigns: {},
-  CreateCampaign: { name: NAME, ...PLAN_SPECS, language: { kind: 'locale', optional: true } },
+  CreateCampaign: {
+    name: NAME,
+    ...PLAN_SPECS,
+    language: { kind: 'locale', optional: true },
+    play: { kind: 'record', optional: true },
+  },
   ArchiveCampaign: { name: NAME },
   DeleteCampaign: { name: NAME, confirm: ID, archived: { kind: 'flag', optional: true } },
   OpenCampaign: { name: NAME },

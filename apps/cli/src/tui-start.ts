@@ -32,6 +32,7 @@ const saveDraft = (dataDir: string, draft: StartDraft) => {
 
 const asking = (screen: StartScreen) => {
   if (screen.step === 'summary') return screen.canStart ? 'start.askStart' : 'start.goBack';
+  if (screen.step === 'begin') return 'start.change';
   if (screen.options.length > 0) return screen.canNext ? 'start.toggle' : 'start.choose';
   if (screen.entry !== undefined) return 'start.answer';
   return 'start.continue';
@@ -54,10 +55,10 @@ const render = (screen: StartScreen, locale: string) =>
       : say(locale, 'start.step', { ...screen.progress, title: screen.title }),
     ...screen.text,
     ...(screen.importHint === undefined ? [] : [screen.importHint]),
-    ...screen.options.map(
-      ({ label, detail, selected, badge }, index) =>
-        `  ${index + FIRST_NUMBER}. ${label}${badge === undefined ? '' : ` [${badge}]`}${selected ? ` (${say(locale, 'start.on')})` : ''} - ${detail}`,
-    ),
+    ...screen.options.flatMap(({ label, detail, selected, badge, group }, index) => [
+      ...(group === undefined || group === screen.options[index - 1]?.group ? [] : [`${group}:`]),
+      `  ${index + FIRST_NUMBER}. ${label}${badge === undefined ? '' : ` [${badge}]`}${selected ? ` (${say(locale, 'start.on')})` : ''} - ${detail}`,
+    ]),
     ...(screen.entry === undefined ? [] : [`${screen.entry.label}: ${screen.entry.value}`]),
     ...(screen.error === undefined ? [] : [screen.error]),
     say(locale, asking(screen)),

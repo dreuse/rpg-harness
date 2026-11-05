@@ -1,7 +1,17 @@
-import { DEFAULT_RULES_USAGE, usesDice, usesSheet } from '../../domain/src/rules-usage.ts';
+import { DEFAULT_WHO_ROLLS, WHO_ROLLS } from '../../domain/src/gm.ts';
+import {
+  DEFAULT_RULES_STRICTNESS,
+  DEFAULT_RULES_USAGE,
+  isRulesStrictness,
+  RULES_STRICTNESSES,
+  usesDice,
+  usesSheet,
+} from '../../domain/src/rules-usage.ts';
+import { isLocale } from '../../domain/src/voice.ts';
 import { type Catalog, createTranslator, DEFAULT_LOCALE, safeLocale } from './locale.ts';
 import {
   type CampaignPlan,
+  type CampaignPlay,
   type CreateCampaign,
   MAX_CAMPAIGN_NAME_LENGTH,
   MAX_INPUT_LENGTH,
@@ -13,8 +23,9 @@ import {
 
 export const START_DRAFT_FILE = 'guided-start.json';
 export const START_PATHS = ['describe', 'guide'] as const;
-export const GUIDE_STEPS = ['primer', 'genre', 'rules', 'character', 'features', 'summary'] as const;
-export const START_STEPS = { describe: ['describe', 'summary'], guide: GUIDE_STEPS } as const;
+export const GUIDE_STEPS = ['primer', 'genre', 'rules', 'character', 'features', 'begin', 'summary'] as const;
+export const START_STEPS = { describe: ['describe', 'begin', 'summary'], guide: GUIDE_STEPS } as const;
+const PLAY_FIELDS = ['language', 'narratorVoice', 'whoRolls', 'rulesStrictness'] as const;
 export const FEATURES = ['diceVisualization', 'voiceOutput', 'simulation'] as const;
 
 export type StartPath = (typeof START_PATHS)[number];
@@ -30,6 +41,8 @@ export type StartDraft = {
 export type StartAction =
   | { readonly kind: 'path'; readonly path: StartPath }
   | { readonly kind: 'choose'; readonly field: string; readonly value: unknown }
+  | { readonly kind: 'set'; readonly field: string; readonly value: unknown }
+  | { readonly kind: 'preview'; readonly voice: string }
   | { readonly kind: 'toggle'; readonly field: Feature }
   | { readonly kind: 'enter'; readonly text: string }
   | { readonly kind: 'edit'; readonly step: number }
@@ -40,7 +53,10 @@ export type StartOption = {
   readonly action: StartAction;
   readonly selected: boolean;
   readonly badge?: string;
+  readonly group?: string;
+  readonly preview?: StartAction;
 };
+export type StartVoices = { readonly ids: readonly string[]; readonly current: string | undefined };
 export type StartReviewItem = {
   readonly field: string;
   readonly label: string;
@@ -126,6 +142,25 @@ export const START_CATALOG: Catalog = {
     'packs.english':
       'Built-in genres and rules are written in English. The game master still narrates in your language.',
     'features.text': 'These stay off unless you turn them on.',
+    'begin.title': 'Before we begin',
+    'begin.text': 'Every answer has a default. Change what you like, or skip.',
+    'begin.language': 'Story language',
+    'begin.voice': 'Narrator voice',
+    'begin.spoken': 'Spoken story',
+    'begin.dice': 'Who rolls the dice',
+    'begin.strictness': 'Rules strictness',
+    'whoRolls.app': 'The app',
+    'whoRolls.app.detail': 'The app rolls and shows each result.',
+    'whoRolls.me': 'Me',
+    'whoRolls.me.detail': 'You roll your own dice and report the result.',
+    'whoRolls.ask': 'Ask each time',
+    'whoRolls.ask.detail': 'The game asks before every roll.',
+    'strictness.as-written': 'As written',
+    'strictness.as-written.detail': 'The rules apply exactly.',
+    'strictness.relaxed': 'Relaxed',
+    'strictness.relaxed.detail': 'The GM bends the rules for the story.',
+    'strictness.off': 'Off',
+    'strictness.off.detail': 'The GM decides and the rules stay out of the way.',
   },
   'pt-BR': {
     'name.default': 'Minha aventura',
@@ -183,6 +218,25 @@ export const START_CATALOG: Catalog = {
     'features.noDice': 'Este jogo não usa dados.',
     'packs.english': 'Os gêneros e regras incluídos estão em inglês. O mestre ainda narra no seu idioma.',
     'features.text': 'Estes ficam desligados, a não ser que você os ligue.',
+    'begin.title': 'Antes de começar',
+    'begin.text': 'Toda resposta tem um padrão. Mude o que quiser ou pule.',
+    'begin.language': 'Idioma da história',
+    'begin.voice': 'Voz do narrador',
+    'begin.spoken': 'História em voz alta',
+    'begin.dice': 'Quem rola os dados',
+    'begin.strictness': 'Rigor das regras',
+    'whoRolls.app': 'O app',
+    'whoRolls.app.detail': 'O app rola e mostra cada resultado.',
+    'whoRolls.me': 'Eu',
+    'whoRolls.me.detail': 'Você rola seus dados e informa o resultado.',
+    'whoRolls.ask': 'Perguntar sempre',
+    'whoRolls.ask.detail': 'O jogo pergunta antes de cada rolagem.',
+    'strictness.as-written': 'Ao pé da letra',
+    'strictness.as-written.detail': 'As regras valem exatamente.',
+    'strictness.relaxed': 'Flexível',
+    'strictness.relaxed.detail': 'O mestre flexibiliza as regras pela história.',
+    'strictness.off': 'Desligado',
+    'strictness.off.detail': 'O mestre decide e as regras ficam de lado.',
   },
 };
 const text = createTranslator(START_CATALOG);
@@ -214,6 +268,7 @@ const STEP_FIELDS: Partial<Record<StartStep, readonly string[]>> = {
   rules: ['ruleset'],
   character: ['character'],
   features: FEATURES,
+  begin: PLAY_FIELDS,
 };
 const FIELD_STEPS: Readonly<Record<string, StartStep>> = {
   ruleset: 'rules',
@@ -223,7 +278,9 @@ const FIELD_STEPS: Readonly<Record<string, StartStep>> = {
   ...Object.fromEntries(FEATURES.map((feature) => [feature, 'features'])),
 };
 const FIRST_STEP = 0;
+const SPOKEN_ON = 'narrator' as const;
 const DICE_FEATURE: Feature = 'diceVisualization';
+const VOICE_FEATURE: Feature = 'voiceOutput';
 const DRAFT_KEYS = ['path', 'step', 'name', 'intent', 'choices'];
 const NEXT = 1;
 const EDITION_KEYS = ['id', 'edition'] as const;
@@ -237,6 +294,10 @@ const isEdition = (value: unknown) =>
   isText(MAX_INPUT_LENGTH)(value.id) &&
   isText(MAX_INPUT_LENGTH)(value.edition);
 const CHOICE_CHECKS: Readonly<Record<string, (value: unknown) => boolean>> = {
+  language: isLocale,
+  narratorVoice: (value: unknown) => isText(MAX_INPUT_LENGTH)(value) && value !== '',
+  whoRolls: (value: unknown) => WHO_ROLLS.some((known) => known === value),
+  rulesStrictness: isRulesStrictness,
   genre: isText(MAX_INPUT_LENGTH),
   character: isText(MAX_INPUT_LENGTH),
   ruleset: isEdition,
@@ -282,6 +343,7 @@ export const nextDraft = (draft: StartDraft, action: StartAction): StartDraft =>
     const intent = stepOf(draft) === 'describe' ? '' : draft.intent;
     return advance({ ...draft, intent, choices: without(draft.choices, STEP_FIELDS[stepOf(draft)] ?? []) });
   }
+  if (action.kind === 'set') return { ...draft, choices: { ...draft.choices, [action.field]: action.value } };
   if (action.kind === 'choose')
     return advance({ ...draft, choices: { ...draft.choices, [action.field]: action.value } });
   if (action.kind === 'toggle') {
@@ -300,7 +362,18 @@ export const nextDraft = (draft: StartDraft, action: StartAction): StartDraft =>
 
 const planFields = ({ path, intent, choices }: StartDraft, client?: string) => {
   if (path === 'describe') return intent === '' ? {} : { intent };
-  return { choices: client === undefined ? choices : { ...choices, client } };
+  const planned = without(choices, PLAY_FIELDS);
+  return { choices: client === undefined ? planned : { ...planned, client } };
+};
+
+const playOf = ({ choices }: StartDraft): CampaignPlay => {
+  const whoRolls = WHO_ROLLS.find((known) => known === choices.whoRolls);
+  const rulesStrictness = RULES_STRICTNESSES.find((known) => known === choices.rulesStrictness);
+  return {
+    ...(whoRolls === undefined ? {} : { whoRolls }),
+    ...(rulesStrictness === undefined ? {} : { rulesStrictness }),
+    ...(Object.hasOwn(choices, VOICE_FEATURE) ? { spokenOutput: SPOKEN_ON } : {}),
+  };
 };
 
 export const planCommand = (draft: StartDraft, client?: string): PlanCampaign => ({
@@ -309,13 +382,18 @@ export const planCommand = (draft: StartDraft, client?: string): PlanCampaign =>
   ...planFields(draft, client),
 });
 
-export const createCommand = (draft: StartDraft, client?: string, locale = DEFAULT_LOCALE): CreateCampaign => ({
-  version: PROTOCOL_VERSION,
-  type: 'CreateCampaign',
-  name: draft.name || text(locale, 'name.default'),
-  ...planFields(draft, client),
-  language: safeLocale(locale),
-});
+export const createCommand = (draft: StartDraft, client?: string, locale = DEFAULT_LOCALE): CreateCampaign => {
+  const play = playOf(draft);
+  const language = typeof draft.choices.language === 'string' ? draft.choices.language : safeLocale(locale);
+  return {
+    version: PROTOCOL_VERSION,
+    type: 'CreateCampaign',
+    name: draft.name || text(locale, 'name.default'),
+    ...planFields(draft, client),
+    language,
+    ...(Object.keys(play).length === 0 ? {} : { play }),
+  };
+};
 
 export const parseStartDraft = (raw: unknown): StartDraft => {
   if (!isRecord(raw) || Object.keys(raw).some((key) => !DRAFT_KEYS.includes(key))) return INITIAL_DRAFT;
@@ -454,7 +532,13 @@ const summaryPage = (draft: StartDraft, plan: Result<CampaignPlan> | undefined, 
 const PAGES: Readonly<
   Record<
     StartStep,
-    (draft: StartDraft, options: StartOptions, plan: Result<CampaignPlan> | undefined, locale: string) => Page
+    (
+      draft: StartDraft,
+      options: StartOptions,
+      plan: Result<CampaignPlan> | undefined,
+      locale: string,
+      voices: StartVoices | undefined,
+    ) => Page
   >
 > = {
   path: (_draft, _options, _plan, locale) => ({
@@ -516,8 +600,103 @@ const PAGES: Readonly<
     })),
     canNext: true,
   }),
+  begin: (draft, options, _plan, locale, voices) => beginPage(draft, options, locale, voices),
   summary: (draft, _options, plan, locale) => summaryPage(draft, plan, locale),
 };
+
+const settable = (
+  draft: StartDraft,
+  group: string,
+  field: string,
+  value: string,
+  label: string,
+  detail: string,
+  fallback: string,
+): StartOption => ({
+  label,
+  detail,
+  group,
+  action: { kind: 'set', field, value },
+  selected: (draft.choices[field] ?? fallback) === value,
+});
+
+const languageOptions = (draft: StartDraft, locale: string) =>
+  [...new Set([safeLocale(locale), ...Object.keys(START_CATALOG)])].map((tag) =>
+    settable(
+      draft,
+      text(locale, 'begin.language'),
+      'language',
+      tag,
+      new Intl.DisplayNames([tag], { type: 'language' }).of(tag) ?? tag,
+      tag,
+      safeLocale(locale),
+    ),
+  );
+
+const voiceOptions = (draft: StartDraft, locale: string, { ids, current }: StartVoices): StartOption[] =>
+  ids.map((id) => ({
+    ...settable(draft, text(locale, 'begin.voice'), 'narratorVoice', id, id, '', current ?? ''),
+    preview: { kind: 'preview', voice: id },
+  }));
+
+const choiceOptions = (
+  draft: StartDraft,
+  locale: string,
+  group: string,
+  field: string,
+  values: readonly string[],
+  fallback: string,
+  prefix: string,
+) =>
+  values.map((value) =>
+    settable(
+      draft,
+      text(locale, group),
+      field,
+      value,
+      text(locale, `${prefix}.${value}`),
+      text(locale, `${prefix}.${value}.detail`),
+      fallback,
+    ),
+  );
+
+const beginPage = (
+  draft: StartDraft,
+  options: StartOptions,
+  locale: string,
+  voices: StartVoices | undefined,
+): Page => ({
+  title: text(locale, 'begin.title'),
+  text: [text(locale, 'begin.text')],
+  options: [
+    ...languageOptions(draft, locale),
+    ...(voices === undefined
+      ? []
+      : [
+          ...voiceOptions(draft, locale, voices),
+          {
+            label: text(locale, `feature.${VOICE_FEATURE}`),
+            detail: text(locale, `feature.${VOICE_FEATURE}.detail`),
+            group: text(locale, 'begin.spoken'),
+            action: { kind: 'toggle', field: VOICE_FEATURE } as const,
+            selected: Object.hasOwn(draft.choices, VOICE_FEATURE),
+          },
+        ]),
+    ...(usesDice(usageOf(draft, options))
+      ? choiceOptions(draft, locale, 'begin.dice', 'whoRolls', WHO_ROLLS, DEFAULT_WHO_ROLLS, 'whoRolls')
+      : []),
+    ...choiceOptions(
+      draft,
+      locale,
+      'begin.strictness',
+      'rulesStrictness',
+      RULES_STRICTNESSES,
+      DEFAULT_RULES_STRICTNESS,
+      'strictness',
+    ),
+  ],
+  canNext: true,
+});
 
 const NO_OPTIONS: StartOptions = { genres: [], rulesets: [] };
 
@@ -526,10 +705,11 @@ export const startScreen = (
   options: StartOptions | undefined,
   plan: Result<CampaignPlan> | undefined,
   locale = DEFAULT_LOCALE,
+  voices?: StartVoices,
 ): StartScreen => {
   const step = stepOf(draft);
   const steps = stepsOf(draft.path);
-  const page = PAGES[step](draft, options ?? NO_OPTIONS, plan, locale);
+  const page = PAGES[step](draft, options ?? NO_OPTIONS, plan, locale, voices);
   const ending = step === 'summary' || step === 'path';
   return {
     step,

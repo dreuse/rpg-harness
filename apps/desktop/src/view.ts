@@ -697,6 +697,8 @@ export const renderVoice = (
 
 export const START_OPEN = 'data-start-open';
 export const START_OPTION = 'data-start-option';
+export const START_PREVIEW = 'data-start-preview';
+export const START_VOICE = 'data-start-voice';
 export const START_CONTROL = 'data-start-control';
 export const START_FORM = 'data-start-form';
 export const START_TITLE = 'data-start-title';
@@ -708,6 +710,8 @@ export type StartControl = (typeof START_CONTROLS)[number];
 const START_FORM_ID = 'start-form';
 const OPTION_ID = 'start-option-';
 const REVIEW_ID = 'start-review-';
+const GROUP_ID = 'start-group-';
+const START_VOICE_ID = 'start-voice';
 const PRIMARY_CONTROLS: readonly StartControl[] = ['next', 'start'];
 
 const startTitle = ({ title, progress }: StartScreen, locale: string) =>
@@ -716,7 +720,45 @@ const startTitle = ({ title, progress }: StartScreen, locale: string) =>
 const startOption =
   (step: StartScreen['step']) =>
   ({ label, detail, selected, badge }: StartScreen['options'][number], index: number) =>
-    `<li><button type="button" ${START_OPTION}="${index}"${step === 'path' ? '' : ` aria-pressed="${selected}"`} aria-labelledby="${OPTION_ID}${index}-label" aria-describedby="${OPTION_ID}${index}-detail"><span id="${OPTION_ID}${index}-label" data-option-label>${escapeHtml(label)}${badge === undefined ? '' : ` <span data-option-badge>${escapeHtml(badge)}</span>`}</span><span id="${OPTION_ID}${index}-detail" data-option-detail>${escapeHtml(detail)}</span></button></li>`;
+    `<li><button type="button" ${START_OPTION}="${index}"${step === 'path' ? '' : ` aria-pressed="${selected}"`} aria-labelledby="${OPTION_ID}${index}-label"${detail === '' ? '' : ` aria-describedby="${OPTION_ID}${index}-detail"`}><span id="${OPTION_ID}${index}-label" data-option-label>${escapeHtml(label)}${badge === undefined ? '' : ` <span data-option-badge>${escapeHtml(badge)}</span>`}</span>${detail === '' ? '' : `<span id="${OPTION_ID}${index}-detail" data-option-detail>${escapeHtml(detail)}</span>`}</button></li>`;
+
+type StartOptionItem = StartScreen['options'][number];
+
+const optionGroups = (options: readonly StartOptionItem[]) =>
+  options.reduce<{ group: string | undefined; items: { option: StartOptionItem; index: number }[] }[]>(
+    (groups, option, index) => {
+      const last = groups.at(-1);
+      if (last !== undefined && last.group === option.group) last.items.push({ option, index });
+      else groups.push({ group: option.group, items: [{ option, index }] });
+      return groups;
+    },
+    [],
+  );
+
+const voiceChoice = (items: readonly { option: StartOptionItem; index: number }[], locale: string, group: string) => {
+  const ids = items.map(({ option }) => option.label);
+  const current = items.find(({ option }) => option.selected) ?? items[0];
+  return `<div data-voice-row><label for="${START_VOICE_ID}">${escapeHtml(group)}</label><select id="${START_VOICE_ID}" ${START_VOICE}>${items
+    .map(
+      ({ option, index }) =>
+        `<option value="${index}"${option === current?.option ? ' selected' : ''}>${escapeHtml(voiceName(locale, option.label, ids))}</option>`,
+    )
+    .join(
+      '',
+    )}</select><button type="button" id="${START_VOICE_ID}-preview" ${START_PREVIEW}="${current?.index}">${escapeHtml(translate(locale, 'start.preview'))}</button></div>`;
+};
+
+const startOptions = ({ step, options }: StartScreen, locale: string) =>
+  options.length === 0
+    ? ''
+    : optionGroups(options)
+        .map(({ group, items }, number) => {
+          if (group !== undefined && items.every(({ option }) => option.preview !== undefined))
+            return voiceChoice(items, locale, group);
+          const list = `<ul data-start-options${group === undefined ? '' : ` aria-labelledby="${GROUP_ID}${number}"`}>${items.map(({ option, index }) => startOption(step)(option, index)).join('')}</ul>`;
+          return group === undefined ? list : `<h3 id="${GROUP_ID}${number}">${escapeHtml(group)}</h3>${list}`;
+        })
+        .join('');
 
 const startEntry = ({ entry }: StartScreen) =>
   entry === undefined
@@ -766,9 +808,7 @@ const startBody = ({ start, created, playing, home }: ViewModel, locale: string)
     : [
         `<div data-start-head><h2 tabindex="-1" ${START_TITLE}="${start.step}">${escapeHtml(startTitle(start, locale))}</h2>${startControl(start, locale)('close')}</div>`,
         ...(start.review === undefined ? start.text.map((line) => `<p>${escapeHtml(line)}</p>`) : []),
-        start.options.length === 0
-          ? ''
-          : `<ul data-start-options>${start.options.map(startOption(start.step)).join('')}</ul>`,
+        startOptions(start, locale),
         start.review === undefined ? '' : startReview(start.review, locale),
         startEntry(start),
         start.error === undefined ? '' : alert(start.error),

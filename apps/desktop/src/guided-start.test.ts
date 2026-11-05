@@ -11,6 +11,9 @@ import {
 } from '../../../packages/client-protocol/src/guided-start.ts';
 import type { ClientCommand } from '../../../packages/client-protocol/src/protocol.ts';
 import { CHECK_RESOLVED } from '../../../packages/domain/src/campaign.ts';
+import { campaignLanguageOf } from '../../../packages/engine/src/engine.ts';
+import { gmSettingsOf } from '../../../packages/engine/src/gm-settings.ts';
+import { voiceSettingsOf } from '../../../packages/engine/src/voice-settings.ts';
 import { D20_SIDES } from '../../../packages/rules/src/d20-lite.ts';
 import { CAMPAIGN_ENV, startDaemon } from '../../cli/src/desktop-daemon.ts';
 import { readCampaignState } from '../../cli/src/engine-gateway.ts';
@@ -29,6 +32,7 @@ const PORTUGUESE = 'pt-BR';
 const DESCRIBE: readonly StartAction[] = [
   { kind: 'path', path: 'describe' },
   { kind: 'enter', text: HORROR_INTENT },
+  { kind: 'next' },
 ];
 const GUIDE: readonly StartAction[] = [
   { kind: 'path', path: 'guide' },
@@ -36,6 +40,7 @@ const GUIDE: readonly StartAction[] = [
   { kind: 'choose', field: 'genre', value: 'fantasy' },
   { kind: 'choose', field: 'ruleset', value: { id: 'narrative', edition: 'original' } },
   { kind: 'skip' },
+  { kind: 'next' },
   { kind: 'next' },
   { kind: 'enter', text: GUIDED_NAME },
 ];
@@ -138,6 +143,7 @@ test('rpg-42a.14 desktop never substitutes an uninstalled edition and asks for a
   const summary = await desktop.act([
     { kind: 'path', path: 'describe' },
     { kind: 'enter', text: UNINSTALLED_INTENT },
+    { kind: 'next' },
   ]);
   assert.equal(summary?.canStart, false);
   assert.match(summary?.error ?? '', /^Import your rulebook\. Ruleset D&D 1\.9 is not installed/);
@@ -183,6 +189,7 @@ const DEFAULT_GUIDE: readonly StartAction[] = [
   { kind: 'next' },
   { kind: 'skip' },
   { kind: 'next' },
+  { kind: 'next' },
   { kind: 'enter', text: GUIDED_NAME },
 ];
 
@@ -220,4 +227,55 @@ test('rpg-42a.77 /roll in the desktop input rolls a plain d20 and is not sent to
   const { client, dataDir } = await attackThroughDesktop(t, D20_GUIDE, '/roll');
   assert.equal(rolledSides(dataDir), D20_SIDES);
   assert.notEqual(client.state().snapshot?.turns.at(-1)?.input, '/roll');
+});
+
+const BEGIN_GUIDE = GUIDE.slice(0, 5);
+
+test('rpg-42a.88 desktop creates nothing until Begin, then saves the chosen language, voice and dice before the opening', async (t) => {
+  const dataDir = tempDataDir(t);
+  const desktop = await openDesktop(t, envFor(dataDir));
+  desktop.client.openStart();
+  await desktop.settled();
+  const begin = await desktop.act([
+    ...BEGIN_GUIDE,
+    { kind: 'next' },
+    { kind: 'set', field: 'language', value: 'pt-BR' },
+    { kind: 'set', field: 'whoRolls', value: 'ask' },
+    { kind: 'toggle', field: 'voiceOutput' },
+  ]);
+  assert.equal(begin.step, 'begin');
+  assert.deepEqual(
+    readdirSync(dataDir).filter((file) => file.endsWith('.sqlite')),
+    [],
+  );
+  const summary = await desktop.act([{ kind: 'next' }]);
+  assert.equal(summary.step, 'summary');
+  assert.deepEqual(
+    readdirSync(dataDir).filter((file) => file.endsWith('.sqlite')),
+    [],
+  );
+  await desktop.act([{ kind: 'start' }]);
+  const { changes } = readCampaignState(dataDir, DEFAULT_ADVENTURE_NAME);
+  assert.equal(campaignLanguageOf(changes), 'pt-BR');
+  assert.equal(voiceSettingsOf(changes)?.spokenOutput, 'narrator');
+  assert.equal(voiceSettingsOf(changes)?.locale, 'pt-BR');
+  assert.equal(gmSettingsOf(changes).whoRolls, 'ask');
+});
+
+test('rpg-42a.88 desktop Skip on the begin step keeps the defaults', async (t) => {
+  const dataDir = tempDataDir(t);
+  const desktop = await openDesktop(t, envFor(dataDir));
+  desktop.client.openStart();
+  await desktop.settled();
+  await desktop.act([
+    ...BEGIN_GUIDE,
+    { kind: 'next' },
+    { kind: 'set', field: 'language', value: 'pt-BR' },
+    { kind: 'skip' },
+  ]);
+  await desktop.act([{ kind: 'start' }]);
+  const { changes } = readCampaignState(dataDir, DEFAULT_ADVENTURE_NAME);
+  assert.equal(campaignLanguageOf(changes), 'en');
+  assert.equal(voiceSettingsOf(changes), undefined);
+  assert.deepEqual(gmSettingsOf(changes), {});
 });

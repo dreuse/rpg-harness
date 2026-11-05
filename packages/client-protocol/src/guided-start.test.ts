@@ -112,6 +112,7 @@ test('rpg-42a.14 each guide step is skippable, choices advance and back returns 
     { kind: 'enter', text: 'Ash, a tired knight' },
     { kind: 'toggle', field: 'voiceOutput' },
     { kind: 'next' },
+    { kind: 'next' },
     { kind: 'enter', text: 'Ashfall' },
   ]);
   assert.equal(stepOf(chosen), 'summary');
@@ -126,8 +127,9 @@ test('rpg-42a.14 each guide step is skippable, choices advance and back returns 
       voiceOutput: true,
     },
     language: DEFAULT_LOCALE,
+    play: { spokenOutput: 'narrator' },
   });
-  const back = run([{ kind: 'back' }, { kind: 'back' }, { kind: 'back' }], chosen);
+  const back = run([{ kind: 'back' }, { kind: 'back' }, { kind: 'back' }, { kind: 'back' }], chosen);
   assert.equal(stepOf(back), 'rules');
   assert.deepEqual(run([{ kind: 'skip' }], back).choices.ruleset, undefined);
   const start = run(
@@ -270,7 +272,7 @@ test('rpg-42a.30 summary groups each setting for review with its provenance and 
       items: [{ field: 'voiceOutput', label: 'Voice narration', value: 'on', chosen: true, step: at('features') }],
     },
   ]);
-  const described = run([{ kind: 'path', path: 'describe' }, { kind: 'skip' }]);
+  const described = run([{ kind: 'path', path: 'describe' }, { kind: 'skip' }, { kind: 'skip' }]);
   const steps = startScreen(described, OPTIONS, plan).review?.flatMap(({ items }) => items.map(({ step }) => step));
   assert.deepEqual(steps, [0, 0, 0, 0]);
   assert.equal(startScreen(skipAll, OPTIONS, undefined).review, undefined);
@@ -437,4 +439,98 @@ test('rpg-42a.40 genre and rules pages tell non-English players that built-in pa
       ),
     );
   }
+});
+
+const BEGIN_STEP = GUIDE_STEPS.indexOf('begin');
+const atBegin = (...actions: readonly StartAction[]) =>
+  run(actions, { ...INITIAL_DRAFT, path: 'guide', step: BEGIN_STEP });
+const selectedLabels = (screen: StartScreen) =>
+  screen.options.filter(({ selected }) => selected).map(({ label }) => label);
+const NO_VOICES = { ids: [], current: undefined };
+const VOICES = { ids: ['af_heart', 'am_adam'], current: 'af_heart' };
+
+test('rpg-42a.88 the begin step comes after the optional steps and before the summary on both paths', () => {
+  assert.deepEqual(GUIDE_STEPS.slice(-2), ['begin', 'summary']);
+  assert.deepEqual(START_STEPS.describe, ['describe', 'begin', 'summary']);
+  assert.equal(stepOf(run([{ kind: 'next' }], atBegin())), 'summary');
+});
+
+test('rpg-42a.88 begin step prefills the app language, app-rolled dice and as-written rules', () => {
+  const screen = startScreen(atBegin(), OPTIONS, undefined, 'pt-BR', NO_VOICES);
+  assert.equal(screen.step, 'begin');
+  assert.equal(screen.canNext, true);
+  const answer = (field: string) =>
+    screen.options.find(({ selected, action }) => selected && action.kind === 'set' && action.field === field)?.action;
+  assert.deepEqual(answer('language'), { kind: 'set', field: 'language', value: 'pt-BR' });
+  assert.deepEqual(answer('whoRolls'), { kind: 'set', field: 'whoRolls', value: 'app' });
+  assert.deepEqual(answer('rulesStrictness'), { kind: 'set', field: 'rulesStrictness', value: 'as-written' });
+  assert.deepEqual(screen.options.find(({ action }) => action.kind === 'toggle')?.selected, false);
+});
+
+test('rpg-42a.88 chosen play settings reach CreateCampaign as language and play, not as plan choices', () => {
+  const draft = atBegin(
+    { kind: 'set', field: 'language', value: 'pt-BR' },
+    { kind: 'set', field: 'whoRolls', value: 'me' },
+    { kind: 'set', field: 'rulesStrictness', value: 'relaxed' },
+    { kind: 'toggle', field: 'voiceOutput' },
+  );
+  const command = createCommand(draft, 'desktop', 'en');
+  assert.equal(command.language, 'pt-BR');
+  assert.deepEqual(command.play, { whoRolls: 'me', rulesStrictness: 'relaxed', spokenOutput: 'narrator' });
+  assert.deepEqual(command.choices, { voiceOutput: true, client: 'desktop' });
+  assert.deepEqual(planCommand(draft, 'desktop').choices, { voiceOutput: true, client: 'desktop' });
+});
+
+test('rpg-42a.88 skipping the begin step keeps the defaults and sends no play settings', () => {
+  const chosen = atBegin(
+    { kind: 'set', field: 'language', value: 'pt-BR' },
+    { kind: 'set', field: 'whoRolls', value: 'ask' },
+  );
+  const skipped = run([{ kind: 'skip' }], chosen);
+  assert.equal(stepOf(skipped), 'summary');
+  assert.deepEqual(skipped.choices, {});
+  const command = createCommand(skipped, undefined, 'en');
+  assert.equal(command.language, 'en');
+  assert.equal('play' in command, false);
+  assert.equal(createCommand(skipAll).language, DEFAULT_LOCALE);
+});
+
+test('rpg-42a.88 the voice question appears only when voices are installed and offers a preview for each', () => {
+  const group = (screen: StartScreen) =>
+    screen.options.filter(({ action }) => action.kind === 'set' && action.field === 'narratorVoice');
+  assert.deepEqual(group(startScreen(atBegin(), OPTIONS, undefined)), []);
+  const voiced = group(startScreen(atBegin(), OPTIONS, undefined, DEFAULT_LOCALE, VOICES));
+  assert.deepEqual(
+    voiced.map(({ label, selected }) => [label, selected]),
+    [
+      ['af_heart', true],
+      ['am_adam', false],
+    ],
+  );
+  assert.deepEqual(voiced[1]?.preview, { kind: 'preview', voice: 'am_adam' });
+  const picked = atBegin({ kind: 'set', field: 'narratorVoice', value: 'am_adam' });
+  assert.deepEqual(
+    selectedLabels(startScreen(picked, OPTIONS, undefined, DEFAULT_LOCALE, VOICES)).filter((label) =>
+      VOICES.ids.includes(label),
+    ),
+    ['am_adam'],
+  );
+  assert.equal(nextDraft(picked, { kind: 'preview', voice: 'af_heart' }), picked);
+});
+
+test('rpg-42a.88 a ruleset without dice hides the dice roller question', () => {
+  const diceless = atBegin({ kind: 'choose', field: 'ruleset', value: { id: 'narrative', edition: 'original' } });
+  const rollers = (draft: StartDraft) =>
+    startScreen(draft, OPTIONS, undefined).options.filter(
+      ({ action }) => action.kind === 'set' && action.field === 'whoRolls',
+    );
+  assert.equal(rollers(run([{ kind: 'back' }, { kind: 'back' }], diceless)).length, 0);
+  assert.equal(rollers(atBegin()).length, 3);
+});
+
+test('rpg-42a.88 saved progress rejects tampered play settings', () => {
+  const draft = atBegin({ kind: 'set', field: 'whoRolls', value: 'me' });
+  assert.deepEqual(parseStartDraft(JSON.parse(JSON.stringify(draft))), draft);
+  for (const choices of [{ whoRolls: 'god' }, { rulesStrictness: 'chaos' }, { language: 7 }, { narratorVoice: '' }])
+    assert.deepEqual(parseStartDraft({ ...draft, choices }), INITIAL_DRAFT, JSON.stringify(choices));
 });

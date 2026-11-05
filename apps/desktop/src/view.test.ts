@@ -316,7 +316,7 @@ test('rpg-42a.14 guided start is a labelled region with a focusable step heading
   assert.match(closed, /<button type="button" data-start-open="open" data-primary>New adventure<\/button>/);
   assert.ok(closed.includes(`<p role="status">Created campaign ${ESCAPED}.</p>`));
   const genre = startHtml(guideAt('genre', { genre: 'evil' }));
-  assert.match(genre, /<h2 tabindex="-1" data-start-title="genre">Step 2 of 6: Pick a tone and genre<\/h2>/);
+  assert.match(genre, /<h2 tabindex="-1" data-start-title="genre">Step 2 of 7: Pick a tone and genre<\/h2>/);
   assert.doesNotMatch(genre, /<img/);
   assert.match(genre, /data-start-option="0" aria-pressed="true"/);
   for (const control of ['back', 'skip', 'close']) assert.match(genre, new RegExp(`data-start-control="${control}">`));
@@ -993,4 +993,31 @@ test('rpg-42a.67 settings hold a story language control beside the app language,
   assert.match(html, /data-story-language="pt-BR"/);
   const spanish = renderView(viewModel(state, WIDE_WIDTH, { ...DEFAULT_PREFERENCES, locale: 'es' }), 'es');
   assert.match(spanish, /<fieldset data-story-language-control><legend>Idioma de la historia<\/legend>/);
+});
+
+test('rpg-42a.88 the begin step groups each question under a heading and previews each narrator voice', () => {
+  const voices = { ids: ['af_heart', 'am_adam'], current: 'af_heart' };
+  const html = renderView(
+    viewModel(
+      { ...initialState, start: { open: true, draft: guideAt('begin'), options: START_OPTIONS } },
+      WIDE_WIDTH,
+      DEFAULT_PREFERENCES,
+      undefined,
+      voices,
+    ),
+    DEFAULT_PREFERENCES.locale,
+  );
+  assert.match(html, /<h2 tabindex="-1" data-start-title="begin">Step 6 of 7: Before we begin<\/h2>/);
+  for (const heading of ['Story language', 'Spoken story', 'Who rolls the dice', 'Rules strictness'])
+    assert.match(html, new RegExp(`<h3[^>]*>${heading}</h3>`));
+  assert.match(html, /<label for="start-voice">Narrator voice<\/label>/);
+  assert.match(
+    html,
+    /<select id="start-voice" data-start-voice><option value="2" selected>[^<]+<\/option><option value="3">/,
+  );
+  assert.match(html, /<button type="button" id="start-voice-preview" data-start-preview="2">Preview<\/button>/);
+  assert.match(html, /data-start-control="next" data-primary>Next</);
+  assert.match(html, /data-start-control="skip">Skip</);
+  const quiet = startHtml(guideAt('begin'));
+  assert.doesNotMatch(quiet, /data-start-preview|Spoken story|Narrator voice/);
 });

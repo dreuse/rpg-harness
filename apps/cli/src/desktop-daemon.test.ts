@@ -99,6 +99,7 @@ const GUIDE_ACTIONS: readonly StartAction[] = [
   { kind: 'enter', text: 'Ash, a tired knight' },
   { kind: 'toggle', field: 'voiceOutput' },
   { kind: 'next' },
+  { kind: 'next' },
   { kind: 'enter', text: GUIDED_CAMPAIGN },
 ];
 const GM_SECRET = 'SECRET';

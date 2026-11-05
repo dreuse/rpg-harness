@@ -6,6 +6,7 @@ import {
   planCommand,
   type StartAction,
   type StartDraft,
+  type StartVoices,
   startScreen,
   stepOf,
 } from '../../../packages/client-protocol/src/guided-start.ts';
@@ -257,6 +258,7 @@ export const viewModel = (
   width: number,
   preferences: UiPreferences = DEFAULT_PREFERENCES,
   now = Date.now(),
+  voices?: StartVoices,
 ) => {
   const committed = state.snapshot?.turns ?? [];
   const motion = effectiveMotion(preferences.motion, preferences.reducedMotion);
@@ -326,7 +328,7 @@ export const viewModel = (
     gm: state.snapshot?.gm,
     storyLanguage: state.snapshot?.language,
     start: state.start.open
-      ? startScreen(state.start.draft, state.start.options, state.start.plan, preferences.locale)
+      ? startScreen(state.start.draft, state.start.options, state.start.plan, preferences.locale, voices)
       : undefined,
     created: state.start.created,
   };
@@ -392,12 +394,14 @@ export const createDesktopClient = ({
   startDraft = INITIAL_DRAFT,
   saveStart = () => {},
   locale = () => DEFAULT_LOCALE,
+  voices = () => undefined,
 }: {
   readonly transport: Transport;
   readonly newActionId: () => string;
   readonly startDraft?: StartDraft | undefined;
   readonly saveStart?: ((draft: StartDraft) => void) | undefined;
   readonly locale?: (() => string) | undefined;
+  readonly voices?: (() => StartVoices | undefined) | undefined;
 }) => {
   let state: DesktopState = { ...initialState, start: { open: startDraft.path !== null, draft: startDraft } };
   let resendOnSnapshot = false;
@@ -773,7 +777,7 @@ export const createDesktopClient = ({
     },
     submit: (input: string): Result<SubmitPlayerAction> =>
       ROLL_PATTERN.test(input.trim()) ? rollNow() : submitAction(input),
-    startScreen: () => startScreen(state.start.draft, state.start.options, state.start.plan, locale()),
+    startScreen: () => startScreen(state.start.draft, state.start.options, state.start.plan, locale(), voices()),
     openStart: () => {
       update({ start: { ...state.start, open: true, created: undefined } });
       requestOptions();

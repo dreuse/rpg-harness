@@ -391,7 +391,7 @@ test('rpg-42a.14 page opens the guided start from the keyboard and moves focus t
   page.focused.length = 0;
   assert.equal(sentOf(page, 'PlanCampaign').length, 1);
   page.click({ 'data-start-option': '1' });
-  assert.match(page.root.innerHTML, /Step 1 of 6: What is a tabletop RPG\?/);
+  assert.match(page.root.innerHTML, /Step 1 of 7: What is a tabletop RPG\?/);
   assert.deepEqual(page.focused, [TITLE]);
   assert.equal(page.saved.at(-1)?.path, 'guide');
   page.click({ 'data-start-control': 'back' });
@@ -415,6 +415,8 @@ test('rpg-42a.14 page keeps Enter for the wizard and never sends it as a player 
   page.fields[ENTRY] = 'A horror story';
   page.submit({ 'data-start-form': '' });
   assert.equal(page.saved.at(-1)?.intent, 'A horror story');
+  assert.match(page.root.innerHTML, /data-start-title="begin"/);
+  page.click({ 'data-start-control': 'next' });
   assert.match(page.root.innerHTML, /data-start-title="summary"/);
 });
 
@@ -480,7 +482,7 @@ test('rpg-42a.30 page edits a summary setting at its step and keeps the typed na
   back.fields[ENTRY] = GUIDED_NAME;
   back.click({ 'data-start-control': 'back' });
   assert.equal(back.saved.at(-1)?.name, GUIDED_NAME);
-  assert.match(back.root.innerHTML, /data-start-title="features"/);
+  assert.match(back.root.innerHTML, /data-start-title="begin"/);
 });
 
 const shownPane = (html: string, region: string) =>
@@ -1385,4 +1387,28 @@ test('rpg-42a.74 page accepts the roll offer from its button', () => {
   const command = page.sent.findLast(({ type }) => type === 'SubmitPlayerAction');
   assert.ok(command && 'rollOfferId' in command);
   assert.equal(command.rollOfferId, 'tam-attack');
+});
+
+test('rpg-42a.88 page lists the installed narrator voices on the begin step, previews one and keeps the pick', async () => {
+  const page = fakePage();
+  const voice = fakeVoiceBridge();
+  const preferences: { speech?: { narratorVoice?: string } }[] = [];
+  const BEGIN: StartDraft = { ...INITIAL_DRAFT, path: 'guide', step: GUIDE_STEPS.indexOf('begin') };
+  mount(page, {}, deniedMicrophone, BEGIN, WIDE_WIDTH, {
+    bridge: { ...page.bridge, voice: voice.bridge, savePreferences: (saved) => preferences.push(saved) },
+    audio: { play: async () => ({ decodeMs: 1 }) },
+  });
+  page.receive(READY);
+  await settle();
+  assert.match(page.root.innerHTML, /data-start-preview="2"/);
+  page.change({ 'data-start-voice': '' }, '3');
+  assert.match(page.root.innerHTML, /data-start-preview="3"/);
+  page.click({ 'data-start-preview': '3' });
+  await settle();
+  assert.deepEqual(
+    voice.previews.map((request) => (request as { voiceId: string }).voiceId),
+    ['am_adam'],
+  );
+  assert.equal(preferences.at(-1)?.speech?.narratorVoice, 'am_adam');
+  assert.equal(page.saved.at(-1)?.choices.narratorVoice, 'am_adam');
 });

@@ -6,6 +6,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { budgetWarning, gmSettingsLines, gmUsageLines } from '../../../packages/client-protocol/src/gm-usage.ts';
 import {
   type CampaignHealth,
+  type CampaignPlay,
   type CampaignSummary,
   type ClientSession,
   type CreateCampaign,
@@ -827,12 +828,34 @@ type Started = {
 
 type Starter = (databasePath: string) => Promise<Started>;
 
+const MICROPHONE_OFF = 'off';
+const NORMAL_VOICE_SPEED = 1;
+
+const savePlay = (
+  engine: Engine,
+  campaignId: string,
+  { spokenOutput, ...gm }: CampaignPlay,
+  language = DEFAULT_LOCALE,
+) => {
+  const revision = () => engine.getState(campaignId).revision;
+  if (spokenOutput !== undefined)
+    engine.saveVoiceSettings({
+      campaignId,
+      actionId: randomUUID(),
+      expectedRevision: revision(),
+      settings: { microphone: MICROPHONE_OFF, spokenOutput, locale: language, speed: NORMAL_VOICE_SPEED },
+    });
+  if (Object.keys(gm).length > 0)
+    engine.saveGmSettings({ campaignId, actionId: randomUUID(), expectedRevision: revision(), settings: gm });
+};
+
 const createCampaign = async (
   dataDir: string,
   name: string,
   config: CampaignConfig,
   start: Starter,
   language?: string,
+  play: CampaignPlay = {},
 ): Promise<string> => {
   mkdirSync(dataDir, { recursive: true });
   const path = databasePath(dataDir, name);
@@ -842,7 +865,9 @@ const createCampaign = async (
     connection = openDatabase(path);
     const { database } = connection;
     const store = createCampaignStore(database);
-    const campaign = createEngine(store).createCampaign(name, language);
+    const engine = createEngine(store);
+    const campaign = engine.createCampaign(name, language);
+    savePlay(engine, campaign.id, play, language);
     const { opening, proposals, generic } = await start(path);
     const committed = openScene(store, {
       campaignId: campaign.id,
@@ -1165,10 +1190,17 @@ export const createCampaignFrom = async (
   client?: string,
   gm: GameMaster = FAKE_GAME_MASTER,
 ): Promise<CampaignSummary> => {
-  const { name, language, intent } = command;
+  const { name, language, intent, play } = command;
   const config = commandConfig(command, client);
   const character = startingCharacter(config);
-  await createCampaign(dataDir, name, config, starterFor(gm, { name, pitch: intent, config, language }), language);
+  await createCampaign(
+    dataDir,
+    name,
+    config,
+    starterFor(gm, { name, pitch: intent, config, language }),
+    language,
+    play,
+  );
   try {
     if (character !== undefined) addCharacter(dataDir, name, character);
   } catch (error) {
