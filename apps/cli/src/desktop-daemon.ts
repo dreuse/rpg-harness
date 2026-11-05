@@ -40,6 +40,7 @@ import { writeGmDefaults } from './gm-defaults.ts';
 import { failureOf, planResult } from './quickstart.ts';
 import { dataDirFromEnv } from './setup-check.ts';
 
+const UNSUPPORTED_STORY_MEMORY = 'this daemon does not serve story memory yet';
 const INVALID_GM_DEFAULTS = 'GM defaults name an invalid model or budget';
 
 const saveGmDefaults = ({ model, summaryModel, sessionBudgetTokens }: SaveGmDefaults) => {
@@ -234,6 +235,8 @@ const replier = ({ name, campaign, problem }: Served, gm: GameMaster) => {
       return send({ id, type: 'Result', result: session.saveVoiceSettings(command) });
     if (command.type === 'SaveGmSettings') return send({ id, type: 'Result', result: session.saveGmSettings(command) });
     if (command.type === 'SaveGmDefaults') return send({ id, type: 'Result', result: saveGmDefaults(command) });
+    if (command.type === 'GetStoryMemory' || command.type === 'CorrectStoryFact')
+      return send({ id, type: 'Result', result: failure('Rejected', UNSUPPORTED_STORY_MEMORY) });
     subscriptions.get(id)?.();
     subscriptions.set(
       id,

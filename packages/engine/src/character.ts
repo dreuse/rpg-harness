@@ -8,6 +8,7 @@ import {
   type TurnVisibility,
 } from '../../domain/src/campaign.ts';
 import type { CharacterProfile } from '../../domain/src/character.ts';
+import { CLAIM_CORRECTED } from '../../memory/src/ledger.ts';
 import { type BuildInput, buildCharacter, type CreationRules } from '../../rules/src/character-builder.ts';
 import { isRecord } from '../../rules/src/rulepack.ts';
 import type { Visibility } from '../../rules/src/sheet-schema.ts';
@@ -32,7 +33,7 @@ const OWNER_VISIBLE: readonly Visibility[] = ['public', 'owner'];
 const EDIT_INTENT = 'edit sheet field';
 const EDIT_VISIBILITY: TurnVisibility = 'player';
 const NO_SCENE = '';
-const SHEET_EVENTS: readonly string[] = [CHARACTER_CREATED, SHEET_FIELD_EDITED, VOICE_PROFILE_SET];
+const SHEET_EVENTS: readonly string[] = [CHARACTER_CREATED, SHEET_FIELD_EDITED, VOICE_PROFILE_SET, CLAIM_CORRECTED];
 
 const ownerVisible = (rules: CreationRules, profile: CharacterProfile): CharacterProfile => {
   const visible = new Set(

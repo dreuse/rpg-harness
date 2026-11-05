@@ -27,6 +27,7 @@ const emptyInput = (): PacketInput => ({
   chapterSummaries: [],
   sceneSummaries: [],
   context: [],
+  ledger: [],
   threads: [],
   entities: [],
   recentTurns: [],
@@ -121,4 +122,16 @@ test('rpg-42a.36 campaign data is framed as data that cannot close its own block
   assert.equal(variable.split('</campaign-data>').length, 2);
   assert.ok(variable.startsWith('<campaign-data>') && variable.endsWith('</campaign-data>'));
   assert.equal(frameData({ text: '<b>' }), '<campaign-data>{"text":"\\u003cb>"}</campaign-data>');
+});
+
+test('rpg-42a.42 ledger facts are never trimmed, even when the budget is already exceeded', () => {
+  const facts = Array.from({ length: 200 }, (_, index) => `Entity ${index} alive: dead since long ago`);
+  for (const preset of Object.keys(CONTEXT_BUDGETS) as ContextBudgetPreset[]) {
+    const packet = buildContextPacket({ ...longCampaign(), ledger: facts }, CONTEXT_BUDGETS[preset]);
+    const kept = packet.sections.find(({ name }) => name === 'ledger')?.items ?? [];
+    assert.deepEqual(kept, facts, preset);
+  }
+  const tiny = buildContextPacket({ ...longCampaign(), ledger: facts }, estimateTokens(INSTRUCTIONS));
+  assert.equal(tiny.requiredExceedsBudget, true);
+  assert.equal(tiny.sections.find(({ name }) => name === 'ledger')?.items.length, facts.length);
 });

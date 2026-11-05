@@ -9,6 +9,7 @@ export const STABLE_SECTIONS = ['instructions', 'ruleset', 'setting', 'campaignS
 export const VARIABLE_SECTIONS = [
   'sceneSummaries',
   'context',
+  'ledger',
   'threads',
   'entities',
   'recentTurns',
@@ -38,7 +39,7 @@ const INSTRUCTION_SEPARATOR = ' ';
 const ITEM_SEPARATOR = ',';
 const NO_TOKENS = 0;
 const INSTRUCTIONS: SectionName = 'instructions';
-const REQUIRED: readonly SectionName[] = ['instructions', 'ruleset', 'setting', 'results', 'playerInput'];
+const REQUIRED: readonly SectionName[] = ['instructions', 'ruleset', 'setting', 'ledger', 'results', 'playerInput'];
 const STABLE_FILL: readonly SectionName[] = ['campaignSummary', 'chapterSummaries'];
 const VARIABLE_FILL: readonly SectionName[] = ['recentTurns', 'threads', 'entities', 'context', 'sceneSummaries'];
 const STABLE_SUMMARY_SHARE = 0.3;

@@ -234,6 +234,8 @@ test('UI01: clients cannot bypass the engine or trust unsolicited model state wr
     'SaveVoiceSettings',
     'SaveGmSettings',
     'SaveGmDefaults',
+    'GetStoryMemory',
+    'CorrectStoryFact',
   ]);
   const defaultsSave = { ...envelope, type: 'SaveGmDefaults', actionId: 'action-5' };
   assert.ok(parseCommand({ ...defaultsSave, model: 'sonnet', sessionBudgetTokens: 900 }).ok);
@@ -455,4 +457,26 @@ test('rpg-42a.41: the event log keeps only a bounded window of recent events', (
   assert.deepEqual(delivered, [4, 5, 6]);
   assert.equal(log.publish(toClientEvent(domainEvent(1))).ok, false);
   assert.equal(log.publish(toClientEvent(domainEvent(6))).ok, true);
+});
+
+test('rpg-42a.42: story memory commands are parsed strictly and carry no free-form state', () => {
+  const read = { ...envelope, type: 'GetStoryMemory' };
+  assert.ok(parseCommand(read).ok);
+  assert.equal(code(parseCommand({ ...read, viewer: 'gm' })), 'UnexpectedField');
+  const correct = {
+    ...envelope,
+    type: 'CorrectStoryFact',
+    actionId: 'fix-1',
+    expectedRevision: 3,
+    actorId: 'hero',
+    entityId: 'warden',
+    kind: 'alive',
+    value: 'alive',
+  };
+  assert.ok(parseCommand(correct).ok);
+  assert.ok(parseCommand({ ...correct, kind: 'item', key: 'silver dagger', value: 'held' }).ok);
+  assert.equal(code(parseCommand({ ...correct, kind: 'teleports' })), 'MalformedCommand');
+  assert.equal(code(parseCommand({ ...correct, value: 7 })), 'MalformedCommand');
+  assert.equal(code(parseCommand({ ...correct, entityId: '' })), 'MalformedCommand');
+  assert.equal(code(parseCommand({ ...correct, visibility: 'gm' })), 'UnexpectedField');
 });

@@ -12,9 +12,11 @@ import type {
 import type { RuleCitation } from '../../domain/src/character.ts';
 import type { GmSettings, GmUsageTotals } from '../../domain/src/gm.ts';
 import type { RulesUsage } from '../../domain/src/rules-usage.ts';
+import { CLAIM_KINDS, type ClaimKind, type StoryMemory } from '../../domain/src/story-memory.ts';
 import { isLocale, type SavedVoiceSettings } from '../../domain/src/voice.ts';
 import type { VisualizationEvent } from './visualization.ts';
 
+export type { StoryMemory, StoryMemoryEntry, StoryMemoryGroup } from '../../domain/src/story-memory.ts';
 export type {
   MicrophoneMode,
   SavedVoiceSettings,
@@ -52,6 +54,8 @@ export const COMMAND_TYPES = [
   'SaveVoiceSettings',
   'SaveGmSettings',
   'SaveGmDefaults',
+  'GetStoryMemory',
+  'CorrectStoryFact',
 ] as const;
 export type CommandType = (typeof COMMAND_TYPES)[number];
 
@@ -138,6 +142,17 @@ export type SaveGmSettings = Envelope<'SaveGmSettings'> & {
 
 export type SaveGmDefaults = Envelope<'SaveGmDefaults'> & { readonly actionId: string } & GmSettings;
 
+export type GetStoryMemory = Envelope<'GetStoryMemory'>;
+export type CorrectStoryFact = Envelope<'CorrectStoryFact'> & {
+  readonly actionId: string;
+  readonly expectedRevision: number;
+  readonly actorId: CharacterId;
+  readonly entityId: string;
+  readonly kind: ClaimKind;
+  readonly key?: string;
+  readonly value: string;
+};
+
 export type ClientCommand =
   | ListCampaigns
   | CampaignCommand
@@ -150,7 +165,9 @@ export type ClientCommand =
   | EditSheetField
   | SaveVoiceSettings
   | SaveGmSettings
-  | SaveGmDefaults;
+  | SaveGmDefaults
+  | GetStoryMemory
+  | CorrectStoryFact;
 
 export type ClientDomainEvent = Readonly<DomainEvent>;
 
@@ -251,6 +268,13 @@ export type CampaignPanels = {
   readonly recap: WorldRecap;
 };
 
+export type StoryMemoryView = {
+  readonly version: ProtocolVersion;
+  readonly campaignId: CampaignId;
+  readonly revision: number;
+  readonly memory: StoryMemory;
+};
+
 export type ViewValue = string | number | boolean | null;
 
 export type ViewComponent = {
@@ -305,7 +329,17 @@ export interface ClientSession {
   saveGmSettings(command: SaveGmSettings): Result<Accepted>;
 }
 
-type FieldKind = 'id' | 'name' | 'text' | 'revision' | 'flag' | 'number' | 'primitive' | 'record' | 'locale';
+type FieldKind =
+  | 'id'
+  | 'name'
+  | 'text'
+  | 'revision'
+  | 'flag'
+  | 'number'
+  | 'primitive'
+  | 'record'
+  | 'locale'
+  | 'claimKind';
 type FieldSpec = { readonly kind: FieldKind; readonly optional?: true };
 
 const HEADER_FIELDS = ['version', 'type'];
@@ -380,6 +414,16 @@ const COMMAND_FIELDS: Record<CommandType, Readonly<Record<string, FieldSpec>>> =
     summaryModel: { kind: 'id', optional: true },
     sessionBudgetTokens: { kind: 'number', optional: true },
   },
+  GetStoryMemory: {},
+  CorrectStoryFact: {
+    actionId: ID,
+    expectedRevision: { kind: 'revision' },
+    actorId: ID,
+    entityId: ID,
+    kind: { kind: 'claimKind' },
+    key: { kind: 'id', optional: true },
+    value: { kind: 'text' },
+  },
 };
 
 const FIELD_CHECKS: Record<FieldKind, (value: unknown) => boolean> = {
@@ -392,6 +436,7 @@ const FIELD_CHECKS: Record<FieldKind, (value: unknown) => boolean> = {
   primitive: (value) => FIELD_CHECKS.text(value) || FIELD_CHECKS.flag(value) || FIELD_CHECKS.number(value),
   record: (value) => isRecord(value),
   locale: isLocale,
+  claimKind: (value) => CLAIM_KINDS.some((kind) => kind === value),
 };
 
 export const failure = (code: ProtocolErrorCode, message: string): Result<never> => ({

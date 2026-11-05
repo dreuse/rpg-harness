@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { after, describe, it } from 'node:test';
 import { type CampaignStore, type CommittedTurn, MAIN_BRANCH } from '../../../packages/domain/src/campaign.ts';
 import { introduceEntity, openPending, saveContextBudget } from '../../../packages/engine/src/memory.ts';
+import { proposeClaims } from '../../../packages/engine/src/story-memory.ts';
 import { openScene, type PlayerAction, performAction } from '../../../packages/engine/src/turn.ts';
 import { PENDING_HOP_LIMIT } from '../../../packages/memory/src/graph.ts';
 import { summariesOf } from '../../../packages/memory/src/history.ts';
@@ -272,4 +273,27 @@ describe('rpg-42a.36 GM context packet from canonical memory', () => {
     assert.equal(items('campaignSummary').length, 1);
     assert.ok(items('chapterSummaries').length >= 1);
   });
+});
+
+it('rpg-42a.42 the packet carries the ledger facts of a named entity at turn 900 and hides secrets', () => {
+  const fixture = campaign();
+  play(fixture.store, 'turn-1');
+  meetIlse(fixture);
+  proposeClaims(fixture.store, fixture.entities, {
+    ...actionFor(fixture.store, 'ilse-claims', 'I study the captain'),
+    claims: [
+      { entityId: ILSE, kind: 'description', value: 'scar across the left cheek', visibility: 'public' },
+      { entityId: ILSE, kind: 'secret', key: 'loyalty', value: 'serves the pirates', visibility: 'gm' },
+    ],
+  });
+  playUntil(fixture, 6, RETURN_TURN);
+  const ledgerOf = (committed: CommittedTurn) =>
+    packetAt(fixture, committed)
+      .sections.find(({ name }) => name === 'ledger')
+      ?.items.join('\n') ?? '';
+  assert.ok(!ledgerOf(play(fixture.store, 'quiet-turn')).includes('scar'));
+  const named = ledgerOf(play(fixture.store, 'named-turn', 'I search for Captain Ilse'));
+  assert.ok(named.includes('scar across the left cheek'));
+  assert.ok(!named.includes('serves the pirates'));
+  fixture.connection.close();
 });

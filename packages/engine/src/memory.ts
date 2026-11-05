@@ -57,7 +57,11 @@ export type PendingOpening = PlayerAction & {
 
 export type PendingResolution = PlayerAction & { readonly pendingId: string };
 
-type CampaignChange = { readonly campaignId: string; readonly actionId: string; readonly expectedRevision: number };
+export type CampaignChange = {
+  readonly campaignId: string;
+  readonly actionId: string;
+  readonly expectedRevision: number;
+};
 
 export type SummaryRecord = CampaignChange & {
   readonly level: SummaryLevel;
@@ -158,7 +162,12 @@ export const resolvePending = (store: CampaignStore, input: PendingResolution): 
   return commit(store, input, [[PENDING_RESOLVED, { pendingId }, turnVisibility(open?.visibility ?? GM_ONLY)]]);
 };
 
-const recordChange = (store: CampaignStore, change: CampaignChange, type: string, payload: Record<string, unknown>) =>
+export const recordChange = (
+  store: CampaignStore,
+  change: CampaignChange,
+  type: string,
+  payload: Record<string, unknown>,
+) =>
   store.recordChange({
     expectedRevision: change.expectedRevision,
     event: {

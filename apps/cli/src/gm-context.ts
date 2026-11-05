@@ -12,6 +12,7 @@ import type { CampaignEntity } from '../../../packages/domain/src/entity.ts';
 import { playTurns } from '../../../packages/engine/src/character.ts';
 import { campaignLanguageOf } from '../../../packages/engine/src/engine.ts';
 import { contextBudgetOf, recordSummary } from '../../../packages/engine/src/memory.ts';
+import { directoryOf } from '../../../packages/engine/src/story-memory.ts';
 import { campaignConfigOf, loadState } from '../../../packages/engine/src/turn.ts';
 import { parseCampaignConfig } from '../../../packages/intent/src/config.ts';
 import {
@@ -31,6 +32,7 @@ import {
   type WrittenSummary,
 } from '../../../packages/memory/src/history.ts';
 import { PLAYER_VIEWER, type Viewer, visibleTo } from '../../../packages/memory/src/knowledge.ts';
+import { buildLedger, ledgerAllowance, ledgerLines } from '../../../packages/memory/src/ledger.ts';
 import {
   buildContextPacket,
   CONTEXT_BUDGETS,
@@ -142,6 +144,7 @@ export const contextPacketOf = (
   const known = scopeLookupOf(database, campaignId)(state.events.map(({ id }) => id));
   const eventScopes = [...known].map(([id, scope]) => ({ id, ...scope }));
   const { inventory, quests } = panelsOf({ state, eventScopes, ...world }, viewer);
+  const budget = CONTEXT_BUDGETS[contextBudgetOf(state.changes)];
   return buildContextPacket(
     {
       instructions: [SYSTEM_PROMPT, ...(language === undefined ? [] : [languageInstruction(language)])],
@@ -151,6 +154,13 @@ export const contextPacketOf = (
       chapterSummaries: visibleSummaries(summaries, viewer, 'chapter'),
       sceneSummaries: visibleSummaries(summaries, viewer, 'scene'),
       context: context.map(({ text }) => text),
+      ledger: ledgerLines({
+        ledger: buildLedger(state.events),
+        entityIds: startIds,
+        directory: directoryOf(state, entityStore),
+        viewer,
+        allowance: ledgerAllowance(budget),
+      }),
       threads: [
         ...quests.map(({ title, status }) => `quest: ${title} (${status})`),
         ...pending.filter(({ id }) => reached.has(id)).map(pendingText),
@@ -165,7 +175,7 @@ export const contextPacketOf = (
         .map(({ type, payload }) => `${type} ${JSON.stringify(payload)}`),
       playerInput: [committed.turn.input],
     },
-    CONTEXT_BUDGETS[contextBudgetOf(state.changes)],
+    budget,
   );
 };
 
