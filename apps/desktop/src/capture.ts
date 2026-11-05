@@ -281,7 +281,7 @@ const AUDIT_PROBE = `(() => {
   };
   const text = (node) => (node?.textContent ?? '').trim();
   const ids = (value) => (value ?? '').split(/\\s+/).filter(Boolean);
-  const labelled = (element) => (element.id ? [...document.querySelectorAll('label')].filter((label) => label.htmlFor === element.id).map(text).join(' ') : '');
+  const labelled = (element) => (element.id ? [...document.querySelectorAll('label')].filter((label) => label.htmlFor === element.id).map(text).join(' ') : '') || text(element.closest('label'));
   const nameOf = (element) =>
     element.getAttribute('aria-label')?.trim() ||
     ids(element.getAttribute('aria-labelledby')).map((id) => text(document.getElementById(id))).join(' ').trim() ||
