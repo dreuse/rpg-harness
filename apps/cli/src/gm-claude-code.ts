@@ -28,6 +28,9 @@ export type GmProfile = typeof FULL_PROFILE | typeof LEAN_PROFILE;
 export const CLAUDE_TIMEOUT_MS = 120_000;
 export const CLAUDE_MAX_RETRIES = 1;
 export const CHEAP_CLAUDE_MODEL = 'haiku';
+export const BALANCED_CLAUDE_MODEL = 'sonnet';
+export const BALANCED_EFFORT = 'medium';
+export const CHEAP_EFFORT = 'low';
 export const CHILD_ENV_KEYS: readonly string[] = [
   'PATH',
   'HOME',
@@ -72,6 +75,7 @@ export type ClaudeCodeRoute = {
   readonly profile: GmProfile;
   readonly model: string | undefined;
   readonly summaryModel: string;
+  readonly effort: string;
   readonly timeoutMs: number;
   readonly env: NodeJS.ProcessEnv;
   readonly gameServer: boolean;
@@ -93,6 +97,7 @@ export const claudeCodeRouteOf = (
   profile: env[GM_PROFILE_ENV]?.trim() === LEAN_PROFILE ? LEAN_PROFILE : FULL_PROFILE,
   model: env[GM_MODEL_ENV]?.trim() || undefined,
   summaryModel: env[SUMMARY_MODEL_ENV]?.trim() || CHEAP_CLAUDE_MODEL,
+  effort: BALANCED_EFFORT,
   timeoutMs: CLAUDE_TIMEOUT_MS,
   env: childEnvOf(CHILD_ENV_KEYS, env),
   gameServer: versions.electron === undefined,
@@ -108,7 +113,7 @@ export const preparedWorkspace = ({ workspace }: ClaudeCodeRoute): string => {
 };
 
 export const claudeArgs = (
-  { profile, model }: ClaudeCodeRoute,
+  { profile, model, effort }: ClaudeCodeRoute,
   system: string,
   mcpConfig?: string,
   schema?: string,
@@ -129,7 +134,9 @@ export const claudeArgs = (
   READ_ONLY_GAME_TOOLS.join(TOOL_SEPARATOR),
   '--disallowedTools',
   WRITE_GAME_TOOLS.join(TOOL_SEPARATOR),
-  ...(model === undefined || model === PROVIDER_DEFAULT_MODEL ? [] : [`--model=${model}`]),
+  `--model=${model === undefined || model === PROVIDER_DEFAULT_MODEL ? BALANCED_CLAUDE_MODEL : model}`,
+  '--effort',
+  effort,
 ];
 
 export const gameMcpConfig = (databasePath: string) => ({
@@ -236,8 +243,13 @@ export const requestClaudeSummary = async (
   texts: readonly string[],
   language: string | undefined,
 ): Promise<string> =>
-  (await request({ ...route, model: route.summaryModel }, summaryPrompt(language), frameData({ level, texts })))
-    .narration;
+  (
+    await request(
+      { ...route, model: route.summaryModel, effort: CHEAP_EFFORT },
+      summaryPrompt(language),
+      frameData({ level, texts }),
+    )
+  ).narration;
 
 const CLAUDE_MISSING = 'Claude Code was not found. Install it, run claude once to sign in, then try again.';
 const MCP_CONFIG_FLAG = '--mcp-config';

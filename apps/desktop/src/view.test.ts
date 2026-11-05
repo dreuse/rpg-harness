@@ -568,7 +568,7 @@ test('rpg-42a.37 settings hold a GM model form with hints, usage and a soft budg
   assert.match(html, /<form data-gm-defaults-form>[\s\S]*?<input name="summaryModel" list="gm-models" value="haiku"/);
   assert.match(html, /<form data-gm-defaults-form>[\s\S]*?<button type="submit">Save app default<\/button>/);
   assert.match(html, /<option value="haiku">cheaper and faster<\/option>/);
-  assert.match(html, /<option value="default">usual model of your GM route<\/option>/);
+  assert.match(html, /<option value="default">Balanced \(recommended\): quality, creativity and speed<\/option>/);
   assert.doesNotMatch(html, /Claude Code default/);
   assert.match(html, /This session: 2 GM turns, 700 tokens/);
   assert.match(html, /<p role="status">This session used more than the 500 token budget\. Play goes on\.<\/p>/);

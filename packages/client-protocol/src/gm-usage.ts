@@ -7,7 +7,7 @@ export const GM_MODEL_HINTS = ['default', 'cheap', 'balanced', 'rich', 'custom']
 export type GmModelHint = (typeof GM_MODEL_HINTS)[number];
 
 export const MODEL_HINT_TEXT: Readonly<Record<GmModelHint, string>> = {
-  default: 'the route picks its usual model',
+  default: 'balanced (recommended): quality, creativity and speed',
   cheap: 'cheaper and faster',
   balanced: 'balanced cost and detail',
   rich: 'richer narration, costs more',

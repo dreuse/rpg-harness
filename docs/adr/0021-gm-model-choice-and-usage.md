@@ -11,7 +11,8 @@
 - The app default lives in `gm-settings.json` in the data folder. `rpg settings` without a campaign writes it. The desktop writes it with `SaveGmDefaults`, which takes no `expectedRevision` and never touches the campaign. It holds preferences only, never game state.
 - The snapshot sends the campaign setting, the app default and the effective setting apart. The desktop campaign form shows only the campaign setting and shows the app default as a placeholder, so a save never copies the default into the campaign.
 - The model resolves in this order: campaign setting, app default, `RPG_GM_MODEL`, the route default. Settings are read on every turn, so a change applies on the next turn.
-- `default` means "use the route's usual model". On `claude-code` the harness then omits `--model`.
+- `default` means the balanced profile (rpg-42a.59), shown as "Balanced (recommended)". On `claude-code` the harness always passes `--model=sonnet --effort medium` for narration and `--model=haiku --effort low` for summaries, so the player's own Claude Code model and effort never leak in. A chosen model replaces only the model; effort stays balanced.
+- On `api` the balanced model is `claude-sonnet-5-5` (summaries `claude-haiku-5-5`). The harness sends no effort parameter there, because support per model is unverified. Add it when the API documents it.
 - The summary model defaults to a cheap model: `haiku` on `claude-code` and `claude-haiku-5-5` on `api`. `RPG_SUMMARY_MODEL` overrides both.
 - A model value is a short id that starts with a letter or digit. It may hold `.`, `:`, `@` and `/`, as in `claude-sonnet-4@20250514` or `anthropic/claude-x`. It goes into argv only as `--model=<value>`, so it cannot act as a flag.
 

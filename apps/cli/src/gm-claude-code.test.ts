@@ -69,11 +69,20 @@ const NO_CHARACTER = async () => undefined;
 const FORBIDDEN_ARGS = [/dangerously/i, /bypassPermissions/i];
 const ELECTRON = { electron: '41.0.0' };
 const CREDENTIAL_PATHS = /\.claude|credentials|keychain|oauth/i;
-const USAGE = { input_tokens: 120, output_tokens: 40, cache_read_input_tokens: 80, server_tool_use: { web: 0 } };
+const USAGE = {
+  input_tokens: 120,
+  output_tokens: 40,
+  cache_read_input_tokens: 80,
+  server_tool_use: { web: 0 },
+};
 const COST_USD = 0.0123;
 const MCP_SERVER_ENTRY = join(import.meta.dirname, '../../mcp-server/src/main.ts');
 
-type Reply = { readonly stdout?: string; readonly code?: number; readonly hang?: boolean };
+type Reply = {
+  readonly stdout?: string;
+  readonly code?: number;
+  readonly hang?: boolean;
+};
 type Call = {
   readonly args: string[];
   readonly input: string;
@@ -127,7 +136,11 @@ after(() => rmSync(DATA_DIR, { recursive: true, force: true }));
 const dataDirOf = () => DATA_DIR;
 
 const routeFor = (bin: string, env: NodeJS.ProcessEnv = {}): ClaudeCodeRoute => ({
-  ...claudeCodeRouteOf(bin, { PATH: dirname(process.execPath), RPG_DATA_DIR: DATA_DIR, ...env }),
+  ...claudeCodeRouteOf(bin, {
+    PATH: dirname(process.execPath),
+    RPG_DATA_DIR: DATA_DIR,
+    ...env,
+  }),
   timeoutMs: SHORT_TIMEOUT_MS * 10,
 });
 
@@ -169,7 +182,7 @@ const assertSafe = (args: readonly string[]) => {
 };
 
 describe('rpg-42a.33 Claude Code CLI game master', () => {
-  it('builds the full profile argv without a model unless one is named', () => {
+  it('rpg-42a.59: builds the full profile argv with the balanced model and effort unless one is named', () => {
     const route = claudeCodeRouteOf(CLAUDE_BIN, {});
     assert.equal(route.profile, 'full');
     assert.equal(route.model, undefined);
@@ -182,12 +195,16 @@ describe('rpg-42a.33 Claude Code CLI game master', () => {
     assert.equal(valueAfter(args, '--setting-sources'), 'project');
     assert.ok(!args.includes('--strict-mcp-config'));
     assert.ok(!args.includes('--tools'));
-    assert.ok(!args.some((arg) => arg.startsWith('--model')));
+    assert.ok(args.includes('--model=sonnet'));
+    assert.equal(valueAfter(args, '--effort'), 'medium');
     assertSafe(args);
   });
 
   it('builds the lean profile argv with only the game server and no built-in tools', () => {
-    const route = claudeCodeRouteOf(CLAUDE_BIN, { [GM_PROFILE_ENV]: 'lean', [GM_MODEL_ENV]: ` ${MODEL_ALIAS} ` });
+    const route = claudeCodeRouteOf(CLAUDE_BIN, {
+      [GM_PROFILE_ENV]: 'lean',
+      [GM_MODEL_ENV]: ` ${MODEL_ALIAS} `,
+    });
     assert.equal(route.profile, 'lean');
     const args = claudeArgs(route, SYSTEM_PROMPT, '/tmp/mcp.json');
     assert.equal(valueAfter(args, '--setting-sources'), 'project');
@@ -197,14 +214,28 @@ describe('rpg-42a.33 Claude Code CLI game master', () => {
     assertSafe(args);
   });
 
-  it('rpg-42a.37: passes a chosen model alias as one --model= argument and omits the Claude Code default', () => {
+  it('rpg-42a.37: passes a chosen model alias as one --model= argument and defaults to the balanced model', () => {
     const route = claudeCodeRouteOf(CLAUDE_BIN, {});
     for (const alias of ['haiku', 'sonnet', 'opus', 'fable'])
       assert.deepEqual(
         claudeArgs({ ...route, model: alias }, SYSTEM_PROMPT).filter((arg) => arg.startsWith('--model')),
         [`--model=${alias}`],
       );
-    assert.ok(!claudeArgs({ ...route, model: 'default' }, SYSTEM_PROMPT).some((arg) => arg.startsWith('--model')));
+    const balanced = claudeArgs({ ...route, model: 'default' }, SYSTEM_PROMPT);
+    assert.ok(balanced.includes('--model=sonnet'));
+    assert.equal(valueAfter(balanced, '--effort'), 'medium');
+  });
+
+  it('rpg-42a.59: summaries default to haiku at low effort and a named model keeps balanced effort', async (t) => {
+    const { bin, calls } = fakeClaude(t);
+    await requestClaudeSummary(routeFor(bin, {}), 'scene', [], PORTUGUESE);
+    const args = calls()[0]?.args ?? [];
+    assert.ok(args.includes('--model=haiku'));
+    assert.equal(valueAfter(args, '--effort'), 'low');
+    assert.equal(
+      valueAfter(claudeArgs({ ...claudeCodeRouteOf(bin, {}), model: 'opus' }, SYSTEM_PROMPT), '--effort'),
+      'medium',
+    );
   });
 
   it('only lets the GM read game state, never write it', () => {
@@ -258,23 +289,51 @@ describe('rpg-42a.33 Claude Code CLI game master', () => {
   });
 
   it('rpg-cm63.3: asks for segments with --json-schema and returns them with the joined text', async (t) => {
-    const segments = [{ text: NARRATION }, { speakerId: 'npc-stranger', text: 'Sit.', delivery: { emotion: 'smug' } }];
+    const segments = [
+      { text: NARRATION },
+      {
+        speakerId: 'npc-stranger',
+        text: 'Sit.',
+        delivery: { emotion: 'smug' },
+      },
+    ];
     const { bin, calls } = fakeClaude(t, [{ stdout: resultOf({ result: '', structured_output: { segments } }) }]);
     const reply = await requestClaudeNarration(routeFor(bin), packet(), DATABASE);
     assert.deepEqual(reply.segments, [
       { text: NARRATION },
-      { speakerId: 'npc-stranger', text: 'Sit.', delivery: { emotion: NEUTRAL_EMOTION } },
+      {
+        speakerId: 'npc-stranger',
+        text: 'Sit.',
+        delivery: { emotion: NEUTRAL_EMOTION },
+      },
     ]);
     assert.equal(reply.narration, `${NARRATION} Sit.`);
     assert.deepEqual(JSON.parse(valueAfter(calls()[0]?.args ?? [], '--json-schema') ?? ''), SEGMENTS_SCHEMA);
   });
 
   it('rpg-42a.43: returns valid proposals from the structured output and drops an invalid batch', async (t) => {
-    const proposal = { kind: 'pending', id: 'debt', pendingKind: 'promise', text: 'Repay.', entityIds: ['stranger'] };
+    const proposal = {
+      kind: 'pending',
+      id: 'debt',
+      pendingKind: 'promise',
+      text: 'Repay.',
+      entityIds: ['stranger'],
+    };
     const segments = [{ text: NARRATION }];
     const { bin } = fakeClaude(t, [
-      { stdout: resultOf({ structured_output: { segments, proposals: [proposal] } }) },
-      { stdout: resultOf({ structured_output: { segments, proposals: [{ ...proposal, entityIds: [] }] } }) },
+      {
+        stdout: resultOf({
+          structured_output: { segments, proposals: [proposal] },
+        }),
+      },
+      {
+        stdout: resultOf({
+          structured_output: {
+            segments,
+            proposals: [{ ...proposal, entityIds: [] }],
+          },
+        }),
+      },
     ]);
     const route = routeFor(bin);
     assert.deepEqual((await requestClaudeNarration(route, packet(), DATABASE)).proposals, [
@@ -297,7 +356,10 @@ describe('rpg-42a.33 Claude Code CLI game master', () => {
     const { bin } = fakeClaude(t, [{ stdout: resultOf({ structured_output: { segments } }) }]);
     const gm = claudeCodeGameMaster(routeFor(bin));
     assert.ok('request' in gm);
-    const reply = await gm.request(packet(), { databasePath: DATABASE, model: undefined });
+    const reply = await gm.request(packet(), {
+      databasePath: DATABASE,
+      model: undefined,
+    });
     assert.deepEqual(reply.segments, segments);
     assert.equal(reply.narration, narrationOf(segments));
   });
@@ -425,7 +487,11 @@ describe('rpg-42a.33 Claude Code CLI game master', () => {
     const { bin, calls } = fakeClaude(t);
     const dataDir = mkdtempSync(join(tmpdir(), 'rpg-claude-gm-'));
     t.after(() => rmSync(dataDir, { recursive: true, force: true }));
-    const { gm } = await gameMasterFor({ ...hermeticGmEnv(), RPG_DATA_DIR: dataDir, [CLAUDE_BIN_ENV]: bin });
+    const { gm } = await gameMasterFor({
+      ...hermeticGmEnv(),
+      RPG_DATA_DIR: dataDir,
+      [CLAUDE_BIN_ENV]: bin,
+    });
     const gateway = createEngineGateway(dataDir, gm);
     for await (const _ of gateway.create(CAMPAIGN, undefined, NO_CHARACTER));
     const openingCalls = calls().length;
@@ -440,7 +506,13 @@ describe('rpg-42a.33 Claude Code CLI game master', () => {
         .slice(openingCalls)
         .filter(({ args }) => args.includes('--mcp-config'))
         .map(({ args }) => args.find((arg) => arg.startsWith('--model=')));
-    assert.match(gateway.settings(undefined, { model: 'sonnet', sessionBudgetTokens: '100' }), /GM model: sonnet/);
+    assert.match(
+      gateway.settings(undefined, {
+        model: 'sonnet',
+        sessionBudgetTokens: '100',
+      }),
+      /GM model: sonnet/,
+    );
     const warnings = (await play()).filter((output) => /more than the 100 token budget/.test(output));
     assert.equal(warnings.length, 1);
     gateway.settings(CAMPAIGN, { model: 'opus' });
@@ -482,7 +554,11 @@ describe('rpg-42a.33 Claude Code CLI game master', () => {
     const dataDir = mkdtempSync(join(tmpdir(), 'rpg-claude-gm-'));
     t.after(() => rmSync(dataDir, { recursive: true, force: true }));
     for await (const _ of createEngineGateway(dataDir).create(CAMPAIGN, undefined, NO_CHARACTER));
-    const chosen = await gameMasterFor({ ...hermeticGmEnv(), RPG_DATA_DIR: dataDir, [CLAUDE_BIN_ENV]: bin });
+    const chosen = await gameMasterFor({
+      ...hermeticGmEnv(),
+      RPG_DATA_DIR: dataDir,
+      [CLAUDE_BIN_ENV]: bin,
+    });
     assert.equal(chosen.route, 'claude-code');
     const lines = (async function* () {
       yield PLAYER_INPUT;

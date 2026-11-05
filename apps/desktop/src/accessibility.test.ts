@@ -24,6 +24,10 @@ test('rpg-42a.39 every desktop locale has every catalog key', () => {
 test('rpg-42a.39 pt-BR reads naturally and formats numbers the Brazilian way', () => {
   assert.equal(translate('pt-BR', 'start.first'), 'Comece sua primeira aventura');
   assert.equal(translate('pt-BR', 'home.archived', { count: 2 }), 'Aventuras arquivadas (2)');
+  assert.equal(
+    translate('pt-BR', 'gmModel.hint.default'),
+    'Equilibrado (recomendado): qualidade, criatividade e velocidade',
+  );
   assert.equal(translate('pt-BR', 'voice.speed', { speed: 1.5 }), 'velocidade 1,5×');
   assert.equal(translate('pt-BR', 'sheet.max', { max: 20 }), 'Digite 20 ou menos.');
 });
