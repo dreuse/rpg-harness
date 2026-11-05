@@ -1,5 +1,6 @@
 import type { VoiceBlend } from './kokoro-provider.ts';
 import { voicesFor } from './language-voices.ts';
+import { NARRATOR_SPEAKER } from './speaker-routing.ts';
 import { selectVoiceId } from './tts.ts';
 import type { VoiceProfile } from './voice.ts';
 
@@ -48,3 +49,8 @@ export const voiceBlendFor = (npcId: string, voiceId: string, voices: readonly s
   const weight = BLEND_WEIGHTS[(hash >>> WEIGHT_HASH_SHIFT) % BLEND_WEIGHTS.length];
   return second === undefined || weight === undefined ? undefined : { first: voiceId, second, weight };
 };
+
+export const npcVoiceBlend =
+  (voices: readonly string[]) =>
+  (speakerId: string, voiceId: string): VoiceBlend | undefined =>
+    speakerId === NARRATOR_SPEAKER ? undefined : voiceBlendFor(speakerId, voiceId, voices);

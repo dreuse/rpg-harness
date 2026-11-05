@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { importantNpcProfile, voiceBlendFor } from './cinematic.ts';
+import { importantNpcProfile, npcVoiceBlend, voiceBlendFor } from './cinematic.ts';
 import { KOKORO_CAPABILITIES, KOKORO_DELIVERY_SPEED, KOKORO_PROVIDER_ID, kokoroSpeed } from './kokoro-provider.ts';
 import { MLX_KOKORO_CAPABILITIES, MLX_KOKORO_PROVIDER_ID } from './mlx-audio-engine.ts';
+import { NARRATOR_SPEAKER } from './speaker-routing.ts';
 import type { VoiceProfile } from './voice.ts';
 
 const NARRATOR_VOICE = 'af_heart';
@@ -150,4 +151,11 @@ test('blends only inside the capabilities of the provider and gives no blend wit
   assert.equal(male?.second, 'pm_santa');
   assert.equal(voiceBlendFor('npc-captain', 'af_heart', mlx), undefined);
   assert.equal(voiceBlendFor('npc-captain', 'af_heart', ['af_heart', 'af_bella'])?.second, 'af_bella');
+});
+
+test('blends NPC voices but never the narrator', () => {
+  const voices = MLX_KOKORO_CAPABILITIES.voices;
+  const blendFor = npcVoiceBlend(voices);
+  assert.deepEqual(blendFor('npc-captain', 'pm_alex'), voiceBlendFor('npc-captain', 'pm_alex', voices));
+  assert.equal(blendFor(NARRATOR_SPEAKER, 'pm_alex'), undefined);
 });

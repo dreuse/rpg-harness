@@ -2,6 +2,7 @@ import { rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { audioCacheKey } from '../../../packages/voice/src/audio-budget.ts';
 import { createFileAudioCache } from '../../../packages/voice/src/audio-cache-store.ts';
+import { npcVoiceBlend } from '../../../packages/voice/src/cinematic.ts';
 import { createKokoroJsEngine, KOKORO_MODEL_DIR_ENV } from '../../../packages/voice/src/kokoro-js-engine.ts';
 import {
   createKokoroModelManager,
@@ -245,7 +246,7 @@ export const mlxAudioProviders = (
       download: (consent, signal) => installer.install(consent, signal),
       remove: () => installer.remove(),
     },
-    provider: createMlxAudioProvider({ dir }),
+    provider: createMlxAudioProvider({ dir, voiceBlend: npcVoiceBlend(MLX_KOKORO_CAPABILITIES.voices) }),
   },
 ];
 

@@ -1,4 +1,5 @@
 import { join } from 'node:path';
+import { npcVoiceBlend } from '../../../packages/voice/src/cinematic.ts';
 import { duckingSink } from '../../../packages/voice/src/ducking-sink.ts';
 import { createKokoroJsEngine, KOKORO_MODEL_DIR_ENV } from '../../../packages/voice/src/kokoro-js-engine.ts';
 import { createKokoroProvider, type KokoroProvider } from '../../../packages/voice/src/kokoro-provider.ts';
@@ -6,6 +7,7 @@ import { noVoiceNotice, voicesFor } from '../../../packages/voice/src/language-v
 import {
   createMlxAudioProvider,
   MLX_AUDIO_DIR_ENV,
+  MLX_KOKORO_CAPABILITIES,
   MLX_KOKORO_PROVIDER_ID,
   mlxAudioSupported,
 } from '../../../packages/voice/src/mlx-audio-engine.ts';
@@ -71,7 +73,14 @@ export const liveProviders = (
   createKokoroProvider({
     engine: createKokoroJsEngine(env[KOKORO_MODEL_DIR_ENV] || join(dataDir, VOICE_MODELS_DIR)),
   }),
-  ...(mlxSupported ? [createMlxAudioProvider({ dir: env[MLX_AUDIO_DIR_ENV] || join(dataDir, MLX_AUDIO_SUBDIR) })] : []),
+  ...(mlxSupported
+    ? [
+        createMlxAudioProvider({
+          dir: env[MLX_AUDIO_DIR_ENV] || join(dataDir, MLX_AUDIO_SUBDIR),
+          voiceBlend: npcVoiceBlend(MLX_KOKORO_CAPABILITIES.voices),
+        }),
+      ]
+    : []),
 ];
 
 const preloadable = (provider: TtsProvider | undefined): provider is KokoroProvider =>
