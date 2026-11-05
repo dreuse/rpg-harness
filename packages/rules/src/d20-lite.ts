@@ -2,6 +2,7 @@ import { creationRulesOf } from './character-builder.ts';
 import { createRoller, type Rng, type TrustedRoll } from './dice.ts';
 import { type Condition, type NumberExpr, RULE_DSL_VERSION, type RuleDsl, type RuleEffect } from './dsl.ts';
 import { rejectPrecondition, type SheetResult } from './inventory.ts';
+import type { KeepMode, ModifierVocabulary } from './modifiers.ts';
 import { type ActionResolution, resolveAction } from './resolve.ts';
 import { RULEPACK_CONTRACT_VERSION, type RulePackManifest } from './rulepack.ts';
 import { resolveDerived, type Trait, type TraitSheet } from './traits.ts';
@@ -40,6 +41,7 @@ export const DRAUGHT_COST = 1;
 export const DRAUGHT_SIDES = 4;
 
 const FIRST_LEVEL = 1;
+const KEEP_DICE = 2;
 const D20_ROLL_SUFFIX = ':d20';
 const MOD_SUFFIX = '.mod';
 const HP = 'hp';
@@ -140,6 +142,24 @@ export const attackTable = (damageSides: number): RuleDsl[] => [
   rule('attack.miss', emit('attack.miss')),
 ];
 
+export const D20_LITE_VOCABULARY: ModifierVocabulary = {
+  modifiers: [
+    { id: 'cover', label: 'Cover', effect: { kind: 'flat', value: 2 } },
+    { id: 'darkness', label: 'Darkness', effect: { kind: 'flat', value: -2 } },
+    { id: 'wounded', label: 'Wounded', effect: { kind: 'flat', value: -1 } },
+    { id: 'exhausted', label: 'Exhausted', effect: { kind: 'flat', value: -2 } },
+    { id: 'advantage', label: 'Advantage', effect: { kind: 'keep', which: 'highest' } },
+    { id: 'disadvantage', label: 'Disadvantage', effect: { kind: 'keep', which: 'lowest' } },
+  ],
+  conditions: [
+    { id: 'darkened', label: 'Darkened', modifiers: ['darkness'], duration: { unit: 'scenes', count: 1 } },
+    { id: 'wounded', label: 'Wounded', modifiers: ['wounded'], duration: { unit: 'turns', count: 3 } },
+    { id: 'exhausted', label: 'Exhausted', modifiers: ['exhausted'], duration: { unit: 'scenes', count: 2 } },
+  ],
+  difficulties: { easy: 5, standard: DEFAULT_CHECK_DC, hard: 15, 'very-hard': 20 },
+  effects: ['flat', 'keep'],
+};
+
 export const D20_LITE_CHECK_RULES: Readonly<Record<string, Attribute>> = {
   'attack.melee': 'might',
   'attack.ranged': 'agility',
@@ -216,8 +236,11 @@ const numberOf = (sheet: TraitSheet, id: string): number => {
   return derived;
 };
 
-const rollD20 = (rng: Rng, rollId: string) =>
-  createRoller(rng)(rollId, { dice: [{ count: 1, sides: D20_SIDES }], modifier: 0 });
+const rollD20 = (rng: Rng, rollId: string, keep?: KeepMode) =>
+  createRoller(rng)(rollId, { dice: [{ count: keep === undefined ? 1 : KEEP_DICE, sides: D20_SIDES }], modifier: 0 });
+
+export const keptFace = (faces: readonly number[], keep?: KeepMode): number =>
+  keep === undefined ? (faces[0] as number) : Math[keep === 'highest' ? 'max' : 'min'](...faces);
 
 type TableInput = {
   actionId: string;
@@ -225,14 +248,16 @@ type TableInput = {
   sheet: TraitSheet;
   rng: Rng;
   modifiers: Record<string, number>;
+  keep?: KeepMode;
 };
 
-export const resolveTable = ({ actionId, table, sheet, rng, modifiers }: TableInput): ActionResolution => {
-  const d20 = rollD20(rng, `${actionId}${D20_ROLL_SUFFIX}`);
+export const resolveTable = ({ actionId, table, sheet, rng, modifiers, keep }: TableInput): ActionResolution => {
+  const d20 = rollD20(rng, `${actionId}${D20_ROLL_SUFFIX}`, keep);
   if (!d20.ok) return { ok: false, error: { code: 'RollFailed', issues: d20.issues }, rolls: [] };
+  const face = keptFace(d20.roll.draws.flat(), keep);
   let last: ActionResolution = { ok: false, error: { code: 'InvalidAction', issues: [] }, rolls: [] };
   for (const entry of table) {
-    last = resolveAction({ actionId, rule: entry, sheet, rng, modifiers: { ...modifiers, [D20_REF]: d20.roll.total } });
+    last = resolveAction({ actionId, rule: entry, sheet, rng, modifiers: { ...modifiers, [D20_REF]: face } });
     if (last.ok || last.error.code !== 'PreconditionFailed') break;
   }
   return { ...last, rolls: [d20.roll, ...last.rolls] };
@@ -245,10 +270,18 @@ export type CheckInput = {
   dc: number;
   rng: Rng;
   edge?: number;
+  keep?: KeepMode;
 };
 
-export const attemptCheck = ({ actionId, sheet, attribute, dc, rng, edge = 0 }: CheckInput) =>
-  resolveTable({ actionId, table: checkTable(attribute), sheet, rng, modifiers: { [DC]: dc, [EDGE]: edge } });
+export const attemptCheck = ({ actionId, sheet, attribute, dc, rng, edge = 0, keep }: CheckInput) =>
+  resolveTable({
+    actionId,
+    table: checkTable(attribute),
+    sheet,
+    rng,
+    modifiers: { [DC]: dc, [EDGE]: edge },
+    ...(keep === undefined ? {} : { keep }),
+  });
 
 export const checkBonus = ({ sheet, attribute, edge = 0 }: Pick<CheckInput, 'sheet' | 'attribute' | 'edge'>) =>
   numberOf(sheet, modId(attribute)) + edge;

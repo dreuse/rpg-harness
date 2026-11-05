@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import { type CampaignStore, CHECK_OFFERED, MAIN_BRANCH } from '../../domain/src/campaign.ts';
 import { createCampaignStore } from '../../persistence/src/campaign-store.ts';
 import { openDatabase } from '../../persistence/src/database.ts';
+import { D20_LITE_VOCABULARY } from '../../rules/src/d20-lite.ts';
 import { playTurns } from './character.ts';
 import { type CheckOffer, offerCheck, pendingCheckOffer } from './check-offer.ts';
 import { ActionIdConflictError, type PlayerAction, performAction } from './turn.ts';
@@ -91,6 +92,25 @@ test('rpg-42a.74: the offer turn is not a play turn and replays by action id', (
       () => offerCheck(store, { ...actionFor(store, 'offer-1'), offer: OTHER_OFFER }),
       ActionIdConflictError,
     );
+  } finally {
+    close();
+  }
+});
+
+test('rpg-42a.90: a retried offer with modifiers returns the stored turn without validating again', () => {
+  const { store, close } = seeded();
+  try {
+    const request = {
+      ...actionFor(store, 'offer-1'),
+      offer: { ...OFFER, ruleId: 'check.wits' },
+      requested: [{ id: 'darkness', reason: 'no light' }],
+      policy: { vocabulary: D20_LITE_VOCABULARY, strictness: 'as-written' },
+    } as const;
+    const first = offerCheck(store, request);
+    const { policy: _policy, ...unpolicied } = request;
+    const retry = offerCheck(store, unpolicied);
+    assert.equal(retry.turn.id, first.turn.id);
+    assert.equal(eventsOf(store).filter(({ type }) => type === CHECK_OFFERED).length, 1);
   } finally {
     close();
   }

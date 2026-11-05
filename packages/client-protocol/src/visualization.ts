@@ -13,6 +13,21 @@ export type MechanicReveal =
   | { readonly kind: 'die'; readonly sides: number; readonly face: number }
   | { readonly kind: 'token'; readonly label: string };
 
+export type RollModifierLine = {
+  readonly id: string;
+  readonly reason: string;
+  readonly kind: 'flat' | 'dice' | 'keep';
+  readonly value?: number;
+  readonly which?: 'highest' | 'lowest';
+};
+
+export type RollBreakdown = {
+  readonly attribute?: { readonly id: string; readonly value: number };
+  readonly modifiers: readonly RollModifierLine[];
+  readonly target?: number;
+  readonly kept?: number;
+};
+
 export type MechanicResult = {
   readonly resultId: string;
   readonly mechanic: string;
@@ -23,6 +38,7 @@ export type MechanicResult = {
   readonly outcome?: string;
   readonly source?: typeof PLAYER_ROLLED;
   readonly roller?: string;
+  readonly breakdown?: RollBreakdown;
 };
 
 export type VisualizationFrame = { readonly step: number; readonly reveal: MechanicReveal };
@@ -33,6 +49,7 @@ export type VisualizationFinal = {
   readonly modifier?: number;
   readonly source?: typeof PLAYER_ROLLED;
   readonly roller?: string;
+  readonly breakdown?: RollBreakdown;
 };
 
 export type VisualizationEvent = {
@@ -83,13 +100,59 @@ export const outcomeText = (translate: (locale: string, key: string) => string, 
   return text === key ? label : text;
 };
 
-const finalOf = ({ total, outcome, modifier, source, roller }: MechanicResult): VisualizationFinal => ({
+const finalOf = ({ total, outcome, modifier, source, roller, breakdown }: MechanicResult): VisualizationFinal => ({
   total,
   outcome,
   ...(modifier === undefined ? {} : { modifier }),
   ...(source === undefined ? {} : { source }),
   ...(roller === undefined ? {} : { roller }),
+  ...(breakdown === undefined ? {} : { breakdown: structuredClone(breakdown) }),
 });
+
+type Translate = (locale: string, key: string, params?: Record<string, string | number>) => string;
+
+const SIGN_POSITIVE = '+';
+const signed = (value: number) => (value < 0 ? String(value) : `${SIGN_POSITIVE}${value}`);
+
+const modifierLine = (translate: Translate, locale: string, line: RollModifierLine) => {
+  const { id, reason, kind, value, which } = line;
+  const effect =
+    kind === 'keep'
+      ? translate(locale, `roll.breakdown.keep.${which}`)
+      : translate(locale, `roll.breakdown.${kind}`, { value: signed(value ?? 0) });
+  return translate(locale, 'roll.breakdown.modifier', { id, effect, reason });
+};
+
+export const breakdownLines = (
+  faces: readonly number[],
+  final: VisualizationFinal,
+  translate: Translate,
+  locale: string,
+): string[] => {
+  const { breakdown, total } = final;
+  if (breakdown === undefined) return [];
+  const { kept } = breakdown;
+  const die = kept !== undefined && faces.length > 1 ? `${kept} (${faces.join(', ')})` : faces.join(', ');
+  return [
+    ...(die === '' ? [] : [translate(locale, 'roll.breakdown.die', { value: die })]),
+    ...(breakdown.attribute === undefined
+      ? []
+      : [
+          translate(locale, 'roll.breakdown.attribute', {
+            name: breakdown.attribute.id,
+            value: signed(breakdown.attribute.value),
+          }),
+        ]),
+    ...breakdown.modifiers.map((line) => modifierLine(translate, locale, line)),
+    ...(total === undefined
+      ? []
+      : [
+          breakdown.target === undefined
+            ? translate(locale, 'roll.breakdown.total', { total })
+            : translate(locale, 'roll.breakdown.against', { total, target: breakdown.target }),
+        ]),
+  ];
+};
 
 export const toVisualizationEvent = (
   result: MechanicResult,

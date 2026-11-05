@@ -16,6 +16,12 @@ import {
 } from '../../../packages/domain/src/voice.ts';
 import { GM_PROPOSAL_INPUT, offerCheck } from '../../../packages/engine/src/check-offer.ts';
 import {
+  applyCondition,
+  type ConditionRequest,
+  endCondition,
+  type ModifierPolicy,
+} from '../../../packages/engine/src/conditions.ts';
+import {
   GM_ROLL_VISIBILITIES,
   type GmRollVisibility,
   MAX_ROLL_EXPRESSION_LENGTH,
@@ -33,6 +39,16 @@ import { setVoiceTraits } from '../../../packages/engine/src/voice-profile.ts';
 import { PENDING_KINDS, type PendingKind } from '../../../packages/memory/src/graph.ts';
 import type { NarrationClaim } from '../../../packages/narrative/src/consistency.ts';
 import type { Rng } from '../../../packages/rules/src/dice.ts';
+import {
+  type ConditionDuration,
+  DURATION_UNITS,
+  MAX_CONDITION_DURATION,
+  MAX_MODIFIER_TEXT_LENGTH,
+  MAX_MODIFIER_VALUE,
+  MAX_MODIFIERS,
+  MIN_DURATION,
+  type ModifierRequest,
+} from '../../../packages/rules/src/modifiers.ts';
 import { isRecord } from '../../../packages/rules/src/rulepack.ts';
 
 export const MAX_PROPOSALS = 8;
@@ -54,6 +70,8 @@ export const CHECK_PROPOSAL = 'check';
 export const OUTCOME_PROPOSAL = 'outcome';
 export const GM_ROLL_PROPOSAL = 'gm-roll';
 export const VOICE_TRAITS_PROPOSAL = 'voice-traits';
+export const CONDITION_PROPOSAL = 'condition';
+export const CONDITION_END_PROPOSAL = 'condition-end';
 
 const ID_PATTERN = '^[a-z0-9][a-z0-9-]*$';
 const ID_REGEX = new RegExp(ID_PATTERN);
@@ -75,10 +93,12 @@ const PROPOSAL_KEYS = {
     VOICE_TRAITS_FIELD,
   ],
   [PENDING_PROPOSAL]: ['kind', 'id', 'pendingKind', 'text', 'entityIds', 'visibility'],
-  [CHECK_PROPOSAL]: ['kind', 'id', 'ruleId', 'target', 'label'],
+  [CHECK_PROPOSAL]: ['kind', 'id', 'ruleId', 'target', 'label', 'difficulty', 'modifiers'],
   [OUTCOME_PROPOSAL]: ['kind', 'id', 'text'],
-  [GM_ROLL_PROPOSAL]: ['kind', 'id', 'roller', 'reason', 'visibility', 'ruleId', 'expression'],
   [VOICE_TRAITS_PROPOSAL]: ['kind', 'id', 'entityId', VOICE_TRAITS_FIELD],
+  [GM_ROLL_PROPOSAL]: ['kind', 'id', 'roller', 'reason', 'visibility', 'ruleId', 'expression', 'modifiers'],
+  [CONDITION_PROPOSAL]: ['kind', 'id', 'conditionId', 'reason', 'label', 'duration', 'appliesTo', 'modifiers'],
+  [CONDITION_END_PROPOSAL]: ['kind', 'id', 'conditionId'],
 } as const;
 
 type ProposalVisibility = (typeof PROPOSAL_VISIBILITIES)[number];
@@ -110,6 +130,8 @@ export type CheckProposal = {
   readonly ruleId: string;
   readonly target: string;
   readonly label: string;
+  readonly difficulty?: string;
+  readonly modifiers?: readonly ModifierRequest[];
 };
 
 export type OutcomeProposal = {
@@ -126,6 +148,7 @@ export type GmRollProposal = {
   readonly visibility: GmRollVisibility;
   readonly ruleId?: string;
   readonly expression?: string;
+  readonly modifiers?: readonly ModifierRequest[];
 };
 
 export type VoiceTraitsProposal = {
@@ -135,16 +158,59 @@ export type VoiceTraitsProposal = {
   readonly voiceTraits: VoiceTraits;
 };
 
+export type ConditionProposal = {
+  readonly kind: typeof CONDITION_PROPOSAL;
+  readonly id: string;
+  readonly conditionId: string;
+  readonly reason: string;
+  readonly label?: string;
+  readonly duration?: ConditionDuration;
+  readonly appliesTo?: readonly string[];
+  readonly modifiers?: readonly ModifierRequest[];
+};
+
+export type ConditionEndProposal = {
+  readonly kind: typeof CONDITION_END_PROPOSAL;
+  readonly id: string;
+  readonly conditionId: string;
+};
+
 export type GmProposal =
   | EntityProposal
   | PendingProposal
   | CheckProposal
   | OutcomeProposal
   | GmRollProposal
-  | VoiceTraitsProposal;
+  | VoiceTraitsProposal
+  | ConditionProposal
+  | ConditionEndProposal;
 
 const idSchema = { type: 'string', maxLength: MAX_ID_LENGTH, pattern: ID_PATTERN } as const;
 const visibilitySchema = { type: 'string', enum: PROPOSAL_VISIBILITIES } as const;
+const modifiersSchema = {
+  type: 'array',
+  maxItems: MAX_MODIFIERS,
+  items: {
+    type: 'object',
+    properties: {
+      id: idSchema,
+      reason: { type: 'string', maxLength: MAX_MODIFIER_TEXT_LENGTH },
+      sourceRule: { type: 'string', maxLength: MAX_NAME_LENGTH },
+      value: { type: 'integer', minimum: -MAX_MODIFIER_VALUE, maximum: MAX_MODIFIER_VALUE },
+    },
+    required: ['id', 'reason'],
+    additionalProperties: false,
+  },
+} as const;
+const durationSchema = {
+  type: 'object',
+  properties: {
+    unit: { type: 'string', enum: DURATION_UNITS },
+    count: { type: 'integer', minimum: MIN_DURATION, maximum: MAX_CONDITION_DURATION },
+  },
+  required: ['unit', 'count'],
+  additionalProperties: false,
+} as const;
 
 const voiceTraitsSchema = {
   type: 'object',
@@ -198,6 +264,8 @@ export const PROPOSALS_SCHEMA = {
           ruleId: { type: 'string', maxLength: MAX_ID_LENGTH, pattern: RULE_ID_PATTERN },
           target: { type: 'string', maxLength: MAX_NAME_LENGTH },
           label: { type: 'string', maxLength: MAX_LABEL_LENGTH },
+          difficulty: idSchema,
+          modifiers: modifiersSchema,
         },
         required: ['kind', 'id', 'ruleId', 'target', 'label'],
         additionalProperties: false,
@@ -222,6 +290,7 @@ export const PROPOSALS_SCHEMA = {
           visibility: { type: 'string', enum: GM_ROLL_VISIBILITIES },
           ruleId: { type: 'string', maxLength: MAX_ID_LENGTH, pattern: RULE_ID_PATTERN },
           expression: { type: 'string', maxLength: MAX_ROLL_EXPRESSION_LENGTH },
+          modifiers: modifiersSchema,
         },
         required: ['kind', 'id', 'roller', 'reason', 'visibility'],
         additionalProperties: false,
@@ -237,12 +306,36 @@ export const PROPOSALS_SCHEMA = {
         required: ['kind', 'id', 'entityId', 'voiceTraits'],
         additionalProperties: false,
       },
+      {
+        type: 'object',
+        properties: {
+          kind: { const: CONDITION_PROPOSAL },
+          id: idSchema,
+          conditionId: idSchema,
+          reason: { type: 'string', maxLength: MAX_MODIFIER_TEXT_LENGTH },
+          label: { type: 'string', maxLength: MAX_NAME_LENGTH },
+          duration: durationSchema,
+          appliesTo: { type: 'array', maxItems: MAX_MODIFIERS, items: { type: 'string', maxLength: MAX_ID_LENGTH } },
+          modifiers: modifiersSchema,
+        },
+        required: ['kind', 'id', 'conditionId', 'reason'],
+        additionalProperties: false,
+      },
+      {
+        type: 'object',
+        properties: { kind: { const: CONDITION_END_PROPOSAL }, id: idSchema, conditionId: idSchema },
+        required: ['kind', 'id', 'conditionId'],
+        additionalProperties: false,
+      },
     ],
   },
 } as const;
 
 const idOf = (value: unknown): string | undefined =>
   typeof value === 'string' && value.length <= MAX_ID_LENGTH && ID_REGEX.test(value) ? value : undefined;
+
+const idOrRule = (value: unknown): string | undefined =>
+  typeof value === 'string' && value.length <= MAX_ID_LENGTH && RULE_ID_REGEX.test(value) ? value : undefined;
 
 const textOf = (value: unknown, max: number): string | undefined => {
   const text = typeof value === 'string' ? value.trim() : '';
@@ -300,13 +393,54 @@ const pendingOf = (value: Record<string, unknown>): PendingProposal | undefined 
   return { kind: PENDING_PROPOSAL, id, pendingKind, text, entityIds, visibility };
 };
 
+const MODIFIER_KEYS = ['id', 'reason', 'sourceRule', 'value'];
+
+const modifierOf = (entry: unknown): ModifierRequest | undefined => {
+  if (!isRecord(entry) || !Object.keys(entry).every((key) => MODIFIER_KEYS.includes(key))) return undefined;
+  const id = idOf(entry.id);
+  const reason = textOf(entry.reason, MAX_MODIFIER_TEXT_LENGTH);
+  const sourceRule = entry.sourceRule === undefined ? undefined : textOf(entry.sourceRule, MAX_NAME_LENGTH);
+  const { value } = entry;
+  const validValue = value === undefined || (Number.isInteger(value) && Math.abs(Number(value)) <= MAX_MODIFIER_VALUE);
+  if (id === undefined || reason === undefined || !validValue) return undefined;
+  if (entry.sourceRule !== undefined && sourceRule === undefined) return undefined;
+  return {
+    id,
+    reason,
+    ...(sourceRule === undefined ? {} : { sourceRule }),
+    ...(value === undefined ? {} : { value: Number(value) }),
+  };
+};
+
+const modifiersOf = (value: unknown): readonly ModifierRequest[] | undefined | null =>
+  value === undefined ? undefined : (listOf(value, MAX_MODIFIERS, modifierOf) ?? null);
+
+const durationOf = (value: unknown): ConditionDuration | undefined | null => {
+  if (value === undefined) return undefined;
+  if (!isRecord(value) || !Number.isInteger(value.count)) return null;
+  const unit = DURATION_UNITS.find((known) => known === value.unit);
+  const count = Number(value.count);
+  return unit === undefined || count < MIN_DURATION || count > MAX_CONDITION_DURATION ? null : { unit, count };
+};
+
 const checkOf = (value: Record<string, unknown>): CheckProposal | undefined => {
   const id = idOf(value.id);
   const ruleId = typeof value.ruleId === 'string' && RULE_ID_REGEX.test(value.ruleId) ? value.ruleId : undefined;
   const target = textOf(value.target, MAX_NAME_LENGTH);
   const label = textOf(value.label, MAX_LABEL_LENGTH);
+  const difficulty = value.difficulty === undefined ? undefined : idOf(value.difficulty);
+  const modifiers = modifiersOf(value.modifiers);
   if (id === undefined || ruleId === undefined || target === undefined || label === undefined) return undefined;
-  return { kind: CHECK_PROPOSAL, id, ruleId, target, label };
+  if ((value.difficulty !== undefined && difficulty === undefined) || modifiers === null) return undefined;
+  return {
+    kind: CHECK_PROPOSAL,
+    id,
+    ruleId,
+    target,
+    label,
+    ...(difficulty === undefined ? {} : { difficulty }),
+    ...(modifiers === undefined ? {} : { modifiers }),
+  };
 };
 
 const outcomeOf = (value: Record<string, unknown>): OutcomeProposal | undefined => {
@@ -323,7 +457,8 @@ const gmRollOf = (value: Record<string, unknown>): GmRollProposal | undefined =>
   const ruleId = typeof value.ruleId === 'string' && RULE_ID_REGEX.test(value.ruleId) ? value.ruleId : undefined;
   const expression = textOf(value.expression, MAX_ROLL_EXPRESSION_LENGTH);
   if (id === undefined || roller === undefined || reason === undefined || visibility === undefined) return undefined;
-  if ((ruleId === undefined) === (expression === undefined)) return undefined;
+  const modifiers = modifiersOf(value.modifiers);
+  if ((ruleId === undefined) === (expression === undefined) || modifiers === null) return undefined;
   return {
     kind: GM_ROLL_PROPOSAL,
     id,
@@ -332,6 +467,7 @@ const gmRollOf = (value: Record<string, unknown>): GmRollProposal | undefined =>
     visibility,
     ...(ruleId === undefined ? {} : { ruleId }),
     ...(expression === undefined ? {} : { expression }),
+    ...(modifiers === undefined ? {} : { modifiers }),
   };
 };
 
@@ -343,6 +479,35 @@ const voiceTraitsOf = (value: Record<string, unknown>): VoiceTraitsProposal | un
   return { kind: VOICE_TRAITS_PROPOSAL, id, entityId, voiceTraits };
 };
 
+const conditionOf = (value: Record<string, unknown>): ConditionProposal | undefined => {
+  const id = idOf(value.id);
+  const conditionId = idOf(value.conditionId);
+  const reason = textOf(value.reason, MAX_MODIFIER_TEXT_LENGTH);
+  const label = value.label === undefined ? undefined : textOf(value.label, MAX_NAME_LENGTH);
+  const duration = durationOf(value.duration);
+  const modifiers = modifiersOf(value.modifiers);
+  const appliesTo = value.appliesTo === undefined ? undefined : listOf(value.appliesTo, MAX_MODIFIERS, idOrRule);
+  if (id === undefined || conditionId === undefined || reason === undefined) return undefined;
+  if ((value.label !== undefined && label === undefined) || duration === null || modifiers === null) return undefined;
+  if (value.appliesTo !== undefined && appliesTo === undefined) return undefined;
+  return {
+    kind: CONDITION_PROPOSAL,
+    id,
+    conditionId,
+    reason,
+    ...(label === undefined ? {} : { label }),
+    ...(duration === undefined ? {} : { duration }),
+    ...(appliesTo === undefined ? {} : { appliesTo }),
+    ...(modifiers === undefined ? {} : { modifiers }),
+  };
+};
+
+const conditionEndOf = (value: Record<string, unknown>): ConditionEndProposal | undefined => {
+  const id = idOf(value.id);
+  const conditionId = idOf(value.conditionId);
+  return id === undefined || conditionId === undefined ? undefined : { kind: CONDITION_END_PROPOSAL, id, conditionId };
+};
+
 const PARSERS = {
   [ENTITY_PROPOSAL]: entityOf,
   [PENDING_PROPOSAL]: pendingOf,
@@ -350,6 +515,8 @@ const PARSERS = {
   [OUTCOME_PROPOSAL]: outcomeOf,
   [GM_ROLL_PROPOSAL]: gmRollOf,
   [VOICE_TRAITS_PROPOSAL]: voiceTraitsOf,
+  [CONDITION_PROPOSAL]: conditionOf,
+  [CONDITION_END_PROPOSAL]: conditionEndOf,
 } as const;
 
 const proposalOf = (value: unknown): GmProposal | undefined => {
@@ -390,17 +557,29 @@ export const commitGmRolls = (
   proposals: readonly GmProposal[],
   expressionOf: (spec: Pick<GmRollProposal, 'ruleId' | 'expression'>) => string | undefined,
   rng: Rng,
+  policy?: ModifierPolicy,
 ): readonly CommittedTurn[] => {
   const { campaignId } = committed.turn;
   const results: CommittedTurn[] = [];
   for (const proposal of proposals) {
     if (proposal.kind !== GM_ROLL_PROPOSAL) continue;
-    const { roller, reason, visibility } = proposal;
+    const { roller, reason, visibility, modifiers } = proposal;
     const expression = expressionOf(proposal);
     if (expression === undefined) continue;
     const action = actionFor(committed, proposal, loadState(store, campaignId).revision);
     try {
-      results.push(rollForGm(store, entities, { ...action, gmRoll: { roller, reason, visibility, expression } }, rng));
+      results.push(
+        rollForGm(
+          store,
+          entities,
+          {
+            ...action,
+            gmRoll: { roller, reason, visibility, expression, ...(modifiers === undefined ? {} : { modifiers }) },
+          },
+          rng,
+          policy,
+        ),
+      );
     } catch (error) {
       if (!REFUSALS.some((refusal) => error instanceof refusal)) throw error;
     }
@@ -415,6 +594,7 @@ export const commitProposals = (
   committed: CommittedTurn,
   proposals: readonly GmProposal[],
   checkRules: readonly string[] = NO_RULES,
+  policy?: ModifierPolicy,
 ): readonly CommittedTurn[] => {
   const { campaignId } = committed.turn;
   const results: CommittedTurn[] = [];
@@ -429,9 +609,27 @@ export const commitProposals = (
         continue;
       }
       if (proposal.kind === CHECK_PROPOSAL) {
-        const { id: offerId, ruleId, target, label } = proposal;
+        const { id: offerId, ruleId, target, label, difficulty, modifiers } = proposal;
         if (checkRules.includes(ruleId))
-          results.push(offerCheck(store, { ...action, offer: { offerId, ruleId, target, label } }));
+          results.push(
+            offerCheck(store, {
+              ...action,
+              offer: { offerId, ruleId, target, label, ...(difficulty === undefined ? {} : { difficulty }) },
+              ...(modifiers === undefined ? {} : { requested: modifiers }),
+              ...(policy === undefined ? {} : { policy }),
+            }),
+          );
+        continue;
+      }
+      if (proposal.kind === CONDITION_PROPOSAL) {
+        if (policy !== undefined) {
+          const { id: _id, kind: _kind, ...condition } = proposal;
+          results.push(applyCondition(store, { ...action, condition: condition as ConditionRequest, ...policy }));
+        }
+        continue;
+      }
+      if (proposal.kind === CONDITION_END_PROPOSAL) {
+        results.push(endCondition(store, { ...action, conditionId: proposal.conditionId }));
         continue;
       }
       const scope = { visibility: proposal.visibility, actorId: null };

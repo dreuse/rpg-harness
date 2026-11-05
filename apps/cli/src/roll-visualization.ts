@@ -2,6 +2,8 @@ import {
   type MechanicResult,
   type MechanicReveal,
   PLAYER_ROLLED,
+  type RollBreakdown,
+  type RollModifierLine,
   toVisualizationEvent,
   type ViewerScope,
   type VisualizationEvent,
@@ -27,6 +29,7 @@ import {
   offerFollowsPlayerAction,
   pendingCheckOffer,
 } from '../../../packages/engine/src/check-offer.ts';
+import { conditionModifiersOf, type ModifierPolicy, mergeModifiers } from '../../../packages/engine/src/conditions.ts';
 import { GM_ROLLER } from '../../../packages/engine/src/gm-roll.ts';
 import { gmSettingsOf } from '../../../packages/engine/src/gm-settings.ts';
 import { reportedCheck, reportedRoll, rollExpressionOf } from '../../../packages/engine/src/roll-report.ts';
@@ -49,18 +52,28 @@ import {
   createSheet,
   D20_LITE_CHECK_RULES,
   D20_LITE_MANIFEST,
+  D20_LITE_VOCABULARY,
   D20_SIDES,
   DEFAULT_CHECK_ATTRIBUTE,
   DEFAULT_CHECK_DC,
+  keptFace,
 } from '../../../packages/rules/src/d20-lite.ts';
 import { type RollEvent, replayRoll } from '../../../packages/rules/src/dice.ts';
 import {
   DEFAULT_POOL_CONFIG,
   DICE_POOL_LITE_CHECK_RULES,
   DICE_POOL_LITE_MANIFEST,
+  DICE_POOL_LITE_VOCABULARY,
   type PoolRoll,
   rollPool,
 } from '../../../packages/rules/src/dice-pool-lite.ts';
+import {
+  applicableModifiers,
+  type KeepMode,
+  type ModifierVocabulary,
+  NO_VOCABULARY,
+  summarizeModifiers,
+} from '../../../packages/rules/src/modifiers.ts';
 import type { ActionResolution } from '../../../packages/rules/src/resolve.ts';
 import { isRecord, type ManifestIssue, type RulePackManifest } from '../../../packages/rules/src/rulepack.ts';
 
@@ -70,6 +83,7 @@ export const DICE_MECHANIC = 'dice';
 export const POOL_MECHANIC = 'dice-pool';
 
 const NO_BONUS = 0;
+const FIRST_ROLL = 0;
 const VISUALIZATION_OFF: VisualizationPreference = { enabled: false };
 const DICE_FIELD = 'dice';
 const DICE_OFF = 'off';
@@ -173,17 +187,35 @@ const attributeOf = (input: string): Attribute =>
     .map((word) => ATTRIBUTE_WORDS.get(word))
     .find((attribute) => attribute !== undefined) ?? DEFAULT_CHECK_ATTRIBUTE;
 
+type OfferedRoll = Pick<CheckOffer, 'modifiers' | 'difficulty'>;
+
 type CheckSource = (
   events: readonly CampaignEvent[],
   actorId: CharacterId,
   input: string,
   worldProfile: unknown,
   ruleId?: string,
+  offered?: OfferedRoll,
 ) => Check | NoCheck | undefined;
+
+const POOL_RULE = 'check.pool';
+const MIN_POOL_DICE = 1;
+
+const modifiersFor = (
+  events: readonly CampaignEvent[],
+  actorId: CharacterId,
+  ruleId: string,
+  vocabulary: ModifierVocabulary,
+  offered?: OfferedRoll,
+) =>
+  applicableModifiers(
+    mergeModifiers(offered?.modifiers ?? [], conditionModifiersOf(events, actorId, ruleId)),
+    vocabulary.effects,
+  );
 
 const unavailable = (noCheck: NoCheckReason): NoCheck => ({ noCheck });
 
-const d20Check: CheckSource = (events, actorId, input, worldProfile, ruleId) => {
+const d20Check: CheckSource = (events, actorId, input, worldProfile, ruleId, offered) => {
   const parsed = parseCharacterProfile(profileOf(events, actorId, worldProfile));
   const scores = new Map(parsed.ok ? parsed.profile.traits.map(({ id, value }) => [id, value]) : []);
   const written = ATTRIBUTES.some((id) => scores.has(id));
@@ -192,23 +224,50 @@ const d20Check: CheckSource = (events, actorId, input, worldProfile, ruleId) => 
   const sheet = createSheet({ characterId: actorId, attributes: attributes as Record<Attribute, number> });
   const attribute = ruleId === undefined ? attributeOf(input) : D20_LITE_CHECK_RULES[ruleId];
   if (attribute === undefined) return undefined;
+  const modifiers = modifiersFor(events, actorId, ruleId ?? `check.${attribute}`, D20_LITE_VOCABULARY, offered);
+  const { flat, keep } = summarizeModifiers(modifiers);
+  const dc = D20_LITE_VOCABULARY.difficulties[offered?.difficulty ?? ''] ?? DEFAULT_CHECK_DC;
   return (actionId, rng) => {
-    const check = attemptCheck({ actionId, sheet, attribute, dc: DEFAULT_CHECK_DC, rng });
+    const check = attemptCheck({
+      actionId,
+      sheet,
+      attribute,
+      dc,
+      rng,
+      edge: flat,
+      ...(keep === undefined ? {} : { keep }),
+    });
     if (!check.ok) throw new RangeError(check.error.issues.map(({ message }) => message).join(ISSUE_SEPARATOR));
-    return { rolls: check.rolls, events: check.events, bonus: checkBonus({ sheet, attribute }) };
+    const attributeBonus = checkBonus({ sheet, attribute });
+    return {
+      rolls: check.rolls,
+      events: check.events,
+      bonus: attributeBonus + flat,
+      attribute: { id: attribute, value: attributeBonus },
+      target: dc,
+      ...(modifiers.length === 0 ? {} : { modifiers }),
+      ...(keep === undefined ? {} : { keep }),
+    };
   };
 };
 
-const CHECKS: readonly (readonly [RulePackManifest, CheckSource, readonly string[], string])[] = [
-  [D20_LITE_MANIFEST, d20Check, Object.keys(D20_LITE_CHECK_RULES), `1d${D20_SIDES}`],
+const poolCheck: CheckSource = (events, actorId, _input, _profile, ruleId, offered) => {
+  const modifiers = modifiersFor(events, actorId, ruleId ?? POOL_RULE, DICE_POOL_LITE_VOCABULARY, offered);
+  const dice = Math.max(MIN_POOL_DICE, BASE_POOL_DICE + summarizeModifiers(modifiers).dice);
+  return (actionId, rng) => {
+    const roll = rolled(rollPool({ actionId, dice, config: DEFAULT_POOL_CONFIG, rng }));
+    return { rolls: roll.rolls, events: [{ event: roll.outcome }], ...(modifiers.length === 0 ? {} : { modifiers }) };
+  };
+};
+
+const CHECKS: readonly (readonly [RulePackManifest, CheckSource, readonly string[], string, ModifierVocabulary])[] = [
+  [D20_LITE_MANIFEST, d20Check, Object.keys(D20_LITE_CHECK_RULES), `1d${D20_SIDES}`, D20_LITE_VOCABULARY],
   [
     DICE_POOL_LITE_MANIFEST,
-    () => (actionId, rng) => {
-      const roll = rolled(rollPool({ actionId, dice: BASE_POOL_DICE, config: DEFAULT_POOL_CONFIG, rng }));
-      return { rolls: roll.rolls, events: [{ event: roll.outcome }] };
-    },
+    poolCheck,
     DICE_POOL_LITE_CHECK_RULES,
     `${BASE_POOL_DICE}d${DEFAULT_POOL_CONFIG.sides}`,
+    DICE_POOL_LITE_VOCABULARY,
   ],
 ];
 
@@ -263,6 +322,15 @@ export const gmRollExpressionFor = (
   return saved.config.rulepack === null || strictness !== 'off' ? expression : undefined;
 };
 
+export const modifierPolicyOf = (
+  events: readonly CampaignEvent[],
+  strictness: RulesStrictness,
+): ModifierPolicy | undefined => {
+  const saved = parseCampaignConfig(campaignConfigOf(events));
+  if (!saved.ok || strictness === 'off' || !rollsDice(saved.config)) return undefined;
+  return { vocabulary: checkEntryOf(events, strictness)?.[4] ?? NO_VOCABULARY, strictness };
+};
+
 const GM_ROLL_PROBE = `1d${D20_SIDES}`;
 
 export const gmRollsAllowed = (events: readonly CampaignEvent[], strictness: RulesStrictness): boolean =>
@@ -302,13 +370,14 @@ export const checkFor = (
 
 export const offeredCheckFor = (
   events: readonly CampaignEvent[],
-  { ruleId, label }: Pick<CheckOffer, 'ruleId' | 'label'>,
+  offer: Pick<CheckOffer, 'ruleId' | 'label' | 'modifiers' | 'difficulty'>,
   actorId: CharacterId,
   entities = NO_ENTITIES,
 ): Check | undefined => {
+  const { ruleId, label } = offer;
   const entry = checkEntryOf(events, AS_WRITTEN);
   const offered = entry?.[2].includes(ruleId)
-    ? entry[1](events, actorId, label, worldProfileOf(entities, actorId), ruleId)
+    ? entry[1](events, actorId, label, worldProfileOf(entities, actorId), ruleId, offer)
     : undefined;
   return typeof offered === 'function' ? offered : undefined;
 };
@@ -395,6 +464,44 @@ export const checkForAction = (
 const revealsOf = ({ pool, draws }: RollEvent): MechanicReveal[] =>
   pool.dice.flatMap(({ sides }, index) => (draws[index] ?? []).map((face) => ({ kind: 'die', sides, face }) as const));
 
+const KEEP_MODES: readonly KeepMode[] = ['highest', 'lowest'];
+
+const modifierLineOf = (entry: unknown): RollModifierLine[] => {
+  if (!isRecord(entry) || typeof entry.id !== 'string' || typeof entry.reason !== 'string') return [];
+  const { id, reason, effect } = entry;
+  if (!isRecord(effect)) return [];
+  if (effect.kind === 'flat' && Number.isFinite(effect.value)) {
+    return [{ id, reason, kind: 'flat', value: Number(effect.value) }];
+  }
+  if (effect.kind === 'dice' && Number.isFinite(effect.count)) {
+    return [{ id, reason, kind: 'dice', value: Number(effect.count) }];
+  }
+  const which = KEEP_MODES.find((known) => known === effect.which);
+  return effect.kind === 'keep' && which !== undefined ? [{ id, reason, kind: 'keep', which }] : [];
+};
+
+type ResolutionDetail = {
+  readonly attribute?: unknown;
+  readonly modifiers?: unknown;
+  readonly keep?: unknown;
+  readonly target?: unknown;
+};
+
+const breakdownOf = (roll: RollEvent, detail: ResolutionDetail): RollBreakdown | undefined => {
+  const modifiers = Array.isArray(detail.modifiers) ? detail.modifiers.flatMap(modifierLineOf) : [];
+  const { attribute } = detail;
+  const keep = KEEP_MODES.find((known) => known === detail.keep);
+  const hasAttribute = isRecord(attribute) && typeof attribute.id === 'string' && Number.isFinite(attribute.value);
+  const hasTarget = Number.isFinite(detail.target);
+  if (modifiers.length === 0 && !hasAttribute && !hasTarget && keep === undefined) return undefined;
+  return {
+    modifiers,
+    ...(hasAttribute ? { attribute: { id: String(attribute.id), value: Number(attribute.value) } } : {}),
+    ...(hasTarget ? { target: Number(detail.target) } : {}),
+    ...(keep === undefined ? {} : { kept: keptFace(roll.draws.flat(), keep) }),
+  };
+};
+
 export const rollResult = (
   roll: RollEvent,
   visibility: Visibility,
@@ -402,17 +509,23 @@ export const rollResult = (
   bonus = NO_BONUS,
   source?: typeof PLAYER_ROLLED,
   roller?: string,
-): MechanicResult => ({
-  resultId: roll.rollId,
-  mechanic: DICE_MECHANIC,
-  visibility,
-  reveals: revealsOf(roll),
-  modifier: roll.pool.modifier + bonus,
-  total: roll.total + bonus,
-  ...(outcome === undefined ? {} : { outcome }),
-  ...(source === undefined ? {} : { source }),
-  ...(roller === undefined ? {} : { roller }),
-});
+  detail: ResolutionDetail = {},
+): MechanicResult => {
+  const breakdown = breakdownOf(roll, detail);
+  const diceTotal = breakdown?.kept === undefined ? roll.total : roll.pool.modifier + breakdown.kept;
+  return {
+    resultId: roll.rollId,
+    mechanic: DICE_MECHANIC,
+    visibility,
+    reveals: revealsOf(roll),
+    modifier: roll.pool.modifier + bonus,
+    total: diceTotal + bonus,
+    ...(outcome === undefined ? {} : { outcome }),
+    ...(source === undefined ? {} : { source }),
+    ...(roller === undefined ? {} : { roller }),
+    ...(breakdown === undefined ? {} : { breakdown }),
+  };
+};
 
 const outcomeOf = ({ ok, events, error }: Readonly<Record<string, unknown>>) => {
   const source = ok === true ? (Array.isArray(events) ? events[0] : undefined) : error;
@@ -440,9 +553,10 @@ export const resultsOf = (payload: unknown, visibility: Visibility): MechanicRes
   const bonus = Number.isFinite(resolution.bonus) ? Number(resolution.bonus) : NO_BONUS;
   const source = resolution.source === PLAYER_SOURCE ? PLAYER_ROLLED : undefined;
   const roller = rollerLabelOf(payload);
-  return resolution.rolls.flatMap((stored) => {
+  return resolution.rolls.flatMap((stored, index) => {
     const replayed = replayRoll(stored);
-    return replayed.ok ? [rollResult(replayed.event, visibility, outcome, bonus, source, roller)] : [];
+    const detail = index === FIRST_ROLL ? resolution : {};
+    return replayed.ok ? [rollResult(replayed.event, visibility, outcome, bonus, source, roller, detail)] : [];
   });
 };
 

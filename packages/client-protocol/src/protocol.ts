@@ -249,6 +249,8 @@ export type RollOffer = {
   readonly target: string;
   readonly label: string;
   readonly expression?: string;
+  readonly difficulty?: string;
+  readonly modifiers?: readonly { readonly id: string; readonly reason: string }[];
 };
 
 export type NoRoll = { readonly actionId: string; readonly reason: NoCheckReason };

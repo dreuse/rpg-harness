@@ -5,8 +5,11 @@ import type { GmRoute } from '../../../packages/client-protocol/src/wire.ts';
 import { type GmUsage, ROUTE_DEFAULT_MODEL } from '../../../packages/domain/src/gm.ts';
 import type { RulesStrictness } from '../../../packages/domain/src/rules-usage.ts';
 import { VOICE_AGES, VOICE_GENDERS, VOICE_MANNERS } from '../../../packages/domain/src/voice.ts';
+import type { ModifierPolicy } from '../../../packages/engine/src/conditions.ts';
 import type { SummaryLevel } from '../../../packages/memory/src/history.ts';
 import { type ContextPacket, frameData, packetParts } from '../../../packages/memory/src/packet.ts';
+import type { ModifierEffect } from '../../../packages/rules/src/modifiers.ts';
+import { MAX_MODIFIER_VALUE } from '../../../packages/rules/src/modifiers.ts';
 import type { SecretReader } from '../../../packages/voice/src/providers.ts';
 import { type GmProposal, proposalsOf } from './gm-proposals.ts';
 import { toolInputStream } from './gm-segment-stream.ts';
@@ -79,6 +82,33 @@ export const checkRulesPrompt = (ruleIds: readonly string[]): string =>
   `A check proposal has kind "check", a lowercase id, a ruleId from this list, the target and a short label for the roll offer: ${ruleIds.join(', ')}.`;
 export const voiceTraitsPrompt = (npcIds: readonly string[]): string =>
   `These npcs have no voice traits yet: ${npcIds.join(', ')}. Add one voice-traits proposal for each, with kind "voice-traits", a lowercase id, the npc as entityId and voiceTraits holding gender, age and manner.`;
+const effectText = (effect: ModifierEffect): string => {
+  if (effect.kind === 'flat') return effect.value < 0 ? String(effect.value) : `+${effect.value}`;
+  if (effect.kind === 'dice') return `${effect.count < 0 ? '' : '+'}${effect.count} dice`;
+  return `keep ${effect.which}`;
+};
+
+export const modifiersPrompt = ({ vocabulary, strictness }: ModifierPolicy): string => {
+  const { modifiers, conditions, difficulties } = vocabulary;
+  const lines = [
+    'When the situation changes a roll (darkness, cover, a wound, a clear advantage), add modifiers to the check or gm-roll proposal: a list of objects with the id of a modifier, a short reason and, when the rule is quoted, a sourceRule.',
+    modifiers.length === 0
+      ? 'The ruleset lists no modifiers.'
+      : `The ruleset defines these modifiers: ${modifiers.map(({ id, effect }) => `${id} (${effectText(effect)})`).join(', ')}.`,
+    strictness === 'as-written'
+      ? 'Never use a modifier id that is not listed; the engine refuses the whole proposal.'
+      : `You may also propose a modifier of your own: give it a lowercase id, a reason, the sourceRule that names the rule section and an integer value from -${MAX_MODIFIER_VALUE} to ${MAX_MODIFIER_VALUE}.`,
+    conditions.length === 0
+      ? ''
+      : `A lasting effect is a condition: add a condition proposal with kind "condition", a lowercase id, a conditionId and a short reason; the engine adds its modifiers to the player's next matching rolls and ends it when its duration runs out. When your narration sets up one of these, such as a lantern going out or a wound, add its condition proposal in the same reply. Known conditions: ${conditions.map(({ id, duration }) => `${id} (${duration.count} ${duration.unit})`).join(', ')}. End one early with kind "condition-end" and its conditionId.`,
+    Object.keys(difficulties).length === 0
+      ? ''
+      : `A check proposal may set a difficulty: ${Object.keys(difficulties).join(', ')}. Never state the numbers in the narration.`,
+    'Never narrate a bonus or penalty the engine results do not show.',
+  ];
+  return lines.filter((line) => line !== '').join(' ');
+};
+
 export const GM_ROLL_PROMPT = [
   'When you or a non-player character must roll (an attack, a save, damage, initiative, a random table, a hidden check), never invent the number: add a gm-roll proposal.',
   'A gm-roll proposal has kind "gm-roll", a lowercase id, a roller (an npc entity id, or "gm" for yourself), a short reason, a visibility of "shown" or "secret", and either a ruleId from the check list or a dice expression such as 1d20+3.',

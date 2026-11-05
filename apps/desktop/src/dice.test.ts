@@ -137,3 +137,33 @@ test('rpg-42a.39 the outcome word follows the player locale and keeps the rules 
   const unknown = renderRoll(rollPlan(rollOf([die(6, 2)], { outcome: 'hit' }), 'off'), 'es');
   assert.match(unknown, /<strong data-outcome="hit" aria-hidden="true">hit<\/strong>/);
 });
+
+test('rpg-42a.90: the roll card lists the die, the attribute, each modifier with its reason and total against target', () => {
+  const final = {
+    total: 7,
+    modifier: -5,
+    breakdown: {
+      attribute: { id: 'wits', value: -3 },
+      modifiers: [{ id: 'darkness', reason: 'the lantern went out', kind: 'flat', value: -2 }],
+      target: 10,
+    },
+  } as const;
+  const html = (locale: string) => renderRoll(rollPlan(rollOf([die(20, 12)], final), 'off'), locale);
+  const items = (locale: string) => [...html(locale).matchAll(/<li>([^<]*)<\/li>/g)].map(([, text]) => text);
+  assert.deepEqual(items('en'), ['Die 12', 'wits -3', 'darkness -2: the lantern went out', 'Total 7 against 10']);
+  assert.deepEqual(items('pt-BR'), ['Dado 12', 'wits -3', 'darkness -2: the lantern went out', 'Total 7 contra 10']);
+});
+
+test('rpg-42a.90: an advantage roll shows the kept die and the rule it applied', () => {
+  const final = {
+    total: 14,
+    breakdown: { modifiers: [{ id: 'advantage', reason: 'a clear view', kind: 'keep', which: 'highest' }], kept: 17 },
+  } as const;
+  const html = renderRoll(rollPlan(rollOf([die(20, 3), die(20, 17)], final), 'off'), LOCALE);
+  assert.match(html, /<li>Die 17 \(3, 17\)<\/li>/);
+  assert.match(html, /<li>advantage keep the higher die: a clear view<\/li>/);
+});
+
+test('rpg-42a.90: a card without a breakdown renders no breakdown list', () => {
+  assert.doesNotMatch(renderRoll(rollPlan(rollOf([die(20, 12)], { total: 12 }), 'off'), LOCALE), /data-roll-breakdown/);
+});

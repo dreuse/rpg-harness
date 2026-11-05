@@ -1076,3 +1076,29 @@ test('rpg-42a.89: a roll an NPC made is labelled with the NPC name in the termin
   assert.match(rollFrames(npcRoll, ROLL_STEPS).at(-1) ?? '', /; rolled by Old Tam$/);
   assert.match(rollFrames(npcRoll, ROLL_STEPS, 'pt-BR').at(-1) ?? '', /; rolada por Old Tam$/);
 });
+
+test('rpg-42a.90: the terminal roll line breaks the total down in English and Brazilian Portuguese', () => {
+  const event = toVisualizationEvent(
+    {
+      resultId: 'r-breakdown',
+      mechanic: 'dice',
+      visibility: 'player',
+      reveals: [{ kind: 'die', sides: 20, face: 12 }],
+      total: 7,
+      modifier: -5,
+      breakdown: {
+        attribute: { id: 'wits', value: -3 },
+        modifiers: [{ id: 'darkness', reason: 'the lantern went out', kind: 'flat', value: -2 }],
+        target: 10,
+      },
+    },
+    'player',
+    { enabled: true },
+  );
+  assert.ok(event);
+  assert.match(
+    rollFrames(event, ROLL_STEPS).at(-1) ?? '',
+    /; Die 12; wits -3; darkness -2: the lantern went out; Total 7 against 10$/,
+  );
+  assert.match(rollFrames(event, ROLL_STEPS, 'pt-BR').at(-1) ?? '', /; Dado 12; wits -3; .*; Total 7 contra 10$/);
+});

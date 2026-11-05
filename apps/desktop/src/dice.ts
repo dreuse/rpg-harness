@@ -1,5 +1,6 @@
 import { PROTOCOL_VERSION } from '../../../packages/client-protocol/src/protocol.ts';
 import {
+  breakdownLines,
   dieShapeOf,
   GENERIC_DIE,
   type MotionSetting,
@@ -102,6 +103,14 @@ const rollOutcome = ({ outcome }: VisualizationFinal, locale: string) => {
   return `<strong data-outcome="${escapeHtml(outcomeLabel(outcome))}" aria-hidden="true">${word}</strong>`;
 };
 
+const rollBreakdown = ({ groups, final }: RollPlan, locale: string) => {
+  const faces = groups.flatMap(({ dice }) => dice.flatMap((die) => finalFace(die) ?? []));
+  const lines = breakdownLines(faces, final, translate, locale);
+  return lines.length === 0
+    ? ''
+    : `<ul data-roll-breakdown>${lines.map((line) => `<li>${escapeHtml(line)}</li>`).join('')}</ul>`;
+};
+
 export const renderRoll = (plan: RollPlan, locale: string) =>
   `<figure data-roll data-animated="${plan.animated}"><div data-roll-result><div data-dice>${plan.groups
     .map(
@@ -109,7 +118,7 @@ export const renderRoll = (plan: RollPlan, locale: string) =>
     )
     .join(
       '',
-    )}${plan.tokens.map((label) => `<span data-token>${escapeHtml(label)}</span>`).join('')}</div>${rollTotal(plan.final)}${rollOutcome(plan.final, locale)}</div><figcaption>${escapeHtml(rollSummary(plan, locale))}</figcaption>${plan.animated ? `<button type="button" data-roll-skip>${escapeHtml(translate(locale, 'roll.skip'))}</button>` : ''}</figure>`;
+    )}${plan.tokens.map((label) => `<span data-token>${escapeHtml(label)}</span>`).join('')}</div>${rollTotal(plan.final)}${rollOutcome(plan.final, locale)}</div>${rollBreakdown(plan, locale)}<figcaption>${escapeHtml(rollSummary(plan, locale))}</figcaption>${plan.animated ? `<button type="button" data-roll-skip>${escapeHtml(translate(locale, 'roll.skip'))}</button>` : ''}</figure>`;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -136,6 +145,7 @@ export const parseVisualization = (message: Record<string, unknown>): Visualizat
     isOptional(final.total, 'number') &&
     isOptional(final.outcome, 'string') &&
     isOptional(final.modifier, 'number') &&
-    isOptional(final.roller, 'string');
+    isOptional(final.roller, 'string') &&
+    (final.breakdown === undefined || (isRecord(final.breakdown) && Array.isArray(final.breakdown.modifiers)));
   return valid ? (message as VisualizationEvent) : undefined;
 };

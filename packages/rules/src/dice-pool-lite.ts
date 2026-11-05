@@ -1,5 +1,6 @@
 import { creationRulesOf } from './character-builder.ts';
 import { createRoller, MAX_DICE_PER_TERM, MAX_SIDES, MIN_SIDES, type Rng, type TrustedRoll } from './dice.ts';
+import type { ModifierVocabulary } from './modifiers.ts';
 import {
   isNonEmptyString,
   isRecord,
@@ -27,6 +28,20 @@ export const DICE_POOL_LITE_MANIFEST: RulePackManifest = {
   resolution: 'dice',
   sheet: 'full',
   sourceRefs: [],
+};
+
+export const DICE_POOL_LITE_VOCABULARY: ModifierVocabulary = {
+  modifiers: [
+    { id: 'help', label: 'Help', effect: { kind: 'dice', count: 1 } },
+    { id: 'hindered', label: 'Hindered', effect: { kind: 'dice', count: -1 } },
+    { id: 'wounded', label: 'Wounded', effect: { kind: 'dice', count: -1 } },
+  ],
+  conditions: [
+    { id: 'wounded', label: 'Wounded', modifiers: ['wounded'], duration: { unit: 'turns', count: 3 } },
+    { id: 'hindered', label: 'Hindered', modifiers: ['hindered'], duration: { unit: 'scenes', count: 1 } },
+  ],
+  difficulties: {},
+  effects: ['dice'],
 };
 
 export const DICE_POOL_LITE_CHECK_RULES: readonly string[] = ['check.pool'];

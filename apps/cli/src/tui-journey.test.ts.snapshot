@@ -108,15 +108,15 @@ exports[`rpg-42a.17 TUI journey: first run, guided start, roll, sheet edit, quit
         "┃                                                                              ┃",
         "┃                                                                              ┃",
         "┃                                                                              ┃",
-        "┃                                                                              ┃",
         "┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛",
-        "dice: d20 -> 11; modifier +1; total 12; outcome success"
+        "dice: d20 -> 11; modifier +1; total 12; outcome success; Die 11; might +1; Total",
+        "12 against 10"
       ],
       [
         "1 Conversation 2 Sheet 3 Event log [4 Mechanics]",
         "┏━ Mechanics ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓",
-        "┃ dice: d20 -> 11; modifier +1; total 12; outcome success                      ┃",
-        "┃                                                                              ┃",
+        "┃ dice: d20 -> 11; modifier +1; total 12; outcome success; Die 11; might +1;   ┃",
+        "┃ Total 12 against 10                                                          ┃",
         "┃                                                                              ┃",
         "┃                                                                              ┃",
         "┃                                                                              ┃",
@@ -386,14 +386,14 @@ exports[`rpg-42a.17 TUI journey: first run, guided start, roll, sheet edit, quit
         "┃                                                                      ┃│                                              │",
         "┃                                                                      ┃│                                              │",
         "┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛╰──────────────────────────────────────────────╯",
-        "dice: d20 -> 11; modifier +1; total 12; outcome success"
+        "dice: d20 -> 11; modifier +1; total 12; outcome success; Die 11; might +1; Total 12 against 10"
       ],
       [
         "1 Conversation 2 Sheet 3 Event log [4 Mechanics]",
         "╭─ Conversation ───────────────────────────────────────────────────────╮┏━ Mechanics ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓",
         "│ Scene: Fantasy                                                       │┃ dice: d20 -> 11; modifier +1; total 12;      ┃",
-        "│ A bell tolls in a drowned chapel that has been silent for a hundred  │┃ outcome success                              ┃",
-        "│ years.                                                               │┃                                              ┃",
+        "│ A bell tolls in a drowned chapel that has been silent for a hundred  │┃ outcome success; Die 11; might +1; Total 12  ┃",
+        "│ years.                                                               │┃ against 10                                   ┃",
         "│ Wren: I try to climb the wall                                        │┃                                              ┃",
         "│ The world shifts in answer.                                          │┃                                              ┃",
         "│                                                                      │┃                                              ┃",

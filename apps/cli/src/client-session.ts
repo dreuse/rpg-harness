@@ -345,7 +345,16 @@ export const createClientSessions = (
             readWorld(campaignId, characters[0]?.id).entities,
           )
         : undefined;
-    const rollOffer = pending === undefined || expression === undefined ? pending : { ...pending, expression };
+    const rollOffer =
+      pending === undefined
+        ? undefined
+        : {
+            ...pending,
+            ...(pending.modifiers === undefined
+              ? {}
+              : { modifiers: pending.modifiers.map(({ id, reason }) => ({ id, reason })) }),
+            ...(expression === undefined ? {} : { expression }),
+          };
     const noRoll = noRollOf(state);
     return deepFreeze(
       structuredClone({

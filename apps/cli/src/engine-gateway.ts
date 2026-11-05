@@ -144,6 +144,7 @@ import {
   enforcedStrictnessFor,
   gmRollExpressionFor,
   gmRollsAllowed,
+  modifierPolicyOf,
   rulesStrictnessFor,
   whoRollsFor,
 } from './roll-visualization.ts';
@@ -479,6 +480,7 @@ const narrateLatest = async (
         drafted.proposals ?? [],
         (spec) => gmRollExpressionFor(state.events, strictness, spec),
         rng,
+        modifierPolicyOf(state.events, strictness),
       ).flatMap(({ events }) =>
         events
           .filter(({ type }) => type === GM_ROLLED)
@@ -519,6 +521,7 @@ const narrateLatest = async (
       committed,
       proposals,
       checkRulesFor(state.events, rulesStrictnessFor(state, defaults)),
+      modifierPolicyOf(state.events, rulesStrictnessFor(state, defaults)),
     );
   }
   if (sent !== undefined)

@@ -24,6 +24,8 @@ export type NoCheckReason = (typeof NO_CHECK_REASONS)[number];
 export const CHECK_OFFERED = 'CheckOffered';
 export const GM_ROLLED = 'GmRolled';
 export const ROLL_REPORTED = 'RollReported';
+export const CONDITION_APPLIED = 'ConditionApplied';
+export const CONDITION_REMOVED = 'ConditionRemoved';
 export const EVENT_BUCKETS = ['background', 'emerging', 'major', 'critical'] as const;
 export type EventBucket = (typeof EVENT_BUCKETS)[number];
 

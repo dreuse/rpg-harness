@@ -58,6 +58,7 @@ import {
   checkRulesPrompt,
   GM_ROLL_PROMPT,
   languageInstruction,
+  modifiersPrompt,
   noCheckPrompt,
   OPENING_PROMPT,
   RULES_RETRY_PROMPT,
@@ -69,7 +70,13 @@ import {
 import { budgetOf } from './gm-limits.ts';
 import { COMPARED_NARRATIONS, closingSentencesOf } from './gm-repetition.ts';
 import { describeConfig, styleLinesOf } from './quickstart.ts';
-import { checkRulesFor, enforcedStrictnessFor, gmRollsAllowed, rulesStrictnessFor } from './roll-visualization.ts';
+import {
+  checkRulesFor,
+  enforcedStrictnessFor,
+  gmRollsAllowed,
+  modifierPolicyOf,
+  rulesStrictnessFor,
+} from './roll-visualization.ts';
 import { panelsOf } from './views.ts';
 
 export const SCENE_TURN_LIMIT = 20;
@@ -164,6 +171,12 @@ const strictnessInstructions = (config: ReturnType<typeof configOf>, state: Camp
   return [RULES_STRICTNESS_PROMPTS[strictness], ...(ruleIds.length === NONE ? [] : [checkRulesPrompt(ruleIds)])];
 };
 
+const modifierInstructions = (state: CampaignState, defaults: GmSettings) => {
+  const policy = modifierPolicyOf(state.events, rulesStrictnessFor(state, defaults));
+  const empty = policy?.vocabulary.modifiers.length === NONE && policy.strictness === 'as-written';
+  return policy === undefined || empty ? [] : [modifiersPrompt(policy)];
+};
+
 export const contextPacketOf = (
   database: DatabaseSync,
   state: CampaignState,
@@ -236,6 +249,7 @@ export const contextPacketOf = (
         ...(language === undefined ? [] : [languageInstruction(language)]),
         ...strictnessInstructions(config, state, defaults),
         ...(gmRollsAllowed(state.events, rulesStrictnessFor(state, defaults)) ? [GM_ROLL_PROMPT] : []),
+        ...modifierInstructions(state, defaults),
         ...committed.events
           .filter(({ type }) => type === CHECK_SKIPPED)
           .map(({ payload }) => noCheckPrompt(String(payload.reason))),

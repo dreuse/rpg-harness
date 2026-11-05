@@ -19,10 +19,12 @@ import { createCampaignStore } from '../../../packages/persistence/src/campaign-
 import { openDatabase } from '../../../packages/persistence/src/database.ts';
 import { createEntityStore, createFactStore } from '../../../packages/persistence/src/entity-store.ts';
 import { createEventStore } from '../../../packages/persistence/src/event-store.ts';
+import { D20_LITE_VOCABULARY } from '../../../packages/rules/src/d20-lite.ts';
 import {
   checkRulesPrompt,
   GM_ROLL_PROMPT,
   languageInstruction,
+  modifiersPrompt,
   RULES_RETRY_PROMPT,
   RULES_STRICTNESS_PROMPTS,
   repetitionRetryPrompt,
@@ -402,6 +404,9 @@ it('rpg-42a.58 a campaign without a RulePack carries no style and no strictness 
   fixture.connection.close();
 });
 
+const d20ModifiersLine = (strictness: 'as-written' | 'relaxed') =>
+  modifiersPrompt({ vocabulary: D20_LITE_VOCABULARY, strictness });
+
 const d20CheckRulesLine = (fixture: ReturnType<typeof campaign>) => {
   const state = fixture.store.load(CAMPAIGN.id);
   assert.ok(state);
@@ -426,6 +431,7 @@ it('rpg-42a.58 tells the GM the strictness: as-written by default, then the save
     RULES_STRICTNESS_PROMPTS['as-written'],
     d20CheckRulesLine(fixture),
     GM_ROLL_PROMPT,
+    d20ModifiersLine('as-written'),
   ]);
   chooseStrictness(fixture.store, 'relaxed', 'relax');
   assert.deepEqual(instructionsOf(fixture, committed), [
@@ -433,6 +439,7 @@ it('rpg-42a.58 tells the GM the strictness: as-written by default, then the save
     RULES_STRICTNESS_PROMPTS.relaxed,
     d20CheckRulesLine(fixture),
     GM_ROLL_PROMPT,
+    d20ModifiersLine('relaxed'),
   ]);
   chooseStrictness(fixture.store, 'off', 'off');
   assert.deepEqual(instructionsOf(fixture, committed), [SYSTEM_PROMPT, RULES_STRICTNESS_PROMPTS.off]);
@@ -450,6 +457,7 @@ it('rpg-42a.58 a regeneration packet adds the retry line after the strictness li
     RULES_STRICTNESS_PROMPTS['as-written'],
     d20CheckRulesLine(fixture),
     GM_ROLL_PROMPT,
+    d20ModifiersLine('as-written'),
     RULES_RETRY_PROMPT,
   ]);
   fixture.connection.close();

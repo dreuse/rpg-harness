@@ -278,3 +278,49 @@ describe('rpg-42a.43 GM proposals', () => {
     assert.deepEqual(pending, []);
   });
 });
+
+describe('rpg-42a.90 modifier and condition proposals', () => {
+  const check = { kind: 'check', id: 'read-map', ruleId: 'check.wits', target: 'the map', label: 'Read the map' };
+  const darkness = { id: 'darkness', reason: 'the lantern went out', sourceRule: 'darkness' };
+  const parse = (...proposals: unknown[]) => proposalsOf({ proposals });
+
+  it('parses modifiers, a difficulty, a condition and its end', () => {
+    const parsed = parse(
+      { ...check, difficulty: 'hard', modifiers: [darkness, { id: 'moonlit', reason: 'bright moon', value: 1 }] },
+      {
+        kind: 'condition',
+        id: 'lantern-out',
+        conditionId: 'darkened',
+        reason: 'it gutters',
+        duration: { unit: 'scenes', count: 1 },
+      },
+      { kind: 'condition-end', id: 'lit', conditionId: 'darkened' },
+    );
+    assert.equal(parsed?.length, 3);
+  });
+
+  it('refuses a modifier with a blank reason, an out-of-bounds value or an unknown field', () => {
+    for (const modifier of [
+      { ...darkness, reason: ' ' },
+      { id: 'big', reason: 'x', value: 11 },
+      { id: 'frac', reason: 'x', value: 1.5 },
+      { ...darkness, effect: { kind: 'flat', value: 99 } },
+    ])
+      assert.equal(parse({ ...check, modifiers: [modifier] }), undefined);
+  });
+
+  it('refuses a bad condition duration', () => {
+    for (const duration of [
+      { unit: 'years', count: 1 },
+      { unit: 'turns', count: 0 },
+      { unit: 'turns', count: 1000 },
+    ])
+      assert.equal(parse({ kind: 'condition', id: 'x', conditionId: 'darkened', reason: 'r', duration }), undefined);
+  });
+
+  it('declares the modifier and condition shapes in the tool schema', () => {
+    const text = JSON.stringify(PROPOSALS_SCHEMA);
+    for (const needle of ['"condition"', '"condition-end"', 'modifiers', 'difficulty', 'sourceRule'])
+      assert.ok(text.includes(needle), needle);
+  });
+});

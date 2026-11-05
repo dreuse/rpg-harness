@@ -1,6 +1,14 @@
 import { type CampaignStore, type CommittedTurn, GM_ROLLED, type TurnVisibility } from '../../domain/src/campaign.ts';
 import type { EntityKind, EntityStore, Visibility } from '../../domain/src/entity.ts';
-import { createRoller, parseDiceExpression, type Rng } from '../../rules/src/dice.ts';
+import { createRoller, type DicePool, parseDiceExpression, type Rng } from '../../rules/src/dice.ts';
+import {
+  type EffectKind,
+  type ModifierRequest,
+  NO_VOCABULARY,
+  resolveModifiers,
+  summarizeModifiers,
+} from '../../rules/src/modifiers.ts';
+import type { ModifierPolicy } from './conditions.ts';
 import { commitSystem, loadState, type PlayerAction, recorded, replayOf, requireValid, validate } from './turn.ts';
 
 export const GM_ROLLER = 'gm';
@@ -15,10 +23,12 @@ export type GmRollRequest = {
   readonly reason: string;
   readonly visibility: GmRollVisibility;
   readonly expression: string;
+  readonly modifiers?: readonly ModifierRequest[];
 };
 
 export type GmRolling = PlayerAction & { readonly gmRoll: GmRollRequest };
 
+const GM_ROLL_EFFECTS: readonly EffectKind[] = ['flat'];
 const NPC_KIND: EntityKind = 'npc';
 const ROLL_ID_SUFFIX = ':gm-roll';
 const PLAYER_KNOWN: readonly Visibility[] = ['public', 'player'];
@@ -29,9 +39,15 @@ export const gmRollIdOf = (actionId: string): string | undefined => {
   return at < 0 ? undefined : actionId.slice(at + GM_ROLL_ACTION_INFIX.length);
 };
 
-export const rollForGm = (store: CampaignStore, entities: EntityStore, input: GmRolling, rng: Rng): CommittedTurn => {
+export const rollForGm = (
+  store: CampaignStore,
+  entities: EntityStore,
+  input: GmRolling,
+  rng: Rng,
+  policy?: ModifierPolicy,
+): CommittedTurn => {
   const { campaignId, actionId, gmRoll } = input;
-  const { roller, reason, visibility, expression } = gmRoll;
+  const { roller, reason, visibility, expression, modifiers = [] } = gmRoll;
   const state = loadState(store, campaignId);
   const stored = replayOf(store, state, input, recorded(GM_ROLLED, { roller, reason, visibility, expression }));
   if (stored !== undefined) return stored;
@@ -48,7 +64,25 @@ export const rollForGm = (store: CampaignStore, entities: EntityStore, input: Gm
   );
   const pool = parseDiceExpression(expression);
   requireValid(actionId, pool !== undefined, `dice expression ${expression} is invalid`);
-  const rolled = createRoller(rng)(`${actionId}${ROLL_ID_SUFFIX}`, pool);
+  requireValid(actionId, modifiers.length === 0 || policy !== undefined, 'modifiers need a rulepack');
+  const resolved = resolveModifiers(
+    policy?.vocabulary ?? NO_VOCABULARY,
+    modifiers,
+    policy?.strictness ?? 'as-written',
+    GM_ROLL_EFFECTS,
+  );
+  requireValid(actionId, resolved.ok, resolved.ok ? '' : resolved.issues.map(({ message }) => message).join('; '));
+  const applied = resolved.ok ? resolved.applied : [];
+  const summary = summarizeModifiers(applied);
+  requireValid(
+    actionId,
+    applied.every(({ effect }) => effect.kind === 'flat'),
+    'a gm roll takes flat modifiers only',
+  );
+  const rolled = createRoller(rng)(`${actionId}${ROLL_ID_SUFFIX}`, {
+    ...(pool as DicePool),
+    modifier: (pool as DicePool).modifier + summary.flat,
+  });
   if (!rolled.ok) throw new RangeError(rolled.issues.map(({ message }) => message).join('; '));
   return commitSystem(store, input, [
     [
@@ -59,7 +93,12 @@ export const rollForGm = (store: CampaignStore, entities: EntityStore, input: Gm
         reason,
         visibility,
         expression,
-        resolution: { ok: true, rolls: [rolled.roll], events: [] },
+        resolution: {
+          ok: true,
+          rolls: [rolled.roll],
+          events: [],
+          ...(applied.length === 0 ? {} : { modifiers: applied }),
+        },
       },
       EVENT_VISIBILITY[visibility],
     ],

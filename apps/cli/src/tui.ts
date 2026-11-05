@@ -12,6 +12,7 @@ import {
 } from '../../../packages/client-protocol/src/protocol.ts';
 import { SHEET_VIEW } from '../../../packages/client-protocol/src/view-registry.ts';
 import {
+  breakdownLines,
   type MechanicReveal,
   outcomeText,
   tumbleFaces,
@@ -267,6 +268,12 @@ const indicator = ({ mechanic, frames, final }: VisualizationEvent, locale = DEF
       : [say(locale, 'dice.outcome', { value: outcomeText(say, locale, final.outcome) })]),
     ...(final.source === undefined ? [] : [say(locale, 'dice.reported')]),
     ...(final.roller === undefined ? [] : [say(locale, 'dice.roller', { name: final.roller })]),
+    ...breakdownLines(
+      frames.flatMap(({ reveal: shown }) => (shown.kind === 'die' ? [shown.face] : [])),
+      final,
+      say,
+      locale,
+    ),
   ].join('; ');
 
 const spinning = ({ mechanic, frames }: VisualizationEvent, step: number, tumbles: readonly number[][]) =>

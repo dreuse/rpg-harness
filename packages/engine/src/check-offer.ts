@@ -6,17 +6,25 @@ import {
   type CommittedTurn,
   PLAYER_ACTION_SUBMITTED,
 } from '../../domain/src/campaign.ts';
+import { type AppliedModifier, type ModifierRequest, resolveModifiers } from '../../rules/src/modifiers.ts';
 import { isRecord } from '../../rules/src/rulepack.ts';
-import { commitSystem, loadState, type PlayerAction, recorded, replayOf, validate } from './turn.ts';
+import type { ModifierPolicy } from './conditions.ts';
+import { commitSystem, loadState, type PlayerAction, replayOf, requireValid, validate } from './turn.ts';
 
 export type CheckOffer = {
   readonly offerId: string;
   readonly ruleId: string;
   readonly target: string;
   readonly label: string;
+  readonly difficulty?: string;
+  readonly modifiers?: readonly AppliedModifier[];
 };
 
-export type CheckOffering = PlayerAction & { readonly offer: CheckOffer };
+export type CheckOffering = PlayerAction & {
+  readonly offer: CheckOffer;
+  readonly requested?: readonly ModifierRequest[];
+  readonly policy?: ModifierPolicy;
+};
 
 const OFFER_FIELDS = ['offerId', 'ruleId', 'target', 'label'] as const;
 const NOT_FOUND = -1;
@@ -29,12 +37,38 @@ const offerOf = (payload: CampaignEvent['payload']): CheckOffer | undefined => {
     : undefined;
 };
 
+const withModifiers = ({ actionId, offer, requested = [], policy }: CheckOffering): CheckOffer => {
+  const { difficulty } = offer;
+  const known =
+    difficulty === undefined || (policy !== undefined && Object.hasOwn(policy.vocabulary.difficulties, difficulty));
+  requireValid(actionId, known, `difficulty ${difficulty} is not in the rulepack`);
+  if (requested.length === 0) return offer;
+  requireValid(actionId, policy !== undefined, 'modifiers need a rulepack');
+  const resolved = resolveModifiers(
+    (policy as ModifierPolicy).vocabulary,
+    requested,
+    (policy as ModifierPolicy).strictness,
+  );
+  requireValid(actionId, resolved.ok, resolved.ok ? '' : resolved.issues.map(({ message }) => message).join('; '));
+  return { ...offer, modifiers: resolved.ok ? resolved.applied : [] };
+};
+
 export const offerCheck = (store: CampaignStore, input: CheckOffering): CommittedTurn => {
   const state = loadState(store, input.campaignId);
-  const stored = replayOf(store, state, input, recorded(CHECK_OFFERED, { offer: input.offer }));
+  const { offerId, ruleId } = input.offer;
+  const stored = replayOf(store, state, input, ({ events }) =>
+    events.some(
+      ({ type, payload }) =>
+        type === CHECK_OFFERED &&
+        isRecord(payload.offer) &&
+        payload.offer.offerId === offerId &&
+        payload.offer.ruleId === ruleId,
+    ),
+  );
   if (stored !== undefined) return stored;
   validate(state, input);
-  return commitSystem(store, input, [[CHECK_OFFERED, { offer: input.offer }, 'player']]);
+  const offer = withModifiers(input);
+  return commitSystem(store, input, [[CHECK_OFFERED, { offer }, 'player']]);
 };
 
 export const pendingCheckOffer = (events: readonly CampaignEvent[]): CheckOffer | undefined => {

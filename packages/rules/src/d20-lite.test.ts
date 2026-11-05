@@ -14,6 +14,7 @@ import {
   D20_LITE_RULES,
   DRAUGHT,
   gainExperience,
+  keptFace,
   rollInitiative,
   XP_PER_LEVEL,
 } from './d20-lite.ts';
@@ -338,4 +339,36 @@ test('d20-lite supplies creation rules that build a pinned character from attrib
     ...ATTRIBUTES,
   ]);
   assert.equal(build({ might: ATTRIBUTE_MAX + 1, agility: 5, wits: 5, presence: 5 }).status, 'rejected');
+});
+
+test('advantage keeps the higher of two d20 and disadvantage the lower', () => {
+  const roll = (keep: 'highest' | 'lowest') =>
+    attemptCheck({
+      actionId: ACTION_ID,
+      sheet: hero(),
+      attribute: 'wits',
+      dc: HARD_DC,
+      keep,
+      rng: faces([LOW_FACE, D20], [HIGH_FACE, D20]),
+    });
+  const high = roll('highest');
+  const low = roll('lowest');
+  assert.ok(high.ok && low.ok);
+  assert.deepEqual(high.rolls[0]?.draws, [[LOW_FACE, HIGH_FACE]]);
+  assert.equal(keptFace(high.rolls[0]?.draws.flat() ?? [], 'highest'), HIGH_FACE);
+  assert.equal(keptFace(low.rolls[0]?.draws.flat() ?? [], 'lowest'), LOW_FACE);
+  const dc = HIGH_FACE;
+  const outcome = (keep: 'highest' | 'lowest') =>
+    eventsOf(
+      attemptCheck({
+        actionId: ACTION_ID,
+        sheet: hero(),
+        attribute: 'wits',
+        dc,
+        keep,
+        rng: faces([LOW_FACE, D20], [HIGH_FACE, D20]),
+      }),
+    );
+  assert.deepEqual(outcome('highest'), ['check.success']);
+  assert.deepEqual(outcome('lowest'), ['check.failure']);
 });

@@ -27,6 +27,7 @@ import {
   type TurnVisibility,
 } from '../../domain/src/campaign.ts';
 import type { Rng, RollEvent } from '../../rules/src/dice.ts';
+import type { AppliedModifier, KeepMode } from '../../rules/src/modifiers.ts';
 
 export type PlayerAction = {
   readonly campaignId: CampaignId;
@@ -42,6 +43,10 @@ export type CheckResolution = {
   readonly rolls: readonly RollEvent[];
   readonly events: readonly { readonly event: string }[];
   readonly bonus?: number;
+  readonly attribute?: { readonly id: string; readonly value: number };
+  readonly modifiers?: readonly AppliedModifier[];
+  readonly keep?: KeepMode;
+  readonly target?: number;
   readonly source?: typeof PLAYER_SOURCE;
   readonly reported?: readonly number[];
 };
@@ -138,7 +143,13 @@ export const toCommittedTurn = (
   };
   const event = (causationId: string | null, type: string, payload: Record<string, unknown>): CampaignEvent =>
     turnEvent(turn, causationId, type, payload);
-  const submitted = event(null, PLAYER_ACTION_SUBMITTED, { actorId, sceneId, input, intent });
+  const submitted = event(null, PLAYER_ACTION_SUBMITTED, {
+    actorId,
+    sceneId,
+    input,
+    intent,
+    ...(kind === SYSTEM_TURN ? { system: true } : {}),
+  });
   return { turn, events: [submitted, event(submitted.id, ACTION_VALIDATED, { revision: expectedRevision + 1 })] };
 };
 
