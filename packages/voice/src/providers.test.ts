@@ -65,14 +65,27 @@ const SECURITY_FAILURE = 51;
 interface ExecCall {
   readonly command: string;
   readonly args: readonly string[];
+  readonly input?: string;
 }
 
-const fakeExec = (stdout: string, exitCode: number, calls: ExecCall[] = []): KeychainExec => {
-  return async (command, args) => {
-    calls.push({ command, args });
-    return { stdout, exitCode };
+const fakeExec = (stdout: string, exitCode: number, calls: ExecCall[] = [], stderr = ''): KeychainExec => {
+  return async (command, args, input) => {
+    calls.push({ command, args, ...(input === undefined ? {} : { input }) });
+    return { stdout, stderr, exitCode };
   };
 };
+
+const QUOTED_TOKEN = /"((?:[^"\\]|\\.)*)"|(\S+)/g;
+const ESCAPED_CHARACTER = /\\(.)/g;
+
+const parseSecurityLine = (line: string): string[] =>
+  [...line.trimEnd().matchAll(QUOTED_TOKEN)].map(([, quoted, bare]) =>
+    quoted === undefined ? (bare ?? '') : quoted.replace(ESCAPED_CHARACTER, '$1'),
+  );
+
+const TRICKY_SECRET = 'a "quoted" back\\slash \\" end\\';
+const LINE_BREAKING_VALUES = ['line\nbreak', 'carriage\rreturn', 'nul\0byte'] as const;
+const OVERSIZED_SECRET_LENGTH = 5000;
 
 const failingReader = { get: async () => Promise.reject(new Error(`keychain locked ${API_KEY}`)) };
 
@@ -202,10 +215,70 @@ test('allow local/provider choice, api key safe storage and availability diagnos
     assert.deepEqual(calls, [
       {
         command: 'security',
-        args: ['add-generic-password', '-U', '-s', KEYCHAIN_SERVICE, '-a', REMOTE_STT_ID, '-w', API_KEY],
+        args: ['-i'],
+        input: `add-generic-password -U -s "${KEYCHAIN_SERVICE}" -a "${REMOTE_STT_ID}" -w "${API_KEY}"\n`,
       },
       { command: 'security', args: ['delete-generic-password', '-s', KEYCHAIN_SERVICE, '-a', REMOTE_STT_ID] },
     ]);
+  });
+
+  await t.test('never passes the macOS keychain password in process arguments', async () => {
+    const calls: ExecCall[] = [];
+    await macosKeychainBackend(fakeExec('', 0, calls)).setPassword(KEYCHAIN_SERVICE, REMOTE_STT_ID, API_KEY);
+    assert.equal(calls.length, 1);
+    assert.ok(calls.every((call) => call.args.every((arg) => !arg.includes(API_KEY))));
+  });
+
+  await t.test('quotes secrets with quotes, backslashes and spaces for security interactive mode', async () => {
+    const calls: ExecCall[] = [];
+    const account = 'odd "acct" \\';
+    await macosKeychainBackend(fakeExec('', 0, calls)).setPassword(KEYCHAIN_SERVICE, account, TRICKY_SECRET);
+    assert.deepEqual(parseSecurityLine(calls[0]?.input ?? ''), [
+      'add-generic-password',
+      '-U',
+      '-s',
+      KEYCHAIN_SERVICE,
+      '-a',
+      account,
+      '-w',
+      TRICKY_SECRET,
+    ]);
+  });
+
+  await t.test('rejects an oversized security command line before running any command', async () => {
+    const calls: ExecCall[] = [];
+    const backend = macosKeychainBackend(fakeExec('', 0, calls));
+    await assert.rejects(
+      backend.setPassword(KEYCHAIN_SERVICE, REMOTE_STT_ID, 'x'.repeat(OVERSIZED_SECRET_LENGTH)),
+      Error,
+    );
+    assert.deepEqual(calls, []);
+  });
+
+  await t.test('rejects an empty keychain password before running any command', async () => {
+    const calls: ExecCall[] = [];
+    const backend = macosKeychainBackend(fakeExec('', 0, calls));
+    await assert.rejects(backend.setPassword(KEYCHAIN_SERVICE, REMOTE_STT_ID, ''), Error);
+    assert.deepEqual(calls, []);
+  });
+
+  await t.test('rejects line breaks and NUL in keychain values before running any command', async () => {
+    const calls: ExecCall[] = [];
+    const backend = macosKeychainBackend(fakeExec('', 0, calls));
+    for (const value of LINE_BREAKING_VALUES) {
+      await assert.rejects(backend.setPassword(KEYCHAIN_SERVICE, REMOTE_STT_ID, value), Error);
+      await assert.rejects(backend.setPassword(value, REMOTE_STT_ID, API_KEY), Error);
+      await assert.rejects(backend.setPassword(KEYCHAIN_SERVICE, value, API_KEY), Error);
+    }
+    assert.deepEqual(calls, []);
+  });
+
+  await t.test('treats security interactive error output as a failed write', async () => {
+    const backend = macosKeychainBackend(fakeExec('', 0, [], `add-generic-password: returned 2 ${API_KEY}`));
+    await assert.rejects(
+      backend.setPassword(KEYCHAIN_SERVICE, REMOTE_STT_ID, API_KEY),
+      (error: unknown) => error instanceof Error && !inspect(error).includes(API_KEY),
+    );
   });
 
   await t.test('throws on macOS keychain failures without exposing the password', async () => {

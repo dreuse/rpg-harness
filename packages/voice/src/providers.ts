@@ -87,18 +87,23 @@ export const keychainSecretStore = (backend: KeychainBackend): SecretStore => ({
 
 export interface KeychainExecResult {
   readonly stdout: string;
+  readonly stderr?: string;
   readonly exitCode: number;
 }
 
-export type KeychainExec = (command: string, args: readonly string[]) => Promise<KeychainExecResult>;
+export type KeychainExec = (command: string, args: readonly string[], input?: string) => Promise<KeychainExecResult>;
 
 const SECURITY_COMMAND = 'security';
+const SECURITY_INTERACTIVE = '-i';
 const SECURITY_FIND = 'find-generic-password';
 const SECURITY_ADD = 'add-generic-password';
 const SECURITY_DELETE = 'delete-generic-password';
 const SECURITY_SUCCESS = 0;
 const SECURITY_ITEM_NOT_FOUND = 44;
 const TRAILING_NEWLINE = /\r?\n$/;
+const UNQUOTABLE_CHARACTERS = /[\r\n\0]/;
+const QUOTE_ESCAPES = /["\\]/g;
+const SECURITY_MAX_LINE_BYTES = 4000;
 
 const runExecFile = promisify(execFile);
 
@@ -107,15 +112,24 @@ const exitCodeOf = (error: unknown): number | undefined => {
   return typeof code === 'number' ? code : undefined;
 };
 
-export const nodeKeychainExec: KeychainExec = async (command, args) => {
+export const nodeKeychainExec: KeychainExec = async (command, args, input) => {
   try {
-    const { stdout } = await runExecFile(command, [...args]);
-    return { stdout, exitCode: SECURITY_SUCCESS };
+    const pending = runExecFile(command, [...args]);
+    if (input !== undefined) pending.child.stdin?.end(input);
+    const { stdout, stderr } = await pending;
+    return { stdout, stderr, exitCode: SECURITY_SUCCESS };
   } catch (error) {
     const exitCode = exitCodeOf(error);
     if (exitCode === undefined) throw new Error(`${command} could not be started`);
     return { stdout: '', exitCode };
   }
+};
+
+const quoteForSecurity = (value: string): string => {
+  if (UNQUOTABLE_CHARACTERS.test(value)) {
+    throw new Error(`${SECURITY_COMMAND} ${SECURITY_ADD} values cannot contain line breaks or NUL`);
+  }
+  return `"${value.replace(QUOTE_ESCAPES, '\\$&')}"`;
 };
 
 export const macosKeychainBackend = (exec: KeychainExec = nodeKeychainExec): KeychainBackend => {
@@ -132,8 +146,23 @@ export const macosKeychainBackend = (exec: KeychainExec = nodeKeychainExec): Key
       return result.exitCode === SECURITY_ITEM_NOT_FOUND ? undefined : result.stdout.replace(TRAILING_NEWLINE, '');
     },
     setPassword: async (service, account, password) => {
-      const result = await run(SECURITY_ADD, ['-U', '-s', service, '-a', account, '-w', password]);
-      if (result.exitCode !== SECURITY_SUCCESS) {
+      if (!password) throw new Error(`${SECURITY_COMMAND} ${SECURITY_ADD} password cannot be empty`);
+      const line = [
+        SECURITY_ADD,
+        '-U',
+        '-s',
+        quoteForSecurity(service),
+        '-a',
+        quoteForSecurity(account),
+        '-w',
+        quoteForSecurity(password),
+      ].join(' ');
+      const input = `${line}\n`;
+      if (Buffer.byteLength(input) > SECURITY_MAX_LINE_BYTES) {
+        throw new Error(`${SECURITY_COMMAND} ${SECURITY_ADD} command exceeds ${SECURITY_MAX_LINE_BYTES} bytes`);
+      }
+      const result = await exec(SECURITY_COMMAND, [SECURITY_INTERACTIVE], input);
+      if (result.exitCode !== SECURITY_SUCCESS || result.stderr) {
         throw new Error(`${SECURITY_COMMAND} ${SECURITY_ADD} failed with exit code ${result.exitCode}`);
       }
     },
