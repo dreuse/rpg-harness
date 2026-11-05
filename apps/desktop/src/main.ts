@@ -104,6 +104,8 @@ const HOME_CHANGES: ReadonlySet<string> = new Set([
   'DeleteCampaign',
 ]);
 
+const ACTIONS: ReadonlySet<string> = new Set(['SubmitPlayerAction', 'SaveVoiceSettings', 'EditSheetField']);
+
 export const daemonTransport = (daemon: Pick<Daemon, 'ready' | 'command' | 'subscribe'>): Transport => {
   let onLine = (_line: string) => {};
   let onClose = (_error: string) => {};
@@ -121,7 +123,7 @@ export const daemonTransport = (daemon: Pick<Daemon, 'ready' | 'command' | 'subs
   const reply = async (command: ClientCommand) => {
     if (command.type === 'SubscribeEvents') return follow(command);
     const { result, message } = await daemon.command(command);
-    if (command.type === 'SubmitPlayerAction' || command.type === 'SaveVoiceSettings') {
+    if (ACTIONS.has(command.type) && 'actionId' in command) {
       const { actionId } = command;
       return emit(
         result?.ok ? { type: 'Accepted', actionId } : { type: 'Rejected', actionId, error: result?.error ?? message },

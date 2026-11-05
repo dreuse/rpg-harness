@@ -7,6 +7,7 @@ import {
   EVENT_COMMITTED,
   PROTOCOL_VERSION,
   type ViewComponent,
+  type ViewValue,
 } from '../../../packages/client-protocol/src/protocol.ts';
 import { SHEET_VIEW } from '../../../packages/client-protocol/src/view-registry.ts';
 import {
@@ -112,6 +113,10 @@ const STATUS_HINT = 'Tab next pane, 1-4 pick pane, i type, ? help, q quit';
 const STATUS_SEPARATOR = ' | ';
 const AUDIO_HELP = "Type 'set mic to push-to-talk', 'set output to narrator' or 'set speed to 1.5' to change voice.";
 const NO_SCENE = 'No scene to act in yet.';
+const EDIT_PATTERN = /^\/edit\s+(\S+)\s+(.+)$/i;
+const FLAG_WORDS: Readonly<Record<string, boolean>> = { yes: true, true: true, no: false, false: false };
+const NEEDS_FLAG = 'yes or no';
+const NEEDS_NUMBER = 'a number';
 const EMPTY: Readonly<Record<PaneId, string>> = {
   conversation: 'No conversation yet.',
   sheet: 'No sheet yet.',
@@ -122,6 +127,7 @@ const HELP_LINES = [
   'Tab - Next pane. Shift+Tab - Previous pane.',
   ...PANES.map(({ key, label }) => `${key} - Show ${label}.`),
   `${TYPE_KEY} or Enter - Type an action. Enter sends it, Esc cancels.`,
+  '/edit <field> <value> - Change a sheet field.',
   `${HELP_KEY} - Show or hide this help.`,
   `${QUIT_KEY} - Quit.`,
 ];
@@ -227,6 +233,15 @@ export const rollFrames = (event: VisualizationEvent, steps: number): string[] =
 
 const sheetRow = ({ label, value }: ViewComponent) => (value === undefined ? label : `${label}: ${String(value)}`);
 
+const groupTitle = (group: string) => `${group.charAt(0).toUpperCase()}${group.slice(1)}:`;
+
+const sheetRows = (sheet: readonly ViewComponent[]) =>
+  sheet.flatMap((component, index) => {
+    const { group } = component;
+    const heading = group !== undefined && group !== sheet[index - 1]?.group ? [groupTitle(group)] : [];
+    return [...heading, sheetRow(component)];
+  });
+
 const conversation = ({ currentScene, characters, turns }: CampaignSnapshot) => {
   const names = new Map(characters.map(({ id, name }) => [id, name]));
   const rows = turns.flatMap(({ actionId, actorId, input, narration }) => [
@@ -238,10 +253,7 @@ const conversation = ({ currentScene, characters, turns }: CampaignSnapshot) => 
 
 const PANE_ROWS: Readonly<Record<PaneId, (data: TuiData) => readonly string[]>> = {
   conversation: ({ snapshot }) => conversation(snapshot),
-  sheet: ({ snapshot, sheet }) => [
-    ...snapshot.characters.map(({ name }) => `Character: ${name}`),
-    ...sheet.map(sheetRow),
-  ],
+  sheet: ({ snapshot, sheet }) => [...snapshot.characters.map(({ name }) => `Character: ${name}`), ...sheetRows(sheet)],
   log: ({ events }) =>
     events.flatMap((event) => (event.type === EVENT_COMMITTED ? [`#${event.revision} ${event.event.type}`] : [])),
   mechanics: ({ mechanics }) => mechanics.map(indicator),
@@ -356,6 +368,37 @@ const submit = (session: ClientSession, { snapshot }: TuiData, input: string): s
   return accepted.ok ? undefined : accepted.error.message;
 };
 
+const editValue = (current: ViewValue | undefined, text: string) => {
+  if (typeof current === 'boolean') return FLAG_WORDS[text.toLowerCase()];
+  if (typeof current !== 'number') return text;
+  const number = Number(text);
+  return Number.isFinite(number) ? number : undefined;
+};
+
+const named = (name: string) => (component: ViewComponent) =>
+  [component.id, component.label].some((known) => known.toLowerCase() === name.toLowerCase());
+
+const editField = (session: ClientSession, { snapshot, sheet }: TuiData, name: string, text: string) => {
+  const [actor] = snapshot.characters;
+  const field = sheet.find(named(name));
+  if (field === undefined || actor === undefined) return `No sheet field ${name}.`;
+  if (field.editable !== true) return `${field.label} cannot be edited.`;
+  const value = editValue(field.value, text);
+  if (value === undefined)
+    return `${field.label} needs ${typeof field.value === 'boolean' ? NEEDS_FLAG : NEEDS_NUMBER}.`;
+  const accepted = session.editSheetField({
+    version: PROTOCOL_VERSION,
+    type: 'EditSheetField',
+    campaignId: snapshot.campaignId,
+    actionId: randomUUID(),
+    expectedRevision: snapshot.revision,
+    actorId: actor.id,
+    fieldId: field.id,
+    value,
+  });
+  return accepted.ok ? undefined : accepted.error.message;
+};
+
 const valuesOf = (sheet: readonly ViewComponent[]) => new Map(sheet.map(({ id, value }) => [id, value]));
 
 type Narrate = () => Promise<void>;
@@ -451,7 +494,12 @@ export const runTui = async (
   );
   const audio = terminal.audio?.(session, campaignId);
   const data = () => read(session, campaignId, events, audio);
-  const send: Act = (input) => submit(session, data(), input);
+  const send: Act = (input) => {
+    const [, name, text] = EDIT_PATTERN.exec(input) ?? [];
+    return name === undefined || text === undefined
+      ? submit(session, data(), input)
+      : editField(session, data(), name, text);
+  };
   const act: Act = audio === undefined ? send : (input) => audio.input(input, send);
   try {
     if (terminal.capabilities.interactive && terminal.keys !== undefined)

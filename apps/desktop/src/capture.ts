@@ -180,7 +180,7 @@ export const JOURNEY: Readonly<Record<'first' | 'reopen', readonly JourneyStep[]
       script: steps(
         `await ${until('window.journeySnapshot?.turns.length > 1')};`,
         SHEET_EDIT,
-        `await ${until(`document.querySelector('[data-region="sheet"]').textContent.includes(': ${JOURNEY_EDIT.value}') && ${SETTLED}`)};`,
+        `await ${until(`document.querySelector('[data-region="sheet"] input[id="sheet-field-${JOURNEY_EDIT.fieldId}"]')?.value === '${JOURNEY_EDIT.value}' && ${SETTLED}`)};`,
       ),
       shot: 'sheet-edit',
     },

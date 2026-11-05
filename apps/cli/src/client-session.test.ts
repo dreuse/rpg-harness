@@ -557,6 +557,32 @@ test('rpg-qzx.9: legacy CharacterCreated without traitVisibility fails closed fo
   assert.deepEqual(traitsOf(gm, 'legacy'), [['grit']]);
 });
 
+test('rpg-42a.21: SheetFieldEdited hides the value of a field the viewer may not see', () => {
+  const { sessionFor, envelope, seed } = setup();
+  const traitVisibility = { grit: 'public', 'sheet-note': 'owner' };
+  seed('created', 'CharacterCreated', { actorId: 'hero', profile: { traits: [] }, traitVisibility }, 'public');
+  seed('note-edit', 'SheetFieldEdited', { actorId: 'hero', fieldId: 'sheet-note', value: 'OWNER-EDIT' }, 'public');
+  seed('grit-edit', 'SheetFieldEdited', { actorId: 'hero', fieldId: 'grit', value: 7 }, 'public');
+  seed('legacy-edit', 'SheetFieldEdited', { actorId: 'ghost', fieldId: 'grit', value: 'LEGACY-EDIT' }, 'public');
+  const payloadsOf = (events: readonly ClientEvent[]) =>
+    events.flatMap((event) =>
+      event.type === EVENT_COMMITTED && event.event.type === 'SheetFieldEdited' ? [event.event.payload] : [],
+    );
+  const player = payloadsOf(collect(sessionFor(PLAYER_VIEWER), envelope));
+  const stranger = payloadsOf(collect(sessionFor({ scope: 'actor', actorId: RIVAL }), envelope));
+  const owner = payloadsOf(collect(sessionFor({ scope: 'actor', actorId: 'hero' }), envelope));
+  const gm = payloadsOf(collect(sessionFor(GM_VIEWER), envelope));
+  const hidden = [{ actorId: 'hero' }, { actorId: 'hero', fieldId: 'grit', value: 7 }, { actorId: 'ghost' }];
+  assert.deepEqual(player, hidden);
+  assert.deepEqual(stranger, hidden);
+  assert.deepEqual(owner.slice(0, 2), [
+    { actorId: 'hero', fieldId: 'sheet-note', value: 'OWNER-EDIT' },
+    { actorId: 'hero', fieldId: 'grit', value: 7 },
+  ]);
+  assert.match(JSON.stringify(gm), /OWNER-EDIT/);
+  assert.match(JSON.stringify(gm), /LEGACY-EDIT/);
+});
+
 test('RequestView sheet serves the hero sheet fields with their stored values', () => {
   const { database, sessionFor, envelope, campaignId, turn } = setup();
   const request = { ...envelope, type: 'RequestView', viewId: 'sheet' } as const;
@@ -586,8 +612,8 @@ test('RequestView sheet serves the hero sheet fields with their stored values', 
       campaignId,
       viewId: 'sheet',
       components: [
-        { kind: 'field', id: 'resolve', label: 'resolve', value: 3 },
-        { kind: 'field', id: 'oath', label: 'oath', value: 'guard the road' },
+        { kind: 'field', id: 'resolve', label: 'resolve', value: 3, group: 'core', editable: true },
+        { kind: 'field', id: 'oath', label: 'oath', value: 'guard the road', group: 'core', editable: true },
       ],
     },
   });

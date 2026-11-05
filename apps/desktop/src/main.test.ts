@@ -120,6 +120,23 @@ test('UI08 daemon transport maps engine replies to renderer lines', async () => 
   assert.deepEqual(closes, []);
 });
 
+test('rpg-42a.21 daemon transport settles sheet edits as Accepted or Rejected', async () => {
+  const edit = (results: Record<string, unknown>) => {
+    const wired = collect(fakeDaemon(results));
+    wired.transport.connect();
+    wired.transport.send(command('EditSheetField', { actionId: 'e1', fieldId: 'might', value: 8 }));
+    return wired.lines;
+  };
+  const accepted = edit({ EditSheetField: { ok: true, value: { revision: 2 } } });
+  const rejected = edit({ EditSheetField: { ok: false, error: { code: 'Rejected', message: 'too high' } } });
+  await flush();
+  assert.deepEqual(accepted, [READY, { type: 'Accepted', actionId: 'e1' }]);
+  assert.deepEqual(rejected, [
+    READY,
+    { type: 'Rejected', actionId: 'e1', error: { code: 'Rejected', message: 'too high' } },
+  ]);
+});
+
 test('rpg-42a.13 daemon transport relays home lifecycle results, including rejections', async () => {
   const opened = { version: PROTOCOL_VERSION, type: 'OpenCampaign', name: 'Harbor' };
   const archived = { version: PROTOCOL_VERSION, type: 'ArchiveCampaign', name: 'Harbor' };

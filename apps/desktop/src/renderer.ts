@@ -17,6 +17,7 @@ import {
   type CampaignSnapshot,
   type CampaignSummary,
   type ClientCommand,
+  type EditSheetField,
   EVENT_COMMITTED,
   failure,
   PROTOCOL_VERSION,
@@ -26,6 +27,7 @@ import {
   type SaveVoiceSettings,
   type StartOptions,
   type SubmitPlayerAction,
+  type ViewComponent,
   type ViewDescriptor,
 } from '../../../packages/client-protocol/src/protocol.ts';
 import { parseViewDescriptor } from '../../../packages/client-protocol/src/view-registry.ts';
@@ -56,6 +58,7 @@ const OPTIONS_REQUEST = planCommand(INITIAL_DRAFT);
 const NO_REVISION = -1;
 const VOICE_SAVE_INPUT = 'voice settings';
 const STALE_REVISION = 'StaleRevision';
+export const UNGROUPED = '';
 const LIST_CAMPAIGNS: ClientCommand = { version: PROTOCOL_VERSION, type: 'ListCampaigns' };
 
 export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected' | 'reconnecting';
@@ -95,6 +98,7 @@ export type DesktopState = {
   readonly rolls: readonly VisualizationEvent[];
   readonly rolling: boolean;
   readonly sheetChanged: readonly string[];
+  readonly sheetErrors: Readonly<Record<string, string>>;
 };
 
 export type Transport = {
@@ -129,6 +133,7 @@ export const initialState: DesktopState = {
   rolls: [],
   rolling: false,
   sheetChanged: [],
+  sheetErrors: {},
 };
 
 const statusLabel = ({ status, attempts }: Connection, locale: string) =>
@@ -152,6 +157,42 @@ const homeOf = ({ campaigns, archived, selected, home }: DesktopState, locale: s
     error: home.error,
   };
 };
+
+export type SheetField = {
+  readonly id: string;
+  readonly name: string;
+  readonly label: string;
+  readonly value: ViewComponent['value'];
+  readonly editable: boolean;
+  readonly explanation?: string;
+  readonly changed: boolean;
+  readonly error?: string;
+};
+export type SheetGroup = { readonly id: string; readonly fields: SheetField[] };
+
+const sheetGroupsOf = (
+  components: readonly ViewComponent[],
+  { sheetChanged, sheetErrors }: DesktopState,
+  locale: string,
+) =>
+  components.reduce<SheetGroup[]>((groups, component) => {
+    const id = component.group ?? UNGROUPED;
+    const error = sheetErrors[component.id];
+    const field: SheetField = {
+      id: component.id,
+      name: component.label,
+      label: componentLabel(component, locale),
+      value: component.value,
+      editable: component.editable === true,
+      ...(component.explanation === undefined ? {} : { explanation: component.explanation }),
+      changed: sheetChanged.includes(component.id),
+      ...(error === undefined ? {} : { error }),
+    };
+    const last = groups.at(-1);
+    if (last?.id === id) last.fields.push(field);
+    else groups.push({ id, fields: [field] });
+    return groups;
+  }, []);
 
 export const viewModel = (
   state: DesktopState,
@@ -188,11 +229,7 @@ export const viewModel = (
       ...pending.map(({ actionId, input }) => ({ actionId, input, narration: '', pending: true })),
     ],
     sheet: state.views[SHEET_VIEW],
-    sheetLabels: (state.views[SHEET_VIEW]?.components ?? []).map((component) => ({
-      id: component.id,
-      label: componentLabel(component, preferences.locale),
-      changed: state.sheetChanged.includes(component.id),
-    })),
+    sheetGroups: sheetGroupsOf(state.views[SHEET_VIEW]?.components ?? [], state, preferences.locale),
     rolls: state.rolls.map((roll, index) => rollPlan(roll, index === 0 && state.rolling ? motion : 'off')),
     fontScale: preferences.fontScale,
     animate: motion === 'full',
@@ -272,6 +309,7 @@ export const createDesktopClient = ({
   let state: DesktopState = { ...initialState, start: { open: startDraft.path !== null, draft: startDraft } };
   let resendOnSnapshot = false;
   const voiceSaves = new Map<unknown, SaveVoiceSettings>();
+  const sheetEdits = new Map<unknown, string>();
   const retried = new Set<unknown>();
   let staleSaves: SaveVoiceSettings[] = [];
   const listeners = new Set<(state: DesktopState) => void>();
@@ -285,6 +323,7 @@ export const createDesktopClient = ({
 
   const disconnect = (error: string) => {
     voiceSaves.clear();
+    sheetEdits.clear();
     retried.clear();
     staleSaves = [];
     update({ connection: { status: 'disconnected', attempts: state.connection.attempts, lastError: error } });
@@ -329,8 +368,17 @@ export const createDesktopClient = ({
     refresh();
   };
 
+  const settleEdit = (actionId: unknown, fieldId: string, message?: string) => {
+    sheetEdits.delete(actionId);
+    const { [fieldId]: _cleared, ...sheetErrors } = state.sheetErrors;
+    update({ sheetErrors: message === undefined ? sheetErrors : { ...sheetErrors, [fieldId]: message } });
+    if (message === undefined) refresh();
+  };
+
   const settle = (actionId: unknown, message?: string, code?: unknown) => {
     if (voiceSaves.has(actionId)) return settleVoice(actionId, message, code);
+    const edited = sheetEdits.get(actionId);
+    if (edited !== undefined) return settleEdit(actionId, edited, message);
     const action = state.outbox.find((queued) => queued.actionId === actionId);
     if (action === undefined) return;
     update({
@@ -381,7 +429,7 @@ export const createDesktopClient = ({
 
   const select = (campaignId: CampaignId) => {
     const { snapshot, panels, ...rest } = state;
-    state = { ...rest, selected: campaignId, views: {}, rolls: [], rolling: false, sheetChanged: [] };
+    state = { ...rest, selected: campaignId, views: {}, rolls: [], rolling: false, sheetChanged: [], sheetErrors: {} };
     update({});
     follow();
   };
@@ -474,7 +522,7 @@ export const createDesktopClient = ({
     select,
     goHome: () => {
       const { selected, snapshot, panels, ...rest } = state;
-      state = { ...rest, views: {}, rolls: [], rolling: false, sheetChanged: [] };
+      state = { ...rest, views: {}, rolls: [], rolling: false, sheetChanged: [], sheetErrors: {} };
       update({});
       send(LIST_CAMPAIGNS);
     },
@@ -552,6 +600,26 @@ export const createDesktopClient = ({
       saveStart(next);
       requestOptions();
       if (replan) planSummary();
+    },
+    editSheet: (fieldId: string, value: unknown): Result<EditSheetField> => {
+      const { snapshot } = state;
+      const actorId = snapshot?.characters[0]?.id;
+      if (snapshot === undefined || actorId === undefined) return failure('Rejected', 'no character to edit yet');
+      const parsed = parseCommand({
+        version: PROTOCOL_VERSION,
+        type: 'EditSheetField',
+        campaignId: snapshot.campaignId,
+        actionId: newActionId(),
+        expectedRevision: snapshot.revision,
+        actorId,
+        fieldId,
+        value,
+      });
+      if (!parsed.ok) return parsed;
+      const edit = parsed.value as EditSheetField;
+      sheetEdits.set(edit.actionId, fieldId);
+      send(edit);
+      return { ok: true, value: edit };
     },
     voicePending: () => voiceSaves.size > 0,
     saveVoice: (settings: SavedVoiceSettings): Result<SaveVoiceSettings> => {

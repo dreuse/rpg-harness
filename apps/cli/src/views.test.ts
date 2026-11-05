@@ -19,7 +19,7 @@ import { SHEET_SCHEMA_VERSION } from '../../../packages/rules/src/sheet-schema.t
 import { importSheet, SHEET_EXPORT_FORMAT } from '../../../packages/rules/src/sheet-view.ts';
 import { createEngineGateway, openClientSession, readCampaignState } from './engine-gateway.ts';
 import { main } from './main.ts';
-import { editableSheet, printable, renderView } from './views.ts';
+import { editableSheet, printable, renderView, sheetComponents } from './views.ts';
 
 const CAMPAIGN = 'Ember';
 const ACTION = 'I light the lantern';
@@ -578,3 +578,40 @@ test('an editable d20-lite sheet labels fields from the creation schema', () =>
     );
     assert.equal(sheet?.schema.fields.find(({ id }) => id === 'might')?.label, 'Might');
   }));
+
+test('rpg-42a.21: sheet components keep groups, edit rights, display names and computed explanations', () => {
+  const view = {
+    rulepack: { ...RULEPACK, sourceRefs: [] },
+    groups: [
+      {
+        id: 'core' as const,
+        fields: [{ id: 'might', label: 'Might', widget: 'number' as const, value: 6, edit: { editable: true } }],
+      },
+      {
+        id: 'computed' as const,
+        fields: [{ id: 'guard', widget: 'number' as const, value: 10, edit: { editable: false } }],
+      },
+    ],
+    computed: [
+      {
+        field: 'guard',
+        expression: 'might + 2',
+        refs: ['might'],
+        bonuses: [{ source: 'Shield', target: 'guard', amount: 3 }],
+        constraints: [{ field: 'guard', status: 'clamped' as const, raw: 11, value: 10 }],
+      },
+    ],
+  };
+  assert.deepEqual(sheetComponents(view), [
+    { kind: 'field', id: 'might', label: 'Might', value: 6, group: 'core', editable: true },
+    {
+      kind: 'field',
+      id: 'guard',
+      label: 'guard',
+      value: 10,
+      group: 'computed',
+      editable: false,
+      explanation: '= might + 2; +3 Shield; limited from 11',
+    },
+  ]);
+});

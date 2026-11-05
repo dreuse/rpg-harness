@@ -5,6 +5,7 @@ import {
   CHARACTER_CREATED,
   type CharacterId,
   type CommittedTurn,
+  type TurnVisibility,
 } from '../../domain/src/campaign.ts';
 import type { CharacterProfile } from '../../domain/src/character.ts';
 import { type BuildInput, buildCharacter, type CreationRules } from '../../rules/src/character-builder.ts';
@@ -28,6 +29,7 @@ export const SHEET_FIELD_EDITED = 'SheetFieldEdited';
 
 const OWNER_VISIBLE: readonly Visibility[] = ['public', 'owner'];
 const EDIT_INTENT = 'edit sheet field';
+const EDIT_VISIBILITY: TurnVisibility = 'player';
 const NO_SCENE = '';
 const SHEET_EVENTS: readonly string[] = [CHARACTER_CREATED, SHEET_FIELD_EDITED];
 
@@ -88,7 +90,7 @@ export const editSheetField = (store: CampaignStore, edit: SheetFieldEdit): Comm
   validate(state, action);
   requireValid(actionId, fieldId.trim() !== '', 'field id is blank');
   requireValid(actionId, isSheetValue(value), `value for ${fieldId} must be text, a finite number or a flag`);
-  return commit(store, action, [[SHEET_FIELD_EDITED, payload]]);
+  return commit(store, action, [[SHEET_FIELD_EDITED, payload, EDIT_VISIBILITY]]);
 };
 
 export const profileOf = (events: readonly CampaignEvent[], actorId: CharacterId): unknown => {

@@ -29,7 +29,9 @@ import {
 } from '../../../packages/rules/src/sheet-schema.ts';
 import {
   buildSheetView,
+  type ComputedDescriptor,
   exportSheet,
+  type SheetView,
   type SheetViewer,
   type SheetViewInput,
 } from '../../../packages/rules/src/sheet-view.ts';
@@ -69,6 +71,9 @@ const LIST_SEPARATOR = ', ';
 const REPLY_SEPARATOR = ' - ';
 const JSON_INDENT = 2;
 const OPEN = '[ ]';
+const SHEET_COMPONENT = 'field';
+const EXPLANATION_SEPARATOR = '; ';
+const CONSTRAINT_NOTES: Readonly<Record<string, string>> = { clamped: 'limited from', violated: 'out of range at' };
 const RULEPACK_KEYS = ['id', 'edition', 'revision'] as const;
 const ACTOR_SCOPE: Viewer['scope'] = 'actor';
 const UNPRINTABLE = /[^\P{Cc}\n]|\p{Cf}/gu;
@@ -178,11 +183,39 @@ export const editableSheet = (
   };
 };
 
+const explanationOf = ({ expression, bonuses, constraints }: ComputedDescriptor) =>
+  [
+    ...(expression === undefined ? [] : [`= ${expression}`]),
+    ...bonuses.map(({ source, amount }) => `${signed(amount)} ${source}`),
+    ...constraints.flatMap(({ status, raw }) => {
+      const note = CONSTRAINT_NOTES[status];
+      return note === undefined ? [] : [`${note} ${raw}`];
+    }),
+  ].join(EXPLANATION_SEPARATOR);
+
+export const sheetComponents = ({ groups, computed }: SheetView) => {
+  const explained = new Map(computed.map((descriptor) => [descriptor.field, explanationOf(descriptor)]));
+  return groups.flatMap(({ id: group, fields }) =>
+    fields.map(({ id, label, value, edit }) => {
+      const explanation = explained.get(id);
+      return {
+        kind: SHEET_COMPONENT,
+        id,
+        label: label ?? id,
+        value,
+        group,
+        editable: edit.editable,
+        ...(explanation === undefined || explanation === '' ? {} : { explanation }),
+      };
+    }),
+  );
+};
+
 export const sheetFields = (source: ViewSource, viewer: Viewer) => {
   const [hero] = source.state.characters;
   const sheetViewer = hero === undefined ? undefined : sheetViewerOf(viewer, hero);
   const input = hero === undefined || sheetViewer === undefined ? undefined : sheetInput(source, hero, sheetViewer);
-  return input === undefined ? [] : buildSheetView(input).groups.flatMap((group) => group.fields);
+  return input === undefined ? [] : sheetComponents(buildSheetView(input));
 };
 
 const sheetExport = (hero: Character, source: ViewSource, viewer: SheetViewer) => {

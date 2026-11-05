@@ -24,7 +24,7 @@ export const VIEW_REGISTRY: Readonly<Record<ViewId, readonly ViewComponentKind[]
 };
 
 const DESCRIPTOR_KEYS = ['campaignId', 'viewId', 'components'];
-const COMPONENT_KEYS = ['kind', 'id', 'label', 'value'];
+const COMPONENT_KEYS = ['kind', 'id', 'label', 'value', 'group', 'editable', 'explanation'];
 
 export const failure = (code: ProtocolErrorCode, message: string): Result<never> => ({
   ok: false,
@@ -77,6 +77,24 @@ export const readList = (input: unknown): readonly unknown[] | undefined => {
   }
 };
 
+const sheetDetails = (values: Record<string, unknown>): Result<Partial<ViewComponent>> => {
+  const { group, editable, explanation } = values;
+  if (group !== undefined && (typeof group !== 'string' || group.length === 0))
+    return failure('MalformedCommand', 'component.group must be a non-empty text');
+  if (editable !== undefined && typeof editable !== 'boolean')
+    return failure('MalformedCommand', 'component.editable must be a flag');
+  if (explanation !== undefined && typeof explanation !== 'string')
+    return failure('MalformedCommand', 'component.explanation must be text');
+  return {
+    ok: true,
+    value: {
+      ...(group === undefined ? {} : { group }),
+      ...(editable === undefined ? {} : { editable }),
+      ...(explanation === undefined ? {} : { explanation }),
+    },
+  };
+};
+
 const parseComponent = (input: unknown, viewId: ViewId): Result<ViewComponent> => {
   const plain = readPlain(input, COMPONENT_KEYS, 'component');
   if (!plain.ok) return plain;
@@ -87,9 +105,12 @@ const parseComponent = (input: unknown, viewId: ViewId): Result<ViewComponent> =
   if (typeof id !== 'string' || id.length === 0)
     return failure('MalformedCommand', 'component.id is missing or invalid');
   if (typeof label !== 'string') return failure('MalformedCommand', 'component.label is missing or invalid');
-  if (!Object.hasOwn(values, 'value')) return { ok: true, value: { kind, id, label } };
-  if (!isViewValue(value)) return failure('MalformedCommand', 'component.value must be plain text, number or flag');
-  return { ok: true, value: { kind, id, label, value } };
+  if (Object.hasOwn(values, 'value') && !isViewValue(value))
+    return failure('MalformedCommand', 'component.value must be plain text, number or flag');
+  const details = sheetDetails(values);
+  if (!details.ok) return details;
+  const shown = Object.hasOwn(values, 'value') ? { value: value as ViewValue } : {};
+  return { ok: true, value: { kind, id, label, ...shown, ...details.value } };
 };
 
 export const parseViewDescriptor = (input: unknown): Result<ViewDescriptor> => {

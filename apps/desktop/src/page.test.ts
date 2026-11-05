@@ -671,3 +671,59 @@ test('rpg-42a.19 page keeps focus on the save button when the same step redraws'
   page.receive(READY);
   assert.equal(page.focused.at(-1), '#start-save');
 });
+
+const EDITABLE_SHEET = {
+  campaignId: CAMPAIGN,
+  viewId: 'sheet',
+  components: [
+    { kind: 'field', id: 'might', label: 'Might', value: 3, group: 'core', editable: true },
+    { kind: 'field', id: 'title', label: 'Title', value: 'Scout', group: 'custom', editable: true },
+  ],
+};
+const MIGHT_INPUT = '#sheet-field-might';
+const edits = (page: ReturnType<typeof fakePage>) =>
+  page.sent.flatMap((command) =>
+    command.type === 'EditSheetField' ? [{ fieldId: command.fieldId, value: command.value }] : [],
+  );
+
+const playingSheet = () => {
+  const page = fakePage();
+  mount(page);
+  page.receive(READY);
+  page.receive({ type: 'Campaigns', campaigns: [SNAPSHOT.campaign] });
+  continueHarbor(page);
+  page.receive({ type: 'Snapshot', snapshot: SNAPSHOT });
+  page.receive({ type: 'View', campaignId: CAMPAIGN, view: EDITABLE_SHEET });
+  return page;
+};
+
+test('rpg-42a.21 page saves a sheet field inline and shows the engine rejection', () => {
+  const page = playingSheet();
+  page.fields[MIGHT_INPUT] = '99';
+  page.submit({ 'data-sheet-field': 'might' });
+  page.fields['#sheet-field-title'] = 'Warden';
+  page.submit({ 'data-sheet-field': 'title' });
+  page.fields[MIGHT_INPUT] = 'lots';
+  page.submit({ 'data-sheet-field': 'might' });
+  assert.deepEqual(edits(page), [
+    { fieldId: 'might', value: 99 },
+    { fieldId: 'title', value: 'Warden' },
+  ]);
+  page.receive({ type: 'Rejected', actionId: 'a0', error: { code: 'Rejected', message: 'might must be at most 20' } });
+  assert.match(page.root.innerHTML, /<p role="alert" id="sheet-error-might">might must be at most 20<\/p>/);
+});
+
+test('rpg-42a.21 page keeps Enter and the typed value for sheet inputs', async () => {
+  const page = playingSheet();
+  page.input.value = 'look around';
+  const before = page.prevented();
+  page.press('Enter', { 'data-region': 'sheet' });
+  await settle();
+  assert.equal(page.prevented(), before);
+  assert.deepEqual(submitted(page), []);
+  page.root.querySelector(MIGHT_INPUT)?.focus();
+  page.fields[MIGHT_INPUT] = '7';
+  page.receive({ type: 'View', campaignId: CAMPAIGN, view: EDITABLE_SHEET });
+  assert.equal(page.fields[MIGHT_INPUT], '7');
+  assert.equal(page.focused.at(-1), MIGHT_INPUT);
+});

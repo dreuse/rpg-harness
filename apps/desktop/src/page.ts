@@ -9,6 +9,7 @@ import { createDesktopClient, type DesktopState, REGIONS, type Region, type Tran
 import {
   ALLOW,
   bindKeys,
+  cssEscape,
   DECLINE,
   HOME_ATTRIBUTE,
   HOME_NAME,
@@ -22,6 +23,8 @@ import {
   queryPreferences,
   queryStart,
   renderView,
+  SHEET_FIELD,
+  SHEET_INPUT,
   START_CONTROL,
   START_CONTROLS,
   START_ENTRY,
@@ -56,7 +59,8 @@ const FOCUSED_SELECTOR = ':focus';
 const ARCHIVED_SELECTOR = '[data-archived]';
 const DISCLOSURE_SELECTORS = ['[data-diagnostics]', ARCHIVED_SELECTOR, '[data-settings]'];
 const HOME_REGION = '[data-region="campaigns"]';
-const KEEP_ENTER_REGIONS = [START_REGION, HOME_REGION, '[data-region="status"]'];
+const KEEP_ENTER_REGIONS = [START_REGION, HOME_REGION, '[data-region="status"]', '[data-region="sheet"]'];
+const SHEET_INPUT_SELECTOR = `#${SHEET_INPUT}`;
 const HEADING_SELECTOR = '#heading-status';
 const FIRST_CONTINUE_SELECTOR = '#home-continue-0';
 const OPEN_MENU_SELECTOR = 'details[open]';
@@ -98,7 +102,7 @@ type Focusable = Pick<Element, 'id' | 'hasAttribute' | 'getAttribute'>;
 
 const selectorOf = (element: Focusable | null) => {
   if (element === null) return undefined;
-  if (element.id !== '') return `#${element.id}`;
+  if (element.id !== '') return `#${cssEscape(element.id)}`;
   const attribute = FOCUS_ATTRIBUTES.find((name) => element.hasAttribute(name));
   return attribute === undefined ? undefined : `[${attribute}="${element.getAttribute(attribute)}"]`;
 };
@@ -148,6 +152,9 @@ export const mountPage = ({
     const model = viewModel(client.state(), width(), preferences);
     const focused = selectorOf(root.querySelector<HTMLElement>(FOCUSED_SELECTOR));
     const typed = entryValue();
+    const sheetTyped = focused?.startsWith(SHEET_INPUT_SELECTOR)
+      ? root.querySelector<HTMLInputElement>(focused)?.value
+      : undefined;
     const caret = root.querySelector<HTMLInputElement>(ENTRY_SELECTOR);
     const selection = { start: caret?.selectionStart ?? null, end: caret?.selectionEnd ?? null };
     const opened = DISCLOSURE_SELECTORS.map(
@@ -174,6 +181,8 @@ export const mountPage = ({
     }
     const entry = root.querySelector<HTMLInputElement>(ENTRY_SELECTOR);
     if (entry !== null && typed !== undefined) entry.value = typed;
+    const sheetInput = focused === undefined ? null : root.querySelector<HTMLInputElement>(focused);
+    if (sheetInput !== null && sheetTyped !== undefined) sheetInput.value = sheetTyped;
     if (focused !== undefined) root.querySelector<HTMLElement>(focused)?.focus();
     if (focused === ENTRY_SELECTOR && selection.start !== null && selection.end !== null)
       entry?.setSelectionRange?.(selection.start, selection.end);
@@ -193,6 +202,15 @@ export const mountPage = ({
     const step = shownStep;
     client.startAction(option.action);
     if (shownStep === step) root.querySelector<HTMLElement>(`[${START_OPTION}="${index}"]`)?.focus();
+  };
+  const editSheet = (fieldId: string) => {
+    const field = root.querySelector<HTMLInputElement>(`${SHEET_INPUT_SELECTOR}${cssEscape(fieldId)}`);
+    const current = client.state().views.sheet?.components.find(({ id }) => id === fieldId)?.value;
+    if (field === null || current === undefined) return;
+    if (typeof current === 'boolean') return client.editSheet(fieldId, field.checked);
+    if (typeof current !== 'number') return client.editSheet(fieldId, field.value);
+    const value = Number(field.value);
+    if (field.value.trim() !== '' && Number.isFinite(value)) client.editSheet(fieldId, value);
   };
   const continueCampaign = (name: string) => {
     shownPane = undefined;
@@ -314,6 +332,11 @@ export const mountPage = ({
     if (query !== undefined && query !== client.state().home.query) client.search(query);
   });
   root.addEventListener(SUBMIT, (event) => {
+    const sheetField = closestTarget(event)?.closest(`[${SHEET_FIELD}]`)?.getAttribute(SHEET_FIELD);
+    if (sheetField !== undefined && sheetField !== null) {
+      event.preventDefault();
+      return editSheet(sheetField);
+    }
     if (!closestTarget(event)?.closest(`[${START_FORM}]`)) return;
     event.preventDefault();
     client.startAction({ kind: 'enter', text: entryValue() ?? '' });

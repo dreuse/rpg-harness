@@ -204,6 +204,17 @@ const campaignEnv = async (t: TestContext) => {
   return { env: { ...baseEnv(), [DATA_DIR_ENV]: dataDir, [CAMPAIGN_ENV]: CAMPAIGN }, campaignId };
 };
 
+const D20_INTENT = 'A fantasy adventure using the D20-Lite rules';
+const D20_CHARACTER = 'A scout named Wren with might 6, agility 5, wits 7 and presence 4.';
+const EDITED_MIGHT = 8;
+
+const heroEnv = async (t: TestContext) => {
+  const dataDir = tempDataDir(t);
+  for await (const _ of createEngineGateway(dataDir).create(CAMPAIGN, D20_INTENT, async () => D20_CHARACTER));
+  const campaignId = readCampaignState(dataDir, CAMPAIGN).campaign.id;
+  return { env: { ...baseEnv(), [DATA_DIR_ENV]: dataDir, [CAMPAIGN_ENV]: CAMPAIGN }, campaignId };
+};
+
 const snapshotCommand = (campaignId: string) => ({
   version: PROTOCOL_VERSION,
   type: 'GetCampaignSnapshot',
@@ -346,6 +357,37 @@ describe('serve client-protocol commands over the desktop engine daemon', () => 
     const { revision } = await snapshotOf(daemon, campaignId);
     const edit = { ...scoped, type: 'EditSheetField', actionId: 'edit', expectedRevision: revision, actorId: 'h' };
     assert.equal(rejectionOf(await daemon.command({ ...edit, fieldId: 'stress', value: 1 })), 'Rejected');
+  });
+
+  it('rpg-42a.21: pushes EventCommitted for a sheet edit so the open sheet view refreshes', async (t) => {
+    const { env, campaignId } = await heroEnv(t);
+    const daemon = supervise(t, { env });
+    const before = await snapshotOf(daemon, campaignId);
+    const events: ClientEvent[] = [];
+    await daemon.subscribe(subscribeCommand(campaignId, before.revision), (event) => events.push(event));
+    const edit = {
+      ...snapshotCommand(campaignId),
+      type: 'EditSheetField',
+      actionId: 'edit-might',
+      expectedRevision: before.revision,
+      actorId: before.characters[0]?.id,
+      fieldId: 'might',
+      value: EDITED_MIGHT,
+    };
+    const { revision } = acceptedValue<Accepted>(await daemon.command(edit));
+    await daemon.request('Ping');
+    assert.ok(events.some((event) => event.type === 'EventCommitted' && event.revision === revision));
+    const view = { ...snapshotCommand(campaignId), type: 'RequestView', viewId: SHEET_VIEW };
+    const sheet = acceptedValue<ViewDescriptor>(await daemon.command(view));
+    const might = sheet.components.find(({ id }) => id === 'might');
+    assert.deepEqual(might, {
+      kind: 'field',
+      id: 'might',
+      label: 'Might',
+      value: EDITED_MIGHT,
+      group: 'core',
+      editable: true,
+    });
   });
 
   it('A21: saves voice settings through the engine so a restarted daemon serves them', async (t) => {

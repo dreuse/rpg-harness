@@ -231,6 +231,9 @@ export type ViewComponent = {
   readonly id: string;
   readonly label: string;
   readonly value?: ViewValue;
+  readonly group?: string;
+  readonly editable?: boolean;
+  readonly explanation?: string;
 };
 
 export type ViewDescriptor = {

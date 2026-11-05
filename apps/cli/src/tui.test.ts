@@ -579,3 +579,50 @@ test('UI15: a sheet highlight timer that fires after quit writes nothing', async
   for (const later of timers.splice(0)) later();
   assert.equal(output.length, written);
 });
+
+test('rpg-42a.21: the TUI groups the sheet and edits a field with /edit, showing validation feedback', async () => {
+  const sheet = [
+    { kind: 'field', id: 'might', label: 'Might', value: 6, group: 'core', editable: true },
+    { kind: 'field', id: 'oath', label: 'Oath', value: 'guard', group: 'core', editable: true },
+    { kind: 'field', id: 'guard', label: 'Guard', value: 10, group: 'computed', editable: false },
+  ] as const;
+  const grouped = renderScreen(press([key('2')]), { ...data, sheet }, PLAIN_WIDE).join('\n');
+  assert.match(grouped, /Core:[\s\S]*Might: 6[\s\S]*Oath: guard[\s\S]*Computed:[\s\S]*Guard: 10/);
+  assert.match(screen(press([key('?')])), /\/edit <field> <value>/);
+  const { session, campaignId } = engineSession();
+  const edits: unknown[] = [];
+  const editing: ClientSession = {
+    ...session,
+    requestView: ({ viewId }) => ({ ok: true, value: { campaignId, viewId, components: sheet } }),
+    editSheetField: ({ fieldId, value }) => {
+      edits.push([fieldId, value]);
+      return value === 99
+        ? { ok: false, error: { code: 'Rejected', message: 'might must be at most 20' } }
+        : { ok: true, value: { revision: 3 } };
+    },
+  };
+  const output: string[] = [];
+  await runTui(editing, campaignId, {
+    capabilities: PLAIN_WIDE,
+    lines: each([
+      '/edit might 8',
+      '/edit oath keep the road',
+      '/edit might lots',
+      '/edit Guard 3',
+      '/edit luck 1',
+      '/edit might 99',
+      'q',
+    ]),
+    write: (text) => output.push(text),
+  });
+  const printed = output.join('');
+  assert.deepEqual(edits, [
+    ['might', 8],
+    ['oath', 'keep the road'],
+    ['might', 99],
+  ]);
+  assert.match(printed, /Might needs a number\./);
+  assert.match(printed, /Guard cannot be edited\./);
+  assert.match(printed, /No sheet field luck\./);
+  assert.match(printed, /might must be at most 20/);
+});

@@ -38,7 +38,7 @@ import {
   StaleRevisionError,
 } from '../../../packages/domain/src/campaign.ts';
 import type { CampaignEntity, Relationship, Visibility } from '../../../packages/domain/src/entity.ts';
-import { playTurns } from '../../../packages/engine/src/character.ts';
+import { playTurns, SHEET_FIELD_EDITED } from '../../../packages/engine/src/character.ts';
 import { currentEncounter } from '../../../packages/engine/src/encounter.ts';
 import type { Engine } from '../../../packages/engine/src/engine.ts';
 import { campaignConfigOf } from '../../../packages/engine/src/turn.ts';
@@ -63,7 +63,6 @@ export type SheetPort = {
 const SELECT_EVENT_VISIBILITY = 'SELECT id, visibility FROM event_log WHERE campaign_id = ?';
 const HIDDEN: Visibility = 'gm';
 const UNSUPPORTED_CAPABILITIES = 'this engine does not support capability selection yet';
-const SHEET_COMPONENT = 'field';
 const UNSUPPORTED_SHEETS = 'this engine does not serve character sheets yet';
 const NO_SUBSCRIPTION = () => {};
 const ACTOR_SCOPE: Viewer['scope'] = 'actor';
@@ -146,6 +145,20 @@ const redactCharacterCreated = (viewer: Viewer, committed: EventCommitted): Even
     profile: { ...profile, traits: profile?.traits?.filter(({ id }) => shown(id)) ?? [] },
   };
   return deepFreeze({ ...committed, event: { ...event, payload: redacted } });
+};
+
+const redactSheetFieldEdited = (
+  viewer: Viewer,
+  committed: EventCommitted,
+  visibilitiesOf: (actorId: unknown) => TraitVisibilities | undefined,
+): EventCommitted => {
+  const { event } = committed;
+  const { actorId, fieldId } = event.payload;
+  if (event.type !== SHEET_FIELD_EDITED || viewer.scope === GM_SCOPE) return committed;
+  const visibilities = visibilitiesOf(actorId);
+  const isOwner = viewer.scope === ACTOR_SCOPE && viewer.actorId === actorId;
+  const shown = visibilities === undefined ? isOwner : traitShownTo(viewer, actorId, visibilities[String(fieldId)]);
+  return shown ? committed : deepFreeze({ ...committed, event: { ...event, payload: { actorId } } });
 };
 
 const attempt = <T>(run: () => T): Result<T> => {
@@ -231,12 +244,7 @@ export const createClientSessions = (
     parseViewDescriptor({
       campaignId,
       viewId: SHEET_VIEW,
-      components: sheetFields(viewSource(), viewer).map(({ id, label, value }) => ({
-        kind: SHEET_COMPONENT,
-        id,
-        label: label ?? id,
-        value,
-      })),
+      components: sheetFields(viewSource(), viewer),
     });
 
   const parsedAs = <T extends ClientCommand>(command: unknown, type: T['type']): Result<T> => {
@@ -270,6 +278,13 @@ export const createClientSessions = (
   sync();
 
   const sessionFor = (viewer: Viewer): ClientSession => {
+    const traitVisibilityOf = (actorId: unknown) =>
+      engine
+        .getState(campaignId)
+        .events.findLast(({ type, payload }) => type === CHARACTER_CREATED && payload.actorId === actorId)?.payload
+        .traitVisibility as TraitVisibilities | undefined;
+    const redacted = (committed: EventCommitted) =>
+      redactSheetFieldEdited(viewer, redactCharacterCreated(viewer, committed), traitVisibilityOf);
     const canSee = (event: ClientEvent) => {
       if (event.type !== EVENT_COMMITTED)
         return event.type === VISUALIZATION_EVENT && VISUALIZING.includes(viewer.scope);
@@ -325,7 +340,7 @@ export const createClientSessions = (
         const scope = viewer.scope === GM_SCOPE ? GM_SCOPE : PLAYER_SCOPE;
         const filtered = (event: ClientEvent) => {
           if (!canSee(event)) return;
-          listener(event.type === EVENT_COMMITTED ? redactCharacterCreated(viewer, event) : event);
+          listener(event.type === EVENT_COMMITTED ? redacted(event) : event);
         };
         const unsubscribe = log.subscribe(accepted.value.fromRevision ?? 0, filtered, scope);
         attempt(() => {

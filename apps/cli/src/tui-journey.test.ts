@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import { randomUUID } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -7,8 +6,7 @@ import type { Key } from 'node:readline';
 import { type TestContext, test } from 'node:test';
 import { stripVTControlCharacters } from 'node:util';
 import { DEFAULT_ADVENTURE_NAME } from '../../../packages/client-protocol/src/guided-start.ts';
-import { PROTOCOL_VERSION } from '../../../packages/client-protocol/src/protocol.ts';
-import { createEngineGateway, FAKE_GM_REPLY, openClientSession } from './engine-gateway.ts';
+import { createEngineGateway, FAKE_GM_REPLY } from './engine-gateway.ts';
 
 const SIZES = [
   [80, 24],
@@ -18,7 +16,7 @@ const FIXED_RANDOM = 0.5;
 const CLEAR_SCREEN = '\x1b[2J\x1b[H';
 const ACTION = 'I try to climb the wall';
 const CHARACTER = 'A scout named Wren with might 6, agility 5, wits 7 and presence 4.';
-const EDIT = { fieldId: 'might', value: 8 };
+const EDIT = '/edit might 8';
 const GUIDE = '2';
 const CONTINUE = '';
 const FIRST = '1';
@@ -71,34 +69,12 @@ const play = async (
   return { transcript: visible(transcript), screens };
 };
 
-const editSheet = (dataDir: string) => {
-  const { session, campaignId, close } = openClientSession(dataDir, DEFAULT_ADVENTURE_NAME);
-  try {
-    const snapshot = session.getSnapshot({ version: PROTOCOL_VERSION, type: 'GetCampaignSnapshot', campaignId });
-    assert.ok(snapshot.ok);
-    const [actor] = snapshot.value.characters;
-    assert.ok(actor);
-    const accepted = session.editSheetField({
-      version: PROTOCOL_VERSION,
-      type: 'EditSheetField',
-      campaignId,
-      actionId: randomUUID(),
-      expectedRevision: snapshot.value.revision,
-      actorId: actor.id,
-      ...EDIT,
-    });
-    assert.ok(accepted.ok);
-  } finally {
-    close();
-  }
-};
-
 const journey = async (t: TestContext, columns: number, rows: number) => {
   const dataDir = mkdtempSync(join(tmpdir(), 'rpg-tui-journey-'));
   t.after(() => rmSync(dataDir, { recursive: true, force: true }));
   const typed = [key(TYPE_KEY), ...[...ACTION].map((char) => key(char)), RETURN];
-  const first = await play(dataDir, columns, rows, FIRST_RUN, [typed, [key(MECHANICS_PANE)], [key(SHEET_PANE)]]);
-  editSheet(dataDir);
+  const edit = [key(TYPE_KEY), ...[...EDIT].map((char) => key(char)), RETURN];
+  const first = await play(dataDir, columns, rows, FIRST_RUN, [typed, [key(MECHANICS_PANE)], [key(SHEET_PANE)], edit]);
   const reopen = await play(dataDir, columns, rows, REOPEN, [[], [key(SHEET_PANE)]]);
   return { first, reopen };
 };
@@ -107,7 +83,7 @@ test('rpg-42a.17 TUI journey: first run, guided start, roll, sheet edit, quit, r
   t.mock.method(Math, 'random', () => FIXED_RANDOM);
   for (const [columns, rows] of SIZES) {
     const { first, reopen } = await journey(t, columns, rows);
-    const [played, mechanics, sheet] = first.screens;
+    const [played, mechanics, sheet, editedLive] = first.screens;
     const [continued, edited] = reopen.screens;
     for (const screen of [...first.screens, ...reopen.screens]) {
       assert.equal(screen.length, rows);
@@ -119,6 +95,7 @@ test('rpg-42a.17 TUI journey: first run, guided start, roll, sheet edit, quit, r
     assert.match(played?.join('\n') ?? '', new RegExp(FAKE_GM_REPLY));
     assert.match(mechanics?.join('\n') ?? '', /d20 -> \d+/);
     assert.match(sheet?.join('\n') ?? '', /Wren/);
+    assert.match(editedLive?.join('\n') ?? '', /Might: 8/);
     assert.match(reopen.transcript.join('\n'), new RegExp(`1\\. ${DEFAULT_ADVENTURE_NAME}`));
     assert.match(continued?.join('\n') ?? '', new RegExp(ACTION));
     assert.match(edited?.join('\n') ?? '', /8/);

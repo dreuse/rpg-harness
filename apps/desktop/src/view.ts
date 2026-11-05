@@ -10,7 +10,14 @@ import {
 } from './accessibility.ts';
 import { renderRoll, rollSummary } from './dice.ts';
 import { PREFERENCES_QUERY, START_QUERY } from './preload.ts';
-import { OPENING_ACTION_ID, type Region, type viewModel } from './renderer.ts';
+import {
+  OPENING_ACTION_ID,
+  type Region,
+  type SheetField,
+  type SheetGroup,
+  UNGROUPED,
+  type viewModel,
+} from './renderer.ts';
 import type { DesktopVoiceView } from './voice.ts';
 
 export type ViewModel = ReturnType<typeof viewModel>;
@@ -52,6 +59,11 @@ const MODIFIERS = [
 ] as const;
 
 export const escapeHtml = (text: string) => text.replace(MARKUP, (character) => ENTITIES[character] ?? character);
+
+const CSS_UNSAFE = /^\d|[^\w-]/gu;
+const HEX = 16;
+export const cssEscape = (text: string) =>
+  text.replace(CSS_UNSAFE, (character) => `\\${character.codePointAt(0)?.toString(HEX)} `);
 
 const list = (items: readonly string[]) => `<ul>${items.map((item) => `<li>${item}</li>`).join('')}</ul>`;
 const PRIMARY = ' data-primary';
@@ -180,6 +192,41 @@ const rollTray = ({ rolls: [latest, ...older] }: ViewModel, locale: string) =>
     ? ''
     : `<section data-rolls aria-label="${escapeHtml(translate(locale, 'region.rolls'))}">${renderRoll(latest, locale)}${rollHistory(older, locale)}</section>`;
 
+export const SHEET_FIELD = 'data-sheet-field';
+export const SHEET_INPUT = 'sheet-field-';
+const NUMBER_INPUT = 'type="number" step="any" required';
+const TEXT_INPUT = 'type="text"';
+
+const sheetInput = ({ id, value, error }: SheetField) => {
+  const name = escapeHtml(id);
+  const invalid = error === undefined ? '' : ` aria-invalid="true" aria-describedby="sheet-error-${name}"`;
+  const typed =
+    typeof value === 'boolean'
+      ? `type="checkbox"${value ? ' checked' : ''}`
+      : `${typeof value === 'number' ? NUMBER_INPUT : TEXT_INPUT} value="${escapeHtml(String(value ?? ''))}"`;
+  return `<input id="${SHEET_INPUT}${name}" name="${name}" ${typed}${invalid}>`;
+};
+
+const sheetEditor = (field: SheetField, locale: string) => {
+  const name = escapeHtml(field.id);
+  return `<form ${SHEET_FIELD}="${name}"><label for="${SHEET_INPUT}${name}">${escapeHtml(field.name)}</label>${sheetInput(field)}<button type="submit" id="sheet-save-${name}" aria-label="${escapeHtml(translate(locale, 'sheet.saveLabel', { name: field.name }))}">${escapeHtml(translate(locale, 'sheet.save'))}</button>${field.error === undefined ? '' : `<p role="alert" id="sheet-error-${name}">${escapeHtml(field.error)}</p>`}</form>`;
+};
+
+const sheetValue = ({ id, label, explanation }: SheetField) =>
+  explanation === undefined
+    ? escapeHtml(label)
+    : `<span tabindex="0" aria-describedby="sheet-explain-${escapeHtml(id)}">${escapeHtml(label)}</span><span role="tooltip" id="sheet-explain-${escapeHtml(id)}">${escapeHtml(explanation)}</span>`;
+
+const sheetItem = (locale: string) => (field: SheetField) =>
+  `<li${field.changed ? ' data-changed' : ''}>${field.editable ? sheetEditor(field, locale) : sheetValue(field)}</li>`;
+
+const sheetGroup = ({ id, fields }: SheetGroup, locale: string) => {
+  const items = `<ul>${fields.map(sheetItem(locale)).join('')}</ul>`;
+  if (id === UNGROUPED) return items;
+  const group = escapeHtml(id);
+  return `<section data-sheet-group="${group}" aria-labelledby="sheet-group-${group}"><h4 id="sheet-group-${group}">${escapeHtml(translate(locale, `sheet.group.${id}`))}</h4>${items}</section>`;
+};
+
 const REGION_BODIES: Readonly<Record<Region, (model: ViewModel, locale: string) => string>> = {
   campaigns: ({ home, start }, locale) =>
     homeNotices(home, locale) + homeList(home, start !== undefined, locale) + archivedList(home, locale),
@@ -191,10 +238,9 @@ const REGION_BODIES: Readonly<Record<Region, (model: ViewModel, locale: string) 
           `<li data-action-id="${escapeHtml(actionId)}"${pending ? ' aria-busy="true"' : ''}>${actionId === OPENING_ACTION_ID ? '' : speaker(locale, 'player', input)}${pending ? systemLine(translate(locale, 'label.pending')) : speaker(locale, 'gm', narration)}</li>`,
       )
       .join('')}</ol>${model.conversation.length === 0 ? empty(locale, 'conversation') : ''}${rollTray(model, locale)}`,
-  sheet: ({ sheetLabels, character }, locale) => {
+  sheet: ({ sheetGroups, character }, locale) => {
     const name = character === undefined ? '' : `<h3>${escapeHtml(character)}</h3>`;
-    if (sheetLabels.length > 0)
-      return `${name}<ul>${sheetLabels.map(({ label, changed }) => `<li${changed ? ' data-changed' : ''}>${escapeHtml(label)}</li>`).join('')}</ul>`;
+    if (sheetGroups.length > 0) return name + sheetGroups.map((group) => sheetGroup(group, locale)).join('');
     return character === undefined
       ? empty(locale, 'sheet')
       : `${name}<p data-empty>${escapeHtml(translate(locale, 'sheet.noStats'))}</p>`;

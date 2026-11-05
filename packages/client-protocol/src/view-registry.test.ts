@@ -109,3 +109,15 @@ test('components may carry a plain displayed value and nothing richer', () => {
     expectRejected(descriptor('sheet', 'field', { value }));
   }
 });
+
+test('sheet components carry group, editable and explanation as plain data', () => {
+  const extra = { value: 3, group: 'core', editable: true, explanation: 'Might 2 + 1 from Ring' };
+  const result = parseViewDescriptor(descriptor('sheet', 'field', extra));
+  assert.equal(result.ok, true);
+  if (result.ok) assert.deepEqual(result.value.components[0], { kind: 'field', id: 'c1', label: 'Label', ...extra });
+  expectRejected(descriptor('sheet', 'field', { group: '' }));
+  expectRejected(descriptor('sheet', 'field', { group: 1 }));
+  expectRejected(descriptor('sheet', 'field', { editable: 'yes' }));
+  expectRejected(descriptor('sheet', 'field', { explanation: 2 }));
+  expectRejected(descriptor('sheet', 'field', { explanation: () => 'x' }));
+});

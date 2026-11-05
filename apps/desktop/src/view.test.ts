@@ -6,7 +6,16 @@ import type { VisualizationEvent } from '../../../packages/client-protocol/src/v
 import { DEFAULT_PREFERENCES, MAX_FONT_SCALE, type RendererAction } from './accessibility.ts';
 import { PREFERENCES_QUERY, START_QUERY } from './preload.ts';
 import { type DesktopState, initialState, OPENING_ACTION_ID, PLAY_REGIONS, viewModel } from './renderer.ts';
-import { bindKeys, escapeHtml, KEEP_DEFAULT, keyName, queryPreferences, queryStart, renderView } from './view.ts';
+import {
+  bindKeys,
+  cssEscape,
+  escapeHtml,
+  KEEP_DEFAULT,
+  keyName,
+  queryPreferences,
+  queryStart,
+  renderView,
+} from './view.ts';
 import type { DesktopVoiceView } from './voice.ts';
 
 const WIDE_WIDTH = 1600;
@@ -545,4 +554,73 @@ test('UI15: the motion control offers full, reduced and off and marks the curren
   assert.match(html, /<button type="button" data-motion="full" aria-pressed="false">Full<\/button>/);
   assert.match(html, /<button type="button" data-motion="reduced" aria-pressed="true">Reduced<\/button>/);
   assert.match(html, /<button type="button" data-motion="off" aria-pressed="false">Off<\/button>/);
+});
+
+const sheetState = (sheetErrors: DesktopState['sheetErrors'] = {}): DesktopState => ({
+  ...state,
+  sheetErrors,
+  views: {
+    sheet: {
+      campaignId: CAMPAIGN,
+      viewId: 'sheet',
+      components: [
+        { kind: 'field', id: 'might', label: 'Might', value: 3, group: 'core', editable: true },
+        { kind: 'field', id: 'hidden', label: 'Hidden', value: false, group: 'custom', editable: true },
+        {
+          kind: 'field',
+          id: 'armor',
+          label: 'Armor',
+          value: 5,
+          group: 'computed',
+          editable: false,
+          explanation: HOSTILE,
+        },
+      ],
+    },
+  },
+});
+
+test('rpg-42a.21: the sheet renders one titled group per SheetView group', () => {
+  const html = renderView(viewModel(sheetState(), WIDE_WIDTH), 'en');
+  assert.match(
+    html,
+    /<section data-sheet-group="core" aria-labelledby="sheet-group-core"><h4 id="sheet-group-core">Core<\/h4>/,
+  );
+  assert.match(html, /<h4 id="sheet-group-custom">Custom<\/h4>/);
+  assert.match(html, /<h4 id="sheet-group-computed">Computed<\/h4>/);
+  assert.match(renderView(viewModel(sheetState(), WIDE_WIDTH), 'es'), /<h4 id="sheet-group-computed">Calculado<\/h4>/);
+});
+
+test('rpg-42a.21: editable sheet fields are labelled inputs with a save button', () => {
+  const html = renderView(viewModel(sheetState(), WIDE_WIDTH), 'en');
+  assert.match(
+    html,
+    /<form data-sheet-field="might"><label for="sheet-field-might">Might<\/label><input id="sheet-field-might" name="might" type="number" step="any" required value="3"><button type="submit" id="sheet-save-might" aria-label="Save Might">Save<\/button><\/form>/,
+  );
+  assert.match(html, /<input id="sheet-field-hidden" name="hidden" type="checkbox">/);
+  assert.doesNotMatch(html, /data-sheet-field="armor"/);
+});
+
+test('rpg-42a.21: a rejected sheet edit shows an alert tied to its input', () => {
+  const html = renderView(viewModel(sheetState({ might: HOSTILE }), WIDE_WIDTH), 'en');
+  assert.match(
+    html,
+    /<input id="sheet-field-might" name="might" type="number" step="any" required value="3" aria-invalid="true" aria-describedby="sheet-error-might">/,
+  );
+  assert.ok(html.includes(`<p role="alert" id="sheet-error-might">${ESCAPED}</p>`));
+});
+
+test('rpg-42a.21: a computed value shows its explanation on hover and keyboard focus', () => {
+  const html = renderView(viewModel(sheetState(), WIDE_WIDTH), 'en');
+  assert.ok(
+    html.includes(
+      `<span tabindex="0" aria-describedby="sheet-explain-armor">Armor: 5</span><span role="tooltip" id="sheet-explain-armor">${ESCAPED}</span>`,
+    ),
+  );
+});
+
+test('rpg-42a.21: cssEscape makes any id safe inside a CSS selector', () => {
+  assert.equal(cssEscape('might'), 'might');
+  assert.equal(cssEscape('a b"]'), 'a\\20 b\\22 \\5d ');
+  assert.equal(cssEscape('1st'), '\\31 st');
 });

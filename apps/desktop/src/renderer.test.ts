@@ -278,8 +278,13 @@ test('UI10 view model carries font scale, motion flag and text-only sheet labels
   const model = viewModel(state, WIDE_WIDTH, { ...DEFAULT_PREFERENCES, fontScale: 1.5, reducedMotion: true });
   assert.equal(model.fontScale, 1.5);
   assert.equal(model.animate, false);
-  assert.deepEqual(model.sheetLabels, [{ id: 'hp', label: 'HP: 7 of 10', changed: false }]);
-  assert.deepEqual(viewModel(initialState, WIDE_WIDTH).sheetLabels, []);
+  assert.deepEqual(model.sheetGroups, [
+    {
+      id: '',
+      fields: [{ id: 'hp', name: 'HP', label: 'HP: 7 of 10', value: '7/10', editable: false, changed: false }],
+    },
+  ]);
+  assert.deepEqual(viewModel(initialState, WIDE_WIDTH).sheetGroups, []);
 });
 
 test('UI10 status label follows the locale preference', () => {
@@ -549,9 +554,88 @@ test('UI15: changed sheet values are highlighted until they settle', () => {
   wire.receive({ type: 'View', campaignId: CAMPAIGN, view: sheet(7) });
   assert.deepEqual(client.state().sheetChanged, ['hp']);
   assert.deepEqual(
-    viewModel(client.state(), WIDE_WIDTH).sheetLabels.map(({ changed }) => changed),
+    viewModel(client.state(), WIDE_WIDTH).sheetGroups.flatMap(({ fields }) => fields.map(({ changed }) => changed)),
     [false, true],
   );
   client.settle();
   assert.deepEqual(client.state().sheetChanged, []);
+});
+
+const GROUPED_SHEET = {
+  campaignId: CAMPAIGN,
+  viewId: 'sheet',
+  components: [
+    { kind: 'field', id: 'might', label: 'Might', value: 3, group: 'core', editable: true },
+    {
+      kind: 'field',
+      id: 'armor',
+      label: 'Armor',
+      value: 5,
+      group: 'computed',
+      editable: false,
+      explanation: '= might + 2',
+    },
+  ],
+};
+
+test('rpg-42a.21: the sheet groups fields and keeps edit rights and explanations', () => {
+  const { wire, client } = connectedClient();
+  wire.receive({ type: 'View', campaignId: CAMPAIGN, view: GROUPED_SHEET });
+  assert.deepEqual(viewModel(client.state(), WIDE_WIDTH).sheetGroups, [
+    {
+      id: 'core',
+      fields: [{ id: 'might', name: 'Might', label: 'Might: 3', value: 3, editable: true, changed: false }],
+    },
+    {
+      id: 'computed',
+      fields: [
+        {
+          id: 'armor',
+          name: 'Armor',
+          label: 'Armor: 5',
+          value: 5,
+          editable: false,
+          explanation: '= might + 2',
+          changed: false,
+        },
+      ],
+    },
+  ]);
+});
+
+test('rpg-42a.21: a sheet edit sends EditSheetField, shows a rejection and refreshes on acceptance', () => {
+  const { wire, client } = connectedClient();
+  wire.receive({ type: 'View', campaignId: CAMPAIGN, view: GROUPED_SHEET });
+  const edit = client.editSheet('might', 99);
+  assert.equal(edit.ok, true);
+  assert.deepEqual(wire.sent.at(-1), {
+    version: PROTOCOL_VERSION,
+    type: 'EditSheetField',
+    campaignId: CAMPAIGN,
+    actionId: 'a0',
+    expectedRevision: 1,
+    actorId: 'hero',
+    fieldId: 'might',
+    value: 99,
+  });
+  wire.receive({ type: 'Rejected', actionId: 'a0', error: { code: 'Rejected', message: 'might must be at most 20' } });
+  const might = () => viewModel(client.state(), WIDE_WIDTH).sheetGroups[0]?.fields[0];
+  assert.equal(might()?.error, 'might must be at most 20');
+  assert.deepEqual(client.state().rejected, []);
+  client.editSheet('might', 8);
+  const sent = wire.sent.length;
+  wire.receive({ type: 'Accepted', actionId: 'a1' });
+  assert.equal(might()?.error, undefined);
+  assert.deepEqual(
+    wire.sent.slice(sent).map(({ type }) => type),
+    ['GetCampaignSnapshot', 'RequestView'],
+  );
+});
+
+test('rpg-42a.21: a sheet edit needs a character and a known field', () => {
+  const wire = fakeTransport();
+  const client = createDesktopClient({ transport: wire.transport, newActionId: ids() });
+  assert.equal(client.editSheet('might', 8).ok, false);
+  const { client: ready } = connectedClient();
+  assert.equal(ready.editSheet('', 8).ok, false);
 });
