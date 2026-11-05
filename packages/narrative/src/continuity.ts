@@ -1,4 +1,5 @@
 import type { EntityId } from '../../domain/src/entity.ts';
+import type { ClaimKind } from '../../domain/src/story-memory.ts';
 import { PLAYER_VIEWER, visibleTo } from '../../memory/src/knowledge.ts';
 import {
   currentEntries,
@@ -55,6 +56,7 @@ export type ContinuityRun = Omit<ContinuityCheckInput, 'narration'> & {
   readonly log?: (record: ContinuityLogRecord) => void;
 };
 
+const LEAKABLE_KINDS: readonly ClaimKind[] = ['name', 'place', 'secret', 'description', 'relationship'];
 const SENTENCE_BREAK = /(?<=[.!?])\s+|\n+/;
 const REGEX_SPECIALS = /[.*+?^${}()|[\]\\]/g;
 const ESCAPED_MATCH = '\\$&';
@@ -94,10 +96,9 @@ export const checkContinuity = ({ narration, ledger, directory }: ContinuityChec
   const current = currentEntries(ledger);
   const seen = visibleLedger(ledger, PLAYER_VIEWER);
   const nameFor = (entry: LedgerEntry) => nameOf(ledger, directory, entry.entityId);
-  const shownName = (entry: LedgerEntry) => nameOf(seen, directory, entry.entityId);
   const found: ContinuityConflict[] = [];
-  const staleOf = (entry: LedgerEntry) =>
-    ledger.filter(
+  const staleOf = (entry: LedgerEntry, source: Ledger) =>
+    source.filter(
       (old) =>
         old.supersededBy !== null &&
         old.entityId === entry.entityId &&
@@ -108,25 +109,37 @@ export const checkContinuity = ({ narration, ledger, directory }: ContinuityChec
   const hidden = new Set(
     ledger.filter((entry) => !visibleTo([entry], PLAYER_VIEWER).length).map(({ eventId }) => eventId),
   );
+  const seenCurrent = currentEntries(seen);
+  const sameSlot = (a: LedgerEntry, b: LedgerEntry) =>
+    a.entityId === b.entityId && a.kind === b.kind && a.key === b.key;
+  const playerValues = new Set(seenCurrent.map(({ value }) => normalize(value)));
+  const checkEntry = (sentence: string, entry: LedgerEntry, source: Ledger, isHidden: boolean) => {
+    const name = nameOf(isHidden ? ledger : seen, directory, entry.entityId);
+    const fact = factLine(entry, name);
+    if (entry.kind === 'alive' && entry.value === 'dead') {
+      if (ACTS_AFTER(name).test(sentence) && !DEATH_CONTEXT.test(sentence))
+        found.push(conflict('dead-acts', entry, fact, sentence, isHidden));
+    } else if (entry.kind === 'item' && entry.value === 'not-held') {
+      if (mentions(sentence, name) && mentions(sentence, entry.key) && USES_ITEM.test(sentence))
+        found.push(conflict('item-not-held', entry, fact, sentence, isHidden));
+    } else if (entry.kind === 'name' || entry.kind === 'place') {
+      const stale = staleOf(entry, source).some(({ value }) => mentions(sentence, value));
+      const about = entry.kind === 'name' || mentions(sentence, name);
+      if (stale && about && !mentions(sentence, entry.value))
+        found.push(conflict(entry.kind === 'name' ? 'stale-name' : 'wrong-place', entry, fact, sentence, isHidden));
+    }
+  };
   for (const sentence of sentencesOf(narration)) {
     for (const entry of current) {
-      const name = nameFor(entry);
       const isHidden = hidden.has(entry.eventId);
-      const fact = factLine(entry, isHidden ? name : shownName(entry));
-      if (entry.kind === 'alive' && entry.value === 'dead') {
-        if (ACTS_AFTER(name).test(sentence) && !DEATH_CONTEXT.test(sentence))
-          found.push(conflict('dead-acts', entry, fact, sentence, isHidden));
-      } else if (entry.kind === 'item' && entry.value === 'not-held') {
-        if (mentions(sentence, name) && mentions(sentence, entry.key) && USES_ITEM.test(sentence))
-          found.push(conflict('item-not-held', entry, fact, sentence, isHidden));
-      } else if (entry.kind === 'name' || entry.kind === 'place') {
-        const stale = staleOf(entry).some(({ value }) => mentions(sentence, value));
-        const about = entry.kind === 'name' || mentions(sentence, name);
-        if (stale && about && !mentions(sentence, entry.value))
-          found.push(conflict(entry.kind === 'name' ? 'stale-name' : 'wrong-place', entry, fact, sentence, isHidden));
+      if (isHidden && LEAKABLE_KINDS.includes(entry.kind) && !playerValues.has(normalize(entry.value))) {
+        if (mentions(normalize(sentence), normalize(entry.value)))
+          found.push(conflict('secret-leak', entry, factLine(entry, nameFor(entry)), sentence, true));
       }
-      if (isHidden && entry.kind === 'secret' && mentions(normalize(sentence), normalize(entry.value)))
-        found.push(conflict('secret-leak', entry, fact, sentence, true));
+      const shown = isHidden ? seenCurrent.find((other) => sameSlot(other, entry)) : undefined;
+      if (shown !== undefined) checkEntry(sentence, shown, seen, false);
+      else if (!isHidden) checkEntry(sentence, entry, ledger, false);
+      else checkEntry(sentence, entry, ledger, true);
     }
   }
   return found;
@@ -139,7 +152,16 @@ const detect = async (input: ContinuityCheckInput, modelCheck: ModelContinuityCh
   const shown = new Set(seen.map(({ eventId }) => eventId));
   const lineOf = (entry: LedgerEntry) =>
     factLine(entry, nameOf(shown.has(entry.eventId) ? seen : input.ledger, input.directory, entry.entityId));
-  const facts = currentEntries(input.ledger).map(lineOf);
+  const playerCurrent = currentEntries(seen);
+  const facts = currentEntries(input.ledger).map((entry) =>
+    lineOf(
+      shown.has(entry.eventId)
+        ? entry
+        : (playerCurrent.find(
+            (other) => other.entityId === entry.entityId && other.kind === entry.kind && other.key === entry.key,
+          ) ?? entry),
+    ),
+  );
   const playerFacts = new Set(
     currentEntries(seen).map((entry) => factLine(entry, nameOf(seen, input.directory, entry.entityId))),
   );

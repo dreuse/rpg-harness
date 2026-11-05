@@ -711,6 +711,23 @@ describe('serve client-protocol commands over the desktop engine daemon', () => 
     acceptedValue(await daemon.command(lifecycle('ArchiveCampaign', { name: CAMPAIGN })));
   });
 
+  it('rpg-42a.64: rejects story memory commands until the daemon serves them', async (t) => {
+    const { env, campaignId } = await campaignEnv(t);
+    const daemon = supervise(t, { env });
+    const get = lifecycle('GetStoryMemory', { campaignId });
+    const correct = lifecycle('CorrectStoryFact', {
+      campaignId,
+      actionId: 'fix-1',
+      expectedRevision: 0,
+      actorId: 'any',
+      entityId: 'bob',
+      kind: 'name',
+      value: 'Bob',
+    });
+    assert.equal(rejectionOf(await daemon.command(get)), 'Rejected');
+    assert.equal(rejectionOf(await daemon.command(correct)), 'Rejected');
+  });
+
   it('rpg-42a.13: opens another campaign, drops old subscriptions and rejects an unknown name', async (t) => {
     const { env, campaignId } = await campaignEnv(t);
     await createCampaigns(String(env[DATA_DIR_ENV]), [SECOND_CAMPAIGN]);

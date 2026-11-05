@@ -248,3 +248,87 @@ test('rpg-42a.42 a hidden model conflict whose excerpt is not in the text drops 
   assert.ok(result.narration.includes('The wind rises.'));
   assert.ok(result.narration.includes('Night comes.'));
 });
+
+const BOB = 'bob';
+const SHADOWED = buildLedger([
+  claim('h1', BOB, 'name', 'Bob'),
+  claim('h2', BOB, 'name', 'Lord Vex', { visibility: 'gm' }),
+  claim('h3', ASH, 'place', 'Harbor'),
+  claim('h4', ASH, 'place', 'Crypt', { visibility: 'gm' }),
+  claim('h5', MAREN, 'alive', 'alive'),
+  claim('h6', MAREN, 'alive', 'dead', { visibility: 'gm' }),
+]);
+const SHADOWED_DIRECTORY: Directory = new Map([...DIRECTORY, [BOB, { name: 'Bob', kind: 'npc' }]]);
+const shadowedKinds = (narration: string) =>
+  checkContinuity({ narration, ledger: SHADOWED, directory: SHADOWED_DIRECTORY }).map(({ kind }) => kind);
+
+test('rpg-42a.64 narration that matches the player-visible slot is not a conflict', () => {
+  assert.deepEqual(shadowedKinds('Bob nods. Ash waits at the Harbor. Maren smiles.'), []);
+});
+
+test('rpg-42a.64 a regenerated gm-only name or place is a leak', () => {
+  assert.deepEqual(shadowedKinds('Lord Vex nods.'), ['secret-leak']);
+  assert.deepEqual(shadowedKinds('Ash waits in the Crypt.'), ['secret-leak']);
+});
+
+test('rpg-42a.64 a gm-only fact over a public one never reaches the player', async () => {
+  const seen: (readonly ContinuityConflict[])[] = [];
+  const result = await enforceContinuity({
+    ledger: SHADOWED,
+    directory: SHADOWED_DIRECTORY,
+    generate: (conflicts) => {
+      seen.push(conflicts);
+      return seen.length === 1
+        ? 'Bob nods. Ash waits at the Harbor.'
+        : 'Lord Vex nods. Ash waits in the Crypt. Rain falls.';
+    },
+  });
+  assert.equal(seen.length, 1);
+  assert.equal(result.resolved, true);
+  const leaky = await enforceContinuity({
+    ledger: SHADOWED,
+    directory: SHADOWED_DIRECTORY,
+    generate: () => 'Lord Vex nods. Ash waits in the Crypt. Rain falls.',
+  });
+  assert.equal(leaky.resolved, false);
+  assert.equal(leaky.narration.includes('Vex'), false);
+  assert.equal(leaky.narration.includes('Crypt'), false);
+  assert.ok(leaky.narration.includes('Rain falls.'));
+});
+
+test('rpg-42a.64 a gm-only death with no player claim is cut after regeneration', async () => {
+  const ledger = buildLedger([claim('d1', MAREN, 'alive', 'dead', { visibility: 'gm' })]);
+  const result = await enforceContinuity({
+    ledger,
+    directory: DIRECTORY,
+    generate: () => 'Maren smiles and says hello. Rain falls.',
+  });
+  assert.equal(result.narration.includes('Maren'), false);
+});
+
+test('rpg-42a.64 the model check sees the player-visible fact for a shadowed slot and descriptions leak-check', async () => {
+  const ledger = buildLedger([
+    claim('m1', MAREN, 'alive', 'alive'),
+    claim('m2', MAREN, 'alive', 'dead', { visibility: 'gm' }),
+    claim('m3', ASH, 'description', 'a vampire in disguise', { visibility: 'gm' }),
+  ]);
+  let facts: readonly string[] = [];
+  await enforceContinuity({
+    ledger,
+    directory: DIRECTORY,
+    generate: () => 'Maren smiles.',
+    modelCheck: (input) => {
+      facts = input.facts;
+      return [];
+    },
+  });
+  assert.equal(
+    facts.some((fact) => fact.includes('dead')),
+    false,
+  );
+  const found = checkContinuity({ narration: 'Ash, a vampire in disguise, waits.', ledger, directory: DIRECTORY });
+  assert.deepEqual(
+    found.map(({ kind }) => kind),
+    ['secret-leak'],
+  );
+});
