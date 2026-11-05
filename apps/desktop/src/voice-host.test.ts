@@ -8,6 +8,7 @@ import {
   createKokoroProvider,
   KOKORO_CAPABILITIES,
   KOKORO_PROVIDER_ID,
+  MLX_KOKORO_CAPABILITIES,
   MLX_KOKORO_PROVIDER_ID,
 } from '../../../packages/voice/src/kokoro-provider.ts';
 import {
@@ -274,4 +275,60 @@ test('the host lists the mlx voice only where it is supported', () => {
   const ids = (supported: boolean) => voiceProviders({}, '/dir', supported).map(({ id }) => id);
   assert.deepEqual(ids(true), [KOKORO_PROVIDER_ID, MLX_KOKORO_PROVIDER_ID]);
   assert.deepEqual(ids(false), [KOKORO_PROVIDER_ID]);
+});
+
+const MLX_LANGUAGE = 'pt-BR';
+const NO_VOICE_LANGUAGE = 'xx';
+
+const preloadHost = ({ healthy = true, failPreload = false } = {}) => {
+  let preloads = 0;
+  const base = createKokoroProvider({
+    id: MLX_KOKORO_PROVIDER_ID,
+    capabilities: MLX_KOKORO_CAPABILITIES,
+    engine: { ready: () => true, load: async () => {}, synthesize: async () => AUDIO, unload: async () => {} },
+  });
+  const provider = {
+    synthesize: base.synthesize,
+    dispose: base.dispose,
+    healthy: () => healthy,
+    preload: async () => {
+      preloads += 1;
+      if (failPreload) throw new Error('preload failed');
+    },
+  };
+  const hosted: HostedProvider = {
+    id: MLX_KOKORO_PROVIDER_ID,
+    capabilities: MLX_KOKORO_CAPABILITIES,
+    narrator: 'pf_dora',
+    model: fakeModel().model,
+    provider,
+  };
+  return { host: createVoiceHost({ providers: [hosted], cacheDir }), preloads: () => preloads };
+};
+
+test('rpg-cm63.24 prepare preloads a healthy mlx voice and stays silent', () => {
+  const { host, preloads } = preloadHost();
+  assert.equal(host.prepare(MLX_LANGUAGE), undefined);
+  assert.equal(preloads(), 1);
+});
+
+test('rpg-cm63.24 prepare notes a language without a voice and skips preload', () => {
+  const { host, preloads } = preloadHost();
+  assert.match(host.prepare(NO_VOICE_LANGUAGE) ?? '', /No spoken voice exists/);
+  assert.equal(preloads(), 0);
+});
+
+test('rpg-cm63.24 prepare notes an unhealthy or missing provider', () => {
+  const unhealthy = preloadHost({ healthy: false });
+  assert.match(unhealthy.host.prepare(MLX_LANGUAGE) ?? '', /not available on this computer/);
+  assert.equal(unhealthy.preloads(), 0);
+  const missing = createVoiceHost({ providers: [], cacheDir });
+  assert.match(missing.prepare(MLX_LANGUAGE) ?? '', /not available on this computer/);
+});
+
+test('rpg-cm63.24 prepare remembers a failed preload and reports the voice unavailable', async () => {
+  const { host } = preloadHost({ failPreload: true });
+  assert.equal(host.prepare(MLX_LANGUAGE), undefined);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.match(host.prepare(MLX_LANGUAGE) ?? '', /not available on this computer/);
 });

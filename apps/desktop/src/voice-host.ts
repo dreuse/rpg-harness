@@ -22,7 +22,7 @@ import {
   MLX_KOKORO_PROVIDER_ID,
   speaksLanguage,
 } from '../../../packages/voice/src/kokoro-provider.ts';
-import { voicesFor } from '../../../packages/voice/src/language-voices.ts';
+import { noVoiceNotice, voicesFor } from '../../../packages/voice/src/language-voices.ts';
 import {
   createMlxAudioProvider,
   MLX_AUDIO_DIR_ENV,
@@ -49,7 +49,7 @@ export type HostedProvider = {
   readonly capabilities: KokoroCapabilities;
   readonly narrator: string;
   readonly model: ModelManager;
-  readonly provider: Pick<KokoroProvider, 'synthesize' | 'dispose'>;
+  readonly provider: Pick<KokoroProvider, 'synthesize' | 'dispose' | 'preload' | 'healthy'>;
 };
 
 export type VoiceProviderStatus = {
@@ -81,6 +81,7 @@ export type VoiceHost = {
   remove(providerId: unknown): Promise<void>;
   preview(request: unknown): Promise<PreviewAudio>;
   clearCache(): void;
+  prepare(language: string): string | undefined;
 };
 
 const PREVIEW_EVENT = 'voice-preview';
@@ -131,6 +132,7 @@ export const createVoiceHost = ({
 }): VoiceHost => {
   let cache = createFileAudioCache(cacheDir, cacheLimit);
   const downloads = new Map<string, Promise<void>>();
+  const failedPreloads = new Set<string>();
   const find = (id: unknown) => {
     const hosted = providers.find((candidate) => candidate.id === id);
     if (hosted === undefined) throw new RangeError('unknown voice provider');
@@ -206,6 +208,20 @@ export const createVoiceHost = ({
     clearCache: () => {
       rmSync(cacheDir, { recursive: true, force: true });
       cache = createFileAudioCache(cacheDir, cacheLimit);
+    },
+    prepare: (language) => {
+      const hosted = providers.find(({ id }) => id === voicesFor(language)?.providerId);
+      if (hosted !== undefined && hosted.provider.healthy())
+        hosted.provider
+          .preload()
+          .then(() => failedPreloads.delete(hosted.id))
+          .catch(() => failedPreloads.add(hosted.id));
+      return noVoiceNotice(
+        language,
+        providers
+          .filter(({ id }) => !failedPreloads.has(id))
+          .map(({ id, provider }) => ({ id, healthy: () => provider.healthy() })),
+      );
     },
   };
 };

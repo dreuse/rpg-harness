@@ -41,7 +41,10 @@ export const narratorFallback = (language: string): VoiceProfile['fallbacks'][nu
   return voices && { providerId: voices.providerId, voiceId: voices.narrator };
 };
 
-export const noVoiceNotice = (language: string, providers: readonly TtsProvider[]): string | undefined => {
+export const noVoiceNotice = (
+  language: string,
+  providers: readonly Pick<TtsProvider, 'id' | 'healthy'>[],
+): string | undefined => {
   const voices = voicesFor(language);
   const name = languageName(language);
   if (!voices) return `No spoken voice exists for ${name} yet. The story stays in text.`;

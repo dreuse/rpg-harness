@@ -481,6 +481,7 @@ test('rpg-cm63.7 main serves voice setup to its own window and forwards download
   const electron = fakeElectron();
   const calls: unknown[][] = [];
   const voice: VoiceHost = {
+    prepare: () => undefined,
     check: async () => {
       calls.push(['check']);
       return { providers: [], cacheBytes: 0 };
