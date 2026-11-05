@@ -97,7 +97,7 @@ const run = (
   steps: (events: readonly CampaignEvent[], quests: Quests) => readonly (readonly [string, Record<string, unknown>])[],
 ): CommittedTurn => {
   const state = loadState(store, action.campaignId);
-  const stored = replayOf(state, action, recorded(type, fields));
+  const stored = replayOf(store, state, action, recorded(type, fields));
   if (stored !== undefined) return stored;
   validate(state, action);
   return commit(store, action, steps(state.events, projectQuests(state.events)));

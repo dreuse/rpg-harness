@@ -1,4 +1,5 @@
 import type { EntityId, Visibility } from './entity.ts';
+import type { GmUsageLedger } from './gm.ts';
 
 export type CampaignId = string;
 export type CharacterId = string;
@@ -13,6 +14,9 @@ export const CAMPAIGN_RENAMED = 'CampaignRenamed';
 export const SCENE_OPENED = 'SceneOpened';
 export const CHARACTER_CREATED = 'CharacterCreated';
 export const CAMPAIGN_CONFIGURED = 'CampaignConfigured';
+export const PLAYER_ACTION_SUBMITTED = 'PlayerActionSubmitted';
+export const ACTION_VALIDATED = 'ActionValidated';
+export const CHECK_RESOLVED = 'CheckResolved';
 export const EVENT_BUCKETS = ['background', 'emerging', 'major', 'critical'] as const;
 export type EventBucket = (typeof EVENT_BUCKETS)[number];
 
@@ -91,6 +95,8 @@ export type CampaignState = {
   readonly currentScene: Scene | undefined;
   readonly turns: readonly Turn[];
   readonly events: readonly CampaignEvent[];
+  readonly changes: readonly Pick<CampaignEvent, 'type' | 'payload'>[];
+  readonly gmUsage: GmUsageLedger;
 };
 
 export interface CampaignStore {
@@ -101,6 +107,7 @@ export interface CampaignStore {
   recordNarration(campaignId: CampaignId, turnId: TurnId, narration: string): void;
   recordUsage(event: CampaignChange): void;
   load(id: CampaignId): CampaignState | undefined;
+  findTurn(campaignId: CampaignId, actionId: string): CommittedTurn | undefined;
 }
 
 export class CampaignNotFoundError extends Error {

@@ -74,6 +74,11 @@ export const replay = <S>(
   return events.slice(start.eventCount).reduce(projection.apply, start.state);
 };
 
+export const isResumable = <S>(projection: Projection<S>, timeline: Timeline, snapshot: Snapshot<S>) =>
+  snapshot.version === projection.version &&
+  snapshot.campaignId === timeline.campaignId &&
+  snapshot.branchId === timeline.branchId;
+
 export const checkpoint = <S>(
   projection: Projection<S>,
   timeline: Timeline,

@@ -1,17 +1,20 @@
 import { randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import {
+  ACTION_VALIDATED,
   CAMPAIGN_CONFIGURED,
   type CampaignEvent,
   type CampaignId,
   CampaignNotFoundError,
   type CampaignState,
   type CampaignStore,
+  CHECK_RESOLVED,
   type Character,
   type CharacterId,
   type CommittedTurn,
   type EventId,
   OPENING_ACTION_ID,
+  PLAYER_ACTION_SUBMITTED,
   SCENE_OPENED,
   type SceneId,
   StaleRevisionError,
@@ -38,7 +41,7 @@ export type CheckResolution = {
 export type Check = (actionId: string, rng: Rng) => CheckResolution;
 export type Step = readonly [type: string, payload: Record<string, unknown>, visibility?: TurnVisibility];
 
-export const CHECK_RESOLVED = 'CheckResolved';
+export { CHECK_RESOLVED };
 
 export class InvalidActionError extends Error {
   readonly actionId: string;
@@ -63,8 +66,6 @@ export type OpeningScene = {
 };
 
 const PENDING_NARRATION = '';
-const SUBMITTED = 'PlayerActionSubmitted';
-const VALIDATED = 'ActionValidated';
 const OPENING_INPUT = 'Begin.';
 const PLAYER_VISIBLE: TurnVisibility = 'player';
 
@@ -88,6 +89,9 @@ export const storedTurn = (state: CampaignState, actionId: string): CommittedTur
   if (turn === undefined) return undefined;
   return { turn, events: state.events.filter((event) => event.turnId === turn.id) };
 };
+
+export const storedTurnOf = (store: CampaignStore, state: CampaignState, actionId: string): CommittedTurn | undefined =>
+  storedTurn(state, actionId) ?? store.findTurn(state.campaign.id, actionId);
 
 export const requireValid = (actionId: string, valid: boolean, reason: string) => {
   if (!valid) throw new InvalidActionError(actionId, reason);
@@ -118,8 +122,8 @@ export const toCommittedTurn = ({
   const turn: Turn = { id: randomUUID(), campaignId, sceneId, actionId, actorId, input, narration: PENDING_NARRATION };
   const event = (causationId: string | null, type: string, payload: Record<string, unknown>): CampaignEvent =>
     turnEvent(turn, causationId, type, payload);
-  const submitted = event(null, SUBMITTED, { actorId, sceneId, input, intent });
-  return { turn, events: [submitted, event(submitted.id, VALIDATED, { revision: expectedRevision + 1 })] };
+  const submitted = event(null, PLAYER_ACTION_SUBMITTED, { actorId, sceneId, input, intent });
+  return { turn, events: [submitted, event(submitted.id, ACTION_VALIDATED, { revision: expectedRevision + 1 })] };
 };
 
 export const commit = (
@@ -150,7 +154,7 @@ const sameAction = ({ turn, events }: CommittedTurn, action: PlayerAction) =>
   turn.sceneId === action.sceneId &&
   turn.actorId === action.actorId &&
   turn.input === action.input &&
-  events.find(({ type }) => type === SUBMITTED)?.payload.intent === action.intent;
+  events.find(({ type }) => type === PLAYER_ACTION_SUBMITTED)?.payload.intent === action.intent;
 
 export const recorded =
   (type: string, fields: Readonly<Record<string, unknown>>) =>
@@ -162,11 +166,12 @@ export const recorded =
     );
 
 export const replayOf = (
+  store: CampaignStore,
   state: CampaignState,
   action: PlayerAction,
   matches: (stored: CommittedTurn) => boolean = () => true,
 ): CommittedTurn | undefined => {
-  const stored = storedTurn(state, action.actionId);
+  const stored = storedTurnOf(store, state, action.actionId);
   if (stored !== undefined && !(sameAction(stored, action) && matches(stored)))
     throw new ActionIdConflictError(action.actionId);
   return stored;
@@ -179,7 +184,7 @@ export const performAction = (
   rng: Rng = Math.random,
 ): CommittedTurn => {
   const state = loadState(store, action.campaignId);
-  const stored = replayOf(state, action);
+  const stored = replayOf(store, state, action);
   if (stored !== undefined) return stored;
   validate(state, action);
   if (check !== undefined)

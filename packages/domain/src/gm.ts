@@ -86,3 +86,28 @@ export const addGmUsage = (totals: GmUsageTotals, usage: GmUsage): GmUsageTotals
   costUsd: totals.costUsd + (usage.costUsd ?? 0),
   pricedTurns: totals.pricedTurns + (usage.costUsd === undefined ? NO_TURN : ONE_TURN),
 });
+
+export const GM_USAGE_RECORDED = 'GmUsageRecorded';
+
+export interface GmUsageLedger {
+  readonly campaign: GmUsageTotals;
+  readonly sessions: Readonly<Record<string, GmUsageTotals>>;
+}
+
+export const EMPTY_GM_USAGE_LEDGER: GmUsageLedger = { campaign: EMPTY_GM_USAGE_TOTALS, sessions: {} };
+
+export const recordInLedger = (ledger: GmUsageLedger, payload: Readonly<Record<string, unknown>>): GmUsageLedger => {
+  const usage = toGmUsage(payload.usage);
+  if (usage === undefined) return ledger;
+  const sessionId = String(payload.sessionId);
+  return {
+    campaign: addGmUsage(ledger.campaign, usage),
+    sessions: {
+      ...ledger.sessions,
+      [sessionId]: addGmUsage(ledger.sessions[sessionId] ?? EMPTY_GM_USAGE_TOTALS, usage),
+    },
+  };
+};
+
+export const ledgerTotals = (ledger: GmUsageLedger, sessionId?: string): GmUsageTotals =>
+  sessionId === undefined ? ledger.campaign : (ledger.sessions[sessionId] ?? EMPTY_GM_USAGE_TOTALS);

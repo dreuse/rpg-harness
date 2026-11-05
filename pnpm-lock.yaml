@@ -117,6 +117,9 @@ importers:
       '@rpg/domain':
         specifier: workspace:*
         version: link:../domain
+      '@rpg/timelines':
+        specifier: workspace:*
+        version: link:../timelines
 
   packages/rules:
     dependencies:

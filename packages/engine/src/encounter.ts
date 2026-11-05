@@ -172,7 +172,7 @@ const requireRules = (actionId: string, { rulePack, mechanics }: EncounterRules)
 export const startEncounter = (store: CampaignStore, start: EncounterStart): CommittedTurn => {
   const state = loadState(store, start.campaignId);
   const { actionId, participants, rules, sheets = [] } = start;
-  const stored = replayOf(state, start, recorded(STARTED, { participants, rules, sheets }));
+  const stored = replayOf(store, state, start, recorded(STARTED, { participants, rules, sheets }));
   if (stored !== undefined) return stored;
   validate(state, start);
   requireValid(actionId, currentEncounter(state.events)?.status !== ACTIVE, 'an encounter is already active');
@@ -211,7 +211,7 @@ export const actInEncounter = (store: CampaignStore, move: EncounterMove): Commi
   const { actionId, actorId, ruleId, rng, modifiers } = move;
   const state = loadState(store, move.campaignId);
   const applied = { ...(modifiers ?? NO_MODIFIERS) };
-  const stored = replayOf(state, move, recorded(ACTION_RESOLVED, { ruleId, modifiers: applied }));
+  const stored = replayOf(store, state, move, recorded(ACTION_RESOLVED, { ruleId, modifiers: applied }));
   if (stored !== undefined) return stored;
   validate(state, move);
   const encounter = activeEncounter(state, actionId);
@@ -233,7 +233,7 @@ export const actInEncounter = (store: CampaignStore, move: EncounterMove): Commi
 
 export const resolveEncounter = (store: CampaignStore, end: EncounterEnd): CommittedTurn => {
   const state = loadState(store, end.campaignId);
-  const stored = replayOf(state, end, recorded(RESOLVED, { outcome: end.outcome }));
+  const stored = replayOf(store, state, end, recorded(RESOLVED, { outcome: end.outcome }));
   if (stored !== undefined) return stored;
   validate(state, end);
   const { actionId, outcome } = end;

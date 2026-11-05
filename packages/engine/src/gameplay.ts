@@ -1,7 +1,7 @@
 import type { CampaignStore, CommittedTurn } from '../../domain/src/campaign.ts';
 import { type ConsistencyInput, type ConsistencyReport, checkConsistency } from '../../narrative/src/consistency.ts';
 import { GameMasterInterruptedError } from './scripted-session.ts';
-import { loadState, type PlayerAction, storedTurn } from './turn.ts';
+import { loadState, type PlayerAction, storedTurnOf } from './turn.ts';
 
 export type NarratedTurn = Pick<ConsistencyInput, 'narration' | 'claims'>;
 
@@ -54,7 +54,7 @@ export const playGameplayTurn = <A extends PlayerAction>(
   context: NarrationContext,
 ): GameplayOutcome => {
   resolve(store, action);
-  const committed = storedTurn(loadState(store, action.campaignId), action.actionId);
+  const committed = storedTurnOf(store, loadState(store, action.campaignId), action.actionId);
   if (committed === undefined) throw new UncommittedTurnError(action.actionId);
   if (committed.turn.narration !== PENDING_NARRATION) return { committed, narration: committed.turn.narration };
   try {

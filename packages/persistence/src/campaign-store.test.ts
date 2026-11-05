@@ -16,6 +16,7 @@ import {
   StaleRevisionError,
   type TurnCommit,
 } from '../../domain/src/campaign.ts';
+import { EMPTY_GM_USAGE_LEDGER } from '../../domain/src/gm.ts';
 import { createCampaignStore } from './campaign-store.ts';
 import { openDatabase } from './database.ts';
 import { createEventStore } from './event-store.ts';
@@ -66,6 +67,8 @@ const EXPECTED_STATE: CampaignState = {
   currentScene: SCENE,
   turns: [TURN],
   events: [ACTION_EVENT, NARRATION_EVENT],
+  changes: [{ type: 'CampaignCreated', payload: { name: CAMPAIGN.name } }],
+  gmUsage: EMPTY_GM_USAGE_LEDGER,
 };
 
 const OTHER_CAMPAIGN = { id: 'campaign-2', name: 'Salt Roads' };
@@ -87,6 +90,8 @@ const emptyState = (campaign: Campaign): CampaignState => ({
   currentScene: undefined,
   turns: [],
   events: [],
+  changes: [{ type: 'CampaignCreated', payload: { name: campaign.name } }],
+  gmUsage: EMPTY_GM_USAGE_LEDGER,
 });
 
 const change = (campaign: Campaign, id: string, type: string): CampaignChange => ({
@@ -301,7 +306,11 @@ test('create and rename record a main-branch event with revision and action id i
   const renamed = { ...CAMPAIGN, name: 'Harbor Lights Renamed' };
   const renamedEvent = change(renamed, 'renamed-1', 'CampaignRenamed');
   store.renameCampaign({ expectedRevision: INITIAL_REVISION, campaign: renamed, event: renamedEvent });
-  assert.deepEqual(store.load(CAMPAIGN.id), { ...emptyState(renamed), revision: INITIAL_REVISION + 1 });
+  assert.deepEqual(store.load(CAMPAIGN.id), {
+    ...emptyState(renamed),
+    revision: INITIAL_REVISION + 1,
+    changes: [...emptyState(CAMPAIGN).changes, { type: 'CampaignRenamed', payload: { name: renamed.name } }],
+  });
   assert.deepEqual(campaignEvents(connection), [
     eventRow(createdEvent(CAMPAIGN), INITIAL_REVISION),
     eventRow(renamedEvent, INITIAL_REVISION + 1),

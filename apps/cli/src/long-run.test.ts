@@ -28,6 +28,7 @@ import {
 } from '../../../packages/timelines/src/branches.ts';
 import { type CampaignTimelineState, campaignProjection } from '../../../packages/timelines/src/campaign.ts';
 import { type CheckpointPointer, createCheckpoint } from '../../../packages/timelines/src/checkpoints.ts';
+import { RECENT_TURN_WINDOW } from '../../../packages/timelines/src/live.ts';
 import { replay, type Timeline } from '../../../packages/timelines/src/replay.ts';
 
 const TEMP_PREFIX = 'rpg-q05-';
@@ -162,7 +163,7 @@ const projected = (state: CampaignState) => ({
 const fromProjection = ({ revision, currentScene, turnIds }: CampaignTimelineState) => ({
   revision,
   currentScene,
-  turnIds,
+  turnIds: turnIds.slice(-RECENT_TURN_WINDOW),
 });
 
 const playLongCampaign = (path: string) => {
@@ -234,10 +235,8 @@ test('stress-test hundreds of turns, branches, retrieval budgets and recovery', 
   withDatabaseFile((path) => {
     const { model, checkpoints, final } = playLongCampaign(path);
     assert.equal(model.calls.length, TOTAL_TURNS);
-    assert.equal(
-      final.turns.filter(({ narration }) => narration !== PENDING_NARRATION).length,
-      TOTAL_TURNS + OPENING_TURNS,
-    );
+    assert.equal(final.turns.length, Math.min(RECENT_TURN_WINDOW, TOTAL_TURNS + OPENING_TURNS));
+    assert.ok(final.turns.every(({ narration }) => narration !== PENDING_NARRATION));
     for (const { context } of model.calls) {
       assert.ok(context.usedTokens <= BUDGET);
       assert.equal(context.requiredExceedsBudget, false);
@@ -295,7 +294,7 @@ test('performance does not require full history injection into every model promp
     const atFirstSessionEnd = model.calls[TURNS_PER_SESSION - 1];
     assert.ok(last && atFirstSessionEnd);
     assert.equal(last.historyEvents, final.events.length);
-    assert.ok(last.historyEvents > (SESSIONS - 1) * atFirstSessionEnd.historyEvents);
+    assert.ok(last.historyEvents > atFirstSessionEnd.historyEvents);
     const cited = (prompt: string) => new Set(prompt.match(UUID) ?? []).size;
     assert.ok(cited(last.prompt) <= cited(atFirstSessionEnd.prompt));
     const oldest = final.events.find(({ type }) => type === SUBMITTED);

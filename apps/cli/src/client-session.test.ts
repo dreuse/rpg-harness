@@ -13,6 +13,7 @@ import { parseSheetSchema, type SheetEdit } from '../../../packages/client-proto
 import { VISUALIZATION_EVENT } from '../../../packages/client-protocol/src/visualization.ts';
 import { CAMPAIGN_CONFIGURED, MAIN_BRANCH, StaleRevisionError } from '../../../packages/domain/src/campaign.ts';
 import type { Visibility } from '../../../packages/domain/src/entity.ts';
+import { EMPTY_GM_USAGE_LEDGER } from '../../../packages/domain/src/gm.ts';
 import { CHARACTER_CREATED, editSheetField, SHEET_FIELD_EDITED } from '../../../packages/engine/src/character.ts';
 import { createEngine } from '../../../packages/engine/src/engine.ts';
 import { recordGmUsage } from '../../../packages/engine/src/gm-settings.ts';
@@ -24,8 +25,16 @@ import { createCampaignStore } from '../../../packages/persistence/src/campaign-
 import { createCharacterStore } from '../../../packages/persistence/src/character-store.ts';
 import { openDatabase } from '../../../packages/persistence/src/database.ts';
 import { createEntityStore } from '../../../packages/persistence/src/entity-store.ts';
+import type { EventQuery } from '../../../packages/persistence/src/event-store.ts';
 import { createRoller, createSeededRng } from '../../../packages/rules/src/dice.ts';
-import { campaignSummaryOf, createClientSessions, type SheetPort, scopedEventsOf, worldOf } from './client-session.ts';
+import {
+  campaignSummaryOf,
+  createClientSessions,
+  type EventSource,
+  type SheetPort,
+  scopedEventsOf,
+  worldOf,
+} from './client-session.ts';
 import { BUILT_IN_PACKS } from './import-gateway.ts';
 
 const IN_MEMORY = ':memory:';
@@ -156,9 +165,12 @@ const setup = (config?: CampaignConfig) => {
 
 type Envelope = ReturnType<typeof setup>['envelope'];
 
-const collect = (session: ClientSession, envelope: Envelope) => {
+const collect = (session: ClientSession, envelope: Envelope, fromRevision?: number) => {
   const received: ClientEvent[] = [];
-  session.subscribeEvents({ ...envelope, type: 'SubscribeEvents' }, (event) => received.push(event));
+  session.subscribeEvents(
+    { ...envelope, type: 'SubscribeEvents', ...(fromRevision === undefined ? {} : { fromRevision }) },
+    (event) => received.push(event),
+  );
   return received;
 };
 
@@ -274,7 +286,16 @@ test('rpg-42a.12: campaign summary strips control characters from the last narra
     input: 'look',
     narration: 'First line.\nThe \u001b[31mdoor\u0007 opens.\u202e',
   };
-  const state = { campaign, revision: 1, characters: [], currentScene: undefined, turns: [turn], events: [] };
+  const state = {
+    campaign,
+    revision: 1,
+    characters: [],
+    currentScene: undefined,
+    turns: [turn],
+    events: [],
+    changes: [],
+    gmUsage: EMPTY_GM_USAGE_LEDGER,
+  };
   const source = { state, entities: [], relationships: [], eventScopes: [] };
   assert.equal(campaignSummaryOf(source, PLAYER_VIEWER, null).lastNarration, 'The [31mdoor opens.');
 });
@@ -405,7 +426,16 @@ test('rpg-42a.23: campaign summary narrates the last play turn, not a sheet edit
     { id: 'e1', campaignId: campaign.id, turnId: edit.id, causationId: null, type: SHEET_FIELD_EDITED, payload: {} },
   ];
   const turns = [{ ...turn, actionId: 'a1' }, edit];
-  const state = { campaign, revision: 2, characters: [], currentScene: undefined, turns, events };
+  const state = {
+    campaign,
+    revision: 2,
+    characters: [],
+    currentScene: undefined,
+    turns,
+    events,
+    changes: [],
+    gmUsage: EMPTY_GM_USAGE_LEDGER,
+  };
   const summary = campaignSummaryOf({ state, entities: [], relationships: [], eventScopes: [] }, PLAYER_VIEWER, null);
   assert.equal(summary.lastNarration, 'h1: look - Fog.');
   assert.equal(summary.turnCount, 1);
@@ -939,4 +969,67 @@ test('rpg-42a.38 snapshot declares how the pinned ruleset resolves actions and u
   assert.deepEqual(rulesOf('narrative'), { resolution: 'adjudicated', sheet: 'none' });
   assert.deepEqual(rulesOf('d20-lite'), { resolution: 'dice', sheet: 'full' });
   assert.equal(rulesOf(), undefined);
+});
+
+const LOG_WINDOW = 3;
+const ACTIONS = 5;
+
+const playActions = (session: ClientSession, envelope: Envelope, turn: { sceneId: string; actorId: string }) => {
+  for (let index = 0; index < ACTIONS; index++)
+    session.submitPlayerAction({
+      ...envelope,
+      type: 'SubmitPlayerAction',
+      actionId: `window-${index}`,
+      expectedRevision: OPENING_REVISION + index,
+      sceneId: turn.sceneId,
+      actorId: turn.actorId,
+      input: `step ${index}`,
+    });
+};
+
+const windowedSessions = (setupResult: ReturnType<typeof setup>) => {
+  const { engine, database, campaignId } = setupResult;
+  const queries: (EventQuery | undefined)[] = [];
+  const spy: EventSource = (id, query) => {
+    queries.push(query);
+    return scopedEventsOf(database)(id, query);
+  };
+  const sessions = createClientSessions(engine, campaignId, spy, worldOf(database), undefined, {
+    logWindow: LOG_WINDOW,
+  });
+  return { sessions, queries };
+};
+
+test('rpg-42a.41: a session reads the log by cursor and never scans the whole log per action', () => {
+  const setupResult = setup();
+  const { envelope, turn } = setupResult;
+  const { sessions, queries } = windowedSessions(setupResult);
+  const session = sessions(GM_VIEWER);
+  playActions(session, envelope, turn);
+  session.getSnapshot({ ...envelope, type: 'GetCampaignSnapshot' });
+  session.getPanels({ ...envelope, type: 'GetCampaignPanels' });
+  assert.deepEqual(queries[0], { tail: LOG_WINDOW });
+  assert.ok(queries.length > ACTIONS);
+  assert.ok(queries.every((query) => query !== undefined && Object.keys(query).length > 0));
+});
+
+test('rpg-42a.41: a client that reconnects past the in-memory window still gets every missed event', () => {
+  const setupResult = setup();
+  const { envelope, turn, database, campaignId } = setupResult;
+  const { sessions } = windowedSessions(setupResult);
+  const session = sessions(GM_VIEWER);
+  playActions(session, envelope, turn);
+  const missed = collect(session, envelope, OPENING_REVISION);
+  const expected = scopedEventsOf(database)(campaignId, { afterRevision: OPENING_REVISION }).map(({ id }) => id);
+  assert.deepEqual(ids(missed), expected);
+  assert.ok(expected.length > LOG_WINDOW);
+});
+
+test('rpg-42a.41: a client without a revision gets only the recent window', () => {
+  const setupResult = setup();
+  const { envelope, turn } = setupResult;
+  const { sessions } = windowedSessions(setupResult);
+  const session = sessions(GM_VIEWER);
+  playActions(session, envelope, turn);
+  assert.equal(ids(collect(session, envelope)).length, LOG_WINDOW);
 });

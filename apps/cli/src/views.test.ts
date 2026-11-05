@@ -453,7 +453,7 @@ test('player-facing views never expose hidden gm-only data', () =>
 
 test('resume and views upgrade a campaign saved before the latest migration', () =>
   withDataDir(async (dataDir) => {
-    const connection = openDatabase(join(dataDir, `${CAMPAIGN}.sqlite`), { migrations: MIGRATIONS.slice(0, -1) });
+    const connection = openDatabase(join(dataDir, `${CAMPAIGN}.sqlite`));
     try {
       const store = createCampaignStore(connection.database);
       const campaign = createEngine(store).createCampaign(CAMPAIGN);
@@ -463,6 +463,9 @@ test('resume and views upgrade a campaign saved before the latest migration', ()
         sceneTitle: 'Old Inn',
         narration: 'Old rain.',
       });
+      connection.database.exec(
+        `DROP TABLE campaign_snapshot; DROP INDEX event_log_campaign_revision; DROP INDEX event_log_campaign_type_revision; DELETE FROM schema_migrations WHERE version = ${MIGRATIONS.length};`,
+      );
     } finally {
       connection.close();
     }

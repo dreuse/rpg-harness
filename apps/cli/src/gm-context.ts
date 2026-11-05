@@ -14,9 +14,16 @@ import { campaignLanguageOf } from '../../../packages/engine/src/engine.ts';
 import { contextBudgetOf, recordSummary } from '../../../packages/engine/src/memory.ts';
 import { campaignConfigOf, loadState } from '../../../packages/engine/src/turn.ts';
 import { parseCampaignConfig } from '../../../packages/intent/src/config.ts';
-import { graphContext, PENDING_HOP_LIMIT, pendingOf } from '../../../packages/memory/src/graph.ts';
+import {
+  graphContext,
+  PENDING_HOP_LIMIT,
+  PENDING_OPENED,
+  PENDING_RESOLVED,
+  pendingOf,
+} from '../../../packages/memory/src/graph.ts';
 import {
   condense,
+  SUMMARY_WRITTEN,
   type Summary,
   type SummaryLevel,
   summariesOf,
@@ -32,7 +39,7 @@ import {
 } from '../../../packages/memory/src/packet.ts';
 import { createEntityStore, createFactStore } from '../../../packages/persistence/src/entity-store.ts';
 import { touchesOf, walkGraph } from '../../../packages/persistence/src/graph.ts';
-import { scopedEventsOf, worldOf } from './client-session.ts';
+import { scopedEventsOf, scopeLookupOf, worldOf } from './client-session.ts';
 import { languageInstruction, SYSTEM_PROMPT } from './gm-api.ts';
 import { describeConfig } from './quickstart.ts';
 import { panelsOf } from './views.ts';
@@ -46,6 +53,12 @@ export type Summarizer = (
   texts: readonly string[],
   language: string | undefined,
 ) => Promise<string>;
+
+const MEMORY_EVENT_TYPES = [PENDING_OPENED, PENDING_RESOLVED, SUMMARY_WRITTEN];
+const SUMMARY_EVENT_TYPES = [SUMMARY_WRITTEN];
+
+const eventsOfTypes = (database: DatabaseSync, campaignId: CampaignId, types: readonly string[]) =>
+  types.flatMap((type) => scopedEventsOf(database)(campaignId, { type })).sort((a, b) => a.seq - b.seq);
 
 const REWRITTEN_LEVEL: SummaryLevel = 'campaign';
 const PLAYER_SUMMARY = { visibility: 'player', actorId: null } as const;
@@ -84,9 +97,10 @@ export const contextPacketOf = (
   viewer: Viewer = PLAYER_VIEWER,
 ): ContextPacket => {
   const campaignId = state.campaign.id;
-  const scoped = scopedEventsOf(database)(campaignId);
-  const language = campaignLanguageOf(scoped);
-  const visibleEvents = new Set(visibleTo(scoped, viewer).map(({ id }) => id));
+  const scoped = eventsOfTypes(database, campaignId, MEMORY_EVENT_TYPES);
+  const language = campaignLanguageOf(state.changes);
+  const resultScopes = scopedEventsOf(database)(campaignId, { ids: committed.events.map(({ id }) => id) });
+  const visibleEvents = new Set(visibleTo(resultScopes, viewer).map(({ id }) => id));
   const entityStore = createEntityStore(database);
   const entities = visibleTo(entityStore.listEntities(campaignId), viewer);
   const pending = visibleTo(pendingOf(scoped), viewer);
@@ -125,7 +139,9 @@ export const contextPacketOf = (
   const summaries = summariesOf(scoped);
   const config = configOf(state);
   const world = worldOf(database)(campaignId, state.characters[0]?.id);
-  const { inventory, quests } = panelsOf({ state, eventScopes: scoped, ...world }, viewer);
+  const known = scopeLookupOf(database, campaignId)(state.events.map(({ id }) => id));
+  const eventScopes = [...known].map(([id, scope]) => ({ id, ...scope }));
+  const { inventory, quests } = panelsOf({ state, eventScopes, ...world }, viewer);
   return buildContextPacket(
     {
       instructions: [SYSTEM_PROMPT, ...(language === undefined ? [] : [languageInstruction(language)])],
@@ -149,7 +165,7 @@ export const contextPacketOf = (
         .map(({ type, payload }) => `${type} ${JSON.stringify(payload)}`),
       playerInput: [committed.turn.input],
     },
-    CONTEXT_BUDGETS[contextBudgetOf(scoped)],
+    CONTEXT_BUDGETS[contextBudgetOf(state.changes)],
   );
 };
 
@@ -163,7 +179,9 @@ export const summarizeCampaign = async (
   summarizer: Summarizer,
 ): Promise<void> => {
   const write = (level: SummaryLevel, scopeId: string, summary: Summary) => {
-    const stored = summariesOf(scopedEventsOf(database)(campaignId)).filter((written) => written.level === level);
+    const stored = summariesOf(eventsOfTypes(database, campaignId, SUMMARY_EVENT_TYPES)).filter(
+      (written) => written.level === level,
+    );
     const cited = new Set(stored.flatMap(({ summary: { sourceEventIds } }) => sourceEventIds));
     if (level !== REWRITTEN_LEVEL && summary.sourceEventIds.some((id) => cited.has(id))) return undefined;
     return recordSummary(store, {
@@ -176,9 +194,8 @@ export const summarizeCampaign = async (
     });
   };
   const state = loadState(store, campaignId);
-  const scoped = scopedEventsOf(database)(campaignId);
-  const language = campaignLanguageOf(scoped);
-  const written = summariesOf(scoped);
+  const language = campaignLanguageOf(state.changes);
+  const written = summariesOf(eventsOfTypes(database, campaignId, SUMMARY_EVENT_TYPES));
   const ofLevel = (level: SummaryLevel) =>
     written.filter((summary) => summary.level === level).map(({ summary }) => summary);
   const covered = new Set<EventId>(ofLevel('scene').flatMap(({ sourceEventIds }) => sourceEventIds));

@@ -1,6 +1,6 @@
 import { isDeepStrictEqual } from 'node:util';
 import type { CampaignEvent, CampaignStore, CommittedTurn } from '../../domain/src/campaign.ts';
-import { commit, loadState, type PlayerAction, requireValid, storedTurn, validate } from './turn.ts';
+import { commit, loadState, type PlayerAction, requireValid, storedTurnOf, validate } from './turn.ts';
 
 export const GAME_TIME_TRIGGERS = ['time-passage', 'clock-tick'] as const;
 export const EFFECT_DUE_KINDS = ['time', 'clock'] as const;
@@ -82,7 +82,7 @@ const isComplete = ({ current, segments }: Clock) => current >= segments;
 
 const run = (store: CampaignStore, action: PlayerAction, steps: (state: State) => readonly Step[]): CommittedTurn => {
   const state = loadState(store, action.campaignId);
-  const stored = storedTurn(state, action.actionId);
+  const stored = storedTurnOf(store, state, action.actionId);
   if (stored !== undefined) return stored;
   validate(state, action);
   return commit(store, action, steps(project(state.events)));

@@ -19,7 +19,6 @@ import {
   OPENING_ACTION_ID,
   type Turn,
 } from '../../../packages/domain/src/campaign.ts';
-import type { Visibility } from '../../../packages/domain/src/entity.ts';
 import { EMPTY_GM_USAGE_TOTALS, type GmSettings, type GmUsage, toGmSettings } from '../../../packages/domain/src/gm.ts';
 import { commitCharacter, editSheetField, playTurns } from '../../../packages/engine/src/character.ts';
 import { createEngine, type Engine } from '../../../packages/engine/src/engine.ts';
@@ -54,6 +53,7 @@ import {
   gmSnapshotOf,
   type SheetPort,
   scopedEventsOf,
+  scopeLookupOf,
   type WorldSource,
   worldOf,
 } from './client-session.ts';
@@ -123,7 +123,6 @@ const UNREAD_SUMMARY = {
   lastNarration: null,
   turnCount: 0,
 } as const;
-const SELECT_EVENT_SCOPES = 'SELECT id, visibility, actor_id FROM event_log WHERE campaign_id = ?';
 const RECAP_VIEW = 'recap';
 const CREATE_EXCLUSIVE = 'wx';
 const FILE_EXISTS = 'EEXIST';
@@ -337,8 +336,8 @@ type OpenSession = Session & {
   close: () => void;
 };
 
-const gmSnapshotFor = ({ database, campaignId }: Session, defaults: GmSettings, sessionId?: string) =>
-  gmSnapshotOf(scopedEventsOf(database)(campaignId), defaults, sessionId);
+const gmSnapshotFor = ({ engine, campaignId }: Session, defaults: GmSettings, sessionId?: string) =>
+  gmSnapshotOf(engine.getState(campaignId), defaults, sessionId);
 
 const openSession = (
   dataDir: string,
@@ -365,7 +364,7 @@ const openSession = (
     const narrate = async () => {
       const { model, summaryModel } = {
         ...gmDefaults(),
-        ...gmSettingsOf(scopedEventsOf(database)(session.campaignId)),
+        ...gmSettingsOf(engine.getState(session.campaignId).changes),
       };
       if ('request' in gm)
         await narrateLatest(session, (packet) => gm.request(packet, { databasePath: path, model }), sessionId);
@@ -575,14 +574,10 @@ const recapText = (name: string, state: CampaignState) =>
 
 const viewSourceOf = (database: Session['database'], campaignId: CampaignId, state: CampaignState) => ({
   state,
-  eventScopes: database
-    .prepare(SELECT_EVENT_SCOPES)
-    .all(campaignId)
-    .map((row) => ({
-      id: String(row.id),
-      visibility: String(row.visibility) as Visibility,
-      actorId: row.actor_id === null ? null : String(row.actor_id),
-    })),
+  eventScopes: [...scopeLookupOf(database, campaignId)(state.events.map(({ id }) => id))].map(([id, scope]) => ({
+    id,
+    ...scope,
+  })),
   ...worldOf(database)(campaignId, state.characters[0]?.id),
 });
 
@@ -803,8 +798,8 @@ const gmSettingsCommand = (dataDir: string, name: string | undefined, changes: G
   }
   const defaults = readGmDefaults(dataDir);
   return withSession(dataDir, name, (session) => {
-    const { engine, campaignId, database } = session;
-    const settings = changedSettings(gmSettingsOf(scopedEventsOf(database)(campaignId)), changes);
+    const { engine, campaignId } = session;
+    const settings = changedSettings(gmSettingsOf(engine.getState(campaignId).changes), changes);
     if (Object.values(changes).some((value) => value !== undefined))
       engine.saveGmSettings({
         campaignId,

@@ -17,7 +17,7 @@ An arrow means "may import". No other imports are allowed.
 | `rules` | RulePack loading, dice, checks | `domain` |
 | `content` | Genre and setting packs | `domain` |
 | `engine` | Turn state machine, validation, commit, logical game time and clocks, NPC state persistence | `domain`, `rules`, `memory`, `narrative` |
-| `persistence` | `CampaignStore` adapter (SQLite, later Dolt) | `domain` |
+| `persistence` | `CampaignStore` adapter (SQLite, later Dolt), game-DB snapshots of the live projection (ADR 0023) | `domain`, `timelines` |
 | `memory` | Retrieval, visibility filters | `domain` |
 | `narrative` | `GameMaster` adapter, Narrative Director | `domain`, `memory` |
 | `world` | WorldActor planners, scheduler | `domain` |

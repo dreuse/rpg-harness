@@ -1,5 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
-import { createEventLog } from '../../../packages/client-protocol/src/event-log.ts';
+import { createEventLog, EVENT_LOG_WINDOW } from '../../../packages/client-protocol/src/event-log.ts';
 import {
   type Accepted,
   type CampaignCommand,
@@ -31,7 +31,9 @@ import { parseViewDescriptor, SHEET_VIEW } from '../../../packages/client-protoc
 import { VISUALIZATION_EVENT, type ViewerScope } from '../../../packages/client-protocol/src/visualization.ts';
 import {
   type CampaignId,
+  type CampaignState,
   CHARACTER_CREATED,
+  CHECK_RESOLVED,
   type CharacterId,
   type DomainEvent,
   type EventId,
@@ -39,24 +41,24 @@ import {
   StaleRevisionError,
 } from '../../../packages/domain/src/campaign.ts';
 import type { CampaignEntity, Relationship, Visibility } from '../../../packages/domain/src/entity.ts';
-import { EMPTY_GM_USAGE_TOTALS, type GmSettings } from '../../../packages/domain/src/gm.ts';
+import { EMPTY_GM_USAGE_TOTALS, type GmSettings, ledgerTotals } from '../../../packages/domain/src/gm.ts';
 import { playTurns, SHEET_FIELD_EDITED } from '../../../packages/engine/src/character.ts';
 import { currentEncounter } from '../../../packages/engine/src/encounter.ts';
 import { campaignLanguageOf, type Engine } from '../../../packages/engine/src/engine.ts';
-import { gmSettingsOf, gmUsageOf } from '../../../packages/engine/src/gm-settings.ts';
-import { CHECK_RESOLVED, campaignConfigOf } from '../../../packages/engine/src/turn.ts';
+import { gmSettingsOf } from '../../../packages/engine/src/gm-settings.ts';
+import { campaignConfigOf } from '../../../packages/engine/src/turn.ts';
 import { voiceSettingsOf } from '../../../packages/engine/src/voice-settings.ts';
 import { parseCampaignConfig } from '../../../packages/intent/src/config.ts';
 import { type Scoped, type Viewer, visibleTo } from '../../../packages/memory/src/knowledge.ts';
 import { createEntityStore } from '../../../packages/persistence/src/entity-store.ts';
-import { listScopedEvents } from '../../../packages/persistence/src/event-store.ts';
+import { type EventQuery, listScopedEvents } from '../../../packages/persistence/src/event-store.ts';
 import { rangeIssue } from '../../../packages/rules/src/character-builder.ts';
 import { creationRulesFor, usageFor } from './quickstart.ts';
 import { checkFor, emitVisualizations, resultsOf, visualizationPreferenceOf } from './roll-visualization.ts';
 import { panelsOf, printable, sheetFields, type ViewSource } from './views.ts';
 
-export type ScopedEvent = DomainEvent & Scoped;
-export type EventSource = (campaignId: CampaignId) => readonly ScopedEvent[];
+export type ScopedEvent = DomainEvent & Scoped & { readonly seq: number };
+export type EventSource = (campaignId: CampaignId, query?: EventQuery) => readonly ScopedEvent[];
 export type World = { readonly entities: readonly CampaignEntity[]; readonly relationships: readonly Relationship[] };
 export type WorldSource = (campaignId: CampaignId, heroId: CharacterId | undefined) => World;
 export type Sheet = { readonly schema: SheetSchema; readonly values: Readonly<Record<string, unknown>> };
@@ -78,12 +80,13 @@ const VISUALIZING: readonly Viewer['scope'][] = [GM_SCOPE, PLAYER_SCOPE];
 const EMPTY_WORLD: World = { entities: [], relationships: [] };
 const NO_WORLD: WorldSource = () => EMPTY_WORLD;
 const NEWLINE = '\n';
+const SCOPE_CACHE_SLACK = 2;
 const UNKNOWN_PLAY_TIME = null;
 
 export const scopedEventsOf =
   (database: DatabaseSync): EventSource =>
-  (campaignId) =>
-    listScopedEvents(database, campaignId);
+  (campaignId, query) =>
+    listScopedEvents(database, campaignId, query);
 
 export const worldOf =
   (database: DatabaseSync): WorldSource =>
@@ -174,19 +177,59 @@ const guarded = <T>(run: () => Result<T>): Result<T> => {
   return result.ok ? result.value : result;
 };
 
-export type GmSessionContext = { readonly sessionId?: string; readonly defaults?: () => GmSettings };
+export type GmSessionContext = {
+  readonly sessionId?: string;
+  readonly defaults?: () => GmSettings;
+  readonly logWindow?: number;
+};
 
 export const gmSnapshotOf = (
-  events: Parameters<typeof gmUsageOf>[0],
+  { changes, gmUsage }: Pick<CampaignState, 'changes' | 'gmUsage'>,
   defaults: GmSettings,
   sessionId: string | undefined,
 ): GmSnapshot | undefined => {
-  const campaignSettings = gmSettingsOf(events);
+  const campaignSettings = gmSettingsOf(changes);
   const settings = { ...defaults, ...campaignSettings };
-  const campaign = gmUsageOf(events);
+  const campaign = ledgerTotals(gmUsage);
   if (Object.keys(settings).length === 0 && campaign.turns === 0) return undefined;
-  const session = sessionId === undefined ? EMPTY_GM_USAGE_TOTALS : gmUsageOf(events, sessionId);
+  const session = sessionId === undefined ? EMPTY_GM_USAGE_TOTALS : ledgerTotals(gmUsage, sessionId);
   return { settings, campaignSettings, defaults, session, campaign };
+};
+
+export const createScopeLookup = (
+  read: EventSource,
+  campaignId: CampaignId,
+  known: (id: EventId) => Scoped | undefined = () => undefined,
+) => {
+  const remembered = new Map<EventId, Scoped>();
+  return (wanted: readonly EventId[]): ReadonlyMap<EventId, Scoped> => {
+    const missing: EventId[] = [];
+    for (const id of wanted) {
+      const scope = known(id);
+      if (scope !== undefined) remembered.set(id, scope);
+      else if (!remembered.has(id)) missing.push(id);
+    }
+    if (missing.length > 0)
+      for (const { id, visibility, actorId } of read(campaignId, { ids: missing }))
+        remembered.set(id, { visibility, actorId });
+    if (remembered.size > wanted.length * SCOPE_CACHE_SLACK) {
+      const keep = new Set(wanted);
+      for (const id of remembered.keys()) if (!keep.has(id)) remembered.delete(id);
+    }
+    return remembered;
+  };
+};
+
+const scopeLookups = new WeakMap<DatabaseSync, Map<CampaignId, ReturnType<typeof createScopeLookup>>>();
+
+export const scopeLookupOf = (database: DatabaseSync, campaignId: CampaignId) => {
+  const byCampaign = scopeLookups.get(database) ?? new Map();
+  scopeLookups.set(database, byCampaign);
+  const existing = byCampaign.get(campaignId);
+  if (existing !== undefined) return existing;
+  const created = createScopeLookup(scopedEventsOf(database), campaignId);
+  byCampaign.set(campaignId, created);
+  return created;
 };
 
 export const createClientSessions = (
@@ -195,32 +238,43 @@ export const createClientSessions = (
   readEvents: EventSource,
   readWorld: WorldSource = NO_WORLD,
   sheets?: SheetPort,
-  { sessionId, defaults = () => ({}) }: GmSessionContext = {},
+  { sessionId, defaults = () => ({}), logWindow = EVENT_LOG_WINDOW }: GmSessionContext = {},
 ) => {
-  const log = createEventLog({ campaignId, branchId: MAIN_BRANCH });
-  const scopes = new Map<EventId, Scoped>();
+  const log = createEventLog({ campaignId, branchId: MAIN_BRANCH }, logWindow);
+  const scopes = new Map<EventId, Scoped & { readonly seq: number }>();
+  let cursor: number | undefined;
+
+  const scopesFor = createScopeLookup(readEvents, campaignId, (id) => scopes.get(id));
+  const viewScopes = createScopeLookup(readEvents, campaignId, (id) => scopes.get(id));
 
   const replayedRolls = (fromRevision: number) => {
     const { events } = engine.getState(campaignId);
     const acted = new Set(currentEncounter(events)?.actions.map(({ eventId }) => eventId));
-    const encounter = events
-      .filter(({ id }) => acted.has(id))
-      .flatMap(({ id, payload }) => resultsOf(payload, scopes.get(id)?.visibility ?? HIDDEN));
-    const checks = readEvents(campaignId)
-      .filter(({ type, revision }) => type === CHECK_RESOLVED && revision > fromRevision)
-      .flatMap(({ payload, visibility }) => resultsOf(payload, visibility));
+    const actedEvents = events.filter(({ id }) => acted.has(id));
+    const actedScopes = scopesFor(actedEvents.map(({ id }) => id));
+    const encounter = actedEvents.flatMap(({ id, payload }) =>
+      resultsOf(payload, actedScopes.get(id)?.visibility ?? HIDDEN),
+    );
+    const checks = readEvents(campaignId, { type: CHECK_RESOLVED, afterRevision: fromRevision }).flatMap(
+      ({ payload, visibility }) => resultsOf(payload, visibility),
+    );
     return { results: [...encounter, ...checks], preference: visualizationPreferenceOf(events) };
   };
 
   const sync = () => {
-    const fresh = readEvents(campaignId).filter(({ id }) => !scopes.has(id));
+    const fresh = readEvents(campaignId, cursor === undefined ? { tail: logWindow } : { afterSeq: cursor });
     if (fresh.length === 0) return;
     const preference = visualizationPreferenceOf(engine.getState(campaignId).events);
-    for (const { visibility, ...event } of fresh) {
-      scopes.set(event.id, { visibility, actorId: event.actorId });
+    for (const { visibility, seq, ...event } of fresh) {
+      scopes.set(event.id, { visibility, actorId: event.actorId, seq });
+      cursor = seq;
       const published = log.publish(toClientEvent(event));
       if (!published.ok) throw new Error(published.error.message);
       for (const result of resultsOf(event.payload, visibility)) log.visualize(result, preference);
+    }
+    for (const oldest of scopes.keys()) {
+      if (scopes.size <= logWindow) break;
+      scopes.delete(oldest);
     }
   };
 
@@ -228,10 +282,9 @@ export const createClientSessions = (
     sync();
     const state = engine.getState(campaignId);
     const { campaign, revision, characters, currentScene } = state;
-    const events = readEvents(campaignId);
-    const voice = voiceSettingsOf(events);
-    const language = campaignLanguageOf(events);
-    const gm = gmSnapshotOf(events, defaults(), sessionId);
+    const voice = voiceSettingsOf(state.changes);
+    const language = campaignLanguageOf(state.changes);
+    const gm = gmSnapshotOf(state, defaults(), sessionId);
     const config = savedConfig(state.events);
     return deepFreeze(
       structuredClone({
@@ -253,7 +306,8 @@ export const createClientSessions = (
   const viewSource = (): ViewSource => {
     sync();
     const state = engine.getState(campaignId);
-    const eventScopes = [...scopes].map(([id, scope]) => ({ id, ...scope }));
+    const known = viewScopes(state.events.map(({ id }) => id));
+    const eventScopes = [...known].map(([id, scope]) => ({ id, ...scope }));
     return { state, eventScopes, ...readWorld(campaignId, state.characters[0]?.id) };
   };
 
@@ -313,10 +367,12 @@ export const createClientSessions = (
         .traitVisibility as TraitVisibilities | undefined;
     const redacted = (committed: EventCommitted) =>
       redactSheetFieldEdited(viewer, redactCharacterCreated(viewer, committed), traitVisibilityOf);
-    const canSee = (event: ClientEvent) => {
+    const canSee = (
+      event: ClientEvent,
+      scope: Scoped | undefined = scopes.get(event.type === EVENT_COMMITTED ? event.event.id : ''),
+    ) => {
       if (event.type !== EVENT_COMMITTED)
         return event.type === VISUALIZATION_EVENT && VISUALIZING.includes(viewer.scope);
-      const scope = scopes.get(event.event.id);
       return scope !== undefined && visibleTo([scope], viewer).length > 0;
     };
     return {
@@ -366,11 +422,19 @@ export const createClientSessions = (
         const accepted = accept<typeof command>(command, 'SubscribeEvents');
         if (!accepted.ok || !attempt(sync).ok) return NO_SUBSCRIPTION;
         const scope = viewer.scope === GM_SCOPE ? GM_SCOPE : PLAYER_SCOPE;
-        const filtered = (event: ClientEvent) => {
-          if (!canSee(event)) return;
+        const filtered = (event: ClientEvent, known?: Scoped) => {
+          if (!canSee(event, known)) return;
           listener(event.type === EVENT_COMMITTED ? redacted(event) : event);
         };
-        const fromRevision = accepted.value.fromRevision ?? 0;
+        const { fromRevision: requested } = accepted.value;
+        const fromRevision = requested ?? 0;
+        const floor = scopes.values().next().value?.seq;
+        if (requested !== undefined && floor !== undefined)
+          for (const { visibility, seq: _, ...event } of readEvents(campaignId, {
+            afterRevision: requested,
+            beforeSeq: floor,
+          }))
+            filtered(toClientEvent(event), { visibility, actorId: event.actorId });
         const unsubscribe = log.subscribe(fromRevision, filtered, scope);
         attempt(() => {
           const { results, preference } = replayedRolls(fromRevision);

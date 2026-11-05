@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { MAIN_BRANCH } from '../../domain/src/campaign.ts';
 import { openDatabase } from './database.ts';
-import { createEventStore, type DomainEvent } from './event-store.ts';
+import { createEventStore, type DomainEvent, listScopedEvents } from './event-store.ts';
 
 const IN_MEMORY = ':memory:';
 const CAMPAIGN_A = 'campaign-a';
@@ -82,5 +82,26 @@ test('historical event writes cannot be silently overwritten', () => {
     APPEND_ONLY,
   );
   assert.deepEqual(store.list(CAMPAIGN_A, MAIN_BRANCH), [FIRST]);
+  connection.close();
+});
+
+test('P41: scoped events are read incrementally by sequence, revision, type, id and tail', () => {
+  const { connection, store } = openStore();
+  store.append(FIRST, EMPTY_BRANCH);
+  store.append(SECOND, FIRST.revision);
+  store.append(BRANCHED, EMPTY_BRANCH);
+  store.append(THIRD, SECOND.revision);
+  const { database } = connection;
+  const idsOf = (query = {}) => listScopedEvents(database, CAMPAIGN_A, query).map(({ id }) => id);
+  const everything = listScopedEvents(database, CAMPAIGN_A);
+  assert.deepEqual(idsOf(), [FIRST.id, SECOND.id, THIRD.id]);
+  assert.ok(everything.every(({ visibility }) => visibility === 'gm'));
+  const [first, second] = everything;
+  assert.deepEqual(idsOf({ afterSeq: first?.seq }), [SECOND.id, THIRD.id]);
+  assert.deepEqual(idsOf({ afterSeq: second?.seq, beforeSeq: everything[2]?.seq }), []);
+  assert.deepEqual(idsOf({ afterRevision: FIRST.revision }), [THIRD.id]);
+  assert.deepEqual(idsOf({ type: SECOND.type }), [SECOND.id]);
+  assert.deepEqual(idsOf({ ids: [THIRD.id, FIRST.id] }), [FIRST.id, THIRD.id]);
+  assert.deepEqual(idsOf({ tail: 2 }), [SECOND.id, THIRD.id]);
   connection.close();
 });

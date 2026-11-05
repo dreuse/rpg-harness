@@ -104,7 +104,7 @@ export const introduceEntity = (
       recordedFacts,
     );
   const introduced = recorded(ENTITY_INTRODUCED, { entity, relationships });
-  const stored = replayOf(state, input, (committed) => introduced(committed) && sameFacts(committed));
+  const stored = replayOf(store, state, input, (committed) => introduced(committed) && sameFacts(committed));
   if (stored !== undefined) return project(stored);
   validate(state, input);
   requireValid(actionId, entity.name.trim() !== '', 'entity name is blank');
@@ -137,7 +137,7 @@ export const openPending = (store: CampaignStore, input: PendingOpening): Commit
   const { pendingId, kind, text, entityIds, visibility, actorId } = pending;
   const payload = { pendingId, kind, text, entityIds, visibility, actorId };
   const state = loadState(store, campaignId);
-  const stored = replayOf(state, input, recorded(PENDING_OPENED, payload));
+  const stored = replayOf(store, state, input, recorded(PENDING_OPENED, payload));
   if (stored !== undefined) return stored;
   validate(state, input);
   requireValid(actionId, PENDING_KINDS.includes(kind), `pending kind ${kind} is unknown`);
@@ -150,7 +150,7 @@ export const openPending = (store: CampaignStore, input: PendingOpening): Commit
 export const resolvePending = (store: CampaignStore, input: PendingResolution): CommittedTurn => {
   const { campaignId, actionId, pendingId } = input;
   const state = loadState(store, campaignId);
-  const stored = replayOf(state, input, recorded(PENDING_RESOLVED, { pendingId }));
+  const stored = replayOf(store, state, input, recorded(PENDING_RESOLVED, { pendingId }));
   if (stored !== undefined) return stored;
   validate(state, input);
   const open = pendingOf(state.events).find(({ id }) => id === pendingId);

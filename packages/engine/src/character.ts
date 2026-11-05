@@ -19,7 +19,7 @@ import {
   recorded,
   replayOf,
   requireValid,
-  storedTurn,
+  storedTurnOf,
   validate,
 } from './turn.ts';
 
@@ -53,6 +53,7 @@ export const commitCharacter = (store: CampaignStore, input: CharacterCreation):
   const legacy = { actorId, ...result.character, profile: ownerVisible(input.build.rules, result.character.profile) };
   const state = loadState(store, campaignId);
   const stored = replayOf(
+    store,
     state,
     input,
     (turn) => recorded(CHARACTER_CREATED, payload)(turn) || recorded(CHARACTER_CREATED, legacy)(turn),
@@ -74,7 +75,7 @@ const isSheetValue = (value: unknown) =>
 export const editSheetField = (store: CampaignStore, edit: SheetFieldEdit): CommittedTurn => {
   const { campaignId, actionId, expectedRevision, actorId, fieldId, value } = edit;
   const state = loadState(store, campaignId);
-  const sceneId = storedTurn(state, actionId)?.turn.sceneId ?? state.currentScene?.id ?? NO_SCENE;
+  const sceneId = storedTurnOf(store, state, actionId)?.turn.sceneId ?? state.currentScene?.id ?? NO_SCENE;
   const action = {
     campaignId,
     actionId,
@@ -85,7 +86,7 @@ export const editSheetField = (store: CampaignStore, edit: SheetFieldEdit): Comm
     intent: EDIT_INTENT,
   };
   const payload = { actorId, fieldId, value };
-  const stored = replayOf(state, action, recorded(SHEET_FIELD_EDITED, payload));
+  const stored = replayOf(store, state, action, recorded(SHEET_FIELD_EDITED, payload));
   if (stored !== undefined) return stored;
   validate(state, action);
   requireValid(actionId, fieldId.trim() !== '', 'field id is blank');

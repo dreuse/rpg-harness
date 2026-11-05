@@ -255,3 +255,23 @@ test('opening a scene rejects missing campaigns, blank fields and a second openi
   assert.deepEqual(store.load(CAMPAIGN.id), opened);
   close();
 });
+
+const OLD_ACTIONS = 205;
+
+test('an action id older than the in-memory window still replays and still conflicts', () => {
+  const { store, close } = openEngineStore();
+  const engine = createEngine(store);
+  const actionAt = (index: number): PlayerAction => ({
+    ...ACTION,
+    actionId: `old-${index}`,
+    expectedRevision: SETUP_REVISION + index,
+    input: `step ${index}`,
+    intent: `step ${index}`,
+  });
+  const first = engine.submitAction(actionAt(0));
+  for (let index = 1; index < OLD_ACTIONS; index++) engine.submitAction(actionAt(index));
+  assert.ok(!store.load(CAMPAIGN.id)?.turns.some(({ actionId }) => actionId === 'old-0'));
+  assert.deepEqual(engine.submitAction(actionAt(0)), first);
+  assert.throws(() => engine.submitAction({ ...actionAt(0), input: 'something else' }), ActionIdConflictError);
+  close();
+});

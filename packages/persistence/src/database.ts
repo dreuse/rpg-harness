@@ -127,6 +127,22 @@ export const MIGRATIONS: readonly Migration[] = [
         BEGIN SELECT RAISE(ABORT, '${APPEND_ONLY_EVENTS}'); END;
     `,
   },
+  {
+    version: 8,
+    sql: `
+      CREATE TABLE campaign_snapshot (
+        campaign_id TEXT NOT NULL REFERENCES campaign (id),
+        branch_id TEXT NOT NULL,
+        version INTEGER NOT NULL,
+        event_count INTEGER NOT NULL,
+        last_event_id TEXT,
+        state TEXT NOT NULL,
+        PRIMARY KEY (campaign_id, branch_id, event_count)
+      );
+      CREATE INDEX event_log_campaign_revision ON event_log (campaign_id, revision);
+      CREATE INDEX event_log_campaign_type_revision ON event_log (campaign_id, type, revision);
+    `,
+  },
 ];
 
 const STARTED = 'started';

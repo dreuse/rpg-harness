@@ -445,3 +445,14 @@ test('UI01: client-protocol imports nothing but @rpg/domain', () => {
     .filter((specifier) => !ALLOWED_IMPORT_PREFIXES.some((prefix) => specifier.startsWith(prefix)));
   assert.deepEqual(foreign, []);
 });
+
+test('rpg-42a.41: the event log keeps only a bounded window of recent events', () => {
+  const window = 3;
+  const log = createEventLog({ campaignId: CAMPAIGN_ID, branchId: MAIN_BRANCH }, window);
+  for (let revision = 1; revision <= window * 2; revision++) log.publish(toClientEvent(domainEvent(revision)));
+  const delivered: number[] = [];
+  log.subscribe(0, (event) => event.type === 'EventCommitted' && delivered.push(event.revision));
+  assert.deepEqual(delivered, [4, 5, 6]);
+  assert.equal(log.publish(toClientEvent(domainEvent(1))).ok, false);
+  assert.equal(log.publish(toClientEvent(domainEvent(6))).ok, true);
+});

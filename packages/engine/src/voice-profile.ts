@@ -17,7 +17,7 @@ export const setVoiceProfile = (
   const { actionId, campaignId, speakerId } = input;
   const profile = toVoiceProfile(input.profile);
   const state = loadState(store, campaignId);
-  const stored = replayOf(state, input, recorded(VOICE_PROFILE_SET, { speakerId, profile }));
+  const stored = replayOf(store, state, input, recorded(VOICE_PROFILE_SET, { speakerId, profile }));
   if (stored !== undefined) return stored;
   validate(state, input);
   requireValid(actionId, profile !== undefined, `voice profile for ${speakerId} is invalid`);

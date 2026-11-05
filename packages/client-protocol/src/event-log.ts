@@ -21,6 +21,7 @@ const LEAST_PRIVILEGED: ViewerScope = 'player';
 export type Timeline = { readonly campaignId: CampaignId; readonly branchId: BranchId };
 
 const NEXT = 1;
+export const EVENT_LOG_WINDOW = 1000;
 
 const deliver = (listener: Listener, event: ClientEvent) => {
   try {
@@ -30,7 +31,7 @@ const deliver = (listener: Listener, event: ClientEvent) => {
   }
 };
 
-export const createEventLog = ({ campaignId, branchId }: Timeline) => {
+export const createEventLog = ({ campaignId, branchId }: Timeline, window = EVENT_LOG_WINDOW) => {
   const events: EventCommitted[] = [];
   const seen = new Set<EventId>();
   const listeners = new Map<Listener, ViewerScope>();
@@ -46,6 +47,10 @@ export const createEventLog = ({ campaignId, branchId }: Timeline) => {
         return failure('Rejected', `event ${id} at revision ${event.revision} does not follow revision ${last}`);
       events.push(event);
       seen.add(id);
+      while (events.length > window) {
+        const evicted = events.shift();
+        if (evicted !== undefined) seen.delete(evicted.event.id);
+      }
       for (const listener of [...listeners.keys()]) deliver(listener, event);
       return accepted;
     },

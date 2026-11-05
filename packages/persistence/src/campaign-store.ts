@@ -16,6 +16,8 @@ import {
   type TurnCommit,
 } from '../../domain/src/campaign.ts';
 import type { Visibility } from '../../domain/src/entity.ts';
+import { RECENT_TURN_WINDOW, SNAPSHOT_EVERY_EVENTS } from '../../timelines/src/live.ts';
+import { createLiveStates } from './live-state.ts';
 
 const GM_VISIBILITY: Visibility = 'gm';
 const INSERT_CAMPAIGN = 'INSERT INTO campaign (id, name) VALUES (?, ?)';
@@ -40,11 +42,10 @@ const SELECT_CHARACTERS = 'SELECT id, campaign_id, name FROM character WHERE cam
 const SELECT_CURRENT_SCENE =
   'SELECT scene.id, scene.campaign_id, scene.title FROM scene JOIN campaign ON campaign.current_scene_id = scene.id WHERE campaign.id = ?';
 const TURN_COLUMNS = 'SELECT id, campaign_id, scene_id, action_id, actor_id, input, narration FROM turn';
-const SELECT_TURNS = `${TURN_COLUMNS} WHERE campaign_id = ? ORDER BY revision`;
+const SELECT_RECENT_TURNS = `${TURN_COLUMNS} WHERE campaign_id = ? ORDER BY revision DESC LIMIT ${RECENT_TURN_WINDOW}`;
 const SELECT_TURN_BY_ACTION = `${TURN_COLUMNS} WHERE campaign_id = ? AND action_id = ?`;
 const EVENT_COLUMNS = 'SELECT id, campaign_id, turn_id, causation_id, type, payload FROM event_log';
 const ON_MAIN_BRANCH = `IFNULL(branch_id, '${MAIN_BRANCH}') = '${MAIN_BRANCH}'`;
-const SELECT_EVENTS = `${EVENT_COLUMNS} WHERE campaign_id = ? AND turn_id IS NOT NULL AND ${ON_MAIN_BRANCH} ORDER BY seq`;
 const SELECT_TURN_EVENTS = `${EVENT_COLUMNS} WHERE turn_id = ? AND ${ON_MAIN_BRANCH} ORDER BY seq`;
 
 type Row = Record<string, unknown>;
@@ -132,7 +133,10 @@ const appendCampaignChange = (database: DatabaseSync, campaignId: string, event:
     );
 };
 
-const storedTurn = (database: DatabaseSync, { campaignId, actionId }: Turn): CommittedTurn | undefined => {
+const storedTurn = (
+  database: DatabaseSync,
+  { campaignId, actionId }: Pick<Turn, 'campaignId' | 'actionId'>,
+): CommittedTurn | undefined => {
   const row = database.prepare(SELECT_TURN_BY_ACTION).get(campaignId, actionId);
   if (row === undefined) return undefined;
   const turn = toTurn(row);
@@ -192,49 +196,80 @@ const writeTurn = (
   return { turn, events };
 };
 
-export const createCampaignStore = (database: DatabaseSync): CampaignStore => ({
-  createCampaign: (campaign: Campaign, event: CampaignChange) =>
-    inTransaction(database, () => {
-      database.prepare(INSERT_CAMPAIGN).run(campaign.id, campaign.name);
-      appendCampaignChange(database, campaign.id, event, INITIAL_REVISION);
-    }),
-  renameCampaign: ({ expectedRevision, campaign, event }) =>
-    inTransaction(database, () => {
-      const revision = nextRevision(database, campaign.id, expectedRevision);
-      database.prepare(RENAME_CAMPAIGN).run(campaign.name, revision, campaign.id);
-      appendCampaignChange(database, campaign.id, event, revision);
-    }),
-  recordChange: ({ expectedRevision, event }) =>
-    inTransaction(database, () => {
-      const revision = nextRevision(database, event.campaignId, expectedRevision);
-      database.prepare(ADVANCE_REVISION).run(revision, event.campaignId);
-      appendCampaignChange(database, event.campaignId, event, revision);
-    }),
-  commitTurn: (commit) =>
-    inTransaction(database, () => storedTurn(database, commit.turn) ?? writeTurn(database, commit)),
-  recordNarration: (campaignId, turnId, narration) =>
-    requireInCampaign(
-      campaignId,
-      `turn ${turnId}`,
-      database.prepare(RECORD_NARRATION).run(narration, turnId, campaignId).changes !== NO_CHANGES,
-    ),
-  recordUsage: (event) =>
-    inTransaction(database, () => {
-      const current = database.prepare(SELECT_REVISION).get(event.campaignId);
-      if (current === undefined) throw new CampaignNotFoundError(event.campaignId);
-      appendCampaignChange(database, event.campaignId, event, Number(current.revision));
-    }),
-  load: (id) => {
-    const row = database.prepare(SELECT_CAMPAIGN).get(id);
-    if (row === undefined) return undefined;
-    const sceneRow = database.prepare(SELECT_CURRENT_SCENE).get(id);
-    return {
-      campaign: { id: String(row.id), name: String(row.name) },
-      revision: Number(row.revision),
-      characters: database.prepare(SELECT_CHARACTERS).all(id).map(toCharacter),
-      currentScene: sceneRow === undefined ? undefined : toScene(sceneRow),
-      turns: database.prepare(SELECT_TURNS).all(id).map(toTurn),
-      events: database.prepare(SELECT_EVENTS).all(id).map(toEvent),
-    };
-  },
-});
+export type CampaignStoreOptions = { readonly snapshotEvery?: number };
+
+export const createCampaignStore = (
+  database: DatabaseSync,
+  { snapshotEvery = SNAPSHOT_EVERY_EVENTS }: CampaignStoreOptions = {},
+): CampaignStore => {
+  const live = createLiveStates(database, snapshotEvery);
+  const written = <T>(campaignId: string, write: () => T): T => {
+    const result = write();
+    try {
+      live.checkpoint(campaignId);
+    } catch {
+      return result;
+    }
+    return result;
+  };
+  return {
+    createCampaign: (campaign: Campaign, event: CampaignChange) =>
+      written(campaign.id, () =>
+        inTransaction(database, () => {
+          database.prepare(INSERT_CAMPAIGN).run(campaign.id, campaign.name);
+          appendCampaignChange(database, campaign.id, event, INITIAL_REVISION);
+        }),
+      ),
+    renameCampaign: ({ expectedRevision, campaign, event }) =>
+      written(campaign.id, () =>
+        inTransaction(database, () => {
+          const revision = nextRevision(database, campaign.id, expectedRevision);
+          database.prepare(RENAME_CAMPAIGN).run(campaign.name, revision, campaign.id);
+          appendCampaignChange(database, campaign.id, event, revision);
+        }),
+      ),
+    recordChange: ({ expectedRevision, event }) =>
+      written(event.campaignId, () =>
+        inTransaction(database, () => {
+          const revision = nextRevision(database, event.campaignId, expectedRevision);
+          database.prepare(ADVANCE_REVISION).run(revision, event.campaignId);
+          appendCampaignChange(database, event.campaignId, event, revision);
+        }),
+      ),
+    commitTurn: (commit) =>
+      written(commit.turn.campaignId, () =>
+        inTransaction(database, () => storedTurn(database, commit.turn) ?? writeTurn(database, commit)),
+      ),
+    recordNarration: (campaignId, turnId, narration) =>
+      requireInCampaign(
+        campaignId,
+        `turn ${turnId}`,
+        database.prepare(RECORD_NARRATION).run(narration, turnId, campaignId).changes !== NO_CHANGES,
+      ),
+    recordUsage: (event) =>
+      written(event.campaignId, () =>
+        inTransaction(database, () => {
+          const current = database.prepare(SELECT_REVISION).get(event.campaignId);
+          if (current === undefined) throw new CampaignNotFoundError(event.campaignId);
+          appendCampaignChange(database, event.campaignId, event, Number(current.revision));
+        }),
+      ),
+    findTurn: (campaignId, actionId) => storedTurn(database, { campaignId, actionId }),
+    load: (id) => {
+      const row = database.prepare(SELECT_CAMPAIGN).get(id);
+      if (row === undefined) return undefined;
+      const sceneRow = database.prepare(SELECT_CURRENT_SCENE).get(id);
+      const { events, changes, gmUsage } = live.read(id);
+      return {
+        campaign: { id: String(row.id), name: String(row.name) },
+        revision: Number(row.revision),
+        characters: database.prepare(SELECT_CHARACTERS).all(id).map(toCharacter),
+        currentScene: sceneRow === undefined ? undefined : toScene(sceneRow),
+        turns: database.prepare(SELECT_RECENT_TURNS).all(id).map(toTurn).reverse(),
+        events,
+        changes: Object.values(changes),
+        gmUsage,
+      };
+    },
+  };
+};

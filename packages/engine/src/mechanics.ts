@@ -11,7 +11,7 @@ import {
   loadState,
   type PlayerAction,
   requireValid,
-  storedTurn,
+  storedTurnOf,
   validate,
 } from './turn.ts';
 
@@ -62,7 +62,7 @@ const citedMechanic = ({ actionId, citation, rulePack, mechanics }: CitedRuleMov
 
 export const resolveCitedRule = (store: CampaignStore, move: CitedRuleMove): CommittedTurn => {
   const state = loadState(store, move.campaignId);
-  const stored = storedTurn(state, move.actionId);
+  const stored = storedTurnOf(store, state, move.actionId);
   if (stored !== undefined) return stored;
   validate(state, move);
   const { actionId, actorId, citation, sheet, rng, modifiers = {} } = move;

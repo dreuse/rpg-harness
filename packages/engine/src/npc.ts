@@ -118,7 +118,7 @@ export const recordNpcLearning = (store: CampaignStore, entities: EntityStore, i
   const { actionId, campaignId, npcId, fact, learning } = input;
   const state = loadState(store, campaignId);
   const learned = { npcId, factId: fact.id, ...learning };
-  const stored = replayOf(state, input, recorded(NPC_LEARNED_FACT, learned));
+  const stored = replayOf(store, state, input, recorded(NPC_LEARNED_FACT, learned));
   if (stored !== undefined) {
     persistLearning(entities, campaignId, npcId, fact, stored);
     return stored;

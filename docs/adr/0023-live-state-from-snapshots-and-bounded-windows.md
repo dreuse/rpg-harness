@@ -1,0 +1,23 @@
+# ADR 0023 — Live state opens from snapshots and keeps bounded windows
+
+**Status:** Accepted. **Decision:** The live path never reads the whole event log per action. `CampaignStore.load` builds state from the newest valid snapshot plus the events after it. Memory holds a projection and a bounded window of recent events. The log stays append-only and complete.
+
+**Context:** rpg-42a.41. `client-session.ts` read the full log in `sync()`, `replayedRolls()` and `snapshot()`, and `engine.getState` kept every event in memory. Each action cost O(n) and a long campaign cost O(n²). ADR 0008 already defines versioned snapshots, but the live path did not use them.
+
+## Decisions
+
+- **Live projection.** `timelines/src/live.ts` defines `liveProjection` (version `LIVE_PROJECTION_VERSION`). Its state holds the event count, the retained turn events, the newest non-turn event per type (`changes`) and the GM usage ledger (`gmUsage`). `CampaignState` exposes `changes` and `gmUsage`. Voice, language, GM settings, GM usage and the visualization preference read them. They do not scan the log.
+- **Bounded window.** The state keeps every turn event except `PlayerActionSubmitted`, `ActionValidated` and `CheckResolved` that belong to a turn older than the last `RECENT_TURN_WINDOW` turns. `CampaignState.turns` keeps the same last `RECENT_TURN_WINDOW` turns. Older events stay in SQLite and are read on demand with `listScopedEvents`. `createLiveAccumulator` folds events in amortised O(1): it appends to a private array, prunes in batches and prunes exactly when it publishes a state. A published state is never changed later.
+- **Snapshots.** `campaign_snapshot` (migration 8) lives in the game DB only. `createCampaignStore` writes one every `SNAPSHOT_EVERY_EVENTS` events and when a `SceneOpened` event is applied. The repo has no scene-end event, so a new scene is the scene boundary. The store keeps the newest `SNAPSHOTS_KEPT` rows per campaign. Writes happen after a commit, never in `load`, so read-only connections stay read-only. A snapshot is a cache, so an error while writing one is ignored and never fails the commit.
+- **Open.** `load` takes the newest snapshot whose version matches `liveProjection.version` (`isResumable`) and whose last event ID and event count match the log. It then applies only the events after it. A stale, mismatched or unreadable snapshot is skipped and the open falls back to a full replay, as ADR 0008 says.
+- **Incremental reads.** The store and the client session keep a cursor on `event_log.seq` (the primary key) and read `seq > cursor`. The cursor is used instead of `revision > last seen` because `recordUsage` and direct inserts append events at the current revision, so a revision cursor would miss them. Migration 8 adds indexes on `(campaign_id, revision)` and `(campaign_id, type, revision)` for revision and type queries. Queries that use the cursor or ID lookups write `+campaign_id` so SQLite does not pick those indexes.
+- **Client log.** `createEventLog` keeps the last `EVENT_LOG_WINDOW` events. A session opens with the last window of events. `SubscribeEvents` with a `fromRevision` reads the gap before the window from the DB. `SubscribeEvents` without `fromRevision` delivers the recent window only.
+- **Append-only.** Nothing deletes or rewrites events. The triggers from migration 7 stay. Export and backup use `VACUUM INTO`, so they copy the full log and the snapshots.
+
+## Consequences
+
+- `persistence` may import `timelines` (module table updated).
+- Events outside the window are not in `state.events`. Code that needs old `PlayerActionSubmitted`, `ActionValidated` or `CheckResolved` events must read them from the store. `CampaignStore.findTurn(campaignId, actionId)` reads a stored turn and all its events from the DB. The engine calls it when the action ID is not in `state.turns`, so idempotent replay and the same-action conflict check work for turns older than the window.
+- Retained state-bearing events (quests, facts, character edits) still grow with play, and per-action cost grows with their count (not with the count of other events). Scopes for retained events are cached per session or database, so only new events are read from the DB. A later change can move their folds into the projection.
+- The snapshot protocol sends only the last `RECENT_TURN_WINDOW` turns.
+- `apps/cli/src/event-log-scale.test.ts` checks open time and per-action time on a 100k-event log and that per-action time does not grow with log size.
