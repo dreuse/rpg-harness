@@ -9,6 +9,7 @@ import {
   type SoundSettings,
   toSoundSettings,
 } from '../../../packages/voice/src/sound-settings.ts';
+import { DEFAULT_LOCALE, say } from './messages.ts';
 import { SOUND_SETTINGS_FILE, SOUNDS_DIR } from './sound-files.ts';
 
 export interface SoundRequest {
@@ -21,6 +22,7 @@ export interface SoundRequest {
 export interface SoundCommandDeps {
   readonly sounds?: readonly SoundEntry[];
   readonly fetch?: typeof fetch;
+  readonly locale?: string;
 }
 
 type SoundOptionValues = Readonly<Record<string, string | boolean | undefined>>;
@@ -61,18 +63,21 @@ export const soundRequestOf = (values: SoundOptionValues): SoundRequest | string
   return { enabled, volume, download, accept };
 };
 
-const statusLines = (settings: SoundSettings, installed: boolean): string[] => [
-  ...SOUND_CHANNELS.map(
-    (channel) =>
-      `${channel}: ${settings[channel].enabled ? 'on' : 'off'}, volume ${Math.round(settings[channel].volume * PERCENT)}%`,
+const statusLines = (settings: SoundSettings, installed: boolean, locale: string): string[] => [
+  ...SOUND_CHANNELS.map((channel) =>
+    say(locale, 'sound.status', {
+      channel: say(locale, `sound.channel.${channel}`),
+      state: say(locale, settings[channel].enabled ? 'sound.on' : 'sound.off'),
+      percent: Math.round(settings[channel].volume * PERCENT),
+    }),
   ),
-  `sounds installed: ${installed ? 'yes' : 'no (run sound --download)'}`,
+  say(locale, 'sound.installed', { answer: say(locale, installed ? 'sound.installedYes' : 'sound.installedNo') }),
 ];
 
 export async function* soundCommand(
   dataDir: string,
   request: SoundRequest,
-  { sounds = loadBundledManifest(), fetch: fetchFile }: SoundCommandDeps = {},
+  { sounds = loadBundledManifest(), fetch: fetchFile, locale = DEFAULT_LOCALE }: SoundCommandDeps = {},
 ): AsyncGenerator<string> {
   const current = readSoundSettings(dataDir);
   const next = Object.fromEntries(
@@ -92,11 +97,11 @@ export async function* soundCommand(
   });
   if (request.download && !request.accept) {
     const { sizeMiB, source } = manager.offer;
-    yield `Download ${sizeMiB} MiB of CC0 sounds from ${source}. Run again with --download --yes to accept.`;
+    yield say(locale, 'sound.offer', { size: sizeMiB, source });
   }
   if (request.download && request.accept) {
     await manager.download({ ...manager.offer, accepted: true });
-    yield 'Downloaded and verified the sounds.';
+    yield say(locale, 'sound.downloaded');
   }
-  for (const line of statusLines(next, (await manager.status()).installed)) yield line;
+  for (const line of statusLines(next, (await manager.status()).installed, locale)) yield line;
 }

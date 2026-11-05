@@ -5,7 +5,7 @@ import {
   type SoundClock,
   type SoundController,
 } from '../../../packages/voice/src/sound-controller.ts';
-import { BASE_SOUND_TABLE, type SceneSoundInput } from '../../../packages/voice/src/sound-selection.ts';
+import { type SceneSoundInput, sceneSoundOf } from '../../../packages/voice/src/sound-selection.ts';
 import { type SoundSettings, soundEnabled } from '../../../packages/voice/src/sound-settings.ts';
 import type { SoundHostStatus } from './sound-host.ts';
 
@@ -46,7 +46,6 @@ type Layer = { gain?: GainLike; source?: SourceLike };
 const LAYER_SEPARATOR = ':';
 const ONE_SHOT_KIND = 'effect';
 const SILENT = 0;
-const WORD_SEPARATOR = /[^\p{L}]+/u;
 
 const browserClock: SoundClock = {
   now: () => Date.now(),
@@ -118,10 +117,7 @@ export const createWebAudioSink = ({
   };
 };
 
-export const sceneSoundInput = (title: string | undefined): SceneSoundInput => {
-  const words = (title ?? '').toLowerCase().split(WORD_SEPARATOR).filter(Boolean);
-  return { location: words.find((word) => Object.hasOwn(BASE_SOUND_TABLE.locations, word)) ?? '', mood: words };
-};
+export const sceneSoundInput = sceneSoundOf;
 
 export const createDesktopSound = ({
   bridge,

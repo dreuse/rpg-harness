@@ -26,13 +26,21 @@ export interface SoundRuntimeOptions {
   readonly sink?: AmbientSink & { dispose(): void };
   readonly clock?: SoundClock;
   readonly installed?: (kind: SoundKind, key: string) => boolean;
+  readonly scene?: SceneSoundInput;
 }
 
 const LAYER_SEPARATOR = ':';
+export const SCENE_EFFECT = 'bell';
 
 export const createSoundRuntime = (
   dataDir: string,
-  { settings = readSoundSettings(dataDir), sink, clock = systemClock, installed }: SoundRuntimeOptions = {},
+  {
+    settings = readSoundSettings(dataDir),
+    sink,
+    clock = systemClock,
+    installed,
+    scene = DEFAULT_SCENE,
+  }: SoundRuntimeOptions = {},
 ): SoundRuntime | undefined => {
   if (!soundEnabled(settings)) return undefined;
   const manager = createSoundManager({ dir: join(dataDir, SOUNDS_DIR), sounds: loadBundledManifest() });
@@ -52,7 +60,8 @@ export const createSoundRuntime = (
     available: installed ?? ((kind, key) => pathOf(kind, key) !== undefined),
   });
   controller.apply(settings);
-  controller.setScene(DEFAULT_SCENE);
+  controller.setScene(scene);
+  controller.effect(SCENE_EFFECT);
   return {
     controller,
     dispose: () => {

@@ -73,3 +73,10 @@ export const selectSounds = (scene: SceneSoundInput, extension: SoundTableExtens
   const music = matches.find((sounds) => sounds.music !== undefined)?.music ?? DEFAULT_MUSIC_KEY;
   return ambience === undefined ? { music } : { ambience, music };
 };
+
+const WORD_SEPARATOR = /[^\p{L}]+/u;
+
+export const sceneSoundOf = (title: string | undefined): SceneSoundInput => {
+  const words = (title ?? '').toLowerCase().split(WORD_SEPARATOR).filter(Boolean);
+  return { location: words.find((word) => Object.hasOwn(BASE_SOUND_TABLE.locations, word)) ?? '', mood: words };
+};

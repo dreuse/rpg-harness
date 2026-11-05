@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { DEFAULT_MUSIC_KEY, selectSounds } from './sound-selection.ts';
+import { DEFAULT_MUSIC_KEY, sceneSoundOf, selectSounds } from './sound-selection.ts';
 
 test('maps a location kind to its ambience key', () => {
   assert.equal(selectSounds({ location: 'tavern', mood: [] }).ambience, 'tavern');
@@ -54,4 +54,9 @@ test('an extension never changes the built-in table', () => {
 
 test('inherited object keys are not locations or moods', () => {
   assert.deepEqual(selectSounds({ location: 'constructor', mood: ['toString'] }), { music: DEFAULT_MUSIC_KEY });
+});
+
+test('rpg-cm63.34 a scene title yields a location kind and mood tags', () => {
+  assert.deepEqual(sceneSoundOf('The Rusty Tavern'), { location: 'tavern', mood: ['the', 'rusty', 'tavern'] });
+  assert.deepEqual(sceneSoundOf(undefined), { location: '', mood: [] });
 });

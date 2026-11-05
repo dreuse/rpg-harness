@@ -94,7 +94,7 @@ export type CampaignGateway = {
   update: (request: UpdateRequest) => AsyncIterable<string>;
   settings: (campaign: string | undefined, changes: GmSettingsChanges) => string;
   claude: (campaign: string | undefined) => number;
-  sound: (request: SoundRequest) => AsyncIterable<string>;
+  sound: (request: SoundRequest, locale?: string) => AsyncIterable<string>;
 };
 
 export type Io = {
@@ -416,7 +416,7 @@ export const main = async (argv: readonly string[], io: Io, gateway: CampaignGat
     const { soundRequestOf } = await import('./sound-command.ts');
     const request = soundRequestOf(parsed.values);
     if (typeof request === 'string') return usageError(io, request);
-    return run(io, () => gateway.sound(request));
+    return run(io, () => gateway.sound(request, locale));
   }
   return usageError(io, phrase(locale, 'cli.unsupported', { command }));
 };

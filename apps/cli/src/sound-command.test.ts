@@ -109,3 +109,21 @@ test('parses option values and rejects invalid ones', () => {
   assert.equal(typeof soundRequestOf({ 'effects-volume': 'loud' }), 'string');
   assert.equal(typeof soundRequestOf({ yes: true }), 'string');
 });
+
+test('rpg-cm63.34 the status and download lines speak pt-BR', async () => {
+  const dir = await tempDir();
+  const text = await collect(soundCommand(dir, none, { sounds: SOUNDS, locale: 'pt-BR' }));
+  assert.match(text, /música: desligado, volume 50%/);
+  assert.match(text, /sons instalados: não \(execute sound --download\)/);
+  const offer = await collect(soundCommand(dir, { ...none, download: true }, { sounds: SOUNDS, locale: 'pt-BR' }));
+  assert.match(offer, /Baixe .* MiB de sons CC0 de https:\/\/sounds\.example/);
+  assert.match(offer, /--download --yes/);
+  const done = await collect(
+    soundCommand(
+      dir,
+      { ...none, download: true, accept: true },
+      { sounds: SOUNDS, locale: 'pt-BR', fetch: async () => new Response(BODY) },
+    ),
+  );
+  assert.match(done, /Sons baixados e verificados\./);
+});

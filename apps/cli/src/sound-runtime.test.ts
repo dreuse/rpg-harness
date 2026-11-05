@@ -59,3 +59,20 @@ test('dispose stops the sink', async () => {
   createSoundRuntime(await tempDir(), { settings: ON, sink, clock, installed: () => true })?.dispose();
   assert.equal(disposed(), true);
 });
+
+test('rpg-cm63.34 the opening scene picks the ambience and rings the scene effect', async () => {
+  const { sink, started } = fakeSink();
+  const settings = {
+    ...ON,
+    ambience: { enabled: true, volume: 0.5 },
+    effects: { enabled: true, volume: 0.5 },
+  };
+  createSoundRuntime(await tempDir(), {
+    settings,
+    sink,
+    clock,
+    installed: () => true,
+    scene: { location: 'tavern', mood: [] },
+  });
+  assert.deepEqual(started.sort(), ['ambience:tavern', 'effect:bell', 'music:calm']);
+});

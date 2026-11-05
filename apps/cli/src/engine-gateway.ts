@@ -657,10 +657,13 @@ export const openClientSession = (
 const liveRuntimes = new Map<string, SpeechRuntime>();
 const liveSounds = new Map<string, SoundRuntime>();
 
-const startSound = async (dataDir: string): Promise<string | undefined> => {
+const startSound = async (dataDir: string, campaignName: string): Promise<string | undefined> => {
   if (!existsSync(join(dataDir, SOUND_SETTINGS_FILE))) return undefined;
   try {
-    const sound = (await import('./sound-runtime.ts')).createSoundRuntime(dataDir);
+    const { sceneSoundOf } = await import('../../../packages/voice/src/sound-selection.ts');
+    const sound = (await import('./sound-runtime.ts')).createSoundRuntime(dataDir, {
+      scene: sceneSoundOf(readCampaignState(dataDir, campaignName).currentScene?.title),
+    });
     if (sound !== undefined) liveSounds.set(dataDir, sound);
     return undefined;
   } catch (error) {
@@ -729,7 +732,7 @@ const playTui = async (
   try {
     const locale = voiceLocale();
     const voiceNotice = locale === undefined ? undefined : await speechNotice(speech, locale).catch(() => undefined);
-    const soundNotice = await startSound(dataDir);
+    const soundNotice = await startSound(dataDir, name);
     const notice = [gm.notice, voiceNotice, soundNotice].filter((line) => line !== undefined).join(NOTICE_JOIN);
     await runTui(session, campaignId, terminal, narrate, notice || undefined, playbackFor(dataDir));
   } finally {
@@ -1315,8 +1318,8 @@ export const createEngineGateway = (
     }
   },
   settings: (name, changes) => gmSettingsCommand(dataDir, name, changes),
-  sound: async function* (request: SoundRequest) {
-    yield* (await import('./sound-command.ts')).soundCommand(dataDir, request);
+  sound: async function* (request: SoundRequest, locale?: string) {
+    yield* (await import('./sound-command.ts')).soundCommand(dataDir, request, locale === undefined ? {} : { locale });
   },
 });
 
