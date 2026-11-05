@@ -460,9 +460,11 @@ test('rpg-42a.37 settings sets the GM model, summary model and soft budget for a
     0,
   );
   assert.equal(await main(['settings'], io, gateway), 0);
+  assert.equal(await main(['settings', 'Ember', '--rules-strictness', 'relaxed'], io, gateway), 0);
   assert.deepEqual(calls, [
     'settings:Ember:{"model":"opus","summaryModel":"haiku","sessionBudgetTokens":"5000"}',
     'settings::{}',
+    'settings:Ember:{"rulesStrictness":"relaxed"}',
   ]);
   assert.match(out.join(''), /GM model: opus/);
   const misuse = setup();

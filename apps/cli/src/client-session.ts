@@ -54,7 +54,13 @@ import { createEntityStore } from '../../../packages/persistence/src/entity-stor
 import { type EventQuery, listScopedEvents } from '../../../packages/persistence/src/event-store.ts';
 import { rangeIssue } from '../../../packages/rules/src/character-builder.ts';
 import { creationRulesFor, usageFor } from './quickstart.ts';
-import { checkFor, emitVisualizations, resultsOf, visualizationPreferenceOf } from './roll-visualization.ts';
+import {
+  checkFor,
+  emitVisualizations,
+  resultsOf,
+  rulesStrictnessFor,
+  visualizationPreferenceOf,
+} from './roll-visualization.ts';
 import { panelsOf, printable, sheetFields, type ViewSource } from './views.ts';
 
 export type ScopedEvent = DomainEvent & Scoped & { readonly seq: number };
@@ -416,7 +422,13 @@ export const createClientSessions = (
         return attempt(() => {
           engine.submitAction(
             { campaignId, actionId, expectedRevision, sceneId, actorId, input, intent: input },
-            checkFor(engine.getState(campaignId).events, input, actorId, readWorld(campaignId, actorId).entities),
+            checkFor(
+              engine.getState(campaignId).events,
+              input,
+              actorId,
+              readWorld(campaignId, actorId).entities,
+              rulesStrictnessFor(engine.getState(campaignId), defaults()),
+            ),
           );
           sync();
           return { revision: engine.getState(campaignId).revision };

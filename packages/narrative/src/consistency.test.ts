@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { CampaignEvent } from '../../domain/src/campaign.ts';
 import { type Fact, GM_VIEWER, PLAYER_VIEWER, type Viewer } from '../../memory/src/knowledge.ts';
-import { type ConsistencyInput, checkConsistency, type NarrationClaim } from './consistency.ts';
+import { type ConsistencyInput, checkConsistency, claimsMechanicalResult, type NarrationClaim } from './consistency.ts';
 
 const CAMPAIGN = 'campaign-1';
 const HERO = 'actor-hero';
@@ -170,4 +170,76 @@ test('never echoes secret statement text in violations', () => {
   assert.equal(report.ok, false);
   assert.equal(output.includes(GM_STATEMENT), false);
   assert.equal(output.includes(RIVAL_STATEMENT), false);
+});
+
+const HIT_NARRATION = 'Your blade hits the goblin for 5 damage.';
+
+test('rpg-42a.58: as-written rejects a claimed mechanical result with no resolved check', () => {
+  for (const narration of [
+    HIT_NARRATION,
+    'The arrow strikes the ogre.',
+    'Sua lâmina acerta o goblin.',
+    'It deals 3 damage.',
+  ]) {
+    const report = checkConsistency(input([], { narration, rulesStrictness: 'as-written', checkResolved: false }));
+    assert.deepEqual(
+      report.violations.map(({ kind }) => kind),
+      ['unresolved-outcome'],
+    );
+  }
+});
+
+test('rpg-42a.58: as-written accepts the same narration after a resolved check or plain prose', () => {
+  assert.equal(
+    checkConsistency(input([], { narration: HIT_NARRATION, rulesStrictness: 'as-written', checkResolved: true })).ok,
+    true,
+  );
+  assert.equal(
+    checkConsistency(
+      input([], { narration: 'The goblin snarls and circles.', rulesStrictness: 'as-written', checkResolved: false }),
+    ).ok,
+    true,
+  );
+});
+
+test('rpg-42a.58: relaxed, off and an unset strictness skip the mechanical-claim check', () => {
+  for (const rulesStrictness of ['relaxed', 'off'] as const)
+    assert.equal(checkConsistency(input([], { narration: HIT_NARRATION, rulesStrictness })).ok, true);
+  assert.equal(checkConsistency(input([], { narration: HIT_NARRATION })).ok, true);
+});
+
+const ORDINARY_PROSE = [
+  'Rain hits the roof.',
+  'The bell strikes the hour.',
+  'Torchlight hits the water.',
+  'The smell hits you first.',
+  'You missed the last boat.',
+  'A cold wind strikes the tower.',
+  'You strike a deal with the merchant.',
+  'A chuva atinge o telhado.',
+  'A chuva atinge você.',
+  'O sino bate a hora e você erra o caminho.',
+];
+
+test('rpg-42a.58: ordinary prose that uses hit, strike or miss words is not a mechanical claim', () => {
+  for (const narration of ORDINARY_PROSE) {
+    assert.equal(claimsMechanicalResult(narration), false, narration);
+    assert.equal(
+      checkConsistency(input([], { narration, rulesStrictness: 'as-written', checkResolved: false })).ok,
+      true,
+    );
+  }
+});
+
+test('rpg-42a.58: a combatant as subject or target, or a weapon as subject, is a mechanical claim', () => {
+  for (const narration of [
+    'The goblin hits you.',
+    'You hit the nearest goblin.',
+    'Your arrow misses the snarling wolf.',
+    'O goblin acerta você.',
+    'Você erra o ogro.',
+    'Sua espada atinge o bandido.',
+    'Causa 7 pontos de dano.',
+  ])
+    assert.equal(claimsMechanicalResult(narration), true, narration);
 });

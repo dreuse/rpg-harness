@@ -1014,6 +1014,25 @@ test('rpg-42a.37: SaveGmSettings persists per campaign and the snapshot shows se
   assert.equal(stale.ok ? undefined : stale.error.code, 'StaleRevision');
 });
 
+test('rpg-42a.58: SaveGmSettings carries the rules strictness as a campaign setting and rejects an unknown one', () => {
+  const { database, engine, campaignId, envelope } = setup();
+  const session = createClientSessions(engine, campaignId, scopedEventsOf(database), worldOf(database), undefined, {
+    sessionId: 'session-now',
+  })(PLAYER_VIEWER);
+  const save = { ...envelope, type: 'SaveGmSettings', actionId: 'strict-1', rulesStrictness: 'off' } as const;
+  assert.equal(session.saveGmSettings({ ...save, expectedRevision: OPENING_REVISION }).ok, true);
+  const snapshot = session.getSnapshot({ ...envelope, type: 'GetCampaignSnapshot' });
+  assert.ok(snapshot.ok);
+  assert.deepEqual(snapshot.value.gm?.campaignSettings, { rulesStrictness: 'off' });
+  const unknown = session.saveGmSettings({
+    ...save,
+    actionId: 'strict-2',
+    rulesStrictness: 'strict' as never,
+    expectedRevision: OPENING_REVISION + 1,
+  });
+  assert.equal(unknown.ok ? undefined : unknown.error.code, 'Rejected');
+});
+
 const configFor = (id: string) => {
   const intent = createCampaignIntent({ ruleset: explicit({ id, edition: 'original' }) });
   const generated = generateCampaignConfig(intent, { rulepacks: BUILT_IN_PACKS, genres: [] });

@@ -16,7 +16,7 @@ const LIST_STYLE = { type: 'conjunction' } as const;
 const VOICE_OPTION = '--voice';
 const CLIENT_OPTION = '--client';
 const UPDATE_OPTIONS = ['--check', '--auto-check', '--pre-release'];
-const SETTINGS_OPTIONS = ['--model', '--summary-model', '--session-budget'];
+const SETTINGS_OPTIONS = ['--model', '--summary-model', '--session-budget', '--rules-strictness'];
 const SOUND_OPTION_KEYS = [
   'ambience',
   'effects',
@@ -53,6 +53,7 @@ const OPTIONS = {
   model: { type: 'string' },
   'summary-model': { type: 'string' },
   'session-budget': { type: 'string' },
+  'rules-strictness': { type: 'string' },
   ambience: { type: 'boolean' },
   effects: { type: 'boolean' },
   music: { type: 'boolean' },
@@ -149,7 +150,8 @@ const COMMANDS = [
   },
   {
     name: SETTINGS_COMMAND,
-    usage: 'settings [campaign] [--model <name>] [--summary-model <name>] [--session-budget <tokens>]',
+    usage:
+      'settings [campaign] [--model <name>] [--summary-model <name>] [--session-budget <tokens>] [--rules-strictness <as-written|relaxed|off|unset>]',
   },
   { name: CLAUDE_COMMAND, usage: 'claude [campaign]' },
   {
@@ -287,8 +289,15 @@ export const main = async (argv: readonly string[], io: Io, gateway: CampaignGat
       io,
       phrase(locale, 'cli.optionsOnlyWith', { options: list(UPDATE_OPTIONS), command: UPDATE_COMMAND }),
     );
-  const { model, 'summary-model': summaryModel, 'session-budget': sessionBudgetTokens } = parsed.values;
-  const settingsOption = [model, summaryModel, sessionBudgetTokens].some((value) => value !== undefined);
+  const {
+    model,
+    'summary-model': summaryModel,
+    'session-budget': sessionBudgetTokens,
+    'rules-strictness': rulesStrictness,
+  } = parsed.values;
+  const settingsOption = [model, summaryModel, sessionBudgetTokens, rulesStrictness].some(
+    (value) => value !== undefined,
+  );
   if (settingsOption && command !== SETTINGS_COMMAND)
     return usageError(
       io,
@@ -386,7 +395,9 @@ export const main = async (argv: readonly string[], io: Io, gateway: CampaignGat
     if (name !== undefined && name.trim() === '') return missingName('settings');
     if (extra.length > 0) return unexpectedArgument(extra[0]);
     const changes = Object.fromEntries(
-      Object.entries({ model, summaryModel, sessionBudgetTokens }).filter(([, value]) => value !== undefined),
+      Object.entries({ model, summaryModel, sessionBudgetTokens, rulesStrictness }).filter(
+        ([, value]) => value !== undefined,
+      ),
     );
     return run(io, () => [gateway.settings(name, changes)]);
   }

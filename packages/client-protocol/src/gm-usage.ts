@@ -52,8 +52,12 @@ export const gmModelLine = ({ model = DEFAULT_MODEL_CHOICE, summaryModel }: GmSe
 
 const budgetLine = (budget: number) => `Session budget: ${budget} tokens, a warning only.`;
 
+const rulesLines = ({ rulesStrictness }: GmSettings) =>
+  rulesStrictness === undefined ? [] : [`Rules strictness: ${rulesStrictness}.`];
+
 export const gmSettingsLines = (settings: GmSettings): string[] => [
   gmModelLine(settings),
+  ...rulesLines(settings),
   ...(settings.sessionBudgetTokens === undefined ? [] : [budgetLine(settings.sessionBudgetTokens)]),
 ];
 
@@ -61,6 +65,7 @@ export const gmUsageLines = (gm: GmUsageView): string[] => {
   const budget = gm.settings.sessionBudgetTokens;
   return [
     gmModelLine(gm.settings),
+    ...rulesLines(gm.settings),
     usageText('This session', gm.session),
     usageText('This campaign', gm.campaign),
     ...(budget === undefined ? [] : [budgetWarning(gm) ?? budgetLine(budget)]),

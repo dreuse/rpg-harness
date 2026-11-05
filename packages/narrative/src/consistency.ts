@@ -1,5 +1,6 @@
 import type { CampaignEvent, EventId } from '../../domain/src/campaign.ts';
 import type { EntityId } from '../../domain/src/entity.ts';
+import type { RulesStrictness } from '../../domain/src/rules-usage.ts';
 import { type Fact, type FactId, type Viewer, visibleTo } from '../../memory/src/knowledge.ts';
 
 export type NarrationClaim =
@@ -7,7 +8,13 @@ export type NarrationClaim =
   | { readonly kind: 'equipment'; readonly ref: string; readonly actorId: EntityId; readonly itemId: EntityId }
   | { readonly kind: 'fact'; readonly ref: string; readonly factId: FactId };
 
-export const VIOLATION_KINDS = ['uncommitted-effect', 'impossible-equipment', 'secret-leak', 'unknown-fact'] as const;
+export const VIOLATION_KINDS = [
+  'uncommitted-effect',
+  'impossible-equipment',
+  'secret-leak',
+  'unknown-fact',
+  'unresolved-outcome',
+] as const;
 export type ViolationKind = (typeof VIOLATION_KINDS)[number];
 
 export type Violation = {
@@ -26,15 +33,19 @@ export type ConsistencyInput = {
   readonly facts: readonly Fact[];
   readonly equipment: Readonly<Record<EntityId, readonly EntityId[]>>;
   readonly viewer: Viewer;
+  readonly rulesStrictness?: RulesStrictness;
+  readonly checkResolved?: boolean;
 };
 
 const NO_LENGTH = 0;
+const AS_WRITTEN: RulesStrictness = 'as-written';
 
 const REASONS: Readonly<Record<ViolationKind, string>> = {
   'uncommitted-effect': 'claimed effect has no committed event',
   'impossible-equipment': 'actor does not hold the claimed item',
   'secret-leak': 'narration reveals a fact the viewer may not see',
   'unknown-fact': 'claimed fact is not a known fact',
+  'unresolved-outcome': 'narration claims a mechanical result the engine did not resolve',
 };
 
 const violation = (kind: ViolationKind, ref: string | null, sourceId: string | null): Violation => ({
@@ -79,11 +90,51 @@ const restatedSecrets = (input: ConsistencyInput, visible: ReadonlySet<FactId>):
     .map((fact) => violation('secret-leak', null, fact.id));
 };
 
+const COMBATANTS_EN =
+  'goblins?|orcs?|ogres?|bandits?|guards?|skeletons?|wolf|wolves|beasts?|creatures?|monsters?|enem(?:y|ies)|foes?|dragons?|rats?|spiders?|trolls?|kobolds?|cultists?|soldiers?|thugs?|brutes?|zombies?|ghouls?|knights?|assassins?';
+const COMBATANTS_PT =
+  'goblins?|orcs?|ogros?|bandidos?|guardas?|esqueletos?|lobos?|monstros?|criaturas?|inimigos?|drag(?:ão|ões)|trolls?|kobolds?|cultistas?|soldados?|brutamontes|zumbis?|ghouls?|cavaleiros?|assassinos?|aranhas?|ratos?';
+const WEAPONS_EN = 'blade|sword|axe|dagger|spear|arrow|bolt|fist|mace|club|staff|spell|shot|swing|thrust';
+const WEAPONS_PT =
+  'lâmina|espada|machado|adaga|lança|flecha|virote|punho|maça|clava|cajado|feitiço|tiro|golpe|estocada';
+const VERBS_EN = 'hits?|strikes?|struck|misses?|missed|wounds?|slays?|kills?|connects?|pierces?|slashes';
+const VERBS_PT = 'acerta|acertou|atinge|atingiu|fere|feriu|mata|matou|erra|errou|perfura|perfurou';
+const ARTICLES_EN = 'the|a|an|your|its';
+const ARTICLES_PT = 'o|a|os|as|um|uma|seu|sua';
+const FILLER = '(?:\\p{L}+\\s+){0,2}?';
+
+const word = (alternatives: string) => `(?<!\\p{L})(?:${alternatives})(?!\\p{L})`;
+const claim = (...parts: string[]) => new RegExp(parts.join('\\s+'), 'iu');
+const targeted = (verbs: string, articles: string, combatants: string) =>
+  claim(word(verbs), `(?:(?:${articles})\\s+)?${FILLER}${word(combatants)}`);
+const wielded = (weapons: string, verbs: string) => claim(word(weapons), `${FILLER}${word(verbs)}`);
+const fighting = (combatants: string, verbs: string) => claim(word(combatants), word(verbs));
+
+const MECHANICAL_CLAIMS: readonly RegExp[] = [
+  /(?<!\p{L})\d+ (?:points? of )?damage(?!\p{L})/iu,
+  /(?<!\p{L})\d+ (?:pontos? de )?dano(?!\p{L})/iu,
+  targeted(VERBS_EN, ARTICLES_EN, COMBATANTS_EN),
+  wielded(WEAPONS_EN, VERBS_EN),
+  fighting(COMBATANTS_EN, VERBS_EN),
+  targeted(VERBS_PT, ARTICLES_PT, COMBATANTS_PT),
+  wielded(WEAPONS_PT, VERBS_PT),
+  fighting(COMBATANTS_PT, VERBS_PT),
+];
+
+export const claimsMechanicalResult = (narration: string): boolean =>
+  MECHANICAL_CLAIMS.some((claim) => claim.test(narration));
+
+const unresolvedOutcomes = ({ narration, rulesStrictness, checkResolved }: ConsistencyInput): Violation[] =>
+  rulesStrictness === AS_WRITTEN && checkResolved !== true && claimsMechanicalResult(narration)
+    ? [violation('unresolved-outcome', null, null)]
+    : [];
+
 export const checkConsistency = (input: ConsistencyInput): ConsistencyReport => {
   const visible = new Set(visibleTo(input.facts, input.viewer).map((fact) => fact.id));
   const violations = [
     ...input.claims.flatMap((claim) => checkClaim(claim, input, visible)),
     ...restatedSecrets(input, visible),
+    ...unresolvedOutcomes(input),
   ];
   return { ok: violations.length === 0, violations };
 };

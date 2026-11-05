@@ -29,6 +29,13 @@ test('GM settings keep valid model names and a positive budget only', () => {
   assert.equal(toGmSettings('opus'), undefined);
 });
 
+test('rpg-42a.58: GM settings keep only a known rules strictness', () => {
+  for (const rulesStrictness of ['as-written', 'relaxed', 'off'])
+    assert.deepEqual(toGmSettings({ rulesStrictness }), { rulesStrictness });
+  assert.equal(toGmSettings({ rulesStrictness: 'strict' }), undefined);
+  assert.equal(toGmSettings({ rulesStrictness: 3 }), undefined);
+});
+
 test('GM usage needs whole non-negative token counts and an optional cost', () => {
   assert.deepEqual(toGmUsage(USAGE), USAGE);
   const { costUsd: _, ...unpriced } = USAGE;

@@ -244,6 +244,8 @@ test('UI01: clients cannot bypass the engine or trust unsolicited model state wr
   const gmSave = { ...envelope, type: 'SaveGmSettings', actionId: 'action-4', expectedRevision: 2 };
   assert.ok(parseCommand({ ...gmSave, model: 'opus', summaryModel: 'haiku', sessionBudgetTokens: 5000 }).ok);
   assert.ok(parseCommand(gmSave).ok);
+  assert.ok(parseCommand({ ...gmSave, rulesStrictness: 'relaxed' }).ok);
+  assert.equal(code(parseCommand({ ...gmSave, rulesStrictness: 3 })), 'MalformedCommand');
   assert.equal(code(parseCommand({ ...gmSave, apiKey: 'sk-live' })), 'UnexpectedField');
   assert.equal(code(parseCommand({ ...gmSave, sessionBudgetTokens: '5000' })), 'MalformedCommand');
   assert.equal(code(parseCommand({ ...VOICE_SAVE, speed: '1.5' })), 'MalformedCommand');

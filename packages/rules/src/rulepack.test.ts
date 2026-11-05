@@ -154,3 +154,14 @@ test('declares resolution style and sheet usage, with defaults for packs that om
   const bad = validateManifest({ ...manifest(), resolution: 'coin', sheet: 'huge' });
   assert.deepEqual(bad.ok ? [] : bad.issues.map(({ path }) => path), ['resolution', 'sheet']);
 });
+
+test('rpg-42a.58: a manifest carries an optional style and rejects a malformed one', () => {
+  const style = { tone: ['heroic'], keepOutOfProse: ['raw DCs'] };
+  const styled = validateManifest({ ...manifest(), style });
+  assert.equal(styled.ok && styled.manifest.style?.tone?.[0], 'heroic');
+  const plain = validateManifest(manifest());
+  assert.equal(plain.ok && Object.hasOwn(plain.manifest, 'style'), false);
+  const bad = validateManifest({ ...manifest(), style: { tone: 'heroic' } });
+  assert.equal(bad.ok, false);
+  assert.deepEqual(!bad.ok && bad.issues.map(({ path }) => path), ['style']);
+});

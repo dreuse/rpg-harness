@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { EMPTY_GM_USAGE_TOTALS } from '../../domain/src/gm.ts';
-import { budgetWarning, CONTEXT_HINT, gmUsageLines, modelHintOf, tokensOf } from './gm-usage.ts';
+import { budgetWarning, CONTEXT_HINT, gmSettingsLines, gmUsageLines, modelHintOf, tokensOf } from './gm-usage.ts';
 
 const SESSION = {
   turns: 2,
@@ -47,4 +47,11 @@ test('rpg-42a.44: the memory hint shows only when facts are dropped often', () =
   assert.equal(gmUsageLines({ ...gm, contextTight: false }).includes(CONTEXT_HINT), false);
   assert.equal(gmUsageLines({ ...gm, contextTight: true }).includes(CONTEXT_HINT), true);
   assert.match(CONTEXT_HINT, /consider the rich memory setting/i);
+});
+
+test('rpg-42a.58: a chosen rules strictness shows in the settings and usage lines, an unset one does not', () => {
+  const gm = { settings: { rulesStrictness: 'relaxed' as const }, session: SESSION, campaign: SESSION };
+  assert.match(gmUsageLines(gm).join('\n'), /Rules strictness: relaxed/);
+  assert.match(gmSettingsLines(gm.settings).join('\n'), /Rules strictness: relaxed/);
+  assert.doesNotMatch(gmUsageLines({ ...gm, settings: {} }).join('\n'), /Rules strictness/);
 });

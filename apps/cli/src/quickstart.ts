@@ -59,7 +59,7 @@ import { BUILT_IN_PACKS } from './import-gateway.ts';
 
 export const CREATION_RULES = [D20_LITE_CREATION, DICE_POOL_LITE_CREATION, NARRATIVE_CREATION];
 const GENRE_PACKS: readonly {
-  genre: Pick<GenrePack, 'id' | 'version' | 'name' | 'examples' | 'archetypes'>;
+  genre: Pick<GenrePack, 'id' | 'version' | 'name' | 'examples' | 'archetypes' | 'style'>;
   story?: StoryKit;
 }[] = [FANTASY_PACK, SCIENCE_FICTION_PACK, HORROR_PACK, MYSTERY_PACK, MODERN_ADVENTURE_PACK, BLANK_WORLD_PACK];
 const GENRE_ALIASES: Readonly<Record<string, readonly string[]>> = {
@@ -220,6 +220,25 @@ export const openingFor = ({ genre }: CampaignConfig, fallback: Opening): Openin
   const scene = pack?.story?.openingScenes[0];
   return pack === undefined || scene === undefined ? fallback : { title: pack.genre.name, narration: `${scene}.` };
 };
+
+const styleLine = (source: string, id: string, style: unknown) =>
+  style === undefined ? [] : [`${source} ${id} style: ${JSON.stringify(style)}`];
+
+export const styleLinesOf = ({ rulepack, genre }: CampaignConfig): string[] => [
+  ...styleLine(
+    'rulepack',
+    rulepack?.id ?? '',
+    BUILT_IN_PACKS.find(
+      ({ id, edition, revision }) =>
+        id === rulepack?.id && edition === rulepack.edition && revision === rulepack.revision,
+    )?.style,
+  ),
+  ...styleLine(
+    'genre',
+    genre?.id ?? '',
+    GENRE_PACKS.find((candidate) => candidate.genre.id === genre?.id)?.genre.style,
+  ),
+];
 
 export const describeConfig = ({ rulepack, genre, values, provenance }: CampaignConfig): string =>
   [

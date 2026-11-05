@@ -1,3 +1,5 @@
+import { isRulesStrictness, type RulesStrictness } from './rules-usage.ts';
+
 export const MODEL_NAME = /^[A-Za-z0-9][\w.:@/[\]-]{0,127}$/;
 export const ROUTE_DEFAULT_MODEL = 'default';
 
@@ -5,6 +7,7 @@ export interface GmSettings {
   readonly model?: string;
   readonly summaryModel?: string;
   readonly sessionBudgetTokens?: number;
+  readonly rulesStrictness?: RulesStrictness;
 }
 
 export interface GmUsage {
@@ -54,11 +57,13 @@ export const toGmSettings = (value: unknown): GmSettings | undefined => {
   const model = optional(value.model, isModel);
   const summaryModel = optional(value.summaryModel, isModel);
   const budget = optional(value.sessionBudgetTokens, isCount);
-  if (!model.ok || !summaryModel.ok || !budget.ok || budget.value === 0) return undefined;
+  const strictness = optional(value.rulesStrictness, isRulesStrictness);
+  if (!model.ok || !summaryModel.ok || !budget.ok || !strictness.ok || budget.value === 0) return undefined;
   return {
     ...(model.value === undefined ? {} : { model: model.value }),
     ...(summaryModel.value === undefined ? {} : { summaryModel: summaryModel.value }),
     ...(budget.value === undefined ? {} : { sessionBudgetTokens: budget.value }),
+    ...(strictness.value === undefined ? {} : { rulesStrictness: strictness.value }),
   };
 };
 

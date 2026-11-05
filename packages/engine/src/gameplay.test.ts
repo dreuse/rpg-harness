@@ -24,7 +24,7 @@ import {
 import { recordNpcLearning, saveNpc } from './npc.ts';
 import { activateQuest, completeObjective, defineQuest } from './quest.ts';
 import { GameMasterInterruptedError } from './scripted-session.ts';
-import { ActionIdConflictError, type PlayerAction, storedTurn } from './turn.ts';
+import { ActionIdConflictError, type PlayerAction, performAction, storedTurn } from './turn.ts';
 
 const IN_MEMORY = ':memory:';
 const TEMP_PREFIX = 'rpg-gameplay-';
@@ -411,5 +411,74 @@ test('rpg-42a.28 an async narrator narrates a committed turn through the same co
     assert.equal(again.narration, textOf(committed));
   } finally {
     close();
+  }
+});
+
+const HIT_NARRATION = 'Your blade hits the goblin for 5 damage.';
+const MISS_FREE_NARRATION = 'The goblin snarls and waits for your move.';
+const AS_WRITTEN: NarrationContext = { ...CONTEXT, rulesStrictness: 'as-written' };
+const RESOLVED_CHECK = () => ({ rolls: [], events: [] });
+
+const scripted = (...replies: string[]) => {
+  const retries: (readonly string[] | undefined)[] = [];
+  const narrator = {
+    narrate: async (_committed: CommittedTurn, retry?: readonly { readonly kind: string }[]) => {
+      retries.push(retry?.map(({ kind }) => kind));
+      return { narration: replies[Math.min(retries.length, replies.length) - 1] ?? '', claims: [] };
+    },
+  };
+  return { narrator, retries };
+};
+
+test('rpg-42a.58: as-written rejects a hit with no resolved attack and regenerates once', async () => {
+  const { store, close } = open();
+  try {
+    const committed = performAction(store, actionFor(store, 'swing'));
+    const { narrator, retries } = scripted(HIT_NARRATION, MISS_FREE_NARRATION);
+    const outcome = narrated(await narrateTurn(store, narrator, committed, AS_WRITTEN));
+    assert.equal(outcome.narration, MISS_FREE_NARRATION);
+    assert.deepEqual(retries, [undefined, ['unresolved-outcome']]);
+  } finally {
+    close();
+  }
+});
+
+test('rpg-42a.58: a second rejected narration is not regenerated again and falls back', async () => {
+  const { store, close } = open();
+  try {
+    const committed = performAction(store, actionFor(store, 'swing'));
+    const { narrator, retries } = scripted(HIT_NARRATION, HIT_NARRATION, MISS_FREE_NARRATION);
+    const outcome = await narrateTurn(store, narrator, committed, AS_WRITTEN);
+    assert.ok('inconsistent' in outcome);
+    assert.equal(retries.length, 2);
+  } finally {
+    close();
+  }
+});
+
+test('rpg-42a.58: a resolved check lets the narration claim its result without a retry', async () => {
+  const { store, close } = open();
+  try {
+    const committed = performAction(store, actionFor(store, 'swing'), RESOLVED_CHECK);
+    const { narrator, retries } = scripted(HIT_NARRATION);
+    assert.equal(narrated(await narrateTurn(store, narrator, committed, AS_WRITTEN)).narration, HIT_NARRATION);
+    assert.equal(retries.length, 1);
+  } finally {
+    close();
+  }
+});
+
+test('rpg-42a.58: relaxed and off skip the check and never regenerate', async () => {
+  for (const rulesStrictness of ['relaxed', 'off'] as const) {
+    const { store, close } = open();
+    try {
+      const committed = performAction(store, actionFor(store, 'swing'));
+      const { narrator, retries } = scripted(HIT_NARRATION);
+      const context = { ...CONTEXT, rulesStrictness };
+      assert.equal(narrated(await narrateTurn(store, narrator, committed, context)).narration, HIT_NARRATION);
+      assert.equal(retries.length, 1);
+    } finally {
+      close();
+    }
   }
 });

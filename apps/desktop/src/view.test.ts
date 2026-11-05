@@ -579,6 +579,37 @@ test('rpg-42a.37 settings hold a GM model form with hints, usage and a soft budg
   assert.doesNotMatch(spanish, /GM turns/);
 });
 
+test('rpg-42a.58 the campaign GM form offers the rules strictness in English, Spanish and Portuguese', () => {
+  const usage = {
+    turns: 0,
+    inputTokens: 0,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+    outputTokens: 0,
+    costUsd: 0,
+    pricedTurns: 0,
+  };
+  const snapshot = state.snapshot as NonNullable<DesktopState['snapshot']>;
+  const gm = {
+    settings: {},
+    campaignSettings: { rulesStrictness: 'relaxed' as const },
+    defaults: {},
+    session: usage,
+    campaign: usage,
+  };
+  const model = viewModel({ ...state, snapshot: { ...snapshot, gm } }, WIDE_WIDTH);
+  const english = renderView(model, 'en');
+  assert.match(english, /<form data-gm-form>[\s\S]*?<select name="rulesStrictness"/);
+  assert.match(english, /<option value="">Default \(as written when the game has a ruleset\)<\/option>/);
+  assert.match(english, /<option value="as-written">As written: the engine decides every outcome<\/option>/);
+  assert.match(english, /<option value="relaxed" selected>Relaxed: skip trivial checks<\/option>/);
+  assert.match(english, /<option value="off">Off: the story decides<\/option>/);
+  assert.doesNotMatch(english.split('data-gm-defaults-form')[1] ?? '', /rulesStrictness/);
+  assert.match(renderView(model, 'pt-BR'), /<option value="relaxed" selected>Relaxado: pula testes triviais<\/option>/);
+  assert.match(renderView(model, 'pt-BR'), /Rigor das regras/);
+  assert.match(renderView(model, 'es'), /<option value="off">Desactivado: manda la historia<\/option>/);
+});
+
 test('rpg-42a.22 the sheet names the existing character even before it has stats', () => {
   const snapshot = state.snapshot as NonNullable<DesktopState['snapshot']>;
   const hero = {

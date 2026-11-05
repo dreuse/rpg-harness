@@ -37,6 +37,7 @@ import {
 } from '../../../packages/engine/src/gm-settings.ts';
 import { contextBudgetOf } from '../../../packages/engine/src/memory.ts';
 import {
+  CHECK_RESOLVED,
   campaignConfigOf,
   loadState,
   openScene,
@@ -122,7 +123,7 @@ import {
   titleOf,
   UnknownEdition,
 } from './quickstart.ts';
-import { checkFor } from './roll-visualization.ts';
+import { checkFor, enforcedStrictnessFor, rulesStrictnessFor } from './roll-visualization.ts';
 import type { SoundRequest } from './sound-command.ts';
 import { SOUND_SETTINGS_FILE } from './sound-files.ts';
 import type { SoundRuntime } from './sound-runtime.ts';
@@ -382,6 +383,7 @@ const narrateLatest = async (
   sessionId: string,
   speak: SpeakTurn,
   calibrates: boolean,
+  defaults: GmSettings,
   listener?: StreamedSegment,
 ): Promise<readonly GmSegment[]> => {
   const state = engine.getState(campaignId);
@@ -396,12 +398,19 @@ const narrateLatest = async (
   let segments: readonly GmSegment[] = NO_SEGMENTS;
   let proposals: readonly GmProposal[] = [];
   const voice = await speak(committed.turn.id);
+  const enforced = enforcedStrictnessFor(state, defaults);
+  const checkPending = enforced !== undefined && !committed.events.some(({ type }) => type === CHECK_RESOLVED);
+  let reply: GmTurnReply | undefined;
   const narrator = {
-    narrate: async () => {
+    narrate: async (_turn: CommittedTurn, retried?: readonly unknown[]) => {
       const fitted = await requestFitting({
         first: preset,
-        packetOf: (chosenPreset) => contextPacketOf(database, state, committed, PLAYER_VIEWER, chosenPreset, ratio),
-        send: (packet) => request(packet, streamOf(voice, listener, committed.turn.id)),
+        packetOf: (chosenPreset) =>
+          contextPacketOf(database, state, committed, PLAYER_VIEWER, chosenPreset, ratio, {
+            defaults,
+            retry: retried !== undefined,
+          }),
+        send: (packet) => request(packet, streamOf(checkPending ? undefined : voice, listener, committed.turn.id)),
         ratio,
       }).catch((error: unknown) => {
         if (!(error instanceof ProviderError && error.message === TOO_LONG_MESSAGE)) {
@@ -413,26 +422,33 @@ const narrateLatest = async (
           reply: narratorReply(withNotice(error.message)),
         };
       });
-      const { reply } = fitted;
+      if (usage !== undefined) recordGmUsage(store, { campaignId, turnId: committed.turn.id, sessionId, usage });
+      reply = fitted.reply;
       sent = fitted.packet;
       usage = reply.usage;
       segments = reply.segments;
       proposals = reply.proposals ?? [];
-      voice?.settle(reply);
       return { narration: reply.narration, claims: [] };
     },
   };
   const facts = createFactStore(database).listFacts(campaignId);
-  const outcome = await narrateTurn(store, narrator, committed, { facts, equipment: {}, viewer: PLAYER_VIEWER }).catch(
-    (error: unknown) => {
-      voice?.abandon();
-      throw error;
-    },
-  );
+  const context = {
+    facts,
+    equipment: {},
+    viewer: PLAYER_VIEWER,
+    ...(enforced === undefined ? {} : { rulesStrictness: enforced }),
+  };
+  const outcome = await narrateTurn(store, narrator, committed, context).catch((error: unknown) => {
+    voice?.abandon();
+    throw error;
+  });
   if ('inconsistent' in outcome) {
     voice?.abandon();
     store.recordNarration(campaignId, committed.turn.id, FAKE_GM_REPLY);
-  } else commitProposals(store, createEntityStore(database), createFactStore(database), committed, proposals);
+  } else {
+    if ('narration' in outcome && reply !== undefined) voice?.settle(reply);
+    commitProposals(store, createEntityStore(database), createFactStore(database), committed, proposals);
+  }
   if (sent !== undefined)
     recordContextDiagnostics(store, {
       campaignId,
@@ -547,6 +563,7 @@ const openSession = (
               sessionId,
               speakTurn,
               gm.calibratesContext === true,
+              gmDefaults(),
               onSegment,
             )
           : NO_SEGMENTS;
@@ -881,7 +898,13 @@ const act = async (
         input,
         intent: input,
       },
-      checkFor(state.events, input, actor.id, worldOf(database)(campaignId, actor.id).entities),
+      checkFor(
+        state.events,
+        input,
+        actor.id,
+        worldOf(database)(campaignId, actor.id).entities,
+        rulesStrictnessFor(state, session.gmDefaults()),
+      ),
     );
     await session.narrate();
     const narrated = engine.getState(campaignId).turns.find(({ id }) => id === committed.turn.id);
@@ -1147,7 +1170,7 @@ export type GmSettingsChanges = Partial<Record<keyof GmSettings, string>>;
 const UNSET = 'unset';
 const BUDGET_KEY = 'sessionBudgetTokens';
 const INVALID_GM_SETTINGS =
-  'Choose a model name without spaces or a leading dash, and a session budget that is a whole number of tokens.';
+  'Choose a model name without spaces or a leading dash, a session budget that is a whole number of tokens, and a rules strictness of as-written, relaxed or off.';
 const APP_DEFAULTS_TITLE = 'App defaults for every campaign:';
 
 const changedSettings = (current: GmSettings, changes: GmSettingsChanges): GmSettings => {

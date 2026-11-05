@@ -62,6 +62,14 @@ export const D20_LITE_MANIFEST: RulePackManifest = {
   capabilities: { checks: true, combat: true, resources: true, progression: true, dice: true },
   resolution: 'dice',
   sheet: 'full',
+  style: {
+    tone: ['heroic fantasy adventure', 'earnest with a light, dry humor'],
+    voice: ['second person, present tense'],
+    vocabulary: ['steel', 'torchlight', 'road', 'ruin'],
+    pacing: ['brisk: one clear beat per reply'],
+    sceneStructure: ['hook, obstacle, choice'],
+    keepOutOfProse: ['raw DCs', 'dice totals and modifiers', 'rule names and section numbers'],
+  },
   sourceRefs: [],
 };
 

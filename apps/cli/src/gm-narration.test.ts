@@ -9,6 +9,7 @@ import { PROTOCOL_VERSION } from '../../../packages/client-protocol/src/protocol
 import type { CampaignStore, CommittedTurn } from '../../../packages/domain/src/campaign.ts';
 import { GM_CONTEXT_RECORDED } from '../../../packages/engine/src/gm-settings.ts';
 import { GameMasterInterruptedError } from '../../../packages/engine/src/scripted-session.ts';
+import { CHECK_RESOLVED } from '../../../packages/engine/src/turn.ts';
 import { CONTEXT_BUDGETS, type ContextPacket, packetParts } from '../../../packages/memory/src/packet.ts';
 import { openDatabase } from '../../../packages/persistence/src/database.ts';
 import { type ProviderReply, startProviderServer, textReply } from '../../../packages/testkit/src/provider-server.ts';
@@ -25,7 +26,15 @@ import {
   openClientSession,
   readCampaignState,
 } from './engine-gateway.ts';
-import { API_KEY_ENV, apiRouteOf, FAKE_ROUTE, GM_API_URL_ENV, GM_ROUTE_ENV, languageInstruction } from './gm-api.ts';
+import {
+  API_KEY_ENV,
+  apiRouteOf,
+  FAKE_ROUTE,
+  GM_API_URL_ENV,
+  GM_ROUTE_ENV,
+  languageInstruction,
+  RULES_RETRY_PROMPT,
+} from './gm-api.ts';
 import { SCENE_TURN_LIMIT, type Summarizer } from './gm-context.ts';
 import { narrationOf } from './gm-segments.ts';
 import { hermeticGmEnv } from './gm-test-env.ts';
@@ -337,4 +346,102 @@ describe('rpg-42a.27 narrated turn outcomes', () => {
     assert.equal(turn.turn.narration, '');
     assert.deepEqual(recorded, []);
   });
+});
+
+describe('rpg-42a.58 rules strictness in the GM path', () => {
+  const D20_PITCH = 'A fantasy story using the d20-lite rules';
+  const HIT = 'Your blade hits the goblin for 5 damage.';
+  const CLEAN = 'The goblin snarls and waits for your move.';
+  const LOOK = 'I look around the camp';
+  const ATTACK = 'I attack the goblin';
+
+  const d20Campaign = async (t: TestContext) => {
+    const dataDir = tempDataDir(t);
+    const describe = async () => 'Wren, a scout. Might 3, Agility 2, Wits 2, Presence 1';
+    for await (const _ of createEngineGateway(dataDir).create(CAMPAIGN, D20_PITCH, describe));
+    return dataDir;
+  };
+
+  const scriptedGm = (replies: readonly string[], packets: ContextPacket[]): GameMaster => ({
+    request: async (packet) => {
+      packets.push(packet);
+      const narration = replies[Math.min(packets.length, replies.length) - 1] ?? '';
+      return { narration, segments: [{ text: narration }] };
+    },
+    summarizer: FAKE_GAME_MASTER.summarizer,
+  });
+
+  const retryLines = (packets: readonly ContextPacket[]) =>
+    packets.filter((packet) => packetParts(packet).instructions.includes(RULES_RETRY_PROMPT)).length;
+
+  it('as-written rejects a hit with no resolved attack and regenerates once', async (t) => {
+    const dataDir = await d20Campaign(t);
+    const packets: ContextPacket[] = [];
+    await play(dataDir, scriptedGm([HIT, CLEAN], packets), [LOOK]);
+    assert.equal(packets.length, 2);
+    assert.equal(retryLines(packets), 1);
+    assert.equal(lastNarration(dataDir), CLEAN);
+  });
+
+  it('as-written falls back after a second rejected narration and never asks a third time', async (t) => {
+    const dataDir = await d20Campaign(t);
+    const packets: ContextPacket[] = [];
+    await play(dataDir, scriptedGm([HIT], packets), [LOOK]);
+    assert.equal(packets.length, 2);
+    assert.equal(lastNarration(dataDir), FAKE_GM_REPLY);
+  });
+
+  it('as-written turns an attack into an engine roll, so the same narration passes without a retry', async (t) => {
+    const dataDir = await d20Campaign(t);
+    const packets: ContextPacket[] = [];
+    await play(dataDir, scriptedGm([HIT], packets), [ATTACK]);
+    const state = readCampaignState(dataDir, CAMPAIGN);
+    assert.ok(state.events.some(({ type }) => type === CHECK_RESOLVED));
+    assert.equal(packets.length, 1);
+    assert.equal(lastNarration(dataDir), HIT);
+  });
+
+  it('in Portuguese an attack becomes an engine roll and the matching narration is accepted', async (t) => {
+    const dataDir = tempDataDir(t);
+    const describe = async () => 'Wren, uma batedora. Might 3, Agility 2, Wits 2, Presence 1';
+    for await (const _ of createEngineGateway(dataDir).create(CAMPAIGN, D20_PITCH, describe, undefined, PORTUGUESE));
+    const packets: ContextPacket[] = [];
+    const narration = 'Sua lâmina acerta o goblin.';
+    await play(dataDir, scriptedGm([narration], packets), ['Eu ataco o goblin']);
+    assert.ok(readCampaignState(dataDir, CAMPAIGN).events.some(({ type }) => type === CHECK_RESOLVED));
+    assert.equal(packets.length, 1);
+    assert.equal(lastNarration(dataDir), narration);
+  });
+
+  it('in Portuguese a hit claim with no roll is rejected and regenerated once', async (t) => {
+    const dataDir = tempDataDir(t);
+    for await (const _ of createEngineGateway(dataDir).create(
+      CAMPAIGN,
+      D20_PITCH,
+      NO_CHARACTER,
+      undefined,
+      PORTUGUESE,
+    ));
+    const packets: ContextPacket[] = [];
+    await play(dataDir, scriptedGm(['Sua lâmina acerta o goblin.', 'O goblin ruge e espera.'], packets), [
+      'Eu olho em volta',
+    ]);
+    assert.equal(packets.length, 2);
+    assert.equal(lastNarration(dataDir), 'O goblin ruge e espera.');
+  });
+
+  for (const strictness of ['relaxed', 'off']) {
+    it(`${strictness} skips the post-check and the attack roll`, async (t) => {
+      const dataDir = await d20Campaign(t);
+      createEngineGateway(dataDir).settings(CAMPAIGN, { rulesStrictness: strictness });
+      const packets: ContextPacket[] = [];
+      await play(dataDir, scriptedGm([HIT], packets), [ATTACK]);
+      assert.equal(packets.length, 1);
+      assert.equal(lastNarration(dataDir), HIT);
+      assert.equal(
+        readCampaignState(dataDir, CAMPAIGN).events.some(({ type }) => type === CHECK_RESOLVED),
+        false,
+      );
+    });
+  }
 });

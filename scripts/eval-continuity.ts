@@ -112,6 +112,7 @@ const main = async () => {
               instructions: [SYSTEM_PROMPT],
               ruleset: [],
               setting: ['A sealed vault under the harbor'],
+              style: [],
               campaignSummary: [],
               chapterSummaries: [],
               sceneSummaries: [],

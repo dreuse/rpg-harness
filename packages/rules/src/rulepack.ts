@@ -6,6 +6,7 @@ import {
   SHEET_USAGES,
   type SheetUsage,
 } from '../../domain/src/rules-usage.ts';
+import { INVALID_STYLE, type Style, toStyle } from '../../domain/src/style.ts';
 
 export const RULEPACK_CONTRACT_VERSION = 1;
 
@@ -38,6 +39,7 @@ export type RulePackManifest = {
   characterSheetSchemaId?: string;
   resolution?: ResolutionStyle;
   sheet?: SheetUsage;
+  style?: Style;
   sourceRefs: string[];
 };
 
@@ -77,6 +79,7 @@ export const validateManifest = (input: unknown): ManifestResult => {
     characterSheetSchemaId,
     resolution,
     sheet,
+    style,
     sourceRefs,
   } = input;
   const hasSheet = Object.hasOwn(input, 'characterSheetSchemaId');
@@ -105,6 +108,10 @@ export const validateManifest = (input: unknown): ManifestResult => {
   if (sheet !== undefined && !isSheetUsage(sheet)) {
     issues.push({ path: 'sheet', message: `must be one of ${SHEET_USAGES.join(', ')}` });
   }
+  const parsedStyle = style === undefined ? undefined : toStyle(style);
+  if (style !== undefined && parsedStyle === undefined) {
+    issues.push({ path: 'style', message: INVALID_STYLE });
+  }
   const refs: unknown[] = Array.isArray(sourceRefs) ? [...sourceRefs] : [];
   if (!Array.isArray(sourceRefs)) issues.push({ path: 'sourceRefs', message: 'must be an array' });
   refs.forEach((ref, index) => {
@@ -122,6 +129,7 @@ export const validateManifest = (input: unknown): ManifestResult => {
       ...(hasSheet ? { characterSheetSchemaId: characterSheetSchemaId as string } : {}),
       ...(resolution === undefined ? {} : { resolution: resolution as ResolutionStyle }),
       ...(sheet === undefined ? {} : { sheet: sheet as SheetUsage }),
+      ...(parsedStyle === undefined ? {} : { style: parsedStyle }),
       sourceRefs: refs as string[],
     },
   };

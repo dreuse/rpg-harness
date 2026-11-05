@@ -187,6 +187,10 @@ const OPEN_SOUND = steps(
   `if (!document.querySelector('#sound-music').checked || document.querySelector('#sound-music-volume').value !== '0.25') throw new Error('the sound toggle or volume did not persist');`,
   `document.querySelector('[data-sound]').scrollIntoView({ block: 'start' });`,
 );
+const OPEN_GM_SETTINGS = steps(
+  `document.querySelector('[data-settings]').open = true;`,
+  `document.querySelector('[data-gm-form]').scrollIntoView({ block: 'start' });`,
+);
 const SET_UP_VOICE = steps(
   `document.querySelector('[data-settings]').open = true;`,
   click('[data-voice-setup="on"]'),
@@ -336,6 +340,7 @@ export const JOURNEY: Readonly<Record<'first' | 'reopen' | 'portuguese' | 'dicel
     { script: SET_UP_VOICE },
     { script: FINISH_VOICE_SETUP, shot: 'pt-BR-voice-basic' },
     { script: OPEN_ADVANCED_VOICE, shot: 'pt-BR-voice-settings' },
+    { script: OPEN_GM_SETTINGS, shot: 'pt-BR-gm-settings' },
   ],
 };
 

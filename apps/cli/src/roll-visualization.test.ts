@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import { VISUALIZATION_EVENT } from '../../../packages/client-protocol/src/visualization.ts';
 import { CAMPAIGN_CONFIGURED, type CampaignEvent } from '../../../packages/domain/src/campaign.ts';
 import { CHARACTER_CREATED, SHEET_FIELD_EDITED } from '../../../packages/engine/src/character.ts';
+import { GM_SETTINGS_SAVED } from '../../../packages/engine/src/gm-settings.ts';
 import { generateCampaignConfig } from '../../../packages/intent/src/config.ts';
 import { createCampaignIntent } from '../../../packages/intent/src/intent.ts';
 import {
@@ -21,10 +22,12 @@ import {
   checkResult,
   DICE_MECHANIC,
   emitVisualizations,
+  enforcedStrictnessFor,
   POOL_MECHANIC,
   poolResult,
   resultsOf,
   rollResult,
+  rulesStrictnessFor,
   visualizationPreferenceOf,
 } from './roll-visualization.ts';
 
@@ -279,4 +282,63 @@ test('an attempt in a dice campaign gets the rulepack check and every other turn
   assert.equal(checkFor(configured(builtInConfig('narrative')), TRY, HERO), undefined);
   assert.equal(checkFor(configured(visualizingConfig(true)), TRY, HERO), undefined);
   assert.equal(checkFor([], TRY, HERO), undefined);
+});
+
+const ATTACK = 'I attack the goblin';
+const CLIMB = 'I try to climb the wall';
+const SAVED_STRICTNESS = (rulesStrictness: string) =>
+  [{ type: GM_SETTINGS_SAVED, payload: { settings: { rulesStrictness } } }] as unknown as CampaignEvent[];
+
+test('rpg-42a.58: as-written turns an attack into an engine roll that relaxed and off skip', () => {
+  const campaign = [...configured(builtInConfig('d20-lite')), heroCreated(ATTRIBUTES)];
+  assert.ok(checkFor(campaign, ATTACK, HERO, undefined, 'as-written'));
+  assert.equal(checkFor(campaign, ATTACK, HERO, undefined, 'relaxed'), undefined);
+  assert.equal(checkFor(campaign, ATTACK, HERO, undefined, 'off'), undefined);
+  assert.ok(checkFor(campaign, CLIMB, HERO, undefined, 'relaxed'));
+  assert.equal(checkFor(campaign, CLIMB, HERO, undefined, 'off'), undefined);
+});
+
+test('rpg-42a.58: an attack checks might and a shot checks agility', () => {
+  const campaign = [...configured(builtInConfig('d20-lite')), heroCreated({ ...ATTRIBUTES, might: 8, agility: 3 })];
+  assert.equal(checkFor(campaign, ATTACK, HERO)?.('a', createSeededRng(SEED)).bonus, MIGHT_MOD);
+  assert.equal(checkFor(campaign, 'I shoot the goblin', HERO)?.('a', createSeededRng(SEED)).bonus, -2);
+});
+
+test('rpg-42a.58: strictness is the campaign choice, then the app default, then as-written for a RulePack', () => {
+  const d20 = { events: configured(builtInConfig('d20-lite')), changes: [] as CampaignEvent[] };
+  assert.equal(rulesStrictnessFor(d20), 'as-written');
+  assert.equal(rulesStrictnessFor({ ...d20, changes: SAVED_STRICTNESS('relaxed') }), 'relaxed');
+  assert.equal(rulesStrictnessFor(d20, { rulesStrictness: 'off' }), 'off');
+  assert.equal(
+    rulesStrictnessFor({ ...d20, changes: SAVED_STRICTNESS('relaxed') }, { rulesStrictness: 'off' }),
+    'relaxed',
+  );
+  assert.equal(rulesStrictnessFor({ events: [], changes: [] }), 'off');
+});
+
+test('rpg-42a.58: the post-check applies only to as-written campaigns that roll dice', () => {
+  const d20 = { events: configured(builtInConfig('d20-lite')), changes: [] as CampaignEvent[] };
+  assert.equal(enforcedStrictnessFor(d20), 'as-written');
+  assert.equal(enforcedStrictnessFor({ ...d20, changes: SAVED_STRICTNESS('relaxed') }), undefined);
+  const diceOff = { events: configured(builtInConfig('d20-lite', 'off')), changes: [] as CampaignEvent[] };
+  assert.equal(enforcedStrictnessFor(diceOff), undefined);
+});
+
+test('rpg-42a.58: Portuguese attempts and attacks call for the same checks as English ones', () => {
+  const campaign = [...configured(builtInConfig('d20-lite')), heroCreated({ ...ATTRIBUTES, might: 8, agility: 3 })];
+  for (const input of ['Eu tento escalar o muro', 'Tentar abrir a porta', 'Eu rolo para me esquivar'])
+    assert.ok(checkFor(campaign, input, HERO, undefined, 'relaxed'), input);
+  for (const input of ['Eu ataco o goblin', 'Ela golpeia o ogro', 'Eu atiro no lobo', 'Eu disparo a flecha'])
+    assert.ok(checkFor(campaign, input, HERO, undefined, 'as-written'), input);
+  assert.equal(checkFor(campaign, 'Eu ataco o goblin', HERO, undefined, 'relaxed'), undefined);
+  assert.equal(checkFor(campaign, 'Eu ataco o goblin', HERO, undefined, 'off'), undefined);
+  assert.equal(checkFor(campaign, 'Eu tento escalar o muro', HERO, undefined, 'off'), undefined);
+  assert.equal(checkFor(campaign, 'Eu ataco o goblin', HERO)?.('a', createSeededRng(SEED)).bonus, MIGHT_MOD);
+  assert.equal(checkFor(campaign, 'Eu atiro no lobo', HERO)?.('a', createSeededRng(SEED)).bonus, -2);
+});
+
+test('rpg-42a.58: nouns that look like attack verbs do not call for a check', () => {
+  const campaign = [...configured(builtInConfig('d20-lite')), heroCreated(ATTRIBUTES)];
+  for (const input of ['I light a fire', 'I strike a deal with the merchant', 'I warm my hands by the fire'])
+    assert.equal(checkFor(campaign, input, HERO, undefined, 'as-written'), undefined, input);
 });

@@ -1,15 +1,22 @@
 import type { CampaignStore, CommittedTurn } from '../../domain/src/campaign.ts';
-import { type ConsistencyInput, type ConsistencyReport, checkConsistency } from '../../narrative/src/consistency.ts';
+import {
+  type ConsistencyInput,
+  type ConsistencyReport,
+  checkConsistency,
+  type Violation,
+} from '../../narrative/src/consistency.ts';
 import { GameMasterInterruptedError } from './scripted-session.ts';
-import { loadState, type PlayerAction, storedTurnOf } from './turn.ts';
+import { CHECK_RESOLVED, loadState, type PlayerAction, storedTurnOf } from './turn.ts';
 
 export type NarratedTurn = Pick<ConsistencyInput, 'narration' | 'claims'>;
 
-export type NarrationContext = Omit<ConsistencyInput, 'narration' | 'claims' | 'events'>;
+export type NarrationContext = Omit<ConsistencyInput, 'narration' | 'claims' | 'events' | 'checkResolved'>;
 
 export type Narrator = { narrate(committed: CommittedTurn): NarratedTurn };
 
-export type AsyncNarrator = { narrate(committed: CommittedTurn): Promise<NarratedTurn> };
+export type AsyncNarrator = {
+  narrate(committed: CommittedTurn, retry?: readonly Violation[]): Promise<NarratedTurn>;
+};
 
 export type SceneResolver<A extends PlayerAction> = (store: CampaignStore, action: A) => CommittedTurn;
 
@@ -28,6 +35,8 @@ export class UncommittedTurnError extends Error {
 
 const PENDING_NARRATION = '';
 
+const isUnresolvedOutcome = ({ kind }: Violation) => kind === 'unresolved-outcome';
+
 const recordChecked = (
   store: CampaignStore,
   committed: CommittedTurn,
@@ -35,7 +44,8 @@ const recordChecked = (
   { narration, claims }: NarratedTurn,
 ): GameplayOutcome => {
   const { events } = loadState(store, committed.turn.campaignId);
-  const report = checkConsistency({ ...context, narration, claims, events });
+  const checkResolved = committed.events.some(({ type }) => type === CHECK_RESOLVED);
+  const report = checkConsistency({ ...context, narration, claims, events, checkResolved });
   if (!report.ok) return { committed, inconsistent: report };
   store.recordNarration(committed.turn.campaignId, committed.turn.id, narration);
   return { committed, narration };
@@ -72,7 +82,14 @@ export const narrateTurn = async (
 ): Promise<GameplayOutcome> => {
   if (committed.turn.narration !== PENDING_NARRATION) return { committed, narration: committed.turn.narration };
   try {
-    return recordChecked(store, committed, context, await narrator.narrate(committed));
+    const first = recordChecked(store, committed, context, await narrator.narrate(committed));
+    if (!('inconsistent' in first) || !first.inconsistent.violations.some(isUnresolvedOutcome)) return first;
+    return recordChecked(
+      store,
+      committed,
+      context,
+      await narrator.narrate(committed, first.inconsistent.violations.filter(isUnresolvedOutcome)),
+    );
   } catch (error) {
     return interruptedOr(committed, error);
   }

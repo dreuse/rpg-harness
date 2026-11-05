@@ -13,6 +13,7 @@ import {
   contextDroppedOften,
   contextRatioOf,
   GM_CONTEXT_RECORDED,
+  GM_SETTINGS_SAVED,
   GM_USAGE_RECORDED,
   gmSettingsOf,
   gmUsageOf,
@@ -108,6 +109,19 @@ test('rpg-42a.37: per-campaign GM settings are saved through the engine and the 
         ),
       InvalidActionError,
     );
+  }));
+
+test('rpg-42a.58: rules strictness persists as a settings event and changes are new events', () =>
+  withStore(({ store, events, engine }) => {
+    engine.saveGmSettings(saveFor(store, 'strict', { rulesStrictness: 'relaxed' }));
+    engine.saveGmSettings(saveFor(store, 'off', { rulesStrictness: 'off' }));
+    assert.equal(gmSettingsOf(events()).rulesStrictness, 'off');
+    assert.equal(events().filter(({ type }) => type === GM_SETTINGS_SAVED).length, 2);
+    assert.throws(
+      () => engine.saveGmSettings(saveFor(store, 'bad', { rulesStrictness: 'strict' })),
+      InvalidActionError,
+    );
+    assert.equal(gmSettingsOf(events()).rulesStrictness, 'off');
   }));
 
 test('rpg-42a.37: GM usage is campaign data that never moves the revision', () =>

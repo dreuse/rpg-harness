@@ -4,9 +4,16 @@ export const CONTEXT_BUDGETS = { compact: 2_000, standard: 6_000, rich: 16_000 }
 export type ContextBudgetPreset = keyof typeof CONTEXT_BUDGETS;
 export const DEFAULT_CONTEXT_BUDGET: ContextBudgetPreset = 'standard';
 export const RECENT_TURN_LIMIT = 6;
-export const REQUIRED_SECTION_CAPS = { ruleset: 1_200, setting: 800 } as const;
+export const REQUIRED_SECTION_CAPS = { ruleset: 1_200, setting: 800, style: 600 } as const;
 
-export const STABLE_SECTIONS = ['instructions', 'ruleset', 'setting', 'campaignSummary', 'chapterSummaries'] as const;
+export const STABLE_SECTIONS = [
+  'instructions',
+  'ruleset',
+  'setting',
+  'style',
+  'campaignSummary',
+  'chapterSummaries',
+] as const;
 export const VARIABLE_SECTIONS = [
   'sceneSummaries',
   'context',
@@ -40,7 +47,15 @@ const INSTRUCTION_SEPARATOR = ' ';
 const ITEM_SEPARATOR = ',';
 const NO_TOKENS = 0;
 const INSTRUCTIONS: SectionName = 'instructions';
-const REQUIRED: readonly SectionName[] = ['instructions', 'ruleset', 'setting', 'ledger', 'results', 'playerInput'];
+const REQUIRED: readonly SectionName[] = [
+  'instructions',
+  'ruleset',
+  'setting',
+  'style',
+  'ledger',
+  'results',
+  'playerInput',
+];
 const STABLE_FILL: readonly SectionName[] = ['campaignSummary', 'chapterSummaries'];
 const VARIABLE_FILL: readonly SectionName[] = ['recentTurns', 'threads', 'entities', 'context', 'sceneSummaries'];
 const STABLE_SUMMARY_SHARE = 0.3;

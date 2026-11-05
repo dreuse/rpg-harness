@@ -110,3 +110,13 @@ test('rejects non-string suggested capabilities', () => {
   ]);
   assert.deepEqual(issuePaths({ ...validPack(), suggestedCapabilities: 'combat' }), ['suggestedCapabilities']);
 });
+
+test('rpg-42a.58: a genre pack carries an optional style and rejects a malformed one', () => {
+  const style = { tone: ['dread'], vocabulary: ['hush'] };
+  const styled = loadGenrePack({ ...validPack(), style });
+  assert.deepEqual(styled.ok && styled.pack.style, style);
+  const plain = loadGenrePack(validPack());
+  assert.equal(plain.ok && Object.hasOwn(plain.pack, 'style'), false);
+  assert.deepEqual(issuePaths({ ...validPack(), style: ['dread'] }), ['style']);
+  assert.deepEqual(issuePaths({ ...validPack(), style: { mood: ['dread'] } }), ['style']);
+});

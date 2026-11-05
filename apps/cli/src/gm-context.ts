@@ -10,6 +10,7 @@ import type {
 } from '../../../packages/domain/src/campaign.ts';
 import { OPENING_ACTION_ID } from '../../../packages/domain/src/campaign.ts';
 import type { CampaignEntity } from '../../../packages/domain/src/entity.ts';
+import type { GmSettings } from '../../../packages/domain/src/gm.ts';
 import { playTurns } from '../../../packages/engine/src/character.ts';
 import { campaignLanguageOf } from '../../../packages/engine/src/engine.ts';
 import {
@@ -52,9 +53,16 @@ import {
 import { createEntityStore, createFactStore } from '../../../packages/persistence/src/entity-store.ts';
 import { touchesOf, walkGraph } from '../../../packages/persistence/src/graph.ts';
 import { scopedEventsOf, scopeLookupOf, worldOf } from './client-session.ts';
-import { languageInstruction, OPENING_PROMPT, SYSTEM_PROMPT } from './gm-api.ts';
+import {
+  languageInstruction,
+  OPENING_PROMPT,
+  RULES_RETRY_PROMPT,
+  RULES_STRICTNESS_PROMPTS,
+  SYSTEM_PROMPT,
+} from './gm-api.ts';
 import { budgetOf } from './gm-limits.ts';
-import { describeConfig } from './quickstart.ts';
+import { describeConfig, styleLinesOf } from './quickstart.ts';
+import { enforcedStrictnessFor, rulesStrictnessFor } from './roll-visualization.ts';
 import { panelsOf } from './views.ts';
 
 export const SCENE_TURN_LIMIT = 20;
@@ -120,6 +128,15 @@ const named = (entities: readonly CampaignEntity[], input: string) => {
   return entities.filter(({ name }) => lower.includes(name.toLowerCase())).map(({ id }) => id);
 };
 
+export type PacketOptions = { readonly defaults?: GmSettings; readonly retry?: boolean };
+
+const strictnessInstructions = (config: ReturnType<typeof configOf>, state: CampaignState, defaults: GmSettings) => {
+  if (config === undefined || config.rulepack === null) return [];
+  const strictness = rulesStrictnessFor(state, defaults);
+  const promptApplies = strictness !== 'as-written' || enforcedStrictnessFor(state, defaults) !== undefined;
+  return promptApplies ? [RULES_STRICTNESS_PROMPTS[strictness]] : [];
+};
+
 export const contextPacketOf = (
   database: DatabaseSync,
   state: CampaignState,
@@ -127,6 +144,7 @@ export const contextPacketOf = (
   viewer: Viewer = PLAYER_VIEWER,
   preset: ContextBudgetPreset = contextBudgetOf(state.changes),
   ratio = 1,
+  { defaults = {}, retry = false }: PacketOptions = {},
 ): ContextPacket => {
   const campaignId = state.campaign.id;
   const scoped = eventsOfTypes(database, campaignId, MEMORY_EVENT_TYPES);
@@ -181,9 +199,12 @@ export const contextPacketOf = (
         SYSTEM_PROMPT,
         ...(isStalled(state) ? [STALL_INSTRUCTION] : []),
         ...(language === undefined ? [] : [languageInstruction(language)]),
+        ...strictnessInstructions(config, state, defaults),
+        ...(retry ? [RULES_RETRY_PROMPT] : []),
       ],
       ruleset: config === undefined ? [] : [describeConfig(config)],
       setting: [state.currentScene?.title ?? state.campaign.name],
+      style: config === undefined ? [] : styleLinesOf(config),
       campaignSummary: visibleSummaries(summaries, viewer, 'campaign'),
       chapterSummaries: visibleSummaries(summaries, viewer, 'chapter'),
       sceneSummaries: visibleSummaries(summaries, viewer, 'scene'),

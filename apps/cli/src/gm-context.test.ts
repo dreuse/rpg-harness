@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { after, describe, it } from 'node:test';
 import { type CampaignStore, type CommittedTurn, MAIN_BRANCH } from '../../../packages/domain/src/campaign.ts';
+import { saveGmSettings } from '../../../packages/engine/src/gm-settings.ts';
 import { introduceEntity, openPending, saveContextBudget } from '../../../packages/engine/src/memory.ts';
 import { proposeClaims } from '../../../packages/engine/src/story-memory.ts';
 import { openScene, type PlayerAction, performAction } from '../../../packages/engine/src/turn.ts';
@@ -8,6 +9,7 @@ import { PENDING_HOP_LIMIT } from '../../../packages/memory/src/graph.ts';
 import { summariesOf } from '../../../packages/memory/src/history.ts';
 import {
   CONTEXT_BUDGETS,
+  packetParts,
   packetText,
   RECENT_TURN_LIMIT,
   STABLE_SECTIONS,
@@ -16,7 +18,7 @@ import { createCampaignStore } from '../../../packages/persistence/src/campaign-
 import { openDatabase } from '../../../packages/persistence/src/database.ts';
 import { createEntityStore, createFactStore } from '../../../packages/persistence/src/entity-store.ts';
 import { createEventStore } from '../../../packages/persistence/src/event-store.ts';
-import { languageInstruction, SYSTEM_PROMPT } from './gm-api.ts';
+import { languageInstruction, RULES_RETRY_PROMPT, RULES_STRICTNESS_PROMPTS, SYSTEM_PROMPT } from './gm-api.ts';
 import {
   CHAPTER_SCENE_COUNT,
   contextPacketOf,
@@ -27,6 +29,7 @@ import {
   type Summarizer,
   summarizeCampaign,
 } from './gm-context.ts';
+import { planCampaign } from './quickstart.ts';
 
 const IN_MEMORY = ':memory:';
 const PORTUGUESE = 'pt-BR';
@@ -53,12 +56,21 @@ const ILSE = 'ilse';
 const PUBLIC = { visibility: 'public' as const, actorId: null };
 const SECRET = { visibility: 'gm' as const, actorId: null };
 
-const campaign = (payload: Readonly<Record<string, unknown>> = CREATED_EVENT.payload) => {
+const campaign = (
+  payload: Readonly<Record<string, unknown>> = CREATED_EVENT.payload,
+  config?: Readonly<Record<string, unknown>>,
+) => {
   const connection = openDatabase(IN_MEMORY);
   const { database } = connection;
   const store = createCampaignStore(database);
   store.createCampaign(CAMPAIGN, { ...CREATED_EVENT, payload });
-  openScene(store, { campaignId: CAMPAIGN.id, actorName: 'Mara', sceneTitle: 'The Docks', narration: 'Gulls cry.' });
+  openScene(store, {
+    campaignId: CAMPAIGN.id,
+    actorName: 'Mara',
+    sceneTitle: 'The Docks',
+    narration: 'Gulls cry.',
+    ...(config === undefined ? {} : { config }),
+  });
   const entities = createEntityStore(database);
   const facts = createFactStore(database);
   entities.saveEntity({ id: HARBOUR, campaignId: CAMPAIGN.id, kind: 'location', name: 'Harbour', data: {}, ...PUBLIC });
@@ -342,5 +354,76 @@ it('rpg-42a.42 the packet carries the ledger facts of a named entity at turn 900
   const named = ledgerOf(play(fixture.store, 'named-turn', 'I search for Captain Ilse'));
   assert.ok(named.includes('scar across the left cheek'));
   assert.ok(!named.includes('serves the pirates'));
+  fixture.connection.close();
+});
+
+const D20_FANTASY = () => ({ ...planCampaign('A fantasy story using the d20-lite rules') });
+
+const chooseStrictness = (store: CampaignStore, rulesStrictness: string, actionId: string) =>
+  saveGmSettings(store, {
+    campaignId: CAMPAIGN.id,
+    actionId,
+    expectedRevision: store.load(CAMPAIGN.id)?.revision ?? 0,
+    settings: { rulesStrictness },
+  });
+
+it('rpg-42a.58 carries the pack and genre style in the stable part and never in the instructions', () => {
+  const fixture = campaign(CREATED_EVENT.payload, D20_FANTASY());
+  const packet = packetAt(fixture, play(fixture.store, 'turn-1'));
+  const style = packet.sections.find(({ name }) => name === 'style');
+  assert.equal(style?.stable, true);
+  assert.ok(STABLE_SECTIONS.includes('style'));
+  const text = style?.items.join('\n') ?? '';
+  assert.match(text, /d20-lite/);
+  assert.match(text, /raw DCs/);
+  assert.match(text, /fantasy/);
+  const parts = packetParts(packet);
+  assert.ok(parts.stable.includes('raw DCs'));
+  assert.equal(parts.variable.includes('raw DCs'), false);
+  assert.equal(parts.instructions.includes('raw DCs'), false);
+  fixture.connection.close();
+});
+
+it('rpg-42a.58 a campaign without a RulePack carries no style and no strictness line', () => {
+  const fixture = campaign();
+  const packet = packetAt(fixture, play(fixture.store, 'turn-1'));
+  assert.deepEqual(packet.sections.find(({ name }) => name === 'style')?.items, []);
+  fixture.connection.close();
+});
+
+it('rpg-42a.58 tells the GM the strictness: as-written by default, then the saved choice', () => {
+  const fixture = campaign(CREATED_EVENT.payload, D20_FANTASY());
+  const committed = play(fixture.store, 'turn-1');
+  assert.deepEqual(instructionsOf(fixture, committed), [SYSTEM_PROMPT, RULES_STRICTNESS_PROMPTS['as-written']]);
+  chooseStrictness(fixture.store, 'relaxed', 'relax');
+  assert.deepEqual(instructionsOf(fixture, committed), [SYSTEM_PROMPT, RULES_STRICTNESS_PROMPTS.relaxed]);
+  chooseStrictness(fixture.store, 'off', 'off');
+  assert.deepEqual(instructionsOf(fixture, committed), [SYSTEM_PROMPT, RULES_STRICTNESS_PROMPTS.off]);
+  fixture.connection.close();
+});
+
+it('rpg-42a.58 a regeneration packet adds the retry line after the strictness line', () => {
+  const fixture = campaign(CREATED_EVENT.payload, D20_FANTASY());
+  const committed = play(fixture.store, 'turn-1');
+  const state = fixture.store.load(CAMPAIGN.id);
+  assert.ok(state);
+  const retried = contextPacketOf(fixture.database, state, committed, undefined, undefined, undefined, { retry: true });
+  assert.deepEqual(retried.sections.find(({ name }) => name === 'instructions')?.items, [
+    SYSTEM_PROMPT,
+    RULES_STRICTNESS_PROMPTS['as-written'],
+    RULES_RETRY_PROMPT,
+  ]);
+  fixture.connection.close();
+});
+
+it('rpg-42a.58 an as-written campaign that rolls no dice gets no as-written line', () => {
+  const fixture = campaign(
+    CREATED_EVENT.payload,
+    planCampaign('A fantasy story using the d20-lite rules', { dice: 'off' }),
+  );
+  const committed = play(fixture.store, 'turn-1');
+  assert.deepEqual(instructionsOf(fixture, committed), [SYSTEM_PROMPT]);
+  chooseStrictness(fixture.store, 'relaxed', 'relax');
+  assert.deepEqual(instructionsOf(fixture, committed), [SYSTEM_PROMPT, RULES_STRICTNESS_PROMPTS.relaxed]);
   fixture.connection.close();
 });

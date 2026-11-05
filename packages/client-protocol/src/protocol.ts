@@ -412,12 +412,14 @@ const COMMAND_FIELDS: Record<CommandType, Readonly<Record<string, FieldSpec>>> =
     model: { kind: 'id', optional: true },
     summaryModel: { kind: 'id', optional: true },
     sessionBudgetTokens: { kind: 'number', optional: true },
+    rulesStrictness: { kind: 'id', optional: true },
   },
   SaveGmDefaults: {
     actionId: ID,
     model: { kind: 'id', optional: true },
     summaryModel: { kind: 'id', optional: true },
     sessionBudgetTokens: { kind: 'number', optional: true },
+    rulesStrictness: { kind: 'id', optional: true },
   },
   GetStoryMemory: {},
   CorrectStoryFact: {

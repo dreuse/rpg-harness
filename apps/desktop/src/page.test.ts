@@ -828,6 +828,19 @@ test('rpg-42a.37 page saves the GM form, omits empty fields and keeps typed valu
   assert.equal(page.prevented() > 0, true);
 });
 
+test('rpg-42a.58 page saves the rules strictness with the GM form and omits it when left on the default', () => {
+  const page = playingSheet();
+  page.fields[GM_FIELD('rulesStrictness')] = 'relaxed';
+  page.submit(GM_FORM);
+  page.fields[GM_FIELD('rulesStrictness')] = '';
+  page.submit(GM_FORM);
+  const saves = page.sent.filter(({ type }) => type === 'SaveGmSettings');
+  assert.equal(saves.length, 2);
+  assert.ok(saves[0]?.type === 'SaveGmSettings' && saves[1]?.type === 'SaveGmSettings');
+  assert.equal(saves[0].rulesStrictness, 'relaxed');
+  assert.equal('rulesStrictness' in saves[1], false);
+});
+
 const GM_DEFAULTS_FORM = { 'data-gm-defaults-form': '' };
 const GM_DEFAULTS_FIELD = (name: string) => `[data-gm-defaults-form] [name="${name}"]`;
 

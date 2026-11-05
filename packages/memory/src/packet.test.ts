@@ -24,6 +24,7 @@ const emptyInput = (): PacketInput => ({
   instructions: [INSTRUCTIONS],
   ruleset: ['d20-lite 1'],
   setting: ['fantasy, grim'],
+  style: [],
   campaignSummary: [],
   chapterSummaries: [],
   sceneSummaries: [],
@@ -183,4 +184,23 @@ test('rpg-42a.44 drop order: summaries and history go first, ledger facts are ne
   );
   assert.ok(new Set(kept).size > 3, kept.join());
   assert.equal(kept.at(-1), 0);
+});
+
+test('rpg-42a.58 the style section is stable, cached and framed as data', () => {
+  const style = `{"tone":["heroic"]} ${INJECTION}`;
+  const packet = buildContextPacket({ ...longCampaign(), style: [style] }, CONTEXT_BUDGETS.standard);
+  assert.equal(packet.sections.find(({ name }) => name === 'style')?.stable, true);
+  assert.ok(STABLE_SECTIONS.includes('style'));
+  const parts = packetParts(packet);
+  assert.ok(parts.stable.includes('heroic'));
+  assert.equal(parts.variable.includes('heroic'), false);
+  assert.equal(parts.instructions.includes('heroic'), false);
+  assert.equal(parts.stable.split('</campaign-data>').length, 2);
+  assert.ok(parts.stable.includes('\\u003c/campaign-data>'));
+});
+
+test('rpg-42a.58 the style section is capped so imported text cannot crowd out the turn', () => {
+  const packet = buildContextPacket({ ...emptyInput(), style: ['tone '.repeat(5000)] }, CONTEXT_BUDGETS.compact);
+  const [kept] = packet.sections.find(({ name }) => name === 'style')?.items ?? [];
+  assert.ok(estimateTokens(kept ?? '') <= REQUIRED_SECTION_CAPS.style);
 });

@@ -52,8 +52,8 @@ const UNKNOWN_PLAYBACK = 'Unknown playback command.';
 const DIAGNOSTICS = 'Diagnostics';
 const INVALID_GM_DEFAULTS = 'GM defaults name an invalid model or budget';
 
-const saveGmDefaults = ({ model, summaryModel, sessionBudgetTokens }: SaveGmDefaults) => {
-  const settings = toGmSettings({ model, summaryModel, sessionBudgetTokens });
+const saveGmDefaults = ({ model, summaryModel, sessionBudgetTokens, rulesStrictness }: SaveGmDefaults) => {
+  const settings = toGmSettings({ model, summaryModel, sessionBudgetTokens, rulesStrictness });
   if (settings === undefined) return failure('Rejected', INVALID_GM_DEFAULTS);
   writeGmDefaults(dataDirFromEnv(), settings);
   return { ok: true, value: settings } as const;

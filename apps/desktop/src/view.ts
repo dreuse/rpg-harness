@@ -8,6 +8,7 @@ import { loadStartDraft, type StartScreen } from '../../../packages/client-proto
 import type { GmSnapshot } from '../../../packages/client-protocol/src/protocol.ts';
 import { MOTION_SETTINGS } from '../../../packages/client-protocol/src/visualization.ts';
 import type { GmSettings } from '../../../packages/domain/src/gm.ts';
+import { RULES_STRICTNESSES, type RulesStrictness } from '../../../packages/domain/src/rules-usage.ts';
 import { SPOKEN_OUTPUT_MODES } from '../../../packages/domain/src/voice.ts';
 import { MAX_CHANNEL_VOLUME, MIN_CHANNEL_VOLUME } from '../../../packages/voice/src/ambience.ts';
 import { MAX_PLAYBACK_SPEED, MIN_PLAYBACK_SPEED } from '../../../packages/voice/src/playback.ts';
@@ -340,6 +341,12 @@ const GM_BUDGET_INPUT = ' type="number" min="1" step="1"';
 const gmInput = (locale: string, name: keyof GmSettings, values: GmSettings, placeholders: GmSettings) =>
   `<label>${escapeHtml(translate(locale, `gmModel.${name}`))} <input name="${name}"${name === 'sessionBudgetTokens' ? GM_BUDGET_INPUT : GM_MODEL_INPUT} value="${escapeHtml(String(values[name] ?? ''))}" placeholder="${escapeHtml(String(placeholders[name] ?? ''))}" aria-describedby="${GM_HELP_ID}"></label>`;
 
+const strictnessOption = (locale: string, value: RulesStrictness | '', chosen: RulesStrictness | undefined) =>
+  `<option value="${value}"${value !== '' && value === chosen ? ' selected' : ''}>${escapeHtml(translate(locale, `gmModel.rulesStrictness.${value === '' ? 'default' : value}`))}</option>`;
+
+const strictnessControl = (locale: string, chosen: RulesStrictness | undefined) =>
+  `<label>${escapeHtml(translate(locale, 'gmModel.rulesStrictness'))} <select name="rulesStrictness">${['' as const, ...RULES_STRICTNESSES].map((value) => strictnessOption(locale, value, chosen)).join('')}</select></label>`;
+
 const gmInputs = (locale: string, values: GmSettings, placeholders: GmSettings) =>
   `${gmInput(locale, 'model', values, placeholders)}${gmInput(locale, 'summaryModel', values, placeholders)}${gmInput(locale, 'sessionBudgetTokens', values, placeholders)}`;
 
@@ -358,7 +365,7 @@ const gmSettings = (gm: GmSnapshot | undefined, locale: string) => {
     (choice) =>
       `<option value="${choice}">${escapeHtml(translate(locale, `gmModel.hint.${modelHintOf(choice)}`))}</option>`,
   ).join('');
-  return `<form ${GM_FORM}><fieldset><legend>${escapeHtml(translate(locale, 'gmModel.legend'))}</legend>${gmInputs(locale, campaign, defaults)}<datalist id="${GM_MODELS_LIST}">${options}</datalist><p id="${GM_HELP_ID}">${escapeHtml(translate(locale, 'gmModel.help'))}</p><button type="submit">${escapeHtml(translate(locale, 'gmModel.save'))}</button></fieldset></form>${gmUsage(gm)}<form ${GM_DEFAULTS_FORM}><fieldset><legend>${escapeHtml(translate(locale, 'gmModel.defaultsLegend'))}</legend>${gmInputs(locale, defaults, {})}<button type="submit">${escapeHtml(translate(locale, 'gmModel.saveDefaults'))}</button></fieldset></form>`;
+  return `<form ${GM_FORM}><fieldset><legend>${escapeHtml(translate(locale, 'gmModel.legend'))}</legend>${gmInputs(locale, campaign, defaults)}${strictnessControl(locale, campaign.rulesStrictness)}<datalist id="${GM_MODELS_LIST}">${options}</datalist><p id="${GM_HELP_ID}">${escapeHtml(translate(locale, 'gmModel.help'))}</p><button type="submit">${escapeHtml(translate(locale, 'gmModel.save'))}</button></fieldset></form>${gmUsage(gm)}<form ${GM_DEFAULTS_FORM}><fieldset><legend>${escapeHtml(translate(locale, 'gmModel.defaultsLegend'))}</legend>${gmInputs(locale, defaults, {})}<button type="submit">${escapeHtml(translate(locale, 'gmModel.saveDefaults'))}</button></fieldset></form>`;
 };
 
 const settingsMenu = (

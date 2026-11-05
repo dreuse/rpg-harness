@@ -6,12 +6,19 @@ import {
   type VisualizationEvent,
   type VisualizationPreference,
 } from '../../../packages/client-protocol/src/visualization.ts';
-import type { CampaignEvent, CharacterId } from '../../../packages/domain/src/campaign.ts';
+import type { CampaignEvent, CampaignState, CharacterId } from '../../../packages/domain/src/campaign.ts';
 import { CHARACTER_KIND, parseCharacterProfile } from '../../../packages/domain/src/character.ts';
 import type { CampaignEntity, Visibility } from '../../../packages/domain/src/entity.ts';
+import type { GmSettings } from '../../../packages/domain/src/gm.ts';
+import {
+  DEFAULT_RULES_STRICTNESS,
+  type RulesStrictness,
+  rulesStrictnessOf,
+} from '../../../packages/domain/src/rules-usage.ts';
 import { profileOf } from '../../../packages/engine/src/character.ts';
+import { gmSettingsOf } from '../../../packages/engine/src/gm-settings.ts';
 import { type Check, campaignConfigOf } from '../../../packages/engine/src/turn.ts';
-import { parseCampaignConfig } from '../../../packages/intent/src/config.ts';
+import { type CampaignConfig, parseCampaignConfig } from '../../../packages/intent/src/config.ts';
 import {
   ATTRIBUTE_MAX,
   ATTRIBUTE_MIN,
@@ -41,7 +48,46 @@ const NO_BONUS = 0;
 const VISUALIZATION_OFF: VisualizationPreference = { enabled: false };
 const DICE_FIELD = 'dice';
 const DICE_OFF = 'off';
-const ATTEMPT_WORDS = new Set(['try', 'tries', 'attempt', 'attempts', 'roll', 'rolls']);
+const ATTEMPT_WORDS = new Set([
+  'try',
+  'tries',
+  'attempt',
+  'attempts',
+  'roll',
+  'rolls',
+  'tento',
+  'tenta',
+  'tentar',
+  'tentei',
+  'tentamos',
+  'rolo',
+  'rola',
+  'rolar',
+]);
+const RULED_ACTION_WORDS = new Set([
+  'attack',
+  'attacks',
+  'swing',
+  'swings',
+  'stab',
+  'stabs',
+  'shoot',
+  'shoots',
+  'ataco',
+  'ataca',
+  'atacar',
+  'golpeio',
+  'golpeia',
+  'golpear',
+  'esfaqueio',
+  'esfaqueia',
+  'atiro',
+  'atira',
+  'atirar',
+  'disparo',
+  'dispara',
+  'disparar',
+]);
 const WORD_SEPARATOR = /[^\p{L}]+/u;
 const BASE_POOL_DICE = 2;
 const ATTRIBUTE_WORDS: ReadonlyMap<string, Attribute> = new Map(
@@ -54,6 +100,23 @@ const ATTRIBUTE_WORDS: ReadonlyMap<string, Attribute> = new Map(
     dexterity: 'agility',
     dodge: 'agility',
     sneak: 'agility',
+    shoot: 'agility',
+    atiro: 'agility',
+    atira: 'agility',
+    atirar: 'agility',
+    disparo: 'agility',
+    dispara: 'agility',
+    disparar: 'agility',
+    ataco: 'might',
+    ataca: 'might',
+    atacar: 'might',
+    golpeio: 'might',
+    golpeia: 'might',
+    golpear: 'might',
+    attack: 'might',
+    strike: 'might',
+    swing: 'might',
+    stab: 'might',
     wits: 'wits',
     intellect: 'wits',
     recall: 'wits',
@@ -115,18 +178,43 @@ const CHECKS: readonly (readonly [RulePackManifest, CheckSource])[] = [
   ],
 ];
 
-const isAttempt = (input: string) => wordsOf(input).some((word) => ATTEMPT_WORDS.has(word));
+const callsForCheck = (input: string, strictness: RulesStrictness) =>
+  strictness !== 'off' &&
+  wordsOf(input).some(
+    (word) => ATTEMPT_WORDS.has(word) || (strictness === 'as-written' && RULED_ACTION_WORDS.has(word)),
+  );
+
+const rollsDice = ({ values, capabilities }: CampaignConfig) =>
+  values.dice !== DICE_OFF && capabilities.supported.includes(DICE_FIELD);
+
+type StrictnessState = Pick<CampaignState, 'events' | 'changes'>;
+
+export const rulesStrictnessFor = (state: StrictnessState, defaults: GmSettings = {}): RulesStrictness => {
+  const saved = parseCampaignConfig(campaignConfigOf(state.events));
+  const chosen = { ...defaults, ...gmSettingsOf(state.changes) }.rulesStrictness;
+  return rulesStrictnessOf(chosen, saved.ok && saved.config.rulepack !== null);
+};
+
+export const enforcedStrictnessFor = (
+  state: StrictnessState,
+  defaults: GmSettings = {},
+): RulesStrictness | undefined => {
+  const saved = parseCampaignConfig(campaignConfigOf(state.events));
+  const strictness = rulesStrictnessFor(state, defaults);
+  return strictness === 'as-written' && saved.ok && rollsDice(saved.config) ? strictness : undefined;
+};
 
 export const checkFor = (
   events: readonly CampaignEvent[],
   input: string,
   actorId: CharacterId,
   entities = NO_ENTITIES,
+  strictness: RulesStrictness = DEFAULT_RULES_STRICTNESS,
 ): Check | undefined => {
   const saved = parseCampaignConfig(campaignConfigOf(events));
-  if (!saved.ok || !isAttempt(input)) return undefined;
-  const { values, capabilities, rulepack } = saved.config;
-  if (values.dice === DICE_OFF || !capabilities.supported.includes(DICE_FIELD)) return undefined;
+  if (!saved.ok || !callsForCheck(input, strictness)) return undefined;
+  const { rulepack } = saved.config;
+  if (!rollsDice(saved.config)) return undefined;
   const entity = entities.find(({ id, kind }) => id === actorId && kind === CHARACTER_KIND);
   return CHECKS.find(
     ([pack]) => pack.id === rulepack?.id && pack.edition === rulepack.edition && pack.revision === rulepack.revision,

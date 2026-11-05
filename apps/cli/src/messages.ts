@@ -28,7 +28,7 @@ export const CLI_CATALOG: Catalog = {
     'tui.scene': 'Scene: {title}',
     'tui.character': 'Character: {name}',
     'tui.noSheet': 'This game does not use character sheets.',
-    'tui.gmSettings': 'Run rpg settings <campaign> to change the GM model or the session budget.',
+    'tui.gmSettings': 'Run rpg settings <campaign> to change the GM model, the session budget or the rules strictness.',
     'help.tab': 'Tab - Next pane. Shift+Tab - Previous pane.',
     'help.pane': '{key} - Show {label}.',
     'help.type': '{key} or Enter - Type an action. Enter sends it, Esc cancels.',
@@ -158,7 +158,8 @@ export const CLI_CATALOG: Catalog = {
     'tui.scene': 'Cena: {title}',
     'tui.character': 'Personagem: {name}',
     'tui.noSheet': 'Este jogo não usa fichas de personagem.',
-    'tui.gmSettings': 'Rode rpg settings <campanha> para mudar o modelo do mestre ou o limite da sessão.',
+    'tui.gmSettings':
+      'Rode rpg settings <campanha> para mudar o modelo do mestre, o limite da sessão ou o rigor das regras.',
     'help.tab': 'Tab - Próximo painel. Shift+Tab - Painel anterior.',
     'help.pane': '{key} - Mostra {label}.',
     'help.type': '{key} ou Enter - Digita uma ação. Enter envia, Esc cancela.',

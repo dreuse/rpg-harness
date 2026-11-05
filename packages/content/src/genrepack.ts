@@ -1,3 +1,5 @@
+import { INVALID_STYLE, type Style, toStyle } from '../../domain/src/style.ts';
+
 export const GENREPACK_CONTRACT_VERSION = 1;
 
 export type Archetype = { readonly id: string; readonly name: string; readonly summary: string };
@@ -13,6 +15,7 @@ export type GenrePack = {
   readonly visualConventions: readonly string[];
   readonly suggestedCapabilities: readonly string[];
   readonly requiredRuleCapabilities?: readonly string[];
+  readonly style?: Style;
 };
 
 export type GenrePackIssue = { path: string; message: string };
@@ -23,11 +26,13 @@ const UNKNOWN_FIELD = 'is not an allowed field';
 const STRING_FIELDS = ['id', 'version', 'name'] as const;
 const STRING_LIST_FIELDS = ['narrativeConstraints', 'examples', 'visualConventions', 'suggestedCapabilities'] as const;
 const REQUIRED_RULE_CAPABILITIES = 'requiredRuleCapabilities';
+const STYLE = 'style';
 const ARCHETYPE_FIELDS = ['id', 'name', 'summary'] as const;
 const ALLOWED_FIELDS: readonly string[] = [
   'contractVersion',
   'archetypes',
   REQUIRED_RULE_CAPABILITIES,
+  STYLE,
   ...STRING_FIELDS,
   ...STRING_LIST_FIELDS,
 ];
@@ -104,6 +109,8 @@ export const loadGenrePack = (input: unknown): GenrePackResult => {
         ),
       }
     : {};
+  const style = input[STYLE] === undefined ? undefined : toStyle(input[STYLE]);
+  if (input[STYLE] !== undefined && style === undefined) issues.push({ path: STYLE, message: INVALID_STYLE });
   if (issues.length > 0) return { ok: false, issues };
   const pack: GenrePack = {
     contractVersion: GENREPACK_CONTRACT_VERSION,
@@ -113,6 +120,7 @@ export const loadGenrePack = (input: unknown): GenrePackResult => {
     archetypes: Object.freeze(archetypes),
     ...lists,
     ...required,
+    ...(style === undefined ? {} : { style: Object.freeze(style) }),
   };
   return { ok: true, pack: Object.freeze(pack) };
 };

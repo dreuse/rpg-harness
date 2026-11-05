@@ -132,6 +132,7 @@ const packetFor = (
     instructions: ['Narrate.'],
     ruleset: [],
     setting: ['road'],
+    style: [],
     campaignSummary: [],
     chapterSummaries: [],
     sceneSummaries: [],

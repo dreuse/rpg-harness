@@ -22,6 +22,11 @@ export const HORROR_PACK = {
     examples: ['The scratching stopped the moment you held your breath.'],
     visualConventions: ['Low light', 'Muted palette'],
     suggestedCapabilities: ['investigation', 'tension'],
+    style: {
+      tone: ['dread that builds slowly', 'intimate and unsettling'],
+      voice: ['restrained, sensory detail'],
+      pacing: ['slow reveals, short sentences at the peak'],
+    },
   },
   investigation: {
     tension: {
@@ -262,6 +267,10 @@ export const FANTASY_PACK = {
     examples: ['The standing stones hum when the moon clears the ridge, and tonight it is full.'],
     visualConventions: ['Hand-drawn maps', 'Candlelit halls'],
     suggestedCapabilities: ['travel', 'social', 'exploration'],
+    style: {
+      tone: ['heroic and adventurous', 'wonder with a wry edge'],
+      vocabulary: ['steel', 'torchlight', 'road', 'ruin'],
+    },
   },
   story: {
     tone: ['Mythic', 'Hopeful against old darkness'],
