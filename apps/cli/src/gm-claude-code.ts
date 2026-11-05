@@ -22,6 +22,7 @@ export const CHILD_ENV_KEYS: readonly string[] = [
   'TMPDIR',
   'LANG',
   'LC_ALL',
+  'CLAUDE_CONFIG_DIR',
 ];
 
 const GAME_SERVER = 'rpg';

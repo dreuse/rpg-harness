@@ -51,13 +51,12 @@ A chosen route that is not available falls back to `fake` with the notice. The T
 ## Credentials (amends ADR 0007)
 
 - The player's own Claude Code signs itself in. The harness never reads, copies or stores Claude Code credentials, session files or OAuth tokens.
-- The child gets only `PATH`, `HOME`, `USER`, `LOGNAME`, `SHELL`, `TMPDIR`, `LANG` and `LC_ALL`. `ANTHROPIC_*` and `CLAUDE_*` values never pass through. A test asserts this and scans the route source for credential paths.
+- The child gets only `PATH`, `HOME`, `USER`, `LOGNAME`, `SHELL`, `TMPDIR`, `LANG`, `LC_ALL` and `CLAUDE_CONFIG_DIR`. `CLAUDE_CONFIG_DIR` is a folder path, not a credential, and it keeps the player's chosen Claude Code account and settings. Other `ANTHROPIC_*` and `CLAUDE_*` values never pass through. A test asserts this and scans the route source for credential paths.
 - ADR 0007 said the distributed client does not spawn `claude`. This route does, by default when `claude` is on `PATH`; `RPG_GM=api|fake` opts out. It uses the player's own install.
-- The provider-terms check for this route is open. Verify it before any public desktop release.
+- Provider terms: the owner confirmed on 2026-11-05 that this route is allowed.
 
 ## Consequences
 
 - No new dependency and no new package.
 - `GmRoute` adds `claude-code`.
-- A player who sets `CLAUDE_CONFIG_DIR` gets the default Claude Code config, because that variable does not pass through.
 - In the Electron engine, `process.execPath` is Electron, so the route skips `--mcp-config` there. The game MCP server needs `ELECTRON_RUN_AS_NODE` and a packaged entry path before it can run under Electron. Until then, desktop narration works from the packet alone.

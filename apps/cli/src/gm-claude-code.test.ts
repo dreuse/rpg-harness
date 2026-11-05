@@ -274,7 +274,7 @@ describe('rpg-42a.33 Claude Code CLI game master', () => {
     assert.equal(calls().length, CLAUDE_MAX_RETRIES + 1);
   });
 
-  it('never forwards Claude Code credentials or API keys to the child process', async (t) => {
+  it('forwards the Claude Code config folder but never credentials or API keys', async (t) => {
     const { bin, calls } = fakeClaude(t);
     const parent = {
       PATH: dirname(process.execPath),
@@ -287,7 +287,7 @@ describe('rpg-42a.33 Claude Code CLI game master', () => {
     await requestClaudeNarration(claudeCodeRouteOf(bin, parent), packet(), DATABASE);
     const [call] = calls();
     const forwarded = Object.keys(call?.env ?? {}).filter((name) => name in parent);
-    assert.deepEqual(forwarded.sort(), ['HOME', 'PATH']);
+    assert.deepEqual(forwarded.sort(), ['CLAUDE_CONFIG_DIR', 'HOME', 'PATH']);
     for (const name of forwarded) assert.ok(CHILD_ENV_KEYS.includes(name));
     assert.ok(!JSON.stringify(call).includes(OAUTH));
     assert.ok(!JSON.stringify(call).includes(KEY));
