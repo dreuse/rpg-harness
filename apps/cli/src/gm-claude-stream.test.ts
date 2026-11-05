@@ -2,11 +2,15 @@ import assert from 'node:assert/strict';
 import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { type TestContext, test } from 'node:test';
+import { after, type TestContext, test } from 'node:test';
 import { segmentDeltas } from '../../../packages/voice/src/streaming-speech.ts';
 import { ProviderError } from './gm-api.ts';
 import { claudeCodeRouteOf, MAX_OUTPUT_BYTES } from './gm-claude-code.ts';
 import { claudeStreamArgs, streamClaudeNarration, textDeltasOf } from './gm-claude-stream.ts';
+
+const DATA_DIR = mkdtempSync(join(tmpdir(), 'rpg-stream-data-'));
+const DATA_ENV = { RPG_DATA_DIR: DATA_DIR };
+after(() => rmSync(DATA_DIR, { recursive: true, force: true }));
 
 const delta = (text: string) =>
   JSON.stringify({ type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'text_delta', text } } });
@@ -58,7 +62,7 @@ test('streamClaudeNarration hands segments to the callback and returns the final
   const bin = fakeClaude(t, [delta('The door creaks '), delta('open slowly. '), delta('Dust falls.'), resultLine]);
   const seen: string[] = [];
   const reply = await streamClaudeNarration(
-    claudeCodeRouteOf(bin, {}),
+    claudeCodeRouteOf(bin, DATA_ENV),
     'sys',
     'input',
     (segment) => void seen.push(segment),
@@ -70,7 +74,7 @@ test('streamClaudeNarration hands segments to the callback and returns the final
 test('streamClaudeNarration rejects on a non-zero exit', async (t: TestContext) => {
   const bin = fakeClaude(t, [delta('Hello there friend. '), resultLine], 3);
   await assert.rejects(
-    streamClaudeNarration(claudeCodeRouteOf(bin, {}), 'sys', 'input', () => {}),
+    streamClaudeNarration(claudeCodeRouteOf(bin, DATA_ENV), 'sys', 'input', () => {}),
     ProviderError,
   );
 });
@@ -85,7 +89,7 @@ test('streamClaudeNarration stops and fails when stdout passes the size cap', as
   );
   chmodSync(bin, 0o755);
   await assert.rejects(
-    streamClaudeNarration(claudeCodeRouteOf(bin, {}), 'sys', 'input', () => {}),
+    streamClaudeNarration(claudeCodeRouteOf(bin, DATA_ENV), 'sys', 'input', () => {}),
     /too much output/,
   );
 });
@@ -93,7 +97,7 @@ test('streamClaudeNarration stops and fails when stdout passes the size cap', as
 test('streamClaudeNarration propagates a throwing onSegment', async (t: TestContext) => {
   const bin = fakeClaude(t, [delta('Hello there friend. '), resultLine]);
   await assert.rejects(
-    streamClaudeNarration(claudeCodeRouteOf(bin, {}), 'sys', 'input', () => {
+    streamClaudeNarration(claudeCodeRouteOf(bin, DATA_ENV), 'sys', 'input', () => {
       throw new Error('boom');
     }),
     /boom/,
@@ -118,7 +122,7 @@ test('the first segment reaches the callback before the reply ends', async (t: T
   chmodSync(bin, 0o755);
   const MIN_GAP_MS = 200;
   const heard: number[] = [];
-  await streamClaudeNarration(claudeCodeRouteOf(bin, {}), 'sys', 'input', () => void heard.push(Date.now()));
+  await streamClaudeNarration(claudeCodeRouteOf(bin, DATA_ENV), 'sys', 'input', () => void heard.push(Date.now()));
   const ended = Date.now();
   assert.equal(heard.length, 2);
   assert.ok(ended - (heard[0] ?? ended) >= MIN_GAP_MS);

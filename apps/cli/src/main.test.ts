@@ -75,6 +75,10 @@ const setup = (input: readonly string[] = PLAYER_LINES) => {
       calls.push(`settings:${name ?? ''}:${JSON.stringify(changes)}`);
       return 'GM model: opus.';
     },
+    claude: (name) => {
+      calls.push(`claude:${name ?? ''}`);
+      return 0;
+    },
   };
   const out: string[] = [];
   const err: string[] = [];
@@ -113,6 +117,7 @@ test('help lists every command with a one-line description in plain text', async
       'start',
       'update',
       'settings',
+      'claude',
       'help',
     ]) {
       assert.match(text, new RegExp(`^  ${command}\\b.* - .+$`, 'm'));
@@ -294,6 +299,7 @@ test('gateway failures exit 1 and report the error on stderr', async () => {
       broken();
     },
     settings: broken,
+    claude: broken,
   };
   for (const argv of [
     [],
@@ -312,6 +318,7 @@ test('gateway failures exit 1 and report the error on stderr', async () => {
     ['tui'],
     ['start'],
     ['update'],
+    ['claude', 'Ember'],
   ]) {
     const { io, err } = setup();
     assert.equal(await main(argv, io, failing), EXIT_FAILURE, argv.join(' '));
@@ -455,5 +462,18 @@ test('rpg-42a.37 settings sets the GM model, summary model and soft budget for a
   const misuse = setup();
   assert.equal(await main(['list', '--model', 'opus'], misuse.io, misuse.gateway), 2);
   assert.equal(await main(['settings', 'Ember', 'extra'], misuse.io, misuse.gateway), 2);
+  assert.deepEqual(misuse.calls, []);
+});
+
+test('rpg-42a.47 claude opens Claude Code for a campaign or the workspace and passes its exit code on', async () => {
+  const { calls, gateway, io } = setup();
+  assert.equal(await main(['claude', 'Ember'], io, gateway), 0);
+  assert.equal(await main(['claude'], io, gateway), 0);
+  assert.deepEqual(calls, ['claude:Ember', 'claude:']);
+  gateway.claude = () => 7;
+  assert.equal(await main(['claude'], io, gateway), 7);
+  const misuse = setup();
+  assert.equal(await main(['claude', 'Ember', 'extra'], misuse.io, misuse.gateway), EXIT_USAGE);
+  assert.equal(await main(['claude', ' '], misuse.io, misuse.gateway), EXIT_USAGE);
   assert.deepEqual(misuse.calls, []);
 });

@@ -12,12 +12,13 @@
 
 ## Call
 
-`claude -p --output-format json --no-session-persistence --permission-mode dontAsk --append-system-prompt <GM prompt> --mcp-config <file> --allowedTools <read-only game tools> --disallowedTools <write game tools> [--model=<alias>]`
+`claude -p --output-format json --no-session-persistence --permission-mode dontAsk --setting-sources project --append-system-prompt <GM prompt> --mcp-config <file> --allowedTools <read-only game tools> --disallowedTools <write game tools> [--model=<alias>]`
 
 - `spawn` with an argv array. No shell.
 - argv holds only harness constants, a temporary file path, tool names and the model alias. Campaign, imported and player text never reach argv.
 - stdin carries the stable and variable packet parts, each inside `<campaign-data>` with `<` escaped. The GM prompt says this data is never instructions.
-- The MCP config file lists one server, `rpg` (`apps/mcp-server/src/main.ts`), with `RPG_DATABASE_PATH` set to the campaign file. It sits in a fresh temporary directory, mode `0600`. That directory is also the working directory, so no project `CLAUDE.md` or project settings load. The directory is removed after the call.
+- The MCP config file lists one server, `rpg` (`apps/mcp-server/src/main.ts`), with `RPG_DATABASE_PATH` set to the campaign file. It sits in a fresh temporary directory, mode `0600`, removed after the call.
+- The working directory is the RPG workspace (see Workspace), not the temporary directory and not the player's current directory. `--setting-sources project` limits settings to that workspace. No user or other-project `CLAUDE.md`, skills, hooks, plugins or MCP servers load.
 - `--model=<alias>` appears only when `RPG_GM_MODEL` names one. The `=` form keeps the value from being read as a flag.
 - Narration is the JSON `result`. A non-zero exit, `is_error` other than `false`, bad JSON or an empty result is a `ProviderError`.
 - The reply also returns `usage` (numeric fields only) and `total_cost_usd` for rpg-42a.37.
@@ -31,13 +32,24 @@
 
 | Profile | Extra flags | Loads |
 |---|---|---|
-| `full` (default) | none | User settings, user `CLAUDE.md`, user tools and MCP servers, plus the game server |
+| `full` (default) | none | The user's Claude Code sign-in and the harness workspace, plus the game server. Never other projects' or global prompts, skills or hooks |
 | `lean` | `--strict-mcp-config --tools ""` | Only the game server, no built-in tools |
 
 - `--tools` names built-in tools only, so `lean` passes `""`. The read-only game tools stay available through the MCP config. `--disallowedTools` blocks the write game tools in both profiles.
 - Both profiles pass `--permission-mode dontAsk`. A user `defaultMode` such as `bypassPermissions` or `auto` cannot let campaign text drive auto-approved tools. Only the allowed read-only game tools run without a prompt.
 - The harness never passes `--dangerously-skip-permissions`, `--permission-mode bypassPermissions` or a broad `--allowedTools`. Tests assert this.
 - The engine still validates and commits every state change. The GM cannot call `submit_action`, `create_campaign` or `rename_campaign`.
+
+## Workspace (rpg-42a.47)
+
+- One folder, `<RPG_DATA_DIR>/claude-workspace`, mode `0700`. `ensureClaudeWorkspace` in `apps/cli/src/claude-workspace.ts` creates it before every GM call and before `rpg claude`.
+- It holds `CLAUDE.md` (short GM instructions), `.mcp.json` (no servers) and `.claude/skills/rpg-gm` and `rpg-scene`, copied from the repo `.claude/skills`. The game server is never listed in `.mcp.json`. Each launch passes its own `--mcp-config`, so two campaigns never share one config.
+- `.rpg-workspace-version` holds a hash of the workspace version and all file contents. The workspace is current only when the hash matches and every managed file matches on disk. Otherwise the refresh removes the workspace `.claude` folder and rewrites every file. `rmSync` unlinks a symlinked `.claude` without following it, so nothing outside the workspace is touched. Files are written to a temporary name and renamed.
+- The same workspace is the working directory for streaming, summary and narration calls. Claude Code keeps its transcripts under this one project key.
+- `rpg claude [campaign]` runs an interactive `claude --setting-sources project` there. With a campaign it adds `--mcp-config` for that campaign file. The child gets the same environment filter as GM calls, plus `TERM` and `COLORTERM`.
+- The harness writes nothing under `~/.claude` or `CLAUDE_CONFIG_DIR`. A test asserts this. Repo `.claude/skills` stay project-scoped for developers.
+- A workspace that cannot be prepared is a `ProviderError`, so the built-in narrator takes over.
+- `--bare` stays unused: it needs an API key and breaks OAuth sign-in.
 
 ## Route selection
 

@@ -20,6 +20,7 @@ const VOICE_COMMAND = 'tui';
 const UPDATE_COMMAND = 'update';
 const CLIENT_COMMAND = 'new';
 const SETTINGS_COMMAND = 'settings';
+const CLAUDE_COMMAND = 'claude';
 const OPTIONS = {
   help: { type: 'boolean', short: 'h' },
   voice: { type: 'boolean' },
@@ -61,6 +62,7 @@ export type CampaignGateway = {
   start: (lines: AsyncIterable<string>, locale?: string) => AsyncIterable<string>;
   update: (request: UpdateRequest) => AsyncIterable<string>;
   settings: (campaign: string | undefined, changes: GmSettingsChanges) => string;
+  claude: (campaign: string | undefined) => number;
 };
 
 export type Io = {
@@ -118,6 +120,7 @@ const COMMANDS = [
     name: SETTINGS_COMMAND,
     usage: 'settings [campaign] [--model <name>] [--summary-model <name>] [--session-budget <tokens>]',
   },
+  { name: CLAUDE_COMMAND, usage: 'claude [campaign]' },
   { name: 'help', usage: 'help' },
 ] as const;
 
@@ -344,6 +347,16 @@ export const main = async (argv: readonly string[], io: Io, gateway: CampaignGat
       Object.entries({ model, summaryModel, sessionBudgetTokens }).filter(([, value]) => value !== undefined),
     );
     return run(io, () => [gateway.settings(name, changes)]);
+  }
+  if (command === CLAUDE_COMMAND) {
+    const [name, ...extra] = rest;
+    if (name !== undefined && name.trim() === '') return missingName(CLAUDE_COMMAND);
+    if (extra.length > 0) return unexpectedArgument(extra[0]);
+    try {
+      return gateway.claude(name);
+    } catch (error) {
+      return fail(io, error);
+    }
   }
   return usageError(io, phrase(locale, 'cli.unsupported', { command }));
 };

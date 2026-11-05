@@ -134,6 +134,8 @@ export const CLI_CATALOG: Catalog = {
       'Download a verified new version that installs the next time you start rpg. --check only shows the version and notes. --no-auto-check stops the daily check. --pre-release offers test versions.',
     'command.settings':
       'Show or set the AI game master model, the cheaper summary model and a soft token budget per session. Without a campaign it sets the app default. Claude Code takes default, haiku, sonnet, opus or fable; the API takes a model id. Use unset to clear a value. The budget only warns. Also shows the tokens and cost used so far.',
+    'command.claude':
+      'Open Claude Code in the RPG workspace, with the game tools for a campaign if you name one. It never loads your other projects, global instructions or hooks.',
     'command.help': 'Show this help.',
   },
   'pt-BR': {
@@ -263,6 +265,8 @@ export const CLI_CATALOG: Catalog = {
       'Baixa uma nova versão verificada, que é instalada na próxima vez que você abrir o rpg. --check só mostra a versão e as notas. --no-auto-check desliga a verificação diária. --pre-release oferece versões de teste.',
     'command.settings':
       'Mostra ou define o modelo do mestre de IA, o modelo mais barato para resumos e um limite flexível de tokens por sessão. Sem campanha, define o padrão do app. O Claude Code aceita default, haiku, sonnet, opus ou fable; a API aceita um id de modelo. Use unset para limpar um valor. O limite só avisa. Também mostra os tokens e o custo usados até agora.',
+    'command.claude':
+      'Abre o Claude Code no espaço de trabalho do RPG, com as ferramentas do jogo se você indicar uma campanha. Nunca carrega seus outros projetos, instruções globais ou hooks.',
     'command.help': 'Mostra esta ajuda.',
   },
 };

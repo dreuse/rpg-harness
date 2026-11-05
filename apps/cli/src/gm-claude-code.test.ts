@@ -11,7 +11,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
-import { describe, it, type TestContext } from 'node:test';
+import { after, describe, it, type TestContext } from 'node:test';
 import {
   buildContextPacket,
   CONTEXT_BUDGETS,
@@ -19,6 +19,7 @@ import {
   STABLE_SECTIONS,
   VARIABLE_SECTIONS,
 } from '../../../packages/memory/src/packet.ts';
+import { CLAUDE_WORKSPACE_DIR } from './claude-workspace.ts';
 import { claudeCodeGameMaster, createEngineGateway, gameMasterFor, readCampaignState } from './engine-gateway.ts';
 import {
   API_KEY_ENV,
@@ -121,8 +122,12 @@ const fakeClaude = (t: TestContext, replies: readonly Reply[] = [{ stdout: resul
   return { dir, bin, calls };
 };
 
+const DATA_DIR = mkdtempSync(join(tmpdir(), 'rpg-claude-data-'));
+after(() => rmSync(DATA_DIR, { recursive: true, force: true }));
+const dataDirOf = () => DATA_DIR;
+
 const routeFor = (bin: string, env: NodeJS.ProcessEnv = {}): ClaudeCodeRoute => ({
-  ...claudeCodeRouteOf(bin, { PATH: dirname(process.execPath), ...env }),
+  ...claudeCodeRouteOf(bin, { PATH: dirname(process.execPath), RPG_DATA_DIR: DATA_DIR, ...env }),
   timeoutMs: SHORT_TIMEOUT_MS * 10,
 });
 
@@ -174,6 +179,7 @@ describe('rpg-42a.33 Claude Code CLI game master', () => {
     assert.equal(valueAfter(args, '--mcp-config'), '/tmp/mcp.json');
     assert.equal(valueAfter(args, '--allowedTools'), READ_ONLY_GAME_TOOLS.join(','));
     assert.equal(valueAfter(args, '--disallowedTools'), WRITE_GAME_TOOLS.join(','));
+    assert.equal(valueAfter(args, '--setting-sources'), 'project');
     assert.ok(!args.includes('--strict-mcp-config'));
     assert.ok(!args.includes('--tools'));
     assert.ok(!args.some((arg) => arg.startsWith('--model')));
@@ -184,6 +190,7 @@ describe('rpg-42a.33 Claude Code CLI game master', () => {
     const route = claudeCodeRouteOf(CLAUDE_BIN, { [GM_PROFILE_ENV]: 'lean', [GM_MODEL_ENV]: ` ${MODEL_ALIAS} ` });
     assert.equal(route.profile, 'lean');
     const args = claudeArgs(route, SYSTEM_PROMPT, '/tmp/mcp.json');
+    assert.equal(valueAfter(args, '--setting-sources'), 'project');
     assert.ok(args.includes('--strict-mcp-config'));
     assert.equal(valueAfter(args, '--tools'), '');
     assert.ok(args.includes(`--model=${MODEL_ALIAS}`));
@@ -244,8 +251,10 @@ describe('rpg-42a.33 Claude Code CLI game master', () => {
         },
       },
     });
-    assert.notEqual(call.cwd, realpathSync(process.cwd()));
-    assert.ok(!existsSync(call.cwd));
+    const workspace = realpathSync(join(dataDirOf(), CLAUDE_WORKSPACE_DIR));
+    assert.equal(call.cwd, workspace);
+    assert.ok(existsSync(join(workspace, 'CLAUDE.md')));
+    assert.equal(valueAfter(call.args, '--setting-sources'), 'project');
   });
 
   it('rpg-cm63.3: asks for segments with --json-schema and returns them with the joined text', async (t) => {
@@ -303,7 +312,7 @@ describe('rpg-42a.33 Claude Code CLI game master', () => {
   it('skips the game MCP server under Electron, where the node binary is Electron', async (t) => {
     const { bin, calls } = fakeClaude(t);
     const route = {
-      ...claudeCodeRouteOf(bin, { PATH: dirname(process.execPath) }, ELECTRON),
+      ...claudeCodeRouteOf(bin, { PATH: dirname(process.execPath), RPG_DATA_DIR: DATA_DIR }, ELECTRON),
       timeoutMs: SHORT_TIMEOUT_MS * 10,
     };
     assert.equal((await requestClaudeNarration(route, packet(), DATABASE)).narration, NARRATION);
@@ -376,7 +385,7 @@ describe('rpg-42a.33 Claude Code CLI game master', () => {
       ANTHROPIC_AUTH_TOKEN: OAUTH,
       [API_KEY_ENV]: KEY,
     };
-    await requestClaudeNarration(claudeCodeRouteOf(bin, parent), packet(), DATABASE);
+    await requestClaudeNarration(claudeCodeRouteOf(bin, { ...parent, RPG_DATA_DIR: DATA_DIR }), packet(), DATABASE);
     const [call] = calls();
     const forwarded = Object.keys(call?.env ?? {}).filter((name) => name in parent);
     assert.deepEqual(forwarded.sort(), ['CLAUDE_CONFIG_DIR', 'HOME', 'PATH']);
@@ -416,7 +425,7 @@ describe('rpg-42a.33 Claude Code CLI game master', () => {
     const { bin, calls } = fakeClaude(t);
     const dataDir = mkdtempSync(join(tmpdir(), 'rpg-claude-gm-'));
     t.after(() => rmSync(dataDir, { recursive: true, force: true }));
-    const { gm } = await gameMasterFor({ ...hermeticGmEnv(), [CLAUDE_BIN_ENV]: bin });
+    const { gm } = await gameMasterFor({ ...hermeticGmEnv(), RPG_DATA_DIR: dataDir, [CLAUDE_BIN_ENV]: bin });
     const gateway = createEngineGateway(dataDir, gm);
     for await (const _ of gateway.create(CAMPAIGN, undefined, NO_CHARACTER));
     const openingCalls = calls().length;
@@ -454,7 +463,12 @@ describe('rpg-42a.33 Claude Code CLI game master', () => {
     for (const model of ['claude-sonnet-4@20250514', 'anthropic/claude-x', 'odd model!']) {
       const dataDir = mkdtempSync(join(tmpdir(), 'rpg-claude-gm-'));
       t.after(() => rmSync(dataDir, { recursive: true, force: true }));
-      const { gm } = await gameMasterFor({ ...hermeticGmEnv(), [CLAUDE_BIN_ENV]: bin, [GM_MODEL_ENV]: model });
+      const { gm } = await gameMasterFor({
+        ...hermeticGmEnv(),
+        RPG_DATA_DIR: dataDir,
+        [CLAUDE_BIN_ENV]: bin,
+        [GM_MODEL_ENV]: model,
+      });
       const gateway = createEngineGateway(dataDir, gm);
       for await (const _ of gateway.create(CAMPAIGN, undefined, NO_CHARACTER));
       for await (const _ of gateway.open(CAMPAIGN, 'play', toAsync([PLAYER_INPUT]), assert.ifError));
@@ -468,7 +482,7 @@ describe('rpg-42a.33 Claude Code CLI game master', () => {
     const dataDir = mkdtempSync(join(tmpdir(), 'rpg-claude-gm-'));
     t.after(() => rmSync(dataDir, { recursive: true, force: true }));
     for await (const _ of createEngineGateway(dataDir).create(CAMPAIGN, undefined, NO_CHARACTER));
-    const chosen = await gameMasterFor({ ...hermeticGmEnv(), [CLAUDE_BIN_ENV]: bin });
+    const chosen = await gameMasterFor({ ...hermeticGmEnv(), RPG_DATA_DIR: dataDir, [CLAUDE_BIN_ENV]: bin });
     assert.equal(chosen.route, 'claude-code');
     const lines = (async function* () {
       yield PLAYER_INPUT;

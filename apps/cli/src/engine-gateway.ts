@@ -87,6 +87,7 @@ import {
 import {
   type ClaudeCodeRoute,
   claudeCodeRouteOf,
+  launchClaude,
   requestClaudeNarration,
   requestClaudeSummary,
 } from './gm-claude-code.ts';
@@ -1203,6 +1204,12 @@ export const createEngineGateway = (
   start: (lines, locale) =>
     guidedStart(dataDir, lines, (target, command, client) => createCampaignFrom(target, command, client, gm), locale),
   importRules: (files, lines) => importRules(process.cwd(), files, lines),
+  claude: (name) => {
+    if (name === undefined) return launchClaude(process.env, dataDir);
+    const path = databasePath(dataDir, name);
+    if (!existsSync(path)) throw missingCampaign(dataDir, name);
+    return launchClaude(process.env, dataDir, path);
+  },
   open: async function* (name, _mode, lines, onTurnError) {
     yield readView(dataDir, name, RECAP_VIEW);
     const sessionId = randomUUID();

@@ -110,6 +110,7 @@ test('rpg-42a.39 CLI help and usage errors read in Brazilian Portuguese', async 
   assert.equal(await main(['help'], { ...io, locale: PORTUGUESE }, gateway), 0);
   assert.match(out.join(''), /^Uso: rpg \[comando\]$/m);
   assert.match(out.join(''), /^ {2}play <campaign> - Começa a jogar uma campanha\.$/m);
+  assert.match(out.join(''), /^ {2}claude \[campaign\] - Abre o Claude Code/m);
   await main(['play'], { ...io, locale: PORTUGUESE }, gateway);
   assert.match(err.join(''), /^Falta o nome da campanha para play\.$/m);
   assert.match(err.join(''), /^Rode rpg help para ver o uso\.$/m);

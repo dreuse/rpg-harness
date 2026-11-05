@@ -1,11 +1,13 @@
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { CAMPAIGN_TOOLS } from '../../../packages/mcp/src/tools.ts';
 import type { SummaryLevel } from '../../../packages/memory/src/history.ts';
 import { type ContextPacket, frameData, packetParts } from '../../../packages/memory/src/packet.ts';
+import { CLAUDE_WORKSPACE_DIR, ensureClaudeWorkspace } from './claude-workspace.ts';
 import {
+  claudeBinOf,
   GM_MODEL_ENV,
   type GmReply,
   isRecord,
@@ -17,6 +19,7 @@ import {
 } from './gm-api.ts';
 import { proposalsOf } from './gm-proposals.ts';
 import { narrationOf, narratorSegments, SEGMENTS_SCHEMA, segmentsOf } from './gm-segments.ts';
+import { userDataDir } from './setup-check.ts';
 
 export const GM_PROFILE_ENV = 'RPG_GM_PROFILE';
 export const FULL_PROFILE = 'full';
@@ -36,6 +39,7 @@ export const CHILD_ENV_KEYS: readonly string[] = [
   'LC_ALL',
   'CLAUDE_CONFIG_DIR',
 ];
+export const TERMINAL_ENV_KEYS: readonly string[] = ['TERM', 'COLORTERM'];
 
 const GAME_SERVER = 'rpg';
 const toolName = (name: string) => `mcp__${GAME_SERVER}__${name}`;
@@ -55,6 +59,9 @@ export const MAX_OUTPUT_BYTES = 1_048_576;
 const ABORT_ERROR = 'AbortError';
 const TOOL_SEPARATOR = ',';
 const NO_BUILT_IN_TOOLS = '';
+const EXIT_INTERRUPTED = 1;
+const WORKSPACE_FAILED = 'The Claude Code workspace could not be prepared.';
+const SETTING_SOURCES = ['--setting-sources', 'project'];
 const PART_SEPARATOR = '\n';
 const NO_PROMPT_MODE = 'dontAsk';
 const IGNORE = () => {};
@@ -68,7 +75,14 @@ export type ClaudeCodeRoute = {
   readonly timeoutMs: number;
   readonly env: NodeJS.ProcessEnv;
   readonly gameServer: boolean;
+  readonly workspace: string;
 };
+
+const childEnvOf = (keys: readonly string[], env: NodeJS.ProcessEnv): NodeJS.ProcessEnv =>
+  Object.fromEntries(keys.flatMap((name) => (env[name] === undefined ? [] : [[name, env[name]]])));
+
+const workspaceOf = (env: NodeJS.ProcessEnv) =>
+  join(userDataDir({ platform: process.platform, env, homedir: homedir() }), CLAUDE_WORKSPACE_DIR);
 
 export const claudeCodeRouteOf = (
   bin: string,
@@ -80,9 +94,18 @@ export const claudeCodeRouteOf = (
   model: env[GM_MODEL_ENV]?.trim() || undefined,
   summaryModel: env[SUMMARY_MODEL_ENV]?.trim() || CHEAP_CLAUDE_MODEL,
   timeoutMs: CLAUDE_TIMEOUT_MS,
-  env: Object.fromEntries(CHILD_ENV_KEYS.flatMap((name) => (env[name] === undefined ? [] : [[name, env[name]]]))),
+  env: childEnvOf(CHILD_ENV_KEYS, env),
   gameServer: versions.electron === undefined,
+  workspace: workspaceOf(env),
 });
+
+export const preparedWorkspace = ({ workspace }: ClaudeCodeRoute): string => {
+  try {
+    return ensureClaudeWorkspace(workspace);
+  } catch {
+    throw new ProviderError(WORKSPACE_FAILED);
+  }
+};
 
 export const claudeArgs = (
   { profile, model }: ClaudeCodeRoute,
@@ -96,6 +119,7 @@ export const claudeArgs = (
   '--no-session-persistence',
   '--permission-mode',
   NO_PROMPT_MODE,
+  ...SETTING_SOURCES,
   '--append-system-prompt',
   system,
   ...(mcpConfig === undefined ? [] : ['--mcp-config', mcpConfig]),
@@ -108,7 +132,7 @@ export const claudeArgs = (
   ...(model === undefined || model === PROVIDER_DEFAULT_MODEL ? [] : [`--model=${model}`]),
 ];
 
-const gameMcpConfig = (databasePath: string) => ({
+export const gameMcpConfig = (databasePath: string) => ({
   mcpServers: {
     [GAME_SERVER]: { command: process.execPath, args: [MCP_SERVER_ENTRY], env: { [DATABASE_ENV]: databasePath } },
   },
@@ -180,7 +204,8 @@ const attempt = async (route: ClaudeCodeRoute, system: string, input: string, da
     const config = databasePath === undefined || !route.gameServer ? undefined : join(dir, MCP_CONFIG_FILE);
     if (config !== undefined && databasePath !== undefined)
       writeFileSync(config, JSON.stringify(gameMcpConfig(databasePath)), { mode: PRIVATE_FILE_MODE });
-    return replyOf(await run(route, claudeArgs(route, system, config, schema), input, dir), route.model);
+    const cwd = preparedWorkspace(route);
+    return replyOf(await run(route, claudeArgs(route, system, config, schema), input, cwd), route.model);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -213,3 +238,23 @@ export const requestClaudeSummary = async (
 ): Promise<string> =>
   (await request({ ...route, model: route.summaryModel }, summaryPrompt(language), frameData({ level, texts })))
     .narration;
+
+const CLAUDE_MISSING = 'Claude Code was not found. Install it, run claude once to sign in, then try again.';
+const MCP_CONFIG_FLAG = '--mcp-config';
+
+export const launchClaude = (env: NodeJS.ProcessEnv, dataDir: string, campaignDatabase?: string): number => {
+  const bin = claudeBinOf(env);
+  if (bin === undefined) throw new Error(CLAUDE_MISSING);
+  const workspace = ensureClaudeWorkspace(join(dataDir, CLAUDE_WORKSPACE_DIR));
+  const args = [
+    ...SETTING_SOURCES,
+    ...(campaignDatabase === undefined ? [] : [MCP_CONFIG_FLAG, JSON.stringify(gameMcpConfig(campaignDatabase))]),
+  ];
+  const { status, error } = spawnSync(bin, args, {
+    cwd: workspace,
+    env: childEnvOf([...CHILD_ENV_KEYS, ...TERMINAL_ENV_KEYS], env),
+    stdio: 'inherit',
+  });
+  if (error !== undefined) throw new Error(CLAUDE_MISSING);
+  return status ?? EXIT_INTERRUPTED;
+};

@@ -1,11 +1,8 @@
 import { spawn } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { type ContextPacket, packetParts } from '../../../packages/memory/src/packet.ts';
 import { type GmReply, isRecord, ProviderError } from './gm-api.ts';
-import { type ClaudeCodeRoute, claudeArgs, MAX_OUTPUT_BYTES, replyOf } from './gm-claude-code.ts';
+import { type ClaudeCodeRoute, claudeArgs, MAX_OUTPUT_BYTES, preparedWorkspace, replyOf } from './gm-claude-code.ts';
 
 const STREAM_FORMAT = 'stream-json';
 const FORMAT_FLAG = '--output-format';
@@ -13,7 +10,6 @@ const STREAM_FLAGS = ['--verbose', '--include-partial-messages'];
 const STREAM_EVENT = 'stream_event';
 const TEXT_DELTA = 'text_delta';
 const RESULT_EVENT = 'result';
-const TEMP_PREFIX = 'rpg-gm-stream-';
 const ABORT_ERROR = 'AbortError';
 const IGNORE = () => {};
 const STREAMING_SPEECH_MODULE = '../../../packages/voice/src/streaming-speech.ts';
@@ -58,55 +54,51 @@ export const streamClaudeNarration = async (
   input: string,
   onSegment: (segment: string) => void,
 ): Promise<GmReply> => {
-  const dir = mkdtempSync(join(tmpdir(), TEMP_PREFIX));
-  try {
-    const child = spawn(route.bin, claudeStreamArgs(route, system), {
-      cwd: dir,
-      env: route.env,
-      stdio: ['pipe', 'pipe', 'ignore'],
-      signal: AbortSignal.timeout(route.timeoutMs),
-    });
-    const exited = new Promise<number | null>((resolve, reject) => {
-      child.on('error', (error) =>
-        reject(
-          new ProviderError(
-            error.name === ABORT_ERROR
-              ? `Claude Code timed out after ${route.timeoutMs} ms.`
-              : 'Claude Code could not be started.',
-          ),
+  const cwd = preparedWorkspace(route);
+  const child = spawn(route.bin, claudeStreamArgs(route, system), {
+    cwd,
+    env: route.env,
+    stdio: ['pipe', 'pipe', 'ignore'],
+    signal: AbortSignal.timeout(route.timeoutMs),
+  });
+  const exited = new Promise<number | null>((resolve, reject) => {
+    child.on('error', (error) =>
+      reject(
+        new ProviderError(
+          error.name === ABORT_ERROR
+            ? `Claude Code timed out after ${route.timeoutMs} ms.`
+            : 'Claude Code could not be started.',
         ),
-      );
-      child.on('close', resolve);
-    });
-    exited.catch(IGNORE);
-    let size = 0;
-    let capped = false;
-    child.stdout.on('data', (chunk: Buffer) => {
-      size += chunk.length;
-      if (size > MAX_OUTPUT_BYTES && !capped) {
-        capped = true;
-        child.kill();
-      }
-    });
-    child.stdin.on('error', IGNORE);
-    child.stdin.end(input);
-    let result = '';
-    async function* observed(): AsyncGenerator<string> {
-      for await (const line of createInterface({ input: child.stdout })) {
-        if (isResult(line)) result = line;
-        yield line;
-      }
-    }
-    const { segmentDeltas } = await import(STREAMING_SPEECH_MODULE);
-    try {
-      for await (const segment of segmentDeltas(textDeltasOf(observed()))) onSegment(segment);
-      if (capped) throw new ProviderError(OUTPUT_TOO_LARGE);
-      return replyOf({ code: await exited, stdout: result }, route.model);
-    } finally {
+      ),
+    );
+    child.on('close', resolve);
+  });
+  exited.catch(IGNORE);
+  let size = 0;
+  let capped = false;
+  child.stdout.on('data', (chunk: Buffer) => {
+    size += chunk.length;
+    if (size > MAX_OUTPUT_BYTES && !capped) {
+      capped = true;
       child.kill();
     }
+  });
+  child.stdin.on('error', IGNORE);
+  child.stdin.end(input);
+  let result = '';
+  async function* observed(): AsyncGenerator<string> {
+    for await (const line of createInterface({ input: child.stdout })) {
+      if (isResult(line)) result = line;
+      yield line;
+    }
+  }
+  const { segmentDeltas } = await import(STREAMING_SPEECH_MODULE);
+  try {
+    for await (const segment of segmentDeltas(textDeltasOf(observed()))) onSegment(segment);
+    if (capped) throw new ProviderError(OUTPUT_TOO_LARGE);
+    return replyOf({ code: await exited, stdout: result }, route.model);
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    child.kill();
   }
 };
 
