@@ -15,6 +15,8 @@ import {
   type KokoroCapabilities,
   type KokoroEngine,
   type KokoroProvider,
+  MLX_KOKORO_CAPABILITIES,
+  MLX_KOKORO_PROVIDER_ID,
   speaksLanguage,
 } from '../../../packages/voice/src/kokoro-provider.ts';
 import { voicesFor } from '../../../packages/voice/src/language-voices.ts';
@@ -204,6 +206,7 @@ export const kokoroProviders = (dir: string): HostedProvider[] => [
   },
 ];
 
+const BRAZILIAN_NARRATOR = 'pf_dora';
 const SAMPLE_RATE = 24_000;
 const SILENT_SAMPLES = 2_400;
 const BYTES_PER_SAMPLE = 2;
@@ -266,6 +269,17 @@ export const fakeVoiceProviders = (schedule: (run: () => void, ms: number) => vo
     narrator: kokoroNarrator(),
     model: fakeModel(schedule),
     provider: createKokoroProvider({ engine: fakeEngine() }),
+  },
+  {
+    id: MLX_KOKORO_PROVIDER_ID,
+    capabilities: MLX_KOKORO_CAPABILITIES,
+    narrator: BRAZILIAN_NARRATOR,
+    model: fakeModel(schedule),
+    provider: createKokoroProvider({
+      id: MLX_KOKORO_PROVIDER_ID,
+      capabilities: MLX_KOKORO_CAPABILITIES,
+      engine: fakeEngine(),
+    }),
   },
 ];
 
