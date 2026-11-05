@@ -53,6 +53,20 @@ import { NEUTRAL_EMOTION, narrationOf, SEGMENTS_SCHEMA } from './gm-segments.ts'
 import { hermeticGmEnv } from './gm-test-env.ts';
 
 const NARRATION = 'The stranger laughs and pours you a cup of tea.';
+const DISTINCT_NARRATIONS = [
+  'Rain drums on the slate roof above the quiet inn.',
+  'A courier bursts in, shouting about a burning bridge.',
+  'The innkeeper bolts every shutter against the gathering storm.',
+  'Wolves howl somewhere beyond the frozen eastern pines.',
+  'Your map curls and blackens in the lantern flame.',
+  'Footsteps cross the loft, heavy and unhurried.',
+  'A merchant offers silver for the stranger sealed letter.',
+  'Church bells toll twice across the drowned valley.',
+  'The cellar door swings open on rusted hinges.',
+  'Someone has carved your name into the table.',
+  'Smoke curls from the chimney of the abandoned mill.',
+  'Thunder shakes the cups along the wooden shelf.',
+];
 const PLAYER_INPUT = 'I ask about the road north';
 const DATA_OPEN = '<campaign-data>';
 const DATA_CLOSE = '</campaign-data>';
@@ -506,7 +520,10 @@ describe('rpg-42a.33 Claude Code CLI game master', () => {
   });
 
   it('rpg-42a.37: plays with the campaign model, then the app default, and records usage per turn', async (t) => {
-    const { bin, calls } = fakeClaude(t);
+    const { bin, calls } = fakeClaude(
+      t,
+      DISTINCT_NARRATIONS.map((result) => ({ stdout: resultOf({ result }) })),
+    );
     const dataDir = mkdtempSync(join(tmpdir(), 'rpg-claude-gm-'));
     t.after(() => rmSync(dataDir, { recursive: true, force: true }));
     const { gm } = await gameMasterFor({
@@ -553,8 +570,8 @@ describe('rpg-42a.33 Claude Code CLI game master', () => {
   });
 
   it('rpg-42a.37: env model ids with @ or / and odd ids still narrate and record usage', async (t) => {
-    const { bin } = fakeClaude(t);
     for (const model of ['claude-sonnet-4@20250514', 'anthropic/claude-x', 'odd model!']) {
+      const { bin } = fakeClaude(t, [{ stdout: resultOf({ result: DISTINCT_NARRATIONS[0] }) }, { stdout: resultOf() }]);
       const dataDir = mkdtempSync(join(tmpdir(), 'rpg-claude-gm-'));
       t.after(() => rmSync(dataDir, { recursive: true, force: true }));
       const { gm } = await gameMasterFor({

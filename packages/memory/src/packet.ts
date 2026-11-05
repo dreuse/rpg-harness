@@ -21,6 +21,7 @@ export const VARIABLE_SECTIONS = [
   'threads',
   'entities',
   'recentTurns',
+  'recentClosings',
   'results',
   'playerInput',
 ] as const;
@@ -57,7 +58,14 @@ const REQUIRED: readonly SectionName[] = [
   'playerInput',
 ];
 const STABLE_FILL: readonly SectionName[] = ['campaignSummary', 'chapterSummaries'];
-const VARIABLE_FILL: readonly SectionName[] = ['recentTurns', 'threads', 'entities', 'context', 'sceneSummaries'];
+const VARIABLE_FILL: readonly SectionName[] = [
+  'recentClosings',
+  'recentTurns',
+  'threads',
+  'entities',
+  'context',
+  'sceneSummaries',
+];
 const STABLE_SUMMARY_SHARE = 0.3;
 const NEWEST_FIRST: readonly SectionName[] = ['campaignSummary', 'recentTurns', 'sceneSummaries', 'chapterSummaries'];
 const STABLE: readonly SectionName[] = STABLE_SECTIONS;

@@ -33,6 +33,7 @@ const emptyInput = (): PacketInput => ({
   threads: [],
   entities: [],
   recentTurns: [],
+  recentClosings: [],
   results: ['CheckResolved {"total":14}'],
   playerInput: [PLAYER_INPUT],
 });

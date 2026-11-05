@@ -147,6 +147,7 @@ const packetFor = (
     threads: [],
     entities: [],
     recentTurns: Array.from({ length: 6 }, (_, index) => `turn ${index}: ${'the hero walks '.repeat(8)}`),
+    recentClosings: [],
     results: [],
     playerInput: ['I greet the Warden'],
   };

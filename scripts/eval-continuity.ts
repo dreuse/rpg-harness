@@ -130,6 +130,7 @@ const main = async () => {
               threads: [],
               entities: [],
               recentTurns: recent.slice(-RECENT_TURNS),
+              recentClosings: [],
               results: [],
               playerInput: [input],
             },

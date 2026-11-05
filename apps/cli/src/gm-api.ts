@@ -41,6 +41,7 @@ export const SYSTEM_PROMPT = [
   'Every reply must change something: a reveal, a new character, a choice, a consequence or a clock tick; never two replies in a row with no new information.',
   "Honor the player's stated intent with yes, and or yes, but; do not just restate the scene.",
   'End on a clear prompt or choice for the player.',
+  'Never reuse a previous closing line or beat listed under recentClosings; end on a new development or the player choice, never on an instruction to act.',
   'Return the narration as ordered segments: leave speakerId out for narration, and give a line a character speaks the id of that character from the data.',
   'Set important to true on a segment only for a recurring or story-critical character who speaks for the first time or whose voice should stand out; leave it out for passing characters.',
   "Never invent dice results, rule outcomes, items in the player's inventory, or the player character's actions.",
@@ -68,6 +69,8 @@ export const RULES_STRICTNESS_PROMPTS: Readonly<Record<RulesStrictness, string>>
 };
 export const RULES_RETRY_PROMPT =
   'Your previous reply claimed a mechanical result the engine did not resolve. Write it again without any hit, miss, damage or other rule outcome, and add a check proposal if the rules call for one.';
+export const repetitionRetryPrompt = (lines: readonly string[]): string =>
+  `Your previous reply repeated earlier narration: ${lines.map((line) => JSON.stringify(line)).join(' ')}. Write it again with a new closing line and a new beat.`;
 export const checkRulesPrompt = (ruleIds: readonly string[]): string =>
   `A check proposal has kind "check", a lowercase id, a ruleId from this list, the target and a short label for the roll offer: ${ruleIds.join(', ')}.`;
 export const OPENING_PROMPT = [

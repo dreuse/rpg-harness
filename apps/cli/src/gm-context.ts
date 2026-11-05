@@ -59,9 +59,11 @@ import {
   OPENING_PROMPT,
   RULES_RETRY_PROMPT,
   RULES_STRICTNESS_PROMPTS,
+  repetitionRetryPrompt,
   SYSTEM_PROMPT,
 } from './gm-api.ts';
 import { budgetOf } from './gm-limits.ts';
+import { COMPARED_NARRATIONS, closingSentencesOf } from './gm-repetition.ts';
 import { describeConfig, styleLinesOf } from './quickstart.ts';
 import { checkRulesFor, enforcedStrictnessFor, rulesStrictnessFor } from './roll-visualization.ts';
 import { panelsOf } from './views.ts';
@@ -129,7 +131,17 @@ const named = (entities: readonly CampaignEntity[], input: string) => {
   return entities.filter(({ name }) => lower.includes(name.toLowerCase())).map(({ id }) => id);
 };
 
-export type PacketOptions = { readonly defaults?: GmSettings; readonly retry?: boolean };
+export const previousNarrationsOf = (state: CampaignState, committed: CommittedTurn): string[] =>
+  playTurns(state)
+    .filter(({ id, narration }) => id !== committed.turn.id && narration !== '')
+    .slice(-COMPARED_NARRATIONS)
+    .map(({ narration }) => narration);
+
+export type PacketOptions = {
+  readonly defaults?: GmSettings;
+  readonly retry?: boolean;
+  readonly repeated?: readonly string[];
+};
 
 const strictnessInstructions = (config: ReturnType<typeof configOf>, state: CampaignState, defaults: GmSettings) => {
   if (config === undefined || config.rulepack === null) return [];
@@ -147,7 +159,7 @@ export const contextPacketOf = (
   viewer: Viewer = PLAYER_VIEWER,
   preset: ContextBudgetPreset = contextBudgetOf(state.changes),
   ratio = 1,
-  { defaults = {}, retry = false }: PacketOptions = {},
+  { defaults = {}, retry = false, repeated = [] }: PacketOptions = {},
 ): ContextPacket => {
   const campaignId = state.campaign.id;
   const scoped = eventsOfTypes(database, campaignId, MEMORY_EVENT_TYPES);
@@ -204,6 +216,7 @@ export const contextPacketOf = (
         ...(language === undefined ? [] : [languageInstruction(language)]),
         ...strictnessInstructions(config, state, defaults),
         ...(retry ? [RULES_RETRY_PROMPT] : []),
+        ...(repeated.length === NONE ? [] : [repetitionRetryPrompt(repeated)]),
       ],
       ruleset: config === undefined ? [] : [describeConfig(config)],
       setting: [state.currentScene?.title ?? state.campaign.name],
@@ -228,6 +241,7 @@ export const contextPacketOf = (
         ...inventory.map(({ name }) => `carried: ${name}`),
       ],
       recentTurns: turns.map(turnText),
+      recentClosings: closingSentencesOf(previousNarrationsOf(state, committed)),
       results: committed.events
         .filter(({ id }) => visibleEvents.has(id))
         .map(({ type, payload }) => `${type} ${JSON.stringify(payload)}`),

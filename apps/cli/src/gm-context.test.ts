@@ -23,6 +23,7 @@ import {
   languageInstruction,
   RULES_RETRY_PROMPT,
   RULES_STRICTNESS_PROMPTS,
+  repetitionRetryPrompt,
   SYSTEM_PROMPT,
 } from './gm-api.ts';
 import {
@@ -457,5 +458,29 @@ it('rpg-42a.58 an as-written campaign that rolls no dice gets no as-written line
   assert.deepEqual(instructionsOf(fixture, committed), [SYSTEM_PROMPT]);
   chooseStrictness(fixture.store, 'relaxed', 'relax');
   assert.deepEqual(instructionsOf(fixture, committed), [SYSTEM_PROMPT, RULES_STRICTNESS_PROMPTS.relaxed]);
+  fixture.connection.close();
+});
+
+it('rpg-42a.76 the packet frames the closing sentences of recent GM narrations as data', () => {
+  const fixture = campaign(CREATED_EVENT.payload, D20_FANTASY());
+  const first = play(fixture.store, 'turn-1');
+  fixture.store.recordNarration(CAMPAIGN.id, first.turn.id, 'Rain falls. Strike true.');
+  const committed = play(fixture.store, 'turn-2');
+  const state = fixture.store.load(CAMPAIGN.id);
+  assert.ok(state);
+  const packet = contextPacketOf(fixture.database, state, committed);
+  assert.deepEqual(packet.sections.find(({ name }) => name === 'recentClosings')?.items, [
+    'Gulls cry.',
+    'Strike true.',
+  ]);
+  assert.match(packetParts(packet).variable, /<campaign-data>.*"recentClosings":\["Gulls cry\.","Strike true\."\]/);
+  const retried = contextPacketOf(fixture.database, state, committed, undefined, undefined, undefined, {
+    repeated: ['Strike true.'],
+  });
+  assert.ok(
+    retried.sections
+      .find(({ name }) => name === 'instructions')
+      ?.items.includes(repetitionRetryPrompt(['Strike true.'])),
+  );
   fixture.connection.close();
 });

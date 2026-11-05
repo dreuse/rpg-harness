@@ -166,4 +166,45 @@ describe('rpg-42a.74 GM-proposed checks', () => {
     assert.equal(narrationOf([{ text: snapshot().turns.at(-1)?.narration ?? '' }]), SETUP);
     assert.ok(snapshot().rollOffer);
   });
+
+  describe('rpg-42a.76 repeated endings', () => {
+    const OPENING = 'Rain taps the lantern. Attempt the attack with your sword.';
+    const REPEAT = 'Chairs scrape. Attempt the attack with your sword.';
+    const FRESH = 'A shutter bangs open and cold air floods the bar.';
+
+    it('regenerates once, naming the repeated line, then accepts the new text', async (t) => {
+      const { say, packets, snapshot } = await hollowLantern(t, [
+        { narration: OPENING },
+        { narration: REPEAT },
+        { narration: FRESH },
+      ]);
+      await say(FIRST_INPUT);
+      assert.equal(packets.length, 1);
+      await say('I look at the bar');
+      assert.equal(packets.length, 3);
+      assert.ok(
+        packets[2]?.sections.some(({ items }) => items.some((item) => item.includes(REPEAT.split('. ')[1] ?? ''))),
+      );
+      assert.equal(snapshot().turns.at(-1)?.narration, FRESH);
+    });
+
+    it('never retries more than once', async (t) => {
+      const { say, packets, snapshot } = await hollowLantern(t, [
+        { narration: OPENING },
+        { narration: REPEAT },
+        { narration: REPEAT },
+      ]);
+      await say(FIRST_INPUT);
+      await say('I look at the bar');
+      assert.equal(packets.length, 3);
+      assert.equal(snapshot().turns.at(-1)?.narration, REPEAT);
+    });
+
+    it('does not regenerate different text', async (t) => {
+      const { say, packets } = await hollowLantern(t, [{ narration: OPENING }, { narration: FRESH }]);
+      await say(FIRST_INPUT);
+      await say('I look at the bar');
+      assert.equal(packets.length, 2);
+    });
+  });
 });

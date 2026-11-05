@@ -93,7 +93,14 @@ import {
   requestClaudeSummary,
 } from './gm-claude-code.ts';
 import { MalformedStreamReply, requestClaudeStream } from './gm-claude-stream.ts';
-import { contextPacketOf, fakeSummarizer, openingPacketOf, type Summarizer, summarizeCampaign } from './gm-context.ts';
+import {
+  contextPacketOf,
+  fakeSummarizer,
+  openingPacketOf,
+  previousNarrationsOf,
+  type Summarizer,
+  summarizeCampaign,
+} from './gm-context.ts';
 import { readGmDefaults, writeGmDefaults } from './gm-defaults.ts';
 import { requestFitting, TOO_LONG_MESSAGE } from './gm-limits.ts';
 import {
@@ -104,6 +111,7 @@ import {
   MAX_FACT_LENGTH,
   outcomeClaimsOf,
 } from './gm-proposals.ts';
+import { repeatedLinesOf } from './gm-repetition.ts';
 import { type GmSegment, narratorSegments } from './gm-segments.ts';
 
 export { FAKE_GM_REPLY } from './gm-api.ts';
@@ -184,6 +192,7 @@ const NO_FACTS: NarrationContext = {
 };
 const PENDING_NARRATION = '';
 const NO_SEGMENTS: readonly GmSegment[] = [];
+const NO_REPEATS = 0;
 
 const databasePath = (dataDir: string, name: string) =>
   join(dataDir, `${encodeURIComponent(name)}${DATABASE_EXTENSION}`);
@@ -407,34 +416,46 @@ const narrateLatest = async (
   const enforced = enforcedStrictnessFor(state, defaults);
   const checkPending = enforced !== undefined && !committed.events.some(({ type }) => type === CHECK_RESOLVED);
   let reply: GmTurnReply | undefined;
+  const previous = previousNarrationsOf(state, committed);
+  const forward = streamOf(checkPending ? undefined : voice, listener, committed.turn.id);
+  const generate = async (retried: readonly unknown[] | undefined, repeated: readonly string[]) => {
+    const fitted = await requestFitting({
+      first: preset,
+      packetOf: (chosenPreset) =>
+        contextPacketOf(database, state, committed, PLAYER_VIEWER, chosenPreset, ratio, {
+          defaults,
+          retry: retried !== undefined,
+          repeated,
+        }),
+      send: (packet) => request(packet, forward),
+      ratio,
+    }).catch((error: unknown) => {
+      if (!(error instanceof ProviderError && error.message === TOO_LONG_MESSAGE)) {
+        voice?.abandon();
+        throw error;
+      }
+      return {
+        packet: undefined,
+        reply: narratorReply(withNotice(error.message)),
+      };
+    });
+    if (usage !== undefined) recordGmUsage(store, { campaignId, turnId: committed.turn.id, sessionId, usage });
+    reply = fitted.reply;
+    sent = fitted.packet;
+    usage = reply.usage;
+    return fitted.reply;
+  };
   const narrator = {
     narrate: async (_turn: CommittedTurn, retried?: readonly unknown[]) => {
-      const fitted = await requestFitting({
-        first: preset,
-        packetOf: (chosenPreset) =>
-          contextPacketOf(database, state, committed, PLAYER_VIEWER, chosenPreset, ratio, {
-            defaults,
-            retry: retried !== undefined,
-          }),
-        send: (packet) => request(packet, streamOf(checkPending ? undefined : voice, listener, committed.turn.id)),
-        ratio,
-      }).catch((error: unknown) => {
-        if (!(error instanceof ProviderError && error.message === TOO_LONG_MESSAGE)) {
-          voice?.abandon();
-          throw error;
-        }
-        return {
-          packet: undefined,
-          reply: narratorReply(withNotice(error.message)),
-        };
-      });
-      if (usage !== undefined) recordGmUsage(store, { campaignId, turnId: committed.turn.id, sessionId, usage });
-      reply = fitted.reply;
-      sent = fitted.packet;
-      usage = reply.usage;
-      segments = voiceNotice === undefined ? reply.segments : [{ text: voiceNotice }, ...reply.segments];
-      proposals = reply.proposals ?? [];
-      const narration = voiceNotice === undefined ? reply.narration : `${voiceNotice} ${reply.narration}`;
+      const first = await generate(retried, []);
+      const repeated = retried === undefined ? repeatedLinesOf(first.narration, previous) : [];
+      let final = first;
+      if (repeated.length > NO_REPEATS) {
+        final = await generate(retried, repeated);
+      }
+      segments = voiceNotice === undefined ? final.segments : [{ text: voiceNotice }, ...final.segments];
+      proposals = final.proposals ?? [];
+      const narration = voiceNotice === undefined ? final.narration : `${voiceNotice} ${final.narration}`;
       return { narration, claims: outcomeClaimsOf(proposals) };
     },
   };

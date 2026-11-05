@@ -190,8 +190,9 @@ describe('rpg-cm63.17 streaming speech in the GM turn flow', () => {
     const gm: GameMaster = {
       request: async (packet: ContextPacket, { onSegment }) => {
         instructions.push(packetParts(packet).instructions);
-        onSegment?.({ text: FIRST });
-        return reply(FIRST);
+        const text = instructions.length === 1 ? FIRST : SECOND;
+        onSegment?.({ text });
+        return reply(text);
       },
       summarizer: FAKE_GAME_MASTER.summarizer,
     };
@@ -231,7 +232,7 @@ describe('rpg-cm63.17 streaming speech in the GM turn flow', () => {
     assert.ok(instructions[0]?.endsWith(languageInstruction('en')));
     assert.ok(instructions[1]?.endsWith(languageInstruction('pt-BR')));
     assert.deepEqual(english, [FIRST]);
-    assert.deepEqual(portuguese, [FIRST]);
+    assert.deepEqual(portuguese, [SECOND]);
   });
 
   it('preloads the pt-BR voice when a spoken turn starts', async (t) => {
