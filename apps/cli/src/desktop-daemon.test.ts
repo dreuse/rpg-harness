@@ -26,7 +26,7 @@ import {
   type ViewDescriptor,
 } from '../../../packages/client-protocol/src/protocol.ts';
 import { SHEET_VIEW } from '../../../packages/client-protocol/src/view-registry.ts';
-import type { Ready, Reply } from '../../../packages/client-protocol/src/wire.ts';
+import { READY, type Ready, type Reply } from '../../../packages/client-protocol/src/wire.ts';
 import { createCharacterStore } from '../../../packages/persistence/src/character-store.ts';
 import { MIGRATIONS, openDatabase } from '../../../packages/persistence/src/database.ts';
 import { createEntityStore } from '../../../packages/persistence/src/entity-store.ts';
@@ -879,6 +879,70 @@ describe('rpg-cm63.17 desktop playback controls', () => {
     narrating.catch(() => undefined);
     while (provider.received.length === 0) await setImmediate();
     assert.equal((await daemon.playback('pause')).type, 'Played');
+  });
+});
+
+describe('rpg-cm63.40 engine playback events', () => {
+  const READY_MESSAGE: Ready = {
+    type: READY,
+    version: PROTOCOL_VERSION,
+    pid: 1,
+    node: 'v0',
+    sqlite: true,
+    gm: 'fake',
+  };
+
+  const fakeEngine = (t: TestContext) => {
+    const spoken: boolean[] = [];
+    let events: Parameters<NonNullable<Parameters<typeof startDaemon>[0]['spawnEngine']>>[1] | undefined;
+    const daemon = startDaemon({
+      env: baseEnv(),
+      maxRestarts: 0,
+      onSpeaking: (active) => spoken.push(active),
+      spawnEngine: (_env, on) => {
+        events = on;
+        queueMicrotask(() => on.message(READY_MESSAGE));
+        return {
+          pid: () => 1,
+          send: () => queueMicrotask(() => on.exit(0, null)),
+          kill: () => on.exit(null, 'SIGKILL'),
+        };
+      },
+    });
+    t.after(() => daemon.stop());
+    const emit = (message: unknown) => events?.message(message as never);
+    return { daemon, spoken, emit, exit: () => events?.exit(1, null) };
+  };
+
+  it('reports speaking from the engine while it plays narration', async (t) => {
+    const { daemon, spoken, emit } = fakeEngine(t);
+    await daemon.ready();
+    emit({ type: 'Speaking', active: true });
+    emit({ type: 'Speaking', active: false });
+    assert.deepEqual(spoken, [true, false]);
+  });
+
+  it('rejects playback events with a malformed shape', async (t) => {
+    const { daemon, spoken, emit } = fakeEngine(t);
+    await daemon.ready();
+    for (const active of ['true', 1, null, undefined, {}]) emit({ type: 'Speaking', active });
+    emit({ type: 'Speaking' });
+    assert.deepEqual(spoken, []);
+  });
+
+  it('releases the duck when the engine exits while speaking', async (t) => {
+    const { daemon, spoken, emit, exit } = fakeEngine(t);
+    await daemon.ready();
+    emit({ type: 'Speaking', active: true });
+    exit();
+    assert.deepEqual(spoken, [true, false]);
+  });
+
+  it('does not report a release when the engine exits quietly', async (t) => {
+    const { daemon, spoken, exit } = fakeEngine(t);
+    await daemon.ready();
+    exit();
+    assert.deepEqual(spoken, []);
   });
 });
 

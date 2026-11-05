@@ -71,6 +71,7 @@ const fakeBridge = (first: SoundHostStatus = MISSING) => {
     onProgress: (listener) => {
       progress = listener;
     },
+    onSpeaking: () => {},
   };
   return {
     bridge,

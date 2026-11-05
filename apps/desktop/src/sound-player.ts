@@ -14,6 +14,7 @@ export type SoundBridge = {
   download(consent: ModelConsent): Promise<void>;
   file(kind: string, key: string): Promise<Uint8Array | undefined>;
   onProgress(listener: (bytes: number) => void): void;
+  onSpeaking(listener: (active: boolean) => void): void;
 };
 
 type GainLike = { readonly gain: { value: number }; connect(target: unknown): unknown; disconnect(): void };
@@ -125,7 +126,7 @@ export const createDesktopSound = ({
   context = () => new AudioContext(),
   clock = browserClock,
 }: {
-  readonly bridge: Pick<SoundBridge, 'status' | 'file'>;
+  readonly bridge: Pick<SoundBridge, 'status' | 'file'> & Partial<Pick<SoundBridge, 'onSpeaking'>>;
   readonly context?: () => SoundAudioContext;
   readonly clock?: SoundClock;
 }): DesktopSound => {
@@ -133,6 +134,7 @@ export const createDesktopSound = ({
   let installed = false;
   let silenced = false;
   let talking = false;
+  let narrating = false;
   let settings: SoundSettings | undefined;
   let scene: SceneSoundInput | undefined;
 
@@ -166,7 +168,7 @@ export const createDesktopSound = ({
     const started = { controller, sink };
     running = started;
     silenced = false;
-    controller.speaking(talking);
+    controller.speaking(talking || narrating);
     void checkInstalled(started);
   };
 
@@ -175,6 +177,11 @@ export const createDesktopSound = ({
     running?.sink.dispose();
     running = undefined;
   };
+
+  bridge.onSpeaking?.((active) => {
+    narrating = active;
+    running?.controller.speaking(talking || narrating);
+  });
 
   return {
     update: (nextSettings, nextScene) => {
@@ -186,7 +193,7 @@ export const createDesktopSound = ({
     },
     speaking: (active) => {
       talking = active;
-      running?.controller.speaking(active);
+      running?.controller.speaking(talking || narrating);
     },
     refresh: async () => {
       if (running !== undefined) await checkInstalled(running);

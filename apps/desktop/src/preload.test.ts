@@ -56,7 +56,7 @@ test('UI08 preload exposes only the narrow transport bridge', () => {
     'sound',
     'voice',
   ]);
-  assert.deepEqual(Object.keys(bridge.sound).sort(), ['download', 'file', 'onProgress', 'status']);
+  assert.deepEqual(Object.keys(bridge.sound).sort(), ['download', 'file', 'onProgress', 'onSpeaking', 'status']);
   assert.deepEqual(Object.keys(bridge.voice).sort(), [
     'check',
     'clearCache',
@@ -140,4 +140,16 @@ test('rpg-cm63.33 preload sound bridge invokes narrow channels and forwards only
     [CHANNELS.soundFile, 'music', 'calm'],
   ]);
   assert.deepEqual(progress, [[9]]);
+});
+
+test('rpg-cm63.40 preload sound bridge forwards only boolean engine playback events', () => {
+  const { bridge, emit } = expose();
+  const heard: unknown[] = [];
+  bridge.sound.onSpeaking((active) => heard.push(active));
+  emit(CHANNELS.soundSpeaking, true);
+  emit(CHANNELS.soundSpeaking, 'true');
+  emit(CHANNELS.soundSpeaking, 1);
+  emit(CHANNELS.soundSpeaking, undefined);
+  emit(CHANNELS.soundSpeaking, false);
+  assert.deepEqual(heard, [true, false]);
 });

@@ -707,10 +707,13 @@ const stopSound = (dataDir: string) => {
 
 export type MakeSpeech = (dataDir: string) => SpeechRuntime | Promise<SpeechRuntime>;
 
-const makeLiveSpeech: MakeSpeech = async (dataDir) =>
-  (await import('./speech-runtime.ts')).createLiveSpeechRuntime(dataDir, process.env, (active) =>
-    liveSounds.get(dataDir)?.controller.speaking(active),
-  );
+export const announcingSpeech =
+  (onSpeaking: (active: boolean) => void): MakeSpeech =>
+  async (dataDir) =>
+    (await import('./speech-runtime.ts')).createLiveSpeechRuntime(dataDir, process.env, onSpeaking);
+
+const makeLiveSpeech: MakeSpeech = (dataDir) =>
+  announcingSpeech((active) => liveSounds.get(dataDir)?.controller.speaking(active))(dataDir);
 
 export const liveSpeech =
   (dataDir: string, make: MakeSpeech = makeLiveSpeech): SpeechSource =>

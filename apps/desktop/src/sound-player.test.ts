@@ -215,8 +215,18 @@ const soundSetup = (installed = true, missing: readonly string[] = []) => {
   const audio = fakeContext();
   const time = fakeClock();
   const { bridge, requested } = fakeBridge(installed, missing);
-  const sound = createDesktopSound({ bridge, context: audio.make, clock: time.clock });
-  return { audio, time, sound, requested };
+  const engine: { listener: (active: boolean) => void } = { listener: () => undefined };
+  const sound = createDesktopSound({
+    bridge: {
+      ...bridge,
+      onSpeaking: (listener) => {
+        engine.listener = listener;
+      },
+    },
+    context: audio.make,
+    clock: time.clock,
+  });
+  return { audio, time, sound, requested, engine };
 };
 
 test('rpg-cm63.33 nothing is loaded and no audio context exists while every channel is off', async () => {
@@ -265,6 +275,43 @@ test('rpg-cm63.33 speech ducks the background and releases it afterwards', async
   near(audio.volumeOf('music:calm'), VOLUME * DUCK_FACTOR);
   sound.speaking(false);
   near(audio.volumeOf('music:calm'), VOLUME);
+});
+
+test('rpg-cm63.40 engine narration ducks the background from its first event until it ends', async () => {
+  const { audio, time, sound, engine } = soundSetup();
+  sound.update(MUSIC_ON, QUIET_SCENE);
+  await flush();
+  time.advance(CROSSFADE_MS);
+  engine.listener(true);
+  near(audio.volumeOf('music:calm'), VOLUME * DUCK_FACTOR);
+  engine.listener(false);
+  near(audio.volumeOf('music:calm'), VOLUME);
+});
+
+test('rpg-cm63.40 the background stays ducked while either a preview or engine narration plays', async () => {
+  const { audio, time, sound, engine } = soundSetup();
+  sound.update(MUSIC_ON, QUIET_SCENE);
+  await flush();
+  time.advance(CROSSFADE_MS);
+  engine.listener(true);
+  sound.speaking(true);
+  sound.speaking(false);
+  near(audio.volumeOf('music:calm'), VOLUME * DUCK_FACTOR);
+  engine.listener(false);
+  near(audio.volumeOf('music:calm'), VOLUME);
+  sound.speaking(true);
+  engine.listener(true);
+  engine.listener(false);
+  near(audio.volumeOf('music:calm'), VOLUME * DUCK_FACTOR);
+});
+
+test('rpg-cm63.40 narration that began before the sound started ducks it once it starts', async () => {
+  const { audio, time, sound, engine } = soundSetup();
+  engine.listener(true);
+  sound.update(MUSIC_ON, QUIET_SCENE);
+  await flush();
+  time.advance(CROSSFADE_MS);
+  near(audio.volumeOf('music:calm'), VOLUME * DUCK_FACTOR);
 });
 
 test('rpg-cm63.33 speech already playing ducks sound that starts later', async () => {

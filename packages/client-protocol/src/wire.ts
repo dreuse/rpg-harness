@@ -3,6 +3,7 @@ import type { ClientEvent, ProtocolVersion, Result } from './protocol.ts';
 export const READY = 'Ready';
 export const EVENT = 'Event';
 export const NARRATION = 'Narration';
+export const SPEAKING = 'Speaking';
 
 export type GmRoute = 'api' | 'claude-code' | 'fake';
 export type Ready = {
@@ -35,3 +36,10 @@ export type Narrated = {
   readonly turnId: string;
   readonly text: string;
 };
+export type Speaking = { readonly type: typeof SPEAKING; readonly active: boolean };
+
+export const isSpeaking = (message: unknown): message is Speaking =>
+  typeof message === 'object' &&
+  message !== null &&
+  (message as Speaking).type === SPEAKING &&
+  typeof (message as Speaking).active === 'boolean';

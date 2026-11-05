@@ -13,6 +13,7 @@ import {
 } from '../../../packages/client-protocol/src/protocol.ts';
 import {
   EVENT,
+  isSpeaking,
   NARRATION,
   type Narrated,
   type Pushed,
@@ -21,11 +22,14 @@ import {
   type Reply,
   type Request,
   type RequestType,
+  SPEAKING,
+  type Speaking,
 } from '../../../packages/client-protocol/src/wire.ts';
 import { toGmSettings } from '../../../packages/domain/src/gm.ts';
 import type { Client } from '../../../packages/intent/src/intent.ts';
 import { applyPlaybackCommand } from '../../../packages/voice/src/playback-controls.ts';
 import {
+  announcingSpeech,
   archiveCampaign,
   createCampaignFrom,
   deleteCampaign,
@@ -84,7 +88,7 @@ const ENGINE_STOPPED = 'The engine is not running.';
 
 type Campaign = ReturnType<typeof openClientSession>;
 type Served = { readonly name?: string; readonly campaign?: Campaign; readonly problem: string };
-export type EngineMessage = Ready | Reply | Pushed | Narrated;
+export type EngineMessage = Ready | Reply | Pushed | Narrated | Speaking;
 export type EngineChannel = {
   readonly pid: () => number | undefined;
   readonly send: (message: Request) => void;
@@ -100,6 +104,7 @@ export type DaemonOptions = {
   readonly onCrash?: (pid: number) => void;
   readonly maxRestarts?: number;
   readonly spawnEngine?: SpawnEngine;
+  readonly onSpeaking?: (active: boolean) => void;
 };
 type ParentPort = {
   postMessage(message: unknown): void;
@@ -149,13 +154,19 @@ const messageOf = (error: unknown) => (error instanceof Error ? error.message : 
 const reportNarrationFailure = (error: unknown) =>
   process.stderr.write(`The game master could not narrate this turn: ${messageOf(error)}${NEWLINE}`);
 
+const daemonSpeech = () =>
+  liveSpeech(
+    dataDirFromEnv(),
+    announcingSpeech((active) => send({ type: SPEAKING, active } satisfies Speaking)),
+  );
+
 const serve = (env: NodeJS.ProcessEnv, gm: GameMaster): Served => {
   const name = env[CAMPAIGN_ENV];
   if (!name) return { problem: NO_CAMPAIGN };
   try {
     return {
       name,
-      campaign: openClientSession(dataDirFromEnv(), name, gm, undefined, liveSpeech(dataDirFromEnv())),
+      campaign: openClientSession(dataDirFromEnv(), name, gm, undefined, daemonSpeech()),
       problem: NO_CAMPAIGN,
     };
   } catch (error) {
@@ -227,7 +238,7 @@ const replier = ({ name, campaign, problem }: Served, gm: GameMaster) => {
   let queue = Promise.resolve();
 
   const serveCampaign = (next: string) => {
-    const opened = openClientSession(dataDirFromEnv(), next, gm, undefined, liveSpeech(dataDirFromEnv()));
+    const opened = openClientSession(dataDirFromEnv(), next, gm, undefined, daemonSpeech());
     playbackFor(dataDirFromEnv()).stop();
     for (const unsubscribe of subscriptions.values()) unsubscribe();
     subscriptions.clear();
@@ -380,7 +391,13 @@ export const stdioEngine: SpawnEngine = (env, on) => {
   };
 };
 
-export const startDaemon = ({ env, onCrash, maxRestarts = MAX_RESTARTS, spawnEngine = stdioEngine }: DaemonOptions) => {
+export const startDaemon = ({
+  env,
+  onCrash,
+  onSpeaking,
+  maxRestarts = MAX_RESTARTS,
+  spawnEngine = stdioEngine,
+}: DaemonOptions) => {
   const pending = new Map<number, PromiseWithResolvers<Reply>>();
   const listeners = new Map<number, (event: ClientEvent) => void>();
   const narrations = new Map<number, OnNarration>();
@@ -391,6 +408,12 @@ export const startDaemon = ({ env, onCrash, maxRestarts = MAX_RESTARTS, spawnEng
   let restarts = 0;
   let nextId = 0;
   let stopping = false;
+  let speaking = false;
+
+  const announce = (active: boolean) => {
+    speaking = active;
+    onSpeaking?.(active);
+  };
 
   const startEngine = () => {
     const ready = Promise.withResolvers<Ready>();
@@ -402,6 +425,7 @@ export const startDaemon = ({ env, onCrash, maxRestarts = MAX_RESTARTS, spawnEng
     const engine = spawnEngine(env, {
       message: (message) => {
         if (message.type === READY) return ready.resolve(message);
+        if (message.type === SPEAKING) return isSpeaking(message) ? announce(message.active) : undefined;
         if (message.type === EVENT) return listeners.get(message.id)?.(message.event);
         if (message.type === NARRATION)
           return narrations.get(message.id)?.({ turnId: message.turnId, text: message.text });
@@ -416,6 +440,7 @@ export const startDaemon = ({ env, onCrash, maxRestarts = MAX_RESTARTS, spawnEng
         for (const request of pending.values()) request.reject(error);
         pending.clear();
         listeners.clear();
+        if (speaking) announce(false);
         if (stopping || restarts >= maxRestarts) return;
         restarts += 1;
         startEngine();

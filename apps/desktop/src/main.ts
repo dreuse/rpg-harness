@@ -205,10 +205,14 @@ export const startMain = ({
     ...(hidden ? { show: false as const } : {}),
     webPreferences: { preload, ...WINDOW_SECURITY },
   });
-  const push = (channel: string, value: string | number) => {
+  const push = (channel: string, value: string | number | boolean) => {
     if (!window.isDestroyed()) window.webContents.send(channel, value);
   };
-  const daemon = startDaemon({ env: engineEnv(env), onCrash: () => push(CHANNELS.close, ENGINE_CRASHED) });
+  const daemon = startDaemon({
+    env: engineEnv(env),
+    onCrash: () => push(CHANNELS.close, ENGINE_CRASHED),
+    onSpeaking: (active) => push(CHANNELS.soundSpeaking, active),
+  });
   window.on('closed', () => {
     daemon.stop();
   });

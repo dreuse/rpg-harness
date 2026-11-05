@@ -26,6 +26,7 @@ export const CHANNELS = {
   soundDownload: 'rpg:sound:download',
   soundFile: 'rpg:sound:file',
   soundProgress: 'rpg:sound:progress',
+  soundSpeaking: 'rpg:sound:speaking',
 } as const;
 
 export type Bridge = Transport & {
@@ -70,5 +71,9 @@ export const exposeBridge = ({
       download: (consent) => ipcRenderer.invoke(CHANNELS.soundDownload, consent) as never,
       file: (kind, key) => ipcRenderer.invoke(CHANNELS.soundFile, kind, key) as never,
       onProgress: (listener) => ipcRenderer.on(CHANNELS.soundProgress, (_event, bytes) => listener(Number(bytes))),
+      onSpeaking: (listener) =>
+        ipcRenderer.on(CHANNELS.soundSpeaking, (_event, active) => {
+          if (typeof active === 'boolean') listener(active);
+        }),
     },
   });

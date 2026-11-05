@@ -1218,6 +1218,7 @@ test('rpg-cm63.39 page downloads the sound pack only after consent, then refresh
     },
     file: async () => undefined,
     onProgress: () => {},
+    onSpeaking: () => {},
   };
   mount(page, {}, deniedMicrophone, undefined, WIDE_WIDTH, { bridge: { ...page.bridge, sound: soundBridge }, sound });
   page.receive(READY);
@@ -1249,6 +1250,7 @@ test('rpg-cm63.39 page keeps the typed entry and its focus when the sound downlo
     download: () => new Promise<void>((resolve) => (finish = resolve)),
     file: async () => undefined,
     onProgress: () => {},
+    onSpeaking: () => {},
   };
   mount(page, {}, deniedMicrophone, undefined, WIDE_WIDTH, { bridge: { ...page.bridge, sound: soundBridge }, sound });
   page.receive(READY);

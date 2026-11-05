@@ -590,6 +590,17 @@ test('rpg-cm63.17 main forwards only valid playback commands from its own window
   assert.deepEqual(forwarded, ['pause']);
 });
 
+test('rpg-cm63.40 main relays engine playback events to its window on the sound channel', () => {
+  const electron = fakeElectron();
+  const { options } = start(electron);
+  options[0]?.onSpeaking?.(true);
+  options[0]?.onSpeaking?.(false);
+  assert.deepEqual(electron.pushed, [
+    [CHANNELS.soundSpeaking, true],
+    [CHANNELS.soundSpeaking, false],
+  ]);
+});
+
 test('rpg-cm63.22 main answers a diagnostics request from its own window with the engine speech summary', async () => {
   const electron = fakeElectron();
   const summary = { samples: 2, cacheHitRate: 0, errors: {}, stages: {}, peakQueueDepth: 3 };
