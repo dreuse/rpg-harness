@@ -13,6 +13,7 @@ const PYTHON_AVAILABLE = probe.status === 0;
 const run = (body: string) =>
   spawnSync(PYTHON, [
     '-I',
+    '-B',
     '-c',
     `import importlib.util as u, os
 spec = u.spec_from_file_location('service', ${JSON.stringify(SERVICE)})
