@@ -845,6 +845,15 @@ test('an attempt in a d20-lite campaign rolls through the engine and reaches the
   const reveal = shown?.type === VISUALIZATION_EVENT ? shown.frames[0]?.reveal : undefined;
   assert.deepEqual(reveal?.kind === 'die' && reveal.sides, 20);
   assert.match((shown?.type === VISUALIZATION_EVENT && shown.final.outcome) || '', /^check\./);
+
+  const late = collect(sessionFor(PLAYER_VIEWER), envelope);
+  assert.deepEqual(mechanics(late), [shown]);
+  const resumed: ClientEvent[] = [];
+  sessionFor(PLAYER_VIEWER).subscribeEvents(
+    { ...envelope, type: 'SubscribeEvents', fromRevision: accepted.value.revision },
+    (event) => resumed.push(event),
+  );
+  assert.deepEqual(mechanics(resumed), []);
 });
 
 test('A21: SaveVoiceSettings commits through the engine and the snapshot reads it back', () => {

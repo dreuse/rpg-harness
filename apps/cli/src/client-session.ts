@@ -41,7 +41,7 @@ import type { CampaignEntity, Relationship, Visibility } from '../../../packages
 import { playTurns, SHEET_FIELD_EDITED } from '../../../packages/engine/src/character.ts';
 import { currentEncounter } from '../../../packages/engine/src/encounter.ts';
 import type { Engine } from '../../../packages/engine/src/engine.ts';
-import { campaignConfigOf } from '../../../packages/engine/src/turn.ts';
+import { CHECK_RESOLVED, campaignConfigOf } from '../../../packages/engine/src/turn.ts';
 import { voiceSettingsOf } from '../../../packages/engine/src/voice-settings.ts';
 import { parseCampaignConfig } from '../../../packages/intent/src/config.ts';
 import { type Scoped, type Viewer, visibleTo } from '../../../packages/memory/src/knowledge.ts';
@@ -185,13 +185,16 @@ export const createClientSessions = (
   const log = createEventLog({ campaignId, branchId: MAIN_BRANCH });
   const scopes = new Map<EventId, Scoped>();
 
-  const encounterRolls = () => {
+  const replayedRolls = (fromRevision: number) => {
     const { events } = engine.getState(campaignId);
     const acted = new Set(currentEncounter(events)?.actions.map(({ eventId }) => eventId));
-    const results = events
+    const encounter = events
       .filter(({ id }) => acted.has(id))
       .flatMap(({ id, payload }) => resultsOf(payload, scopes.get(id)?.visibility ?? HIDDEN));
-    return { results, preference: visualizationPreferenceOf(events) };
+    const checks = readEvents(campaignId)
+      .filter(({ type, revision }) => type === CHECK_RESOLVED && revision > fromRevision)
+      .flatMap(({ payload, visibility }) => resultsOf(payload, visibility));
+    return { results: [...encounter, ...checks], preference: visualizationPreferenceOf(events) };
   };
 
   const sync = () => {
@@ -342,9 +345,10 @@ export const createClientSessions = (
           if (!canSee(event)) return;
           listener(event.type === EVENT_COMMITTED ? redacted(event) : event);
         };
-        const unsubscribe = log.subscribe(accepted.value.fromRevision ?? 0, filtered, scope);
+        const fromRevision = accepted.value.fromRevision ?? 0;
+        const unsubscribe = log.subscribe(fromRevision, filtered, scope);
         attempt(() => {
-          const { results, preference } = encounterRolls();
+          const { results, preference } = replayedRolls(fromRevision);
           for (const event of emitVisualizations(results, scope, preference)) filtered(event);
         });
         return unsubscribe;
