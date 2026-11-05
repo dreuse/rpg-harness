@@ -19,15 +19,30 @@ import {
 import type { StoryKit } from '../../../packages/content/src/story.ts';
 import { type CampaignConfig, type ConfigIssue, generateCampaignConfig } from '../../../packages/intent/src/config.ts';
 import {
+  CLIENT_CAPABILITIES,
+  detectConflicts,
+  type IntentConflict,
+  MECHANICAL_FIELDS,
+  UI_REQUIREMENTS,
+} from '../../../packages/intent/src/conflicts.ts';
+import {
   type CampaignIntent,
   type CampaignIntentInput,
   type CapabilityMode,
+  CLIENTS,
+  type Client,
+  type IntentField,
   type IntentIssue,
   type Provenance,
   parseCampaignIntent,
 } from '../../../packages/intent/src/intent.ts';
 import { MAX_INTENT_TEXT_LENGTH, proposeCampaignIntent } from '../../../packages/intent/src/parser.ts';
-import { matchGenre, type Registry } from '../../../packages/intent/src/registry.ts';
+import {
+  type CapabilityReport,
+  matchGenre,
+  matchRuleset,
+  type Registry,
+} from '../../../packages/intent/src/registry.ts';
 import {
   type RulesetCandidate,
   type RulesetResolution,
@@ -76,10 +91,37 @@ const PLAN_FIELDS = [
 ] as const;
 const LIGHT_RULES = 'Light rules. The GM decides what happens from your story.';
 const LIST = new Intl.ListFormat('en', { type: 'conjunction' });
+const ALTERNATIVES = new Intl.ListFormat('en', { type: 'disjunction' });
+const CONFLICT = 'conflict';
+const REQUIRES_DICE = 'requires_dice';
+const CLIENT_UNSUPPORTED = 'client_unsupported';
+const NEEDS_DICE = 'diceVisualization needs a ruleset with dice.';
+const NO_MECHANICS: CapabilityReport = { advertised: [], supported: [], unsupported: [...MECHANICAL_FIELDS] };
 
 type Choices = Readonly<Record<string, unknown>>;
 
 export class UnknownEdition extends Error {}
+
+export class ClientUnsupported extends Error {
+  readonly client: Client;
+  constructor(message: string, client: Client) {
+    super(message);
+    this.client = client;
+  }
+}
+
+const supports = (client: Client, field: IntentField) =>
+  UI_REQUIREMENTS.some(
+    ([required, capability]) => required === field && CLIENT_CAPABILITIES[client].includes(capability),
+  );
+
+const reportFor = ({ ruleset }: CampaignIntent): CapabilityReport => {
+  const rules = ruleset.value === null ? null : matchRuleset(REGISTRY, ruleset.value, MECHANICAL_FIELDS);
+  return rules?.ok === true ? rules.capabilities : NO_MECHANICS;
+};
+
+const conflictText = ({ code, entries: [entry] }: IntentConflict) =>
+  code === REQUIRES_DICE ? NEEDS_DICE : issueLine({ code: CONFLICT, path: entry?.field ?? '' });
 
 const listed = (items: readonly string[]) => (items.length === 0 ? NONE : items.join(', '));
 const rulesets = (candidates: readonly RulesetCandidate[]) =>
@@ -133,8 +175,22 @@ const resolvedIntent = (choices: CampaignIntent): CampaignIntent => {
 
 const configFor = (intent: CampaignIntent): CampaignConfig => {
   const result = generateCampaignConfig(intent, REGISTRY);
-  if (!result.ok) throw new Error(result.issues.map((issue) => issueText(intent, issue)).join('\n'));
-  return result.config;
+  if (result.ok) return result.config;
+  const conflicts = result.issues.some(({ code }) => code === CONFLICT)
+    ? detectConflicts(intent, reportFor(intent))
+    : [];
+  const unsupported = conflicts.flatMap(({ code, entries: [entry] }) =>
+    code === CLIENT_UNSUPPORTED && entry !== undefined ? [entry.field] : [],
+  );
+  const lines = [
+    ...result.issues.filter(({ code }) => code !== CONFLICT).map((issue) => issueText(intent, issue)),
+    ...conflicts.filter(({ code }) => code !== CLIENT_UNSUPPORTED).map(conflictText),
+  ];
+  const clients = CLIENTS.filter((client) => unsupported.every((field) => supports(client, field)));
+  const [client] = clients;
+  if (unsupported.length === 0 || client === undefined) throw new Error(lines.join('\n'));
+  const advice = `Use the ${ALTERNATIVES.format(clients)} client for ${LIST.format(unsupported)}.`;
+  throw new ClientUnsupported([...lines, advice].join('\n'), client);
 };
 
 export const planCampaign = (text?: string, choices: Choices = {}): CampaignConfig =>

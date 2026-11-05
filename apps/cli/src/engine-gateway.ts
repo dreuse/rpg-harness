@@ -59,6 +59,7 @@ import {
 import { importRules } from './import-gateway.ts';
 import type { CampaignGateway } from './main.ts';
 import {
+  ClientUnsupported,
   commandConfig,
   creationRulesFor,
   describeConfig,
@@ -653,6 +654,15 @@ export const campaignDatabases = (dataDir: string): CampaignFile[] => [
   ...savedCampaigns(join(dataDir, ARCHIVE_DIR)).map((name) => ({ name, database: archivePath(dataDir, name) })),
 ];
 
+const newCampaignConfig = (intent: string | undefined, client: string | undefined) => {
+  try {
+    return planCampaign(intent, client === undefined ? {} : { client });
+  } catch (error) {
+    if (!(error instanceof ClientUnsupported)) throw error;
+    throw new Error(`${error.message} Add --client ${error.client}.`);
+  }
+};
+
 const restore = (dataDir: string, file: string) => {
   mkdirSync(dataDir, { recursive: true });
   const { campaign } = restoreArchive(file, dataDir, (name) => databasePath(dataDir, name));
@@ -688,8 +698,8 @@ export const createEngineGateway = (
       defaultUpdateContext(dataDir, () => campaignDatabases(dataDir)),
       request,
     ),
-  create: async function* (name, intent, ask) {
-    const config = planCampaign(intent);
+  create: async function* (name, intent, ask, client) {
+    const config = newCampaignConfig(intent, client);
     const scene = createCampaign(dataDir, name, openingFor(config, DEFAULT_OPENING), config);
     yield `${SAVED_SETTINGS}\n${describeConfig(config)}\n${scene}`;
     const character = await characterFor(dataDir, name, config, ask);

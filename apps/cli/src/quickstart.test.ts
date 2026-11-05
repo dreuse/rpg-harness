@@ -189,6 +189,29 @@ test('rpg-42a.8 free text turns dice animation on for the tui client', () => {
   assert.deepEqual(entry, { field: 'diceVisualization', value: 'on', provenance: 'derived' });
 });
 
+const DICE_ONLY_INTENT = 'with dice animation';
+const VOICE_DICE_INTENT = `${DICE_ANIMATION_INTENT} and voice narration`;
+const DICE_HINT = 'Use the tui or desktop client for diceVisualization. Add --client tui.';
+const NEEDS_DICE = 'diceVisualization needs a ruleset with dice.';
+
+test('rpg-42a.31 new explains each conflict once, hints at --client and accepts --client', () =>
+  withDataDir((dataDir) => {
+    const refusals: [string[], string][] = [
+      [[DICE_ANIMATION_INTENT], `${DICE_HINT}\n`],
+      [[DICE_ONLY_INTENT], `${NEEDS_DICE}\n${DICE_HINT}\n`],
+      [[DICE_ONLY_INTENT, '--client', TUI_CLIENT], `${NEEDS_DICE}\n`],
+      [[VOICE_DICE_INTENT], 'Use the desktop client for voiceOutput and diceVisualization. Add --client desktop.\n'],
+    ];
+    for (const [args, stderr] of refusals) {
+      const refused = rpg(dataDir, ['new', DEFAULT_CAMPAIGN, ...args]);
+      assert.notEqual(refused.status, EXIT_OK);
+      assert.equal(refused.stderr, stderr, args.join(' '));
+    }
+    assert.deepEqual(readdirSync(dataDir), []);
+    succeed(dataDir, ['new', DEFAULT_CAMPAIGN, DICE_ANIMATION_INTENT, '--client', TUI_CLIENT]);
+    assert.deepEqual(readdirSync(dataDir), [`${DEFAULT_CAMPAIGN}.sqlite`]);
+  }));
+
 test('rpg-42a.14 an uninstalled or invalid edition is reported as unknown and never substituted', () => {
   assert.throws(() => planStart({ ...PLAN, intent: 'D&D 1.9' }), UnknownEdition);
   assert.throws(() => planStart({ ...PLAN, choices: { ruleset: { id: 'd20-lite', edition: '5e' } } }), UnknownEdition);

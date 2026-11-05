@@ -19,8 +19,8 @@ const setup = (input: readonly string[] = PLAYER_LINES) => {
       calls.push('home');
       terminal.write('Home.\n');
     },
-    create: async function* (name, intent) {
-      calls.push(intent === undefined ? `create:${name}` : `create:${name}:${intent}`);
+    create: async function* (name, intent, _ask, client) {
+      calls.push([`create:${name}`, intent, client].filter((part) => part !== undefined).join(':'));
       yield `Created campaign ${name}.`;
     },
     list: () => {
@@ -168,6 +168,7 @@ test('launch, new, play and resume dispatch to the gateway and confirm', async (
     [['tui'], 'home'],
     [['new', 'Ember'], 'create:Ember'],
     [['new', 'Ember', 'A spooky tale'], 'create:Ember:A spooky tale'],
+    [['new', 'Ember', 'With dice animation', '--client', 'tui'], 'create:Ember:With dice animation:tui'],
     [['play', 'Ember'], 'play:Ember'],
     [['resume', 'Ember'], 'resume:Ember'],
     [['list'], 'list'],
@@ -229,6 +230,8 @@ test('usage errors exit 2, hint at rpg help and never call the gateway', async (
     [['restore'], 'restore'],
     [['restore', ' '], 'restore'],
     [['restore', 'a', 'b'], 'b'],
+    [['new', 'Ember', '--client', 'web'], 'cli, tui, desktop'],
+    [['play', 'Ember', '--client', 'tui'], '--client'],
   ];
   for (const [argv, named] of bad) {
     const { calls, gateway, io, out, err } = setup();

@@ -1,4 +1,5 @@
 import { parseArgs } from 'node:util';
+import { CLIENTS } from '../../../packages/intent/src/intent.ts';
 import type { Ask } from './character-creation.ts';
 import { PLAIN_TERMINAL, type Terminal } from './tui.ts';
 import type { UpdateRequest } from './update.ts';
@@ -11,9 +12,11 @@ export const EXIT_USAGE = 2;
 const HELP_HINT = 'Run rpg help for usage.';
 const VOICE_COMMAND = 'tui';
 const UPDATE_COMMAND = 'update';
+const CLIENT_COMMAND = 'new';
 const OPTIONS = {
   help: { type: 'boolean', short: 'h' },
   voice: { type: 'boolean' },
+  client: { type: 'string' },
   check: { type: 'boolean' },
   'auto-check': { type: 'boolean' },
   'pre-release': { type: 'boolean' },
@@ -23,7 +26,7 @@ export type CampaignMode = 'play' | 'resume';
 
 export type CampaignGateway = {
   home: (terminal: Terminal) => Promise<void>;
-  create: (name: string, intent: string | undefined, ask: Ask) => AsyncIterable<string>;
+  create: (name: string, intent: string | undefined, ask: Ask, client?: string) => AsyncIterable<string>;
   list: () => string;
   archive: (campaign: string) => string;
   remove: (campaign: string, lines: AsyncIterable<string>) => AsyncIterable<string>;
@@ -59,8 +62,9 @@ const COMMANDS = [
   { name: 'start', usage: 'start', description: 'Start a new adventure with a few short questions you can skip.' },
   {
     name: 'new',
-    usage: 'new <name> [intent]',
-    description: 'Create a campaign from defaults or a one-sentence intent.',
+    usage: 'new <name> [intent] [--client cli|tui|desktop]',
+    description:
+      'Create a campaign from defaults or a one-sentence intent. --client picks where you play, so the intent can use its features, such as tui for dice animation.',
   },
   { name: 'play', usage: 'play <campaign>', description: 'Start playing a campaign.' },
   { name: 'resume', usage: 'resume <campaign>', description: 'Continue a campaign.' },
@@ -205,6 +209,11 @@ export const main = async (argv: readonly string[], io: Io, gateway: CampaignGat
   const [command = 'launch', ...rest] = parsed.positionals;
   const voice = parsed.values.voice === true;
   if (voice && command !== VOICE_COMMAND) return usageError(io, `Option --voice works only with ${VOICE_COMMAND}.`);
+  const { client } = parsed.values;
+  if (client !== undefined && command !== CLIENT_COMMAND)
+    return usageError(io, `Option --client works only with ${CLIENT_COMMAND}.`);
+  if (client !== undefined && !CLIENTS.some((known) => known === client))
+    return usageError(io, `Unknown client ${client}. Valid clients: ${CLIENTS.join(', ')}.`);
   const { check, 'auto-check': autoCheck, 'pre-release': preRelease } = parsed.values;
   const updateOption = [check, autoCheck, preRelease].some((value) => value !== undefined);
   if (updateOption && command !== UPDATE_COMMAND)
@@ -234,7 +243,7 @@ export const main = async (argv: readonly string[], io: Io, gateway: CampaignGat
     if (unexpected.length > 0) return usageError(io, `Unexpected argument: ${unexpected[0]}.`);
     return run(io, () =>
       command === 'new'
-        ? withAsk(io, (ask) => gateway.create(name, intent, ask))
+        ? withAsk(io, (ask) => gateway.create(name, intent, ask, client))
         : gateway.open(
             name,
             command,
