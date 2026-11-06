@@ -13,6 +13,7 @@ import type { CharacterProfile } from '../../domain/src/character.ts';
 import { type BuildInput, buildCharacter, type CreationRules } from '../../rules/src/character-builder.ts';
 import { isRecord } from '../../rules/src/rulepack.ts';
 import type { Visibility } from '../../rules/src/sheet-schema.ts';
+import { GM_PROPOSAL_INPUT } from './check-offer.ts';
 import {
   commitSystem,
   InvalidActionError,
@@ -114,4 +115,5 @@ export const profileOf = (events: readonly CampaignEvent[], actorId: CharacterId
   return { ...profile, traits };
 };
 
-export const playTurns = ({ turns }: Pick<CampaignState, 'turns'>) => turns.filter(({ kind }) => kind !== SYSTEM_TURN);
+export const playTurns = ({ turns }: Pick<CampaignState, 'turns'>) =>
+  turns.filter(({ kind, input }) => kind !== SYSTEM_TURN && !input.startsWith(GM_PROPOSAL_INPUT));

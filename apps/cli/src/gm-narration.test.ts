@@ -7,6 +7,7 @@ import { describe, it, type TestContext } from 'node:test';
 import { setTimeout } from 'node:timers/promises';
 import { PROTOCOL_VERSION } from '../../../packages/client-protocol/src/protocol.ts';
 import type { CampaignStore, CommittedTurn } from '../../../packages/domain/src/campaign.ts';
+import { GM_PROPOSAL_INPUT } from '../../../packages/engine/src/check-offer.ts';
 import { GM_CONTEXT_RECORDED } from '../../../packages/engine/src/gm-settings.ts';
 import { GameMasterInterruptedError } from '../../../packages/engine/src/scripted-session.ts';
 import { CHECK_RESOLVED } from '../../../packages/engine/src/turn.ts';
@@ -217,6 +218,26 @@ describe('rpg-42a.28 API game master wiring', () => {
     const after = session.getSnapshot({ ...envelope, type: 'GetCampaignSnapshot' });
     assert.ok(after.ok);
     assert.equal(after.value.turns.at(-1)?.narration, NARRATION);
+  });
+
+  it('rpg-42a.130 rejects player input that uses the GM proposal prefix', async (t) => {
+    const dataDir = await seededCampaign(t);
+    const { session, campaignId, close } = openClientSession(dataDir, CAMPAIGN, FAKE_GAME_MASTER);
+    t.after(close);
+    const envelope = { version: PROTOCOL_VERSION, campaignId } as const;
+    const before = session.getSnapshot({ ...envelope, type: 'GetCampaignSnapshot' });
+    assert.ok(before.ok);
+    const { revision, currentScene, characters } = before.value;
+    const submitted = session.submitPlayerAction({
+      ...envelope,
+      type: 'SubmitPlayerAction',
+      actionId: randomUUID(),
+      expectedRevision: revision,
+      sceneId: currentScene?.id ?? '',
+      actorId: characters[0]?.id ?? '',
+      input: `${GM_PROPOSAL_INPUT}claim x`,
+    });
+    assert.equal(submitted.ok, false);
   });
 
   it('rpg-cm63.10 hands the GM segments back with the narrated turn', async (t) => {

@@ -9,7 +9,15 @@ import {
 import { type AppliedModifier, type ModifierRequest, resolveModifiers } from '../../rules/src/modifiers.ts';
 import { isRecord } from '../../rules/src/rulepack.ts';
 import type { ModifierPolicy } from './conditions.ts';
-import { commitSystem, loadState, type PlayerAction, replayOf, requireValid, validate } from './turn.ts';
+import {
+  commitSystem,
+  GM_PROPOSAL_INPUT,
+  loadState,
+  type PlayerAction,
+  replayOf,
+  requireValid,
+  validate,
+} from './turn.ts';
 
 export type CheckOffer = {
   readonly offerId: string;
@@ -28,7 +36,8 @@ export type CheckOffering = PlayerAction & {
 
 const OFFER_FIELDS = ['offerId', 'ruleId', 'target', 'label'] as const;
 const NOT_FOUND = -1;
-export const GM_PROPOSAL_INPUT = 'GM proposal ';
+
+export { GM_PROPOSAL_INPUT };
 
 const offerOf = (payload: CampaignEvent['payload']): CheckOffer | undefined => {
   const { offer } = payload;

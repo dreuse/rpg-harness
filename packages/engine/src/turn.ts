@@ -221,6 +221,8 @@ export const replayOf = (
   return stored;
 };
 
+export const GM_PROPOSAL_INPUT = 'GM proposal ';
+
 export const performAction = (
   store: CampaignStore,
   action: PlayerAction,
@@ -231,6 +233,7 @@ export const performAction = (
   const stored = replayOf(store, state, action);
   if (stored !== undefined) return stored;
   validate(state, action);
+  requireValid(action.actionId, !action.input.startsWith(GM_PROPOSAL_INPUT), 'input uses a reserved prefix');
   if (typeof check === 'function') {
     const { reported, damage, ...resolution } = check(action.actionId, rng);
     const report: Step[] =

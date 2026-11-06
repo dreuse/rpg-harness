@@ -7,6 +7,7 @@ import { openDatabase } from '../../persistence/src/database.ts';
 import { type BuildInput, buildCharacter, type CreationRules } from '../../rules/src/character-builder.ts';
 import { SHEET_SCHEMA_VERSION } from '../../rules/src/sheet-schema.ts';
 import { CHARACTER_CREATED, commitCharacter, editSheetField, playTurns, SHEET_FIELD_EDITED } from './character.ts';
+import { GM_PROPOSAL_INPUT } from './check-offer.ts';
 import { createEngine } from './engine.ts';
 import { commit, commitSystem, InvalidActionError, openScene } from './turn.ts';
 
@@ -185,4 +186,19 @@ test('rpg-cm63.20: a system commit of any new event type is hidden by turn kind'
     const state = engine.getState(campaignId);
     assert.equal(state.turns.at(-1)?.kind, 'system');
     assert.equal(playTurns(state).length, 1);
+  }));
+
+test('rpg-42a.130: a committed GM proposal is not a play turn', () =>
+  withCampaign(({ store, engine, campaignId, action }) => {
+    commit(store, { ...action, input: `${GM_PROPOSAL_INPUT}claim aldric-jurou-devolver-chave` }, [
+      ['BrandNewPlayerEvent', {}],
+    ]);
+    const state = engine.getState(campaignId);
+    assert.equal(state.turns.length, 2);
+    assert.equal(playTurns(state).length, 1);
+  }));
+
+test('rpg-42a.130: a player cannot submit input that uses the GM proposal prefix', () =>
+  withCampaign(({ engine, action }) => {
+    assert.throws(() => engine.submitAction({ ...action, input: `${GM_PROPOSAL_INPUT}claim x` }), InvalidActionError);
   }));
