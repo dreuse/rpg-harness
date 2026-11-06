@@ -35,6 +35,26 @@ export const GM_USAGE_CATALOG: Catalog = {
     'usage.line':
       '{label}: {turns} GM turns, {total} tokens ({input} in, {read} cache read, {write} cache write, {output} out), {cost}.',
   },
+  es: {
+    'hint.default': 'equilibrado (recomendado): calidad, creatividad y velocidad',
+    'hint.cheap': 'más barato y rápido',
+    'hint.balanced': 'Sonnet, elegido por nombre',
+    'hint.rich': 'narración más rica, cuesta más',
+    'hint.custom': 'un id de modelo enviado tal cual',
+    'model.line': 'Modelo del GM: {model} ({hint}). Modelo de resumen: {summary}.',
+    'model.summaryDefault': 'uno barato por defecto',
+    'rules.line': 'Rigor de las reglas: {value}.',
+    'budget.line': 'Presupuesto de la sesión: {tokens} tokens, solo un aviso.',
+    'budget.warning': 'Esta sesión usó más del presupuesto de {tokens} tokens. El juego continúa.',
+    'context.hint': 'Varios datos de la historia quedaron fuera del contexto del GM. Considera la memoria rica.',
+    'cost.unreported': 'coste no informado',
+    'cost.partial.one': '{cost} en {priced} turno con precio',
+    'cost.partial.other': '{cost} en {priced} turnos con precio',
+    'usage.session': 'Esta sesión',
+    'usage.campaign': 'Esta campaña',
+    'usage.line':
+      '{label}: {turns} turnos del GM, {total} tokens ({input} de entrada, {read} de lectura de caché, {write} de escritura de caché, {output} de salida), {cost}.',
+  },
   'pt-BR': {
     'hint.default': 'equilibrado (recomendado): qualidade, criatividade e velocidade',
     'hint.cheap': 'mais barato e rápido',

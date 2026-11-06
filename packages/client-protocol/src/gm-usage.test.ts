@@ -88,7 +88,27 @@ test('rpg-42a.53: usage, settings and budget lines read in Brazilian Portuguese'
   );
 });
 
-test('rpg-42a.53: the English usage lines stay as they were for the default and unknown locales', () => {
+test('rpg-42a.51: usage, settings and budget lines read in Spanish', () => {
+  const gm = {
+    settings: { model: 'haiku', sessionBudgetTokens: 1500 },
+    session: SESSION,
+    campaign: { ...SESSION, pricedTurns: 1 },
+  };
+  const text = gmUsageLines({ ...gm, contextTight: true }, 'es').join('\n');
+  assert.match(text, /Modelo del GM: haiku \(más barato y rápido\)\. Modelo de resumen: uno barato por defecto\./);
+  assert.match(text, /Esta sesión: 2 turnos del GM, 1700 tokens/);
+  assert.match(text, /Esta campaña: .*en 1 turno con precio/);
+  assert.match(text, /Esta sesión usó más del presupuesto de 1500 tokens\. El juego continúa\./);
+  assert.match(text, /memoria rica/);
+  assert.match(text, /0,0123\sUS\$/);
+  assert.match(
+    gmUsageLines({ settings: {}, session: { ...SESSION, inputTokens: 12345 }, campaign: SESSION }, 'es').join('\n'),
+    /13\.045 tokens \(12\.345 de entrada/,
+  );
+  assert.match(gmSettingsLines(gm.settings, 'es').join('\n'), /Presupuesto de la sesión: 1500 tokens, solo un aviso\./);
+});
+
+test('rpg-42a.51: unknown locales keep the English usage lines', () => {
   const gm = { settings: { model: 'haiku' }, session: SESSION, campaign: SESSION };
-  assert.deepEqual(gmUsageLines(gm, 'es'), gmUsageLines(gm));
+  assert.deepEqual(gmUsageLines(gm, 'fr'), gmUsageLines(gm));
 });
