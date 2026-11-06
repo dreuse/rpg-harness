@@ -51,7 +51,6 @@ import { writeGmDefaults } from './gm-defaults.ts';
 import { failureOf, planResult } from './quickstart.ts';
 import { dataDirFromEnv } from './setup-check.ts';
 
-const UNSUPPORTED_STORY_MEMORY = 'this daemon does not serve story memory yet';
 const PLAYBACK = 'Playback';
 const UNKNOWN_PLAYBACK = 'Unknown playback command.';
 const DIAGNOSTICS = 'Diagnostics';
@@ -291,8 +290,9 @@ const replier = ({ name, campaign, problem }: Served, gm: GameMaster) => {
       return send({ id, type: 'Result', result: session.confirmOocProposal(command) });
     if (command.type === 'UndoOocChange') return send({ id, type: 'Result', result: session.undoOocChange(command) });
     if (command.type === 'SaveGmDefaults') return send({ id, type: 'Result', result: saveGmDefaults(command) });
-    if (command.type === 'GetStoryMemory' || command.type === 'CorrectStoryFact')
-      return send({ id, type: 'Result', result: failure('Rejected', UNSUPPORTED_STORY_MEMORY) });
+    if (command.type === 'GetStoryMemory') return send({ id, type: 'Result', result: session.getStoryMemory(command) });
+    if (command.type === 'CorrectStoryFact')
+      return send({ id, type: 'Result', result: session.correctStoryFact(command) });
     subscriptions.get(id)?.();
     subscriptions.set(
       id,

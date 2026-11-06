@@ -42,6 +42,7 @@ import {
 } from '../../../packages/engine/src/gm-settings.ts';
 import { contextBudgetOf } from '../../../packages/engine/src/memory.ts';
 import { withoutRetconned } from '../../../packages/engine/src/ooc.ts';
+import { correctStoryFact, readStoryMemory } from '../../../packages/engine/src/story-memory.ts';
 import {
   CHECK_RESOLVED,
   CHECK_SKIPPED,
@@ -67,6 +68,7 @@ import {
   createClientSessions,
   gmSnapshotOf,
   type SheetPort,
+  type StoryPort,
   scopedEventsOf,
   scopeLookupOf,
   type WorldSource,
@@ -724,6 +726,16 @@ const sheetsOf = ({ engine, store }: Session, readWorld: WorldSource): SheetPort
   },
 });
 
+const storyOf = ({ store }: Session, database: DatabaseSync): StoryPort => {
+  const entities = createEntityStore(database);
+  return {
+    read: (campaignId) => readStoryMemory(store, entities, campaignId),
+    correct: (correction) => {
+      correctStoryFact(store, entities, correction);
+    },
+  };
+};
+
 export const openClientSession = (
   dataDir: string,
   name: string,
@@ -741,7 +753,7 @@ export const openClientSession = (
       scopedEventsOf(database),
       readWorld,
       sheetsOf(opened, readWorld),
-      { sessionId, defaults: gmDefaults },
+      { sessionId, defaults: gmDefaults, story: storyOf(opened, database) },
     );
     const voiceLocale = () => {
       const settings = voiceSettingsOf(engine.getState(campaignId).changes);

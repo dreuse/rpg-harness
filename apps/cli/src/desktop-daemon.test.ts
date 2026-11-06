@@ -23,6 +23,7 @@ import {
   type CampaignSummary,
   type ClientEvent,
   PROTOCOL_VERSION,
+  type StoryMemoryView,
   type ViewDescriptor,
 } from '../../../packages/client-protocol/src/protocol.ts';
 import { SHEET_VIEW } from '../../../packages/client-protocol/src/view-registry.ts';
@@ -721,20 +722,21 @@ describe('serve client-protocol commands over the desktop engine daemon', () => 
     acceptedValue(await daemon.command(lifecycle('ArchiveCampaign', { name: CAMPAIGN })));
   });
 
-  it('rpg-42a.64: rejects story memory commands until the daemon serves them', async (t) => {
+  it('rpg-42a.60: serves story memory and rejects a correction with nothing to correct', async (t) => {
     const { env, campaignId } = await campaignEnv(t);
     const daemon = supervise(t, { env });
     const get = lifecycle('GetStoryMemory', { campaignId });
+    const view = acceptedValue<StoryMemoryView>(await daemon.command(get));
     const correct = lifecycle('CorrectStoryFact', {
       campaignId,
       actionId: 'fix-1',
-      expectedRevision: 0,
+      expectedRevision: view.revision,
       actorId: 'any',
       entityId: 'bob',
       kind: 'name',
       value: 'Bob',
     });
-    assert.equal(rejectionOf(await daemon.command(get)), 'Rejected');
+    assert.equal(view.campaignId, campaignId);
     assert.equal(rejectionOf(await daemon.command(correct)), 'Rejected');
   });
 

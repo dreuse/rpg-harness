@@ -53,11 +53,13 @@ import {
   ledgerTotals,
 } from '../../../packages/domain/src/gm.ts';
 import { ROLL_CORRECTED } from '../../../packages/domain/src/ooc.ts';
+import type { StoryMemory } from '../../../packages/domain/src/story-memory.ts';
 import { playTurns, SHEET_FIELD_EDITED } from '../../../packages/engine/src/character.ts';
 import { pendingCheckOffer } from '../../../packages/engine/src/check-offer.ts';
 import { campaignLanguageOf, type Engine } from '../../../packages/engine/src/engine.ts';
 import { contextDroppedOften, gmSettingsOf } from '../../../packages/engine/src/gm-settings.ts';
 import { RollReportError } from '../../../packages/engine/src/roll-report.ts';
+import type { StoryCorrection } from '../../../packages/engine/src/story-memory.ts';
 import { campaignConfigOf } from '../../../packages/engine/src/turn.ts';
 import { voiceSettingsOf } from '../../../packages/engine/src/voice-settings.ts';
 import { parseCampaignConfig } from '../../../packages/intent/src/config.ts';
@@ -84,6 +86,10 @@ export type EventSource = (campaignId: CampaignId, query?: EventQuery) => readon
 export type World = { readonly entities: readonly CampaignEntity[]; readonly relationships: readonly Relationship[] };
 export type WorldSource = (campaignId: CampaignId, heroId: CharacterId | undefined) => World;
 export type Sheet = { readonly schema: SheetSchema; readonly values: Readonly<Record<string, unknown>> };
+export type StoryPort = {
+  read(campaignId: CampaignId): StoryMemory;
+  correct(correction: StoryCorrection): void;
+};
 export type SheetPort = {
   read(campaignId: CampaignId, actorId: CharacterId): Sheet | undefined;
   commit(edit: SheetEdit): void;
@@ -91,6 +97,7 @@ export type SheetPort = {
 
 const HIDDEN: Visibility = 'gm';
 const UNSUPPORTED_CAPABILITIES = 'this engine does not support capability selection yet';
+const UNSUPPORTED_STORY = 'this engine does not serve story memory yet';
 const UNSUPPORTED_SHEETS = 'this engine does not serve character sheets yet';
 const NO_SUBSCRIPTION = () => {};
 const ACTOR_SCOPE: Viewer['scope'] = 'actor';
@@ -225,6 +232,7 @@ export type GmSessionContext = {
   readonly sessionId?: string;
   readonly defaults?: () => GmSettings;
   readonly logWindow?: number;
+  readonly story?: StoryPort;
 };
 
 export const gmSnapshotOf = (
@@ -289,7 +297,7 @@ export const createClientSessions = (
   readEvents: EventSource,
   readWorld: WorldSource = NO_WORLD,
   sheets?: SheetPort,
-  { sessionId, defaults = () => ({}), logWindow = EVENT_LOG_WINDOW }: GmSessionContext = {},
+  { sessionId, defaults = () => ({}), logWindow = EVENT_LOG_WINDOW, story }: GmSessionContext = {},
 ) => {
   const log = createEventLog({ campaignId, branchId: MAIN_BRANCH }, logWindow);
   const scopes = new Map<EventId, Scoped & { readonly seq: number }>();
@@ -539,6 +547,31 @@ export const createClientSessions = (
         if (!accepted.ok) return accepted;
         if (sheets === undefined) return failure('Rejected', UNSUPPORTED_SHEETS);
         return guarded(() => editSheet(sheets, accepted.value));
+      },
+      getStoryMemory: (command) => {
+        const accepted = accept<typeof command>(command, 'GetStoryMemory');
+        if (!accepted.ok) return accepted;
+        if (story === undefined) return failure('Rejected', UNSUPPORTED_STORY);
+        return attempt(() => {
+          sync();
+          return deepFreeze({
+            version: PROTOCOL_VERSION,
+            campaignId,
+            revision: engine.getState(campaignId).revision,
+            memory: structuredClone(story.read(campaignId)),
+          });
+        });
+      },
+      correctStoryFact: (command) => {
+        const accepted = accept<typeof command>(command, 'CorrectStoryFact');
+        if (!accepted.ok) return accepted;
+        if (story === undefined) return failure('Rejected', UNSUPPORTED_STORY);
+        const { version: _, type: __, ...correction } = accepted.value;
+        return attempt(() => {
+          story.correct(correction);
+          sync();
+          return { revision: engine.getState(campaignId).revision };
+        });
       },
       saveVoiceSettings: (command) => {
         const accepted = accept<typeof command>(command, 'SaveVoiceSettings');

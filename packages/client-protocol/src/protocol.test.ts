@@ -14,6 +14,7 @@ import {
   MAX_INPUT_LENGTH,
   PROTOCOL_VERSION,
   parseCommand,
+  type StoryMemory,
   toClientEvent,
 } from './protocol.ts';
 
@@ -122,6 +123,8 @@ const VALID_COMMANDS = [
   { ...VOICE_SAVE, microphone: 'off', consentGrantedAt: undefined },
 ].map((command) => Object.fromEntries(Object.entries(command).filter(([, value]) => value !== undefined)));
 
+const STORY_MEMORY = {} as StoryMemory;
+
 const inMemorySession = (): ClientSession & { commit(event: DomainEvent): void } => {
   const log = createEventLog({ campaignId: CAMPAIGN_ID, branchId: MAIN_BRANCH });
   let revision = 0;
@@ -161,6 +164,11 @@ const inMemorySession = (): ClientSession & { commit(event: DomainEvent): void }
     }),
     subscribeEvents: (command, listener) => log.subscribe(command.fromRevision ?? 0, listener),
     editSheetField: () => ({ ok: true, value: { revision } }),
+    getStoryMemory: () => ({
+      ok: true,
+      value: { version: PROTOCOL_VERSION, campaignId: CAMPAIGN_ID, revision, memory: STORY_MEMORY },
+    }),
+    correctStoryFact: () => ({ ok: true, value: { revision } }),
     saveVoiceSettings: () => ({ ok: true, value: { revision } }),
     saveGmSettings: () => ({ ok: true, value: { revision } }),
     setCampaignLanguage: () => ({ ok: true, value: { revision } }),

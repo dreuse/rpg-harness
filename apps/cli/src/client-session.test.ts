@@ -537,6 +537,54 @@ test('EditSheetField maps a failing sheet port or a missing one to a typed rejec
   }
 });
 
+test('GetStoryMemory and CorrectStoryFact go through the story port and map failures', () => {
+  const { engine, campaignId, turn, envelope } = setup();
+  const memory = { facts: [] } as never;
+  const corrections: unknown[] = [];
+  const story = {
+    read: () => memory,
+    correct: (correction: { expectedRevision: number }) => {
+      if (correction.expectedRevision !== OPENING_REVISION)
+        throw new StaleRevisionError(correction.expectedRevision, OPENING_REVISION);
+      corrections.push(correction);
+      if (correction.expectedRevision === OPENING_REVISION && corrections.length > 1) throw new Error('no fact');
+    },
+  };
+  const session = createClientSessions(engine, campaignId, () => [], undefined, undefined, { story })(PLAYER_VIEWER);
+  const code = (result: { ok: boolean; error?: { code: string } }) => result.error?.code;
+  assert.deepEqual(session.getStoryMemory({ ...envelope, type: 'GetStoryMemory' }), {
+    ok: true,
+    value: { version: PROTOCOL_VERSION, campaignId, revision: OPENING_REVISION, memory },
+  });
+  const fix = {
+    ...envelope,
+    type: 'CorrectStoryFact',
+    actionId: 'fix-1',
+    expectedRevision: OPENING_REVISION,
+    actorId: turn.actorId,
+    entityId: 'bob',
+    kind: 'name',
+    value: 'Bob',
+  } as const;
+  assert.deepEqual(session.correctStoryFact(fix), { ok: true, value: { revision: OPENING_REVISION } });
+  assert.deepEqual(corrections, [
+    {
+      campaignId,
+      actionId: 'fix-1',
+      expectedRevision: OPENING_REVISION,
+      actorId: turn.actorId,
+      entityId: 'bob',
+      kind: 'name',
+      value: 'Bob',
+    },
+  ]);
+  assert.equal(code(session.correctStoryFact({ ...fix, expectedRevision: OPENING_REVISION + 1 })), 'StaleRevision');
+  assert.equal(code(session.correctStoryFact({ ...fix, actionId: 'fix-2' })), 'Rejected');
+  const none = createClientSessions(engine, campaignId, () => [])(PLAYER_VIEWER);
+  assert.equal(code(none.getStoryMemory({ ...envelope, type: 'GetStoryMemory' })), 'Rejected');
+  assert.equal(code(none.correctStoryFact(fix)), 'Rejected');
+});
+
 const traitsOf = (events: readonly ClientEvent[], eventId: string) =>
   events.flatMap((event) =>
     event.type === EVENT_COMMITTED && event.event.id === eventId

@@ -384,6 +384,8 @@ export interface ClientSession {
   requestView(command: RequestView): Result<ViewDescriptor>;
   subscribeEvents(command: SubscribeEvents, listener: (event: ClientEvent) => void): Unsubscribe;
   editSheetField(command: EditSheetField): Result<Accepted>;
+  getStoryMemory(command: GetStoryMemory): Result<StoryMemoryView>;
+  correctStoryFact(command: CorrectStoryFact): Result<Accepted>;
   saveVoiceSettings(command: SaveVoiceSettings): Result<Accepted>;
   saveGmSettings(command: SaveGmSettings): Result<Accepted>;
   setCampaignLanguage(command: SetCampaignLanguage): Result<Accepted>;
