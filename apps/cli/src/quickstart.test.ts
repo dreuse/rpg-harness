@@ -20,6 +20,7 @@ import { hermeticGmEnv } from './gm-test-env.ts';
 import { BUILT_IN_PACKS } from './import-gateway.ts';
 import { installRuleset } from './installed-rulesets.ts';
 import {
+  describeConfig,
   openingFor,
   packsIn,
   pitchNotes,
@@ -437,4 +438,10 @@ test('rpg-42a.125 the opening scene narration reads in the campaign language', (
     assert.equal(narrationOf(pack, 'fr'), english);
   }
   assert.match(narrationOf(FANTASY_PACK, 'pt-BR'), /capela/);
+});
+
+test('rpg-42a.126 an imported genre that reuses a built-in id keeps its own name', () => {
+  const config = planCampaign('fantasy');
+  const imported = { ...config, genre: { id: 'fantasy', version: '9.9.9' } };
+  assert.ok(!describeConfig(imported, 'pt-BR').includes('Fantasia'));
 });

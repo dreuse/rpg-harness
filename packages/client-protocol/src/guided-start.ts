@@ -534,7 +534,8 @@ const humanized = (id: string) => {
   return words.charAt(0).toUpperCase() + words.slice(1);
 };
 
-export const genreLabel = (locale: string, id: string) => contentText(locale, 'genre', id, humanized(id));
+export const genreLabel = (locale: string, id: string, imported = false) =>
+  imported ? humanized(id) : contentText(locale, 'genre', id, humanized(id));
 
 const rulesetDetail = (locale: string, ruleset: Ruleset) =>
   isBuiltIn(ruleset) ? text(locale, `ruleset.${ruleset.id}.detail`) : ruleset.blurb;
@@ -558,7 +559,7 @@ const characterPage = (draft: StartDraft, options: StartOptions, locale: string)
       : [
           text(locale, 'character.sheet', {
             fields: new Intl.ListFormat(safeLocale(locale), LIST_STYLE).format(
-              ruleset.sheet.map((label) => contentText(locale, 'stat', label, label)),
+              ruleset.sheet.map((label) => (isBuiltIn(ruleset) ? contentText(locale, 'stat', label, label) : label)),
             ),
           }),
         ];
@@ -595,7 +596,12 @@ const VALUE_KEYS: Readonly<Record<string, string>> = {
 const shown = (locale: string, field: string, value: string, options: StartOptions) => {
   if (field === 'ruleset' && value === OWN_FILES_VALUE) return text(locale, 'value.ownFiles');
   if (field === 'ruleset') return rulesetValue(locale, value, options);
-  if (field === 'genre' && value !== 'none') return genreLabel(locale, value);
+  if (field === 'genre' && value !== 'none')
+    return genreLabel(
+      locale,
+      value,
+      options.genres.some(({ id, imported }) => id === value && imported === true),
+    );
   if (field === 'character') return contentText(locale, 'archetype', value, value);
   const key = VALUE_KEYS[value];
   return key === undefined ? value : text(locale, key);
@@ -711,8 +717,16 @@ const PAGES: Readonly<
   genre: (draft, { genres }, _plan, locale) => ({
     title: text(locale, 'genre.title'),
     text: [text(locale, 'genre.text'), ...packNotice(locale)],
-    options: genres.map(({ id, name, blurb }) =>
-      choose('genre', id, contentText(locale, 'genre', id, name), contentText(locale, 'genre.blurb', id, blurb), draft),
+    options: genres.map(({ id, name, blurb, imported }) =>
+      imported === true
+        ? choose('genre', id, name, blurb, draft)
+        : choose(
+            'genre',
+            id,
+            contentText(locale, 'genre', id, name),
+            contentText(locale, 'genre.blurb', id, blurb),
+            draft,
+          ),
     ),
   }),
   rules: (draft, { rulesets }, _plan, locale, _voices, canPickFiles) => ({

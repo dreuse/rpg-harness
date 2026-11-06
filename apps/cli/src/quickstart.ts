@@ -67,6 +67,8 @@ const GENRE_PACKS: readonly {
   genre: Pick<GenrePack, 'id' | 'version' | 'name' | 'examples' | 'archetypes' | 'style'>;
   story?: StoryKit;
 }[] = [FANTASY_PACK, SCIENCE_FICTION_PACK, HORROR_PACK, MYSTERY_PACK, MODERN_ADVENTURE_PACK, BLANK_WORLD_PACK];
+const isBuiltInGenre = ({ id, version }: { id: string; version: string }) =>
+  GENRE_PACKS.some(({ genre }) => genre.id === id && genre.version === version);
 const GENRE_ALIASES: Readonly<Record<string, readonly string[]>> = {
   [FANTASY_PACK.genre.id]: ['fantasia'],
   [SCIENCE_FICTION_PACK.genre.id]: ['ficção científica'],
@@ -358,7 +360,10 @@ export const describeConfig = (
       provenance: how(provenance.ruleset),
     }),
     say(locale, 'config.genre', {
-      value: genre === null ? none : `${contentText(locale, 'genre', genre.id, genre.id)} ${genre.version}`,
+      value:
+        genre === null
+          ? none
+          : `${isBuiltInGenre(genre) ? contentText(locale, 'genre', genre.id, genre.id) : genre.id} ${genre.version}`,
       provenance: how(provenance.genre),
     }),
     say(locale, 'config.dice', { value: say(locale, DICE_KEYS[values.dice]), provenance: how(provenance.dice) }),

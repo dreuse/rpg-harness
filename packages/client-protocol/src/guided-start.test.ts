@@ -649,3 +649,20 @@ test('rpg-42a.69 an unknown genre id reads as a humanized name and built-in rule
   assert.equal(rulesetLabel('en', { id: 'd20-lite', edition: 'original' }), 'Classic d20');
   assert.equal(rulesetLabel('en', { id: 'custom', edition: '5e' }), 'custom 5e');
 });
+
+test('rpg-42a.126 imported genre and ruleset names are not translated', () => {
+  const imported: StartOptions = {
+    genres: [{ ...OPTIONS.genres[0]!, imported: true }],
+    rulesets: [{ ...OPTIONS.rulesets[0]!, id: 'my-rules', edition: 'custom' }],
+  };
+  const genre = run([{ kind: 'path', path: 'guide' }, { kind: 'next' }]);
+  assert.equal(startScreen(genre, imported, undefined, 'pt-BR').options[0]?.label, 'Fantasy');
+  const character = startScreen(
+    run([...toRules, { ...D20_CHOICE, value: { id: 'my-rules', edition: 'custom' } }]),
+    imported,
+    undefined,
+    'pt-BR',
+  );
+  assert.ok(character.text.some((line) => line.includes('Might')));
+  assert.ok(!character.text.some((line) => line.includes('Força')));
+});

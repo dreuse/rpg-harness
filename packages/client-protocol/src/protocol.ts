@@ -253,6 +253,7 @@ export type StartGenre = {
   readonly name: string;
   readonly blurb: string;
   readonly characters: readonly { readonly name: string; readonly summary: string }[];
+  readonly imported?: boolean;
 };
 export type StartRuleset = {
   readonly id: string;
