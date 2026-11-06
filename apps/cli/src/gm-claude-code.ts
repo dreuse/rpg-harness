@@ -4,6 +4,7 @@ import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { type GmFailure, gmFailureText } from '../../../packages/client-protocol/src/gm-failure.ts';
 import { DEFAULT_LOCALE } from '../../../packages/client-protocol/src/locale.ts';
+import type { GmUsage } from '../../../packages/domain/src/gm.ts';
 import { CAMPAIGN_TOOLS } from '../../../packages/mcp/src/tools.ts';
 import type { SummaryLevel } from '../../../packages/memory/src/history.ts';
 import { type ContextPacket, frameData, packetParts } from '../../../packages/memory/src/packet.ts';
@@ -287,14 +288,16 @@ export const requestClaudeSummary = async (
   level: SummaryLevel,
   texts: readonly string[],
   language: string | undefined,
-): Promise<string> =>
-  (
-    await request(
-      { ...route, model: route.summaryModel, effort: CHEAP_EFFORT },
-      summaryPrompt(language),
-      frameData({ level, texts }),
-    )
-  ).narration;
+  onUsage?: (usage: GmUsage) => void,
+): Promise<string> => {
+  const reply = await request(
+    { ...route, model: route.summaryModel, effort: CHEAP_EFFORT },
+    summaryPrompt(language),
+    frameData({ level, texts }),
+  );
+  onUsage?.(reply.usage);
+  return reply.narration;
+};
 
 const CLAUDE_MISSING = 'Claude Code was not found. Install it, run claude once to sign in, then try again.';
 const MCP_CONFIG_FLAG = '--mcp-config';

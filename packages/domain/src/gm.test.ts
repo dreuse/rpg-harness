@@ -58,3 +58,14 @@ test('GM usage totals add tokens and only the costs that were reported', () => {
     pricedTurns: 1,
   });
 });
+
+test('rpg-42a.48 summary usage adds tokens and cost but no turns, and survives validation', () => {
+  const summary = toGmUsage({ ...USAGE, summary: true });
+  assert.equal(summary?.summary, true);
+  assert.equal(toGmUsage({ ...USAGE, summary: 'yes' })?.summary, undefined);
+  const totals = addGmUsage(addGmUsage(EMPTY_GM_USAGE_TOTALS, USAGE), summary ?? USAGE);
+  assert.equal(totals.turns, 1);
+  assert.equal(totals.pricedTurns, 1);
+  assert.equal(totals.inputTokens, 2400);
+  assert.equal(totals.costUsd, 0.024);
+});

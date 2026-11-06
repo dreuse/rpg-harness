@@ -250,6 +250,19 @@ describe('rpg-42a.28 Anthropic Messages API narrator', () => {
     assert.equal(message?.content.split(DATA_CLOSE).length, 2);
   });
 
+  it('rpg-42a.48 reports the provider token usage of a summary call', async (t) => {
+    const reply = { body: JSON.stringify({ ...JSON.parse(textReply(NARRATION).body ?? ''), usage: API_USAGE }) };
+    const { route } = await startProvider(t, [reply]);
+    const reported: unknown[] = [];
+    assert.equal(
+      await requestSummary({ ...route, model: CUSTOM_MODEL }, 'scene', [], ENGLISH, (usage) => reported.push(usage)),
+      NARRATION,
+    );
+    assert.deepEqual(reported, [
+      { model: CUSTOM_MODEL, inputTokens: 900, cacheReadTokens: 1200, cacheWriteTokens: 300, outputTokens: 70 },
+    ]);
+  });
+
   it('rpg-42a.40 names the campaign language for narration and summaries', async (t) => {
     assert.match(languageInstruction(PORTUGUESE), /Brazilian Portuguese \(pt-BR\)/);
     assert.match(languageInstruction(ENGLISH), /English \(en\)/);

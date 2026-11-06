@@ -309,7 +309,7 @@ type GmTurnReply = {
 };
 type PacketRequest = (packet: ContextPacket, call: GmCall) => Promise<GmTurnReply>;
 type ModelSummarizer = (
-  ...[level, texts, language, model]: [...Parameters<Summarizer>, string?]
+  ...[level, texts, language, model, onUsage]: [...Parameters<Summarizer>, string?, ((usage: GmUsage) => void)?]
 ) => ReturnType<Summarizer>;
 
 export type GameMaster = ({ readonly narrator: PacketNarrator } | { readonly request: PacketRequest }) & {
@@ -351,8 +351,8 @@ export const apiGameMaster = (route: ApiRoute, summaryRoute: ApiRoute = route): 
     const routed = { ...route, model: chosen(model) ?? route.model };
     return onSegment === undefined ? requestNarration(routed, packet) : streamNarration(routed, packet, onSegment);
   },
-  summarizer: (level, texts, language, model) =>
-    requestSummary({ ...summaryRoute, model: chosen(model) ?? summaryRoute.model }, level, texts, language),
+  summarizer: (level, texts, language, model, onUsage) =>
+    requestSummary({ ...summaryRoute, model: chosen(model) ?? summaryRoute.model }, level, texts, language, onUsage),
   calibratesContext: true,
   continuityCheck: modelContinuityCheckOf((system, content) => requestText(summaryRoute, system, content)),
   oocReply: modelOocReplyOf((system, content) => requestText(summaryRoute, system, content)),
@@ -369,8 +369,14 @@ export const claudeCodeGameMaster = (route: ClaudeCodeRoute): GameMaster => ({
             : Promise.reject(error),
         );
   },
-  summarizer: (level, texts, language, model) =>
-    requestClaudeSummary({ ...route, summaryModel: chosen(model) ?? route.summaryModel }, level, texts, language),
+  summarizer: (level, texts, language, model, onUsage) =>
+    requestClaudeSummary(
+      { ...route, summaryModel: chosen(model) ?? route.summaryModel },
+      level,
+      texts,
+      language,
+      onUsage,
+    ),
   continuityCheck: modelContinuityCheckOf((system, content) => requestClaudeText(route, system, content)),
   oocReply: modelOocReplyOf((system, content) => requestClaudeText(route, system, content)),
 });
@@ -654,6 +660,14 @@ const narrateLatest = async (
   return 'inconsistent' in outcome ? narratorSegments(FAKE_GM_REPLY) : segments;
 };
 
+const recordSummaryUsage = ({ store, engine, campaignId }: Session, sessionId: string, usage: GmUsage) => {
+  try {
+    const turnId = engine.getState(campaignId).turns.at(-1)?.id;
+    if (turnId !== undefined)
+      recordGmUsage(store, { campaignId, turnId, sessionId, usage: { ...usage, summary: true } });
+  } catch {}
+};
+
 const settled = () => delay(SUMMARY_SETTLE_MS, undefined, { ref: false });
 let summarizing: Promise<void> = Promise.resolve();
 
@@ -783,7 +797,7 @@ const openSession = (
             )
           : NO_SEGMENTS;
       summarized = summarizeInBackground(session, (level, texts, language) =>
-        gm.summarizer(level, texts, language, summaryModel),
+        gm.summarizer(level, texts, language, summaryModel, (usage) => recordSummaryUsage(session, sessionId, usage)),
       );
       return segments;
     };

@@ -37,7 +37,7 @@ import {
   ProviderError,
   RULES_RETRY_PROMPT,
 } from './gm-api.ts';
-import { SCENE_TURN_LIMIT, type Summarizer } from './gm-context.ts';
+import { fakeSummarizer, SCENE_TURN_LIMIT, type Summarizer } from './gm-context.ts';
 import type { GmProposal } from './gm-proposals.ts';
 import { narrationOf } from './gm-segments.ts';
 import { hermeticGmEnv } from './gm-test-env.ts';
@@ -99,6 +99,27 @@ const play = async (dataDir: string, gm: GameMaster, actions: readonly string[])
 };
 
 const lastNarration = (dataDir: string) => readCampaignState(dataDir, CAMPAIGN).turns.at(-1)?.narration;
+
+type OpenedSession = ReturnType<typeof openClientSession>;
+
+const submitActions = (session: OpenedSession['session'], campaignId: string, count: number) => {
+  const envelope = { version: PROTOCOL_VERSION, campaignId } as const;
+  for (let turn = 0; turn < count; turn += 1) {
+    const snapshot = session.getSnapshot({ ...envelope, type: 'GetCampaignSnapshot' });
+    assert.ok(snapshot.ok);
+    const { revision, currentScene, characters } = snapshot.value;
+    const submitted = session.submitPlayerAction({
+      ...envelope,
+      type: 'SubmitPlayerAction',
+      actionId: randomUUID(),
+      expectedRevision: revision,
+      sceneId: currentScene?.id ?? '',
+      actorId: characters[0]?.id ?? '',
+      input: ACTION,
+    });
+    assert.ok(submitted.ok);
+  }
+};
 
 describe('rpg-42a.28 API game master wiring', () => {
   it('rpg-42a.40 a fake game master receives the campaign language instruction in the packet', async (t) => {
@@ -326,22 +347,7 @@ describe('rpg-42a.28 API game master wiring', () => {
     for (const summarizer of summarizers) {
       const opened = openClientSession(dataDir, CAMPAIGN, { narrator, summarizer });
       const { session, campaignId, close, narrate } = opened;
-      const envelope = { version: PROTOCOL_VERSION, campaignId } as const;
-      for (let turn = 0; turn < SCENE_TURN_LIMIT; turn += 1) {
-        const snapshot = session.getSnapshot({ ...envelope, type: 'GetCampaignSnapshot' });
-        assert.ok(snapshot.ok);
-        const { revision, currentScene, characters } = snapshot.value;
-        const submitted = session.submitPlayerAction({
-          ...envelope,
-          type: 'SubmitPlayerAction',
-          actionId: randomUUID(),
-          expectedRevision: revision,
-          sceneId: currentScene?.id ?? '',
-          actorId: characters[0]?.id ?? '',
-          input: ACTION,
-        });
-        assert.ok(submitted.ok);
-      }
+      submitActions(session, campaignId, SCENE_TURN_LIMIT);
       const stuck = setTimeout(SUMMARY_WAIT_MS, STUCK);
       assert.notEqual(await Promise.race([narrate().then(() => 'narrated'), stuck]), STUCK);
       if (summarizer === summarizers[0]) await opened.settle();
@@ -350,6 +356,43 @@ describe('rpg-42a.28 API game master wiring', () => {
     assert.equal(failures, 1);
     const input = packets[0]?.sections.find(({ name }) => name === 'playerInput')?.items;
     assert.deepEqual(input, [ACTION]);
+  });
+
+  it('rpg-42a.48 counts summarizer usage in the campaign totals', async (t) => {
+    const dataDir = await seededCampaign(t);
+    const summaryUsage = { model: 'sonnet', inputTokens: 11, cacheReadTokens: 7, cacheWriteTokens: 5, outputTokens: 3 };
+    const turnUsage = { ...summaryUsage, inputTokens: 100 };
+    let calls = 0;
+    let narrations = 0;
+    const gm: GameMaster = {
+      request: async () => {
+        narrations += 1;
+        return { narration: NARRATION, segments: [{ text: NARRATION }], usage: turnUsage };
+      },
+      summarizer: async (_level, texts, _language, _model, onUsage) => {
+        calls += 1;
+        onUsage?.(summaryUsage);
+        return fakeSummarizer('scene', texts, undefined);
+      },
+    };
+    const opened = openClientSession(dataDir, CAMPAIGN, gm);
+    submitActions(opened.session, opened.campaignId, SCENE_TURN_LIMIT);
+    await opened.narrate();
+    await opened.settle();
+    const snapshot = opened.session.getSnapshot({
+      version: PROTOCOL_VERSION,
+      campaignId: opened.campaignId,
+      type: 'GetCampaignSnapshot',
+    });
+    opened.close();
+    assert.ok(snapshot.ok);
+    assert.ok(calls > 0);
+    const inputTokens = narrations * turnUsage.inputTokens + calls * summaryUsage.inputTokens;
+    assert.ok(narrations > 0);
+    assert.equal(snapshot.value.gm?.campaign.turns, narrations);
+    assert.equal(snapshot.value.gm?.campaign.inputTokens, inputTokens);
+    assert.equal(snapshot.value.gm?.session.turns, narrations);
+    assert.equal(snapshot.value.gm?.session.inputTokens, inputTokens);
   });
 
   it('picks the game master from the key, or the built-in narrator when the player asks for it', async (t) => {

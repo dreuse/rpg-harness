@@ -21,6 +21,7 @@ export interface GmUsage {
   readonly cacheWriteTokens: number;
   readonly outputTokens: number;
   readonly costUsd?: number;
+  readonly summary?: true;
 }
 
 export interface GmUsageTotals {
@@ -88,17 +89,18 @@ export const toGmUsage = (value: unknown): GmUsage | undefined => {
       number
     >),
     ...(cost.value === undefined ? {} : { costUsd: cost.value }),
+    ...(value.summary === true ? { summary: true as const } : {}),
   };
 };
 
 export const addGmUsage = (totals: GmUsageTotals, usage: GmUsage): GmUsageTotals => ({
-  turns: totals.turns + ONE_TURN,
+  turns: totals.turns + (usage.summary === true ? NO_TURN : ONE_TURN),
   inputTokens: totals.inputTokens + usage.inputTokens,
   cacheReadTokens: totals.cacheReadTokens + usage.cacheReadTokens,
   cacheWriteTokens: totals.cacheWriteTokens + usage.cacheWriteTokens,
   outputTokens: totals.outputTokens + usage.outputTokens,
   costUsd: totals.costUsd + (usage.costUsd ?? 0),
-  pricedTurns: totals.pricedTurns + (usage.costUsd === undefined ? NO_TURN : ONE_TURN),
+  pricedTurns: totals.pricedTurns + (usage.costUsd === undefined || usage.summary === true ? NO_TURN : ONE_TURN),
 });
 
 export const GM_USAGE_RECORDED = 'GmUsageRecorded';

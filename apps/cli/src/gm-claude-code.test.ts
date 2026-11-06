@@ -422,6 +422,22 @@ describe('rpg-42a.33 Claude Code CLI game master', () => {
     assert.deepEqual(Object.values(gameMcpConfig(DATABASE, {}).mcpServers)[0]?.env, { RPG_DATABASE_PATH: DATABASE });
   });
 
+  it('rpg-42a.48 reports the token usage and cost of a summary call', async (t) => {
+    const { bin } = fakeClaude(t);
+    const reported: unknown[] = [];
+    await requestClaudeSummary(routeFor(bin), 'scene', [], PORTUGUESE, (usage) => reported.push(usage));
+    assert.deepEqual(reported, [
+      {
+        model: 'haiku',
+        inputTokens: 120,
+        cacheReadTokens: 80,
+        cacheWriteTokens: 0,
+        outputTokens: 40,
+        costUsd: COST_USD,
+      },
+    ]);
+  });
+
   it('summarizes framed text with the summary prompt and no MCP server', async (t) => {
     const { bin, calls } = fakeClaude(t);
     assert.equal(await requestClaudeSummary(routeFor(bin), 'scene', [INJECTION], PORTUGUESE), NARRATION);

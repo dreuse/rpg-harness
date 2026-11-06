@@ -465,5 +465,9 @@ export const requestSummary = async (
   level: SummaryLevel,
   texts: readonly string[],
   language: string | undefined,
-): Promise<string> =>
-  textOf(await request(route, { system: summaryPrompt(language), content: frameData({ level, texts }) }));
+  onUsage?: (usage: GmUsage) => void,
+): Promise<string> => {
+  const body = await request(route, { system: summaryPrompt(language), content: frameData({ level, texts }) });
+  onUsage?.(usageOf(isRecord(body) ? body.usage : undefined, route.model));
+  return textOf(body);
+};
