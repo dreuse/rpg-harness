@@ -542,10 +542,10 @@ const narrateLatest = async (
         reply: narratorReply(withNotice(error.message)),
       };
     });
-    if (usage !== undefined) recordGmUsage(store, { campaignId, turnId: committed.turn.id, sessionId, usage });
     reply = fitted.reply;
     sent = fitted.packet;
     usage = reply.usage;
+    if (usage !== undefined) recordGmUsage(store, { campaignId, turnId: committed.turn.id, sessionId, usage });
     return fitted.reply;
   };
   const narrator = {
@@ -643,13 +643,6 @@ const narrateLatest = async (
       language,
       packet: sent,
       reportedTokens: usage === undefined || !calibrates ? 0 : reportedInputOf(usage),
-    });
-  if (usage !== undefined)
-    recordGmUsage(store, {
-      campaignId,
-      turnId: committed.turn.id,
-      sessionId,
-      usage,
     });
   const morePending = oldestPendingTurn(engine.getState(campaignId));
   if (

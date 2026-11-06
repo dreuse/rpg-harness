@@ -7,6 +7,7 @@ import { describe, it, type TestContext } from 'node:test';
 import { setTimeout } from 'node:timers/promises';
 import { PROTOCOL_VERSION } from '../../../packages/client-protocol/src/protocol.ts';
 import type { CampaignStore, CommittedTurn } from '../../../packages/domain/src/campaign.ts';
+import { ledgerTotals } from '../../../packages/domain/src/gm.ts';
 import { GM_PROPOSAL_INPUT } from '../../../packages/engine/src/check-offer.ts';
 import { GM_CONTEXT_RECORDED } from '../../../packages/engine/src/gm-settings.ts';
 import { GameMasterInterruptedError } from '../../../packages/engine/src/scripted-session.ts';
@@ -515,6 +516,54 @@ describe('rpg-42a.58 rules strictness in the GM path', () => {
     await play(dataDir, scriptedGm([HIT], packets), [LOOK]);
     assert.equal(packets.length, 2);
     assert.equal(lastNarration(dataDir), FAKE_GM_REPLY);
+  });
+
+  const ATTEMPT_USAGE = { model: 'sonnet', inputTokens: 100, cacheReadTokens: 7, cacheWriteTokens: 5, outputTokens: 3 };
+
+  const usageGm = (replies: readonly (string | Error)[]): GameMaster => {
+    let calls = 0;
+    return {
+      request: async () => {
+        const reply = replies[Math.min(calls, replies.length - 1)] ?? '';
+        calls += 1;
+        if (reply instanceof Error) throw reply;
+        return {
+          narration: reply,
+          segments: [{ text: reply }],
+          usage: ATTEMPT_USAGE,
+          ...(CLAIMING.has(reply) ? { proposals: [OUTCOME] } : {}),
+        };
+      },
+      summarizer: FAKE_GAME_MASTER.summarizer,
+    };
+  };
+
+  const recordedUsage = (dataDir: string) => ledgerTotals(readCampaignState(dataDir, CAMPAIGN).gmUsage);
+
+  it('rpg-42a.49 sums the usage of every narrator attempt once', async (t) => {
+    const dataDir = await d20Campaign(t);
+    await play(dataDir, usageGm([HIT, CLEAN]), [LOOK]);
+    const totals = recordedUsage(dataDir);
+    assert.equal(totals.turns, 2);
+    assert.equal(totals.inputTokens, 2 * ATTEMPT_USAGE.inputTokens);
+  });
+
+  it('rpg-42a.49 keeps the usage of an earlier attempt when the retry throws', async (t) => {
+    const dataDir = await d20Campaign(t);
+    const lines = (async function* () {
+      yield LOOK;
+    })();
+    const errors: unknown[] = [];
+    for await (const _ of createEngineGateway(dataDir, usageGm([HIT, new ProviderError('retry failed')])).open(
+      CAMPAIGN,
+      'play',
+      lines,
+      (error) => errors.push(error),
+    ));
+    assert.equal(errors.length, 1);
+    const totals = recordedUsage(dataDir);
+    assert.equal(totals.turns, 1);
+    assert.equal(totals.inputTokens, ATTEMPT_USAGE.inputTokens);
   });
 
   it('as-written turns an attack into an engine roll, so the same narration passes without a retry', async (t) => {
