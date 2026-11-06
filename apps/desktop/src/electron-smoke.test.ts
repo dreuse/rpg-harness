@@ -43,6 +43,7 @@ import {
   SHOT_DATA_EXTENSION,
 } from './capture.ts';
 import { SMOKE_ENV, SMOKE_STATUS, WINDOW_HEIGHT, WINDOW_WIDTH } from './main.ts';
+import { smokeSkip } from './smoke-skip.ts';
 import { auditPage, BLOCKING_IMPACTS, decodePng, pixelDiffRatio } from './ux-check.ts';
 import { FAKE_VOICE_ROUTE, VOICE_ROUTE_ENV } from './voice-host.ts';
 
@@ -57,7 +58,6 @@ const PICKLE_WORD = 4;
 const PATH_FILE = 'path.txt';
 const LAUNCH_TIMEOUT_MS = 60000;
 const ENABLED = '1';
-const LINUX = 'linux';
 const DISPLAY_ENV = 'DISPLAY';
 const KEPT_ENV = ['PATH', 'HOME', 'TMPDIR', DISPLAY_ENV];
 const PNG_SIGNATURE = '89504e47';
@@ -89,12 +89,18 @@ const electronBinary = () => {
 };
 
 const binary = electronBinary();
-const skip =
-  binary === undefined
-    ? 'Electron binary is not installed (run pnpm install with network access)'
-    : process.platform === LINUX && !process.env[DISPLAY_ENV]
-      ? 'no display for Electron (run under xvfb-run)'
-      : false;
+const { skip, failure: missingBinaryFailure } = smokeSkip({
+  binary,
+  platform: process.platform,
+  display: process.env[DISPLAY_ENV],
+  env: process.env,
+});
+
+if (missingBinaryFailure) {
+  test('rpg-42a.119 Electron binary is installed for the desktop smoke', () => {
+    assert.fail(missingBinaryFailure);
+  });
+}
 
 const run = async (dataDir: string, extra: NodeJS.ProcessEnv, app = APP_DIR) => {
   const env = Object.fromEntries(KEPT_ENV.flatMap((key) => (process.env[key] ? [[key, process.env[key]]] : [])));

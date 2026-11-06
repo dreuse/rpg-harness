@@ -16,5 +16,7 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm lint
       - run: pnpm test
+        env:
+          RPG_SKIP_ELECTRON_SMOKE: '1'
       - run: pnpm test:integration
       - run: pnpm build
