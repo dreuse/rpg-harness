@@ -144,7 +144,7 @@ const PROPOSAL_KEYS = {
     'modifiers',
     'targetId',
   ],
-  [CONDITION_END_PROPOSAL]: ['kind', 'id', 'conditionId'],
+  [CONDITION_END_PROPOSAL]: ['kind', 'id', 'conditionId', 'targetId'],
   [CLAIM_PROPOSAL]: ['kind', 'id', 'entityId', 'claimKind', 'key', 'value', 'visibility'],
 } as const;
 
@@ -233,6 +233,7 @@ export type ConditionEndProposal = {
   readonly kind: typeof CONDITION_END_PROPOSAL;
   readonly id: string;
   readonly conditionId: string;
+  readonly targetId?: string;
 };
 
 export type ClaimProposal = {
@@ -455,7 +456,12 @@ export const PROPOSALS_SCHEMA = {
       },
       {
         type: 'object',
-        properties: { kind: { const: CONDITION_END_PROPOSAL }, id: idSchema, conditionId: idSchema },
+        properties: {
+          kind: { const: CONDITION_END_PROPOSAL },
+          id: idSchema,
+          conditionId: idSchema,
+          targetId: idSchema,
+        },
         required: ['kind', 'id', 'conditionId'],
         additionalProperties: false,
       },
@@ -703,7 +709,10 @@ const conditionOf = (value: Record<string, unknown>): ConditionProposal | undefi
 const conditionEndOf = (value: Record<string, unknown>): ConditionEndProposal | undefined => {
   const id = idOf(value.id);
   const conditionId = idOf(value.conditionId);
-  return id === undefined || conditionId === undefined ? undefined : { kind: CONDITION_END_PROPOSAL, id, conditionId };
+  const targetId = value.targetId === undefined ? undefined : idOf(value.targetId);
+  if (id === undefined || conditionId === undefined) return undefined;
+  if (value.targetId !== undefined && targetId === undefined) return undefined;
+  return { kind: CONDITION_END_PROPOSAL, id, conditionId, ...(targetId === undefined ? {} : { targetId }) };
 };
 
 const claimOf = (value: Record<string, unknown>): ClaimProposal | undefined => {
@@ -933,7 +942,9 @@ export const commitProposals = (
         continue;
       }
       if (proposal.kind === CONDITION_END_PROPOSAL) {
-        results.push(endCondition(store, { ...action, conditionId: proposal.conditionId }));
+        results.push(
+          endCondition(store, { ...action, conditionId: proposal.conditionId, targetId: proposal.targetId }, entities),
+        );
         continue;
       }
       if (proposal.kind === CLAIM_PROPOSAL) {

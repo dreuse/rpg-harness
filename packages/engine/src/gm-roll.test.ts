@@ -8,7 +8,7 @@ import { listScopedEvents } from '../../persistence/src/event-store.ts';
 import { D20_LITE_VOCABULARY } from '../../rules/src/d20-lite.ts';
 import { createSeededRng, replayRoll } from '../../rules/src/dice.ts';
 import { playTurns } from './character.ts';
-import { applyCondition } from './conditions.ts';
+import { activeConditionsOf, applyCondition, endCondition } from './conditions.ts';
 import {
   GM_ROLLER,
   type GmRollRequest,
@@ -313,6 +313,41 @@ test('rpg-42a.144: a condition on an npc modifies only that npc and player condi
       campaignId: CAMPAIGN.id,
     });
     assert.throws(target('bad-hidden', 'hidden-brute'), InvalidActionError);
+  } finally {
+    close();
+  }
+});
+
+test('rpg-42a.152: endCondition with a targetId ends the npc condition and refuses unknown or hidden targets', () => {
+  const { store, entities, close } = seeded();
+  try {
+    const darken = (actionId: string, targetId?: string) =>
+      applyCondition(
+        store,
+        {
+          ...actionFor(store, actionId),
+          condition: { conditionId: 'darkened', reason: 'blinded', appliesTo: [MELEE_SECTION], targetId },
+          ...relaxed,
+        },
+        entities,
+      );
+    darken('npc-dark', TAM.id);
+    darken('hero-dark');
+    const activeOn = (actorId: string) => activeConditionsOf(store.load(CAMPAIGN.id)?.events ?? [], actorId).length;
+    const end = (actionId: string, targetId?: string) => () =>
+      endCondition(store, { ...actionFor(store, actionId), conditionId: 'darkened', targetId }, entities);
+    const NOT_KNOWN = /is not a known npc/;
+    assert.throws(end('bad-loc', INN.id), NOT_KNOWN);
+    assert.throws(end('bad-unknown', 'nobody'), NOT_KNOWN);
+    const brute = { ...TAM, id: 'hidden-brute', name: 'Hidden Brute', campaignId: CAMPAIGN.id };
+    entities.saveEntity(brute);
+    darken('brute-dark', brute.id);
+    entities.saveEntity({ ...brute, visibility: 'gm' });
+    assert.throws(end('bad-hidden', brute.id), NOT_KNOWN);
+    assert.equal(activeOn(brute.id), 1);
+    end('npc-light', TAM.id)();
+    assert.equal(activeOn(TAM.id), 0);
+    assert.equal(activeOn(HERO.id), 1);
   } finally {
     close();
   }

@@ -5,13 +5,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it, type TestContext } from 'node:test';
 import { PROTOCOL_VERSION } from '../../../packages/client-protocol/src/protocol.ts';
-import { CONDITION_APPLIED } from '../../../packages/domain/src/campaign.ts';
+import { CONDITION_APPLIED, CONDITION_REMOVED } from '../../../packages/domain/src/campaign.ts';
 import { NPC_SHEET_FIELD } from '../../../packages/engine/src/damage.ts';
 import { MAX_ROLL_EXPRESSION_LENGTH } from '../../../packages/engine/src/gm-roll.ts';
 import { pendingOf } from '../../../packages/memory/src/graph.ts';
 import { openDatabase } from '../../../packages/persistence/src/database.ts';
 import { createEntityStore, createFactStore } from '../../../packages/persistence/src/entity-store.ts';
-import { D20_LITE_COMBAT, D20_LITE_MANIFEST } from '../../../packages/rules/src/d20-lite.ts';
+import { D20_LITE_COMBAT, D20_LITE_MANIFEST, D20_LITE_VOCABULARY } from '../../../packages/rules/src/d20-lite.ts';
 import {
   createEngineGateway,
   FAKE_GAME_MASTER,
@@ -19,6 +19,7 @@ import {
   openClientSession,
   readCampaignState,
 } from './engine-gateway.ts';
+import { modifiersPrompt } from './gm-api.ts';
 import {
   MAX_FACT_LENGTH,
   MAX_FACTS,
@@ -469,6 +470,26 @@ describe('rpg-42a.90 modifier and condition proposals', () => {
     assert.equal(applied?.payload.actorId, STRANGER.id);
   });
 
+  it('refuses a malformed condition-end targetId', () => {
+    for (const targetId of ['Bad Id', 7, null, ''])
+      assert.equal(parse({ kind: 'condition-end', id: 'x', conditionId: 'darkened', targetId }), undefined);
+    assert.equal(parse({ kind: 'condition-end', id: 'x', conditionId: 'darkened', targetId: 'tam' })?.length, 1);
+  });
+
+  it('ends a condition on a known npc named by targetId', async (t) => {
+    const { state } = await narratedWith(
+      t,
+      [
+        STRANGER,
+        { kind: 'condition', id: 'blind', conditionId: 'darkened', reason: 'lantern in face', targetId: STRANGER.id },
+        { kind: 'condition-end', id: 'unblind', conditionId: 'darkened', targetId: STRANGER.id },
+      ],
+      D20_INTENT,
+    );
+    const removed = state.events.find(({ type }) => type === CONDITION_REMOVED);
+    assert.equal(removed?.payload.actorId, STRANGER.id);
+  });
+
   it('refuses a bad condition duration', () => {
     for (const duration of [
       { unit: 'years', count: 1 },
@@ -476,6 +497,10 @@ describe('rpg-42a.90 modifier and condition proposals', () => {
       { unit: 'turns', count: 1000 },
     ])
       assert.equal(parse({ kind: 'condition', id: 'x', conditionId: 'darkened', reason: 'r', duration }), undefined);
+  });
+
+  it('tells the GM to name the npc when ending a condition', () => {
+    assert.match(modifiersPrompt({ vocabulary: D20_LITE_VOCABULARY, strictness: 'relaxed' }), /add targetId to end it/);
   });
 
   it('declares the modifier and condition shapes in the tool schema', () => {

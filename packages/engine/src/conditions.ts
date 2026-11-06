@@ -36,11 +36,11 @@ export type ConditionRequest = {
   readonly duration?: ConditionDuration;
   readonly appliesTo?: readonly string[];
   readonly modifiers?: readonly ModifierRequest[];
-  readonly targetId?: string;
+  readonly targetId?: string | undefined;
 };
 
 export type ConditionApplying = PlayerAction & ModifierPolicy & { readonly condition: ConditionRequest };
-export type ConditionEnding = PlayerAction & { readonly conditionId: string };
+export type ConditionEnding = PlayerAction & { readonly conditionId: string; readonly targetId?: string | undefined };
 
 export type ActiveCondition = {
   readonly conditionId: string;
@@ -68,6 +68,15 @@ const isDuration = (value: unknown): value is ConditionDuration =>
   Number(value.count) >= MIN_DURATION &&
   Number(value.count) <= MAX_CONDITION_DURATION;
 
+const requireKnownNpc = (actionId: string, campaignId: string, targetId?: string, entities?: EntityStore) => {
+  const target = targetId === undefined ? undefined : entities?.getEntity(campaignId, targetId);
+  requireValid(
+    actionId,
+    targetId === undefined || (target?.kind === NPC_KIND && PLAYER_KNOWN.includes(target.visibility)),
+    `condition target ${targetId} is not a known npc`,
+  );
+};
+
 export const applyCondition = (
   store: CampaignStore,
   input: ConditionApplying,
@@ -80,12 +89,7 @@ export const applyCondition = (
   const stored = replayOf(store, state, input, recorded(CONDITION_APPLIED, { conditionId, actorId }));
   if (stored !== undefined) return stored;
   validate(state, input);
-  const target = targetId === undefined ? undefined : entities?.getEntity(input.campaignId, targetId);
-  requireValid(
-    actionId,
-    targetId === undefined || (target?.kind === NPC_KIND && PLAYER_KNOWN.includes(target.visibility)),
-    `condition target ${targetId} is not a known npc`,
-  );
+  requireKnownNpc(actionId, input.campaignId, targetId, entities);
   requireValid(
     actionId,
     reason.trim() !== '' && reason.length <= MAX_MODIFIER_TEXT_LENGTH,
@@ -125,12 +129,14 @@ export const applyCondition = (
   ]);
 };
 
-export const endCondition = (store: CampaignStore, input: ConditionEnding): CommittedTurn => {
-  const { actorId, conditionId } = input;
+export const endCondition = (store: CampaignStore, input: ConditionEnding, entities?: EntityStore): CommittedTurn => {
+  const { conditionId, targetId } = input;
+  const actorId = targetId ?? input.actorId;
   const state = loadState(store, input.campaignId);
   const stored = replayOf(store, state, input, recorded(CONDITION_REMOVED, { conditionId, actorId }));
   if (stored !== undefined) return stored;
   validate(state, input);
+  requireKnownNpc(input.actionId, input.campaignId, targetId, entities);
   requireValid(
     input.actionId,
     activeConditionsOf(state.events, actorId).some((active) => active.conditionId === conditionId),
