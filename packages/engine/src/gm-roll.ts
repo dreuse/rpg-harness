@@ -1,5 +1,5 @@
 import { type CampaignStore, type CommittedTurn, GM_ROLLED, type TurnVisibility } from '../../domain/src/campaign.ts';
-import type { EntityKind, EntityStore, Visibility } from '../../domain/src/entity.ts';
+import type { EntityKind, EntityStore } from '../../domain/src/entity.ts';
 import { createRoller, type DicePool, parseDiceExpression, type Rng } from '../../rules/src/dice.ts';
 import {
   type EffectKind,
@@ -8,7 +8,7 @@ import {
   resolveModifiers,
   summarizeModifiers,
 } from '../../rules/src/modifiers.ts';
-import { conditionModifiersOf, type ModifierPolicy, mergeModifiers } from './conditions.ts';
+import { conditionModifiersOf, type ModifierPolicy, mergeModifiers, PLAYER_KNOWN } from './conditions.ts';
 import { commitSystem, loadState, type PlayerAction, recorded, replayOf, requireValid, validate } from './turn.ts';
 
 export const GM_ROLLER = 'gm';
@@ -34,7 +34,6 @@ export type GmRolling = PlayerAction & { readonly gmRoll: GmRollRequest };
 const GM_ROLL_EFFECTS: readonly EffectKind[] = ['flat'];
 const NPC_KIND: EntityKind = 'npc';
 const ROLL_ID_SUFFIX = ':gm-roll';
-const PLAYER_KNOWN: readonly Visibility[] = ['public', 'player'];
 const EVENT_VISIBILITY: Readonly<Record<GmRollVisibility, TurnVisibility>> = { shown: 'player', secret: 'gm' };
 
 export const gmRollIdOf = (actionId: string): string | undefined => {
@@ -82,11 +81,11 @@ export const rollForGm = (
   const fromConditions =
     policy === undefined || section === undefined
       ? []
-      : roller === PLAYER_ROLLER
-        ? conditionModifiersOf(state.events, input.actorId, section).filter(({ effect }) =>
-            GM_ROLL_EFFECTS.includes(effect.kind),
-          )
-        : [];
+      : roller === GM_ROLLER
+        ? []
+        : conditionModifiersOf(state.events, roller === PLAYER_ROLLER ? input.actorId : roller, section).filter(
+            ({ effect }) => GM_ROLL_EFFECTS.includes(effect.kind),
+          );
   const applied = mergeModifiers(resolved.ok ? resolved.applied : [], fromConditions);
   const summary = summarizeModifiers(applied);
   requireValid(

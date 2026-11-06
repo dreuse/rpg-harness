@@ -7,6 +7,7 @@ import {
   PLAYER_ACTION_SUBMITTED,
   SCENE_OPENED,
 } from '../../domain/src/campaign.ts';
+import type { EntityStore, Visibility } from '../../domain/src/entity.ts';
 import type { RulesStrictness } from '../../domain/src/rules-usage.ts';
 import {
   type AppliedModifier,
@@ -35,6 +36,7 @@ export type ConditionRequest = {
   readonly duration?: ConditionDuration;
   readonly appliesTo?: readonly string[];
   readonly modifiers?: readonly ModifierRequest[];
+  readonly targetId?: string;
 };
 
 export type ConditionApplying = PlayerAction & ModifierPolicy & { readonly condition: ConditionRequest };
@@ -56,6 +58,8 @@ type Tracked = ActiveCondition & {
 };
 
 const NONE = 0;
+const NPC_KIND = 'npc';
+export const PLAYER_KNOWN: readonly Visibility[] = ['public', 'player'];
 
 const isDuration = (value: unknown): value is ConditionDuration =>
   isRecord(value) &&
@@ -64,13 +68,24 @@ const isDuration = (value: unknown): value is ConditionDuration =>
   Number(value.count) >= MIN_DURATION &&
   Number(value.count) <= MAX_CONDITION_DURATION;
 
-export const applyCondition = (store: CampaignStore, input: ConditionApplying): CommittedTurn => {
-  const { actionId, actorId, condition, vocabulary, strictness, cites } = input;
-  const { conditionId, reason } = condition;
+export const applyCondition = (
+  store: CampaignStore,
+  input: ConditionApplying,
+  entities?: EntityStore,
+): CommittedTurn => {
+  const { actionId, condition, vocabulary, strictness, cites } = input;
+  const { conditionId, reason, targetId } = condition;
+  const actorId = targetId ?? input.actorId;
   const state = loadState(store, input.campaignId);
   const stored = replayOf(store, state, input, recorded(CONDITION_APPLIED, { conditionId, actorId }));
   if (stored !== undefined) return stored;
   validate(state, input);
+  const target = targetId === undefined ? undefined : entities?.getEntity(input.campaignId, targetId);
+  requireValid(
+    actionId,
+    targetId === undefined || (target?.kind === NPC_KIND && PLAYER_KNOWN.includes(target.visibility)),
+    `condition target ${targetId} is not a known npc`,
+  );
   requireValid(
     actionId,
     reason.trim() !== '' && reason.length <= MAX_MODIFIER_TEXT_LENGTH,

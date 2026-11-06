@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it, type TestContext } from 'node:test';
 import { PROTOCOL_VERSION } from '../../../packages/client-protocol/src/protocol.ts';
+import { CONDITION_APPLIED } from '../../../packages/domain/src/campaign.ts';
 import { NPC_SHEET_FIELD } from '../../../packages/engine/src/damage.ts';
 import { MAX_ROLL_EXPRESSION_LENGTH } from '../../../packages/engine/src/gm-roll.ts';
 import { pendingOf } from '../../../packages/memory/src/graph.ts';
@@ -442,6 +443,30 @@ describe('rpg-42a.90 modifier and condition proposals', () => {
     assert.equal(parse({ ...check, needsCheck: true })?.length, 1);
     for (const needsCheck of ['yes', 1, null, {}]) assert.equal(parse({ ...check, needsCheck }), undefined);
     assert.ok(JSON.stringify(PROPOSALS_SCHEMA).includes('needsCheck'));
+  });
+
+  it('refuses a malformed condition targetId', () => {
+    for (const targetId of ['Bad Id', 7, null, ''])
+      assert.equal(parse({ kind: 'condition', id: 'x', conditionId: 'darkened', reason: 'r', targetId }), undefined);
+  });
+
+  it('applies a condition to a known npc named by targetId', async (t) => {
+    const { state } = await narratedWith(
+      t,
+      [
+        STRANGER,
+        {
+          kind: 'condition',
+          id: 'stranger-blind',
+          conditionId: 'darkened',
+          reason: 'the lantern is thrown in his face',
+          targetId: STRANGER.id,
+        },
+      ],
+      D20_INTENT,
+    );
+    const applied = state.events.find(({ type }) => type === CONDITION_APPLIED);
+    assert.equal(applied?.payload.actorId, STRANGER.id);
   });
 
   it('refuses a bad condition duration', () => {

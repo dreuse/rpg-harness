@@ -133,7 +133,17 @@ const PROPOSAL_KEYS = {
   [OUTCOME_PROPOSAL]: ['kind', 'id', 'text', 'declared'],
   [VOICE_TRAITS_PROPOSAL]: ['kind', 'id', 'entityId', VOICE_TRAITS_FIELD],
   [GM_ROLL_PROPOSAL]: ['kind', 'id', 'roller', 'reason', 'visibility', 'ruleId', 'expression', 'section', 'modifiers'],
-  [CONDITION_PROPOSAL]: ['kind', 'id', 'conditionId', 'reason', 'label', 'duration', 'appliesTo', 'modifiers'],
+  [CONDITION_PROPOSAL]: [
+    'kind',
+    'id',
+    'conditionId',
+    'reason',
+    'label',
+    'duration',
+    'appliesTo',
+    'modifiers',
+    'targetId',
+  ],
   [CONDITION_END_PROPOSAL]: ['kind', 'id', 'conditionId'],
   [CLAIM_PROPOSAL]: ['kind', 'id', 'entityId', 'claimKind', 'key', 'value', 'visibility'],
 } as const;
@@ -216,6 +226,7 @@ export type ConditionProposal = {
   readonly duration?: ConditionDuration;
   readonly appliesTo?: readonly string[];
   readonly modifiers?: readonly ModifierRequest[];
+  readonly targetId?: string;
 };
 
 export type ConditionEndProposal = {
@@ -437,6 +448,7 @@ export const PROPOSALS_SCHEMA = {
           duration: durationSchema,
           appliesTo: { type: 'array', maxItems: MAX_MODIFIERS, items: { type: 'string', maxLength: MAX_ID_LENGTH } },
           modifiers: modifiersSchema,
+          targetId: idSchema,
         },
         required: ['kind', 'id', 'conditionId', 'reason'],
         additionalProperties: false,
@@ -673,6 +685,8 @@ const conditionOf = (value: Record<string, unknown>): ConditionProposal | undefi
   if (id === undefined || conditionId === undefined || reason === undefined) return undefined;
   if ((value.label !== undefined && label === undefined) || duration === null || modifiers === null) return undefined;
   if (value.appliesTo !== undefined && appliesTo === undefined) return undefined;
+  const targetId = value.targetId === undefined ? undefined : idOf(value.targetId);
+  if (value.targetId !== undefined && targetId === undefined) return undefined;
   return {
     kind: CONDITION_PROPOSAL,
     id,
@@ -682,6 +696,7 @@ const conditionOf = (value: Record<string, unknown>): ConditionProposal | undefi
     ...(duration === undefined ? {} : { duration }),
     ...(appliesTo === undefined ? {} : { appliesTo }),
     ...(modifiers === undefined ? {} : { modifiers }),
+    ...(targetId === undefined ? {} : { targetId }),
   };
 };
 
@@ -911,7 +926,9 @@ export const commitProposals = (
       if (proposal.kind === CONDITION_PROPOSAL) {
         if (policy !== undefined) {
           const { id: _id, kind: _kind, ...condition } = proposal;
-          results.push(applyCondition(store, { ...action, condition: condition as ConditionRequest, ...policy }));
+          results.push(
+            applyCondition(store, { ...action, condition: condition as ConditionRequest, ...policy }, entities),
+          );
         }
         continue;
       }

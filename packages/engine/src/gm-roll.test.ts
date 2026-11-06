@@ -254,3 +254,66 @@ test('rpg-42a.104: a roll takes the conditions of the rolling actor that apply t
     close();
   }
 });
+
+test('rpg-42a.144: a condition on an npc modifies only that npc and player conditions skip npc and gm rolls', () => {
+  const { store, entities, close } = seeded();
+  try {
+    applyCondition(
+      store,
+      {
+        ...actionFor(store, 'npc-dark'),
+        condition: { conditionId: 'darkened', reason: 'blinded', appliesTo: [MELEE_SECTION], targetId: TAM.id },
+        ...relaxed,
+      },
+      entities,
+    );
+    applyCondition(
+      store,
+      {
+        ...actionFor(store, 'hero-dark'),
+        condition: { conditionId: 'darkened', reason: 'lantern out', appliesTo: [MELEE_SECTION] },
+        ...relaxed,
+      },
+      entities,
+    );
+    const modifierOf = (actionId: string, roller: string) => {
+      const { events } = rollForGm(
+        store,
+        entities,
+        { ...actionFor(store, actionId), gmRoll: { ...ATTACK, roller, section: MELEE_SECTION } },
+        createSeededRng(SEED),
+        relaxed,
+      );
+      const { resolution } = (events.find(({ type }) => type === GM_ROLLED) ?? assert.fail()).payload as {
+        resolution: { rolls: unknown[] };
+      };
+      const replayed = replayRoll(resolution.rolls[0]);
+      return replayed.ok ? replayed.event.pool.modifier : assert.fail();
+    };
+    assert.equal(modifierOf('npc-roll', TAM.id), BASE_MODIFIER + DARKENED_FLAT);
+    assert.equal(modifierOf('gm-roll', GM_ROLLER), BASE_MODIFIER);
+    assert.equal(modifierOf('player-roll', PLAYER_ROLLER), BASE_MODIFIER + DARKENED_FLAT);
+    const target = (actionId: string, targetId: string) => () =>
+      applyCondition(
+        store,
+        {
+          ...actionFor(store, actionId),
+          condition: { conditionId: 'darkened', reason: 'x', targetId },
+          ...relaxed,
+        },
+        entities,
+      );
+    assert.throws(target('bad-loc', INN.id), InvalidActionError);
+    assert.throws(target('bad-unknown', 'nobody'), InvalidActionError);
+    entities.saveEntity({
+      ...TAM,
+      id: 'hidden-brute',
+      name: 'Hidden Brute',
+      visibility: 'gm',
+      campaignId: CAMPAIGN.id,
+    });
+    assert.throws(target('bad-hidden', 'hidden-brute'), InvalidActionError);
+  } finally {
+    close();
+  }
+});
