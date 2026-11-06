@@ -672,6 +672,7 @@ test('rpg-42a.21: the TUI groups the sheet and edits a field with /edit, showing
   const sheet = [
     { kind: 'field', id: 'might', label: 'Might', value: 6, group: 'core', editable: true },
     { kind: 'field', id: 'oath', label: 'Oath', value: 'guard', group: 'core', editable: true },
+    { kind: 'field', id: 'inspired', label: 'Inspired', value: false, group: 'core', editable: true },
     { kind: 'field', id: 'guard', label: 'Guard', value: 10, group: 'computed', editable: false },
   ] as const;
   const grouped = renderScreen(press([key('2')]), { ...data, sheet }, PLAIN_WIDE).join('\n');
@@ -699,6 +700,9 @@ test('rpg-42a.21: the TUI groups the sheet and edits a field with /edit, showing
       '/edit Guard 3',
       '/edit luck 1',
       '/edit might 99',
+      '/edit inspired sí',
+      '/edit inspired si',
+      '/edit inspired no',
       'q',
     ]),
     write: (text) => output.push(text),
@@ -708,6 +712,9 @@ test('rpg-42a.21: the TUI groups the sheet and edits a field with /edit, showing
     ['might', 8],
     ['oath', 'keep the road'],
     ['might', 99],
+    ['inspired', true],
+    ['inspired', true],
+    ['inspired', false],
   ]);
   assert.match(printed, /Might needs a number\./);
   assert.match(printed, /Guard cannot be edited\./);

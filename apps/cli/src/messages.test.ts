@@ -9,12 +9,13 @@ import { toVisualizationEvent } from '../../../packages/client-protocol/src/visu
 import { archiveCampaign, createCampaignFrom, deleteCampaign, unarchiveCampaign } from './engine-gateway.ts';
 import { ProviderError } from './gm-api.ts';
 import { type CampaignGateway, main } from './main.ts';
-import { CLI_CATALOG, CLI_LOCALES, errorText } from './messages.ts';
+import { CLI_CATALOG, CLI_LOCALES, errorText, say } from './messages.ts';
 import { PLAIN_TERMINAL, renderLinear, rollFrames, type TuiData } from './tui.ts';
 import { runHome } from './tui-home.ts';
 import { guidedStart } from './tui-start.ts';
 
 const PORTUGUESE = 'pt-BR';
+const SPANISH = 'es';
 const TEMP_PREFIX = 'rpg-messages-';
 const WIDE = { ...PLAIN_TERMINAL, width: 200 };
 
@@ -53,8 +54,12 @@ const data: TuiData = {
 };
 
 test('rpg-42a.39 every CLI and TUI locale has every catalog key', () => {
-  assert.deepEqual(CLI_LOCALES, ['en', PORTUGUESE]);
+  assert.deepEqual(CLI_LOCALES, ['en', PORTUGUESE, SPANISH]);
   assert.deepEqual(missingKeys(CLI_CATALOG), []);
+});
+
+test('rpg-42a.109 Spanish CLI keys do not fall back to English', () => {
+  assert.equal(say(SPANISH, 'tui.voiceOff'), 'La voz está desactivada. Inicia la TUI con --voice para usarla.');
 });
 
 test('rpg-42a.39 the TUI panes, sheet and dice read in Brazilian Portuguese', () => {

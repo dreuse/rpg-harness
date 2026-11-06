@@ -390,6 +390,35 @@ test('rpg-42a.87 desktop journey of a pending roll offer: the primary button in 
   checkBaselines(t, files);
 });
 
+test('rpg-42a.109 desktop journey of the open slash menu: placement in English and Portuguese', { skip }, async (t) => {
+  const dataDir = mkdtempSync(join(tmpdir(), 'rpg-desktop-slash-'));
+  t.after(() => rmSync(dataDir, { recursive: true, force: true }));
+  await createCampaignFrom(
+    dataDir,
+    {
+      version: PROTOCOL_VERSION,
+      type: 'CreateCampaign',
+      name: CAMPAIGN,
+      choices: { ruleset: PHYSICAL_RULESET, character: PHYSICAL_CHARACTER },
+    },
+    DESKTOP_CLIENT,
+  );
+  const dir = process.env[CAPTURE_ENV] || mkdtempSync(join(tmpdir(), 'rpg-desktop-slash-screens-'));
+  const files: string[] = [];
+  for (const [phase, language] of [
+    ['slashMenu', DEFAULT_LOCALE],
+    ['slashMenuPortuguese', PORTUGUESE],
+  ] as const) {
+    const stdout = await run(dataDir, { [CAPTURE_ENV]: dir, [JOURNEY_ENV]: phase, [LANGUAGE_ENV]: language });
+    assert.doesNotMatch(stdout, new RegExp(JOURNEY_ERROR));
+    for (const file of journeyShots(dir, phase)) {
+      assert.ok(stdout.includes(`${CAPTURE_STATUS}${file}`), file);
+      files.push(file);
+    }
+  }
+  checkBaselines(t, files);
+});
+
 const LIMIT_REPLY = JSON.stringify({
   type: 'result',
   is_error: true,

@@ -125,6 +125,31 @@ describe('rpg-42a.83 physical dice', () => {
     assert.deepEqual(drawsOf(eventsOfType(CHECK_RESOLVED)), [[REPORTED]]);
   });
 
+  for (const typed of ['saqué 17', 'saque 17', 'tiré 17', 'tire un 17', 'salió 17']) {
+    it(`accepts the Spanish report "${typed}" for the pending check`, async (t) => {
+      const { say, eventsOfType } = await physicalTable(t, 'me');
+      await say(FIRST_INPUT);
+      const done = await say(typed);
+      assert.ok(done.ok, done.ok ? '' : done.error.message);
+      assert.deepEqual(drawsOf(eventsOfType(CHECK_RESOLVED)), [[REPORTED]]);
+    });
+  }
+
+  it('accepts the Spanish "lo intento" as taking the pending offer', async (t) => {
+    const { say, eventsOfType } = await physicalTable(t, 'app');
+    await say(FIRST_INPUT);
+    const done = await say('di que lo intentas');
+    assert.ok(done.ok, done.ok ? '' : done.error.message);
+    assert.equal(eventsOfType(CHECK_RESOLVED).length, 1);
+  });
+
+  it('does not take the pending offer for a Portuguese "tiro o chapéu"', async (t) => {
+    const { say, eventsOfType } = await physicalTable(t, 'app');
+    await say(FIRST_INPUT);
+    await say('tiro o chapéu e entro');
+    assert.equal(eventsOfType(CHECK_RESOLVED).length, 0);
+  });
+
   it('resolves a new action with its own check from an embedded report', async (t) => {
     const { say, eventsOfType } = await physicalTable(t, 'me');
     await say(FIRST_INPUT);

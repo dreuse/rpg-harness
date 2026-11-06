@@ -229,3 +229,33 @@ test('rpg-42a.105 the English and Portuguese journeys capture the out-of-charact
   for (const shot of OOC_SHOTS) assert.ok(shotsOf('first').includes(shot), shot);
   for (const shot of OOC_SHOTS) assert.ok(shotsOf('portuguese').includes(`pt-BR-${shot}`), shot);
 });
+
+const PLACEMENT_CHECK = 'check-placement';
+
+test('rpg-42a.109 the slash menu journeys shoot the open menu and check its placement in every layout and theme', async () => {
+  assert.deepEqual(
+    [JOURNEY.slashMenu, JOURNEY.slashMenuPortuguese].map((steps) => steps.at(-1)?.shot),
+    ['slash-menu', 'pt-BR-slash-menu'],
+  );
+  assert.ok(JOURNEY.slashMenu.at(-1)?.layouts);
+  const { window, calls } = fakeWindow();
+  const executeJavaScript = window.webContents.executeJavaScript;
+  let checks = 0;
+  await captureJourney(
+    {
+      ...window,
+      webContents: {
+        ...window.webContents,
+        executeJavaScript: (code) => {
+          if (code === PLACEMENT_CHECK) checks += 1;
+          return executeJavaScript(code);
+        },
+      },
+    },
+    DIR,
+    () => {},
+    [{ script: '', shot: 'slash-menu', layouts: true, check: PLACEMENT_CHECK }],
+  );
+  assert.equal(checks, CAPTURE_THEMES.length * CAPTURE_LAYOUTS.length);
+  assert.ok(calls.length > 0);
+});

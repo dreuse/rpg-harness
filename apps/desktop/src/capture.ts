@@ -175,7 +175,12 @@ const JOURNEY_LISTENER = `window.${BRIDGE_KEY}.onLine((line) => { const message 
 const SHEET_INPUT_SELECTOR = `#sheet-field-${JOURNEY_EDIT.fieldId}`;
 const SHEET_VALUE = `document.querySelector('[data-stat="${JOURNEY_EDIT.fieldId}"] dd')?.textContent === '${JOURNEY_EDIT.value}'`;
 
-type JourneyStep = { readonly script: string; readonly shot?: string; readonly layouts?: boolean };
+type JourneyStep = {
+  readonly script: string;
+  readonly shot?: string;
+  readonly layouts?: boolean;
+  readonly check?: string;
+};
 
 const WIDE_ONLY = CAPTURE_LAYOUTS.filter(({ name }) => name === WIDE_LAYOUT);
 export const journeyLayouts = ({ layouts }: JourneyStep) => (layouts === true ? CAPTURE_LAYOUTS : WIDE_ONLY);
@@ -334,6 +339,20 @@ const OPEN_ROLL_OFFER = steps(
   click('#home-continue-0'),
   `await ${until(`document.querySelector(${JSON.stringify(OFFER_BUTTON)}) && ${SETTLED}`)};`,
 );
+const SLASH_MENU = '#slash-menu';
+const SLASH_OPTION = '[data-slash]';
+const OPEN_SLASH_MENU = steps(
+  `const input = document.querySelector('#action-input'); input.focus(); input.value = '/'; input.dispatchEvent(new Event('input', { bubbles: true }));`,
+  `await ${until(`!document.querySelector(${JSON.stringify(SLASH_MENU)}).hidden && document.querySelector(${JSON.stringify(`${SLASH_MENU} ${SLASH_OPTION}`)}) && ${SETTLED}`)};`,
+);
+const SLASH_MENU_PLACEMENT = `(() => {
+  const menuElement = document.querySelector(${JSON.stringify(SLASH_MENU)});
+  if (menuElement.hidden) throw new Error('slash menu is hidden at ' + innerWidth + 'px');
+  const menu = menuElement.getBoundingClientRect();
+  const input = document.querySelector('#action-input').getBoundingClientRect();
+  const clipped = menu.top < 0 || menu.left < 0 || menu.right > innerWidth || menu.bottom > innerHeight;
+  if (clipped || menu.bottom > input.top) throw new Error('slash menu is clipped or overlaps the input at ' + innerWidth + 'px');
+})()`;
 const SUBMIT_REPORT = steps(
   `document.querySelector(${JSON.stringify(REPORT_INPUT)}).value = '${REPORTED_TOTAL}';`,
   `document.querySelector(${JSON.stringify(REPORT_FORM)}).requestSubmit();`,
@@ -390,6 +409,8 @@ export const JOURNEY: Readonly<
     | 'ownRules'
     | 'rollOffer'
     | 'rollOfferPortuguese'
+    | 'slashMenu'
+    | 'slashMenuPortuguese'
     | 'npcRoll',
     readonly JourneyStep[]
   >
@@ -397,6 +418,14 @@ export const JOURNEY: Readonly<
   npcRoll: [{ script: OPEN_FIRST_CAMPAIGN }, { script: NPC_ROLL_TURN, shot: 'npc-roll' }],
   rollOffer: [{ script: OPEN_ROLL_OFFER, shot: 'roll-offer' }],
   rollOfferPortuguese: [{ script: OPEN_ROLL_OFFER, shot: 'pt-BR-roll-offer' }],
+  slashMenu: [
+    { script: OPEN_FIRST_CAMPAIGN },
+    { script: OPEN_SLASH_MENU, shot: 'slash-menu', layouts: true, check: SLASH_MENU_PLACEMENT },
+  ],
+  slashMenuPortuguese: [
+    { script: OPEN_FIRST_CAMPAIGN },
+    { script: OPEN_SLASH_MENU, shot: 'pt-BR-slash-menu', layouts: true, check: SLASH_MENU_PLACEMENT },
+  ],
   failure: [
     { script: OPEN_FIRST_CAMPAIGN },
     { script: FAIL_A_TURN, shot: 'gm-failure-notice' },
@@ -581,6 +610,7 @@ export const captureJourney = async (
       for (const { name: layout, width: layoutWidth } of journeyLayouts(step)) {
         window.setContentSize(layoutWidth, WINDOW_HEIGHT);
         await webContents.executeJavaScript(settleProbe(layout, features));
+        if (step.check !== undefined) await webContents.executeJavaScript(step.check);
         const name = journeyShotName(step.shot, layout, themeName);
         const file = join(dir, `${name}${PNG_EXTENSION}`);
         const png = await screenshot(window);

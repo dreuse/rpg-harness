@@ -117,6 +117,10 @@ const ATTEMPT_WORDS = new Set([
   'rolo',
   'rola',
   'rolar',
+  'intento',
+  'intenta',
+  'intentas',
+  'intentar',
 ]);
 const RULED_ACTION_WORDS = new Set([
   'attack',
@@ -542,7 +546,7 @@ export const offeredCheckFor = (
 
 const acceptsOffer = (input: string) => wordsOf(input).some((word) => ATTEMPT_WORDS.has(word));
 
-const REPORT_PHRASE = String.raw`(?:i\s+rolled|rolled|rolei|tirei|saiu)\s+(?:a\s+|um\s+)?(\d{1,4})`;
+const REPORT_PHRASE = String.raw`(?:i\s+rolled|rolled|rolei|tirei|saiu|saqu[eé]|tir[eé]|sali[oó])\s+(?:a\s+|um\s+|un\s+)?(\d{1,4})`;
 const TYPED_REPORT = new RegExp(String.raw`\b${REPORT_PHRASE}\b`, 'iu');
 const BARE_REPORT = new RegExp(String.raw`^${REPORT_PHRASE}[\s.!?]*$`, 'iu');
 const FIRST_GROUP = 1;

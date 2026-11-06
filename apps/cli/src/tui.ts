@@ -158,6 +158,8 @@ const FLAG_WORDS: Readonly<Record<string, boolean>> = {
   yes: true,
   true: true,
   sim: true,
+  sí: true,
+  si: true,
   no: false,
   false: false,
   não: false,
