@@ -1,9 +1,12 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, test } from 'node:test';
 import { decodeWav } from './delivery-shaping.ts';
+import { designedVoicepackPath } from './designed-voicepack-path.ts';
+import { DESIGNED_VOICES } from './designed-voices.ts';
 import { KOKORO_PT_BR_MODEL_FILES, kokoroModelRoot } from './kokoro-model.ts';
 import {
   createKokoroOnnxEngine,
@@ -196,4 +199,25 @@ test('rpg-cm63.45 rejects a blend partner outside the allowlist', async () => {
     engine.synthesize('a', VOICE, SIGNAL, 1, { first: VOICE, second: '../../etc/passwd', weight: BLEND_WEIGHT }),
     /unknown voice/,
   );
+});
+
+test('rpg-cm63.63 a designed voice uses the style row of its shipped voicepack', async () => {
+  const designed = DESIGNED_VOICES[0];
+  assert.ok(designed);
+  const pack = new Float32Array(readFileSync(designedVoicepackPath(designed)).buffer.slice(0));
+  const tokens = 2;
+  const { ports, calls } = fakePorts();
+  const engine = createKokoroOnnxEngine(await installFake(), ports);
+  await engine.load();
+  await engine.synthesize('ab', designed.id, SIGNAL, 1);
+  const style = calls[0]?.style;
+  assert.deepEqual(style?.dims, [1, KOKORO_STYLE_DIMENSION]);
+  const row = pack.slice(tokens * KOKORO_STYLE_DIMENSION, (tokens + 1) * KOKORO_STYLE_DIMENSION);
+  assert.deepEqual(Array.from(style?.data ?? []), Array.from(row));
+});
+
+test('rpg-cm63.63 a voice id that is neither installed nor designed is still rejected', async () => {
+  const engine = createKokoroOnnxEngine(await installFake(), fakePorts().ports);
+  await engine.load();
+  await assert.rejects(engine.synthesize('a', 'pf_nobody', SIGNAL, 1), /unknown voice/);
 });

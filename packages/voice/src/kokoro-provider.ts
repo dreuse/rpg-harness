@@ -1,4 +1,5 @@
 import { clamp, finiteOr, pitchRatio, shapeAudio, shapeSentences, shiftPitch } from './delivery-shaping.ts';
+import { DESIGNED_VOICES, designedVoiceOf } from './designed-voices.ts';
 import { MAX_RATE, MIN_RATE } from './prosody.ts';
 import { namedBlendOf, PT_BR_BASE_VOICES, PT_BR_BLENDS } from './pt-br-blends.ts';
 import type { SpeechChunk, TtsProvider } from './tts.ts';
@@ -282,11 +283,14 @@ export const createKokoroProvider = ({
       const manner = mannerDelivery(utterance.profile.manner);
       const speed = kokoroSpeed(utterance.delivery, (utterance.profile.pace * manner.pace) / pitchRatio(manner.pitch));
       const named = namedBlendOf(voiceId);
-      if (named && !engine.blends) return;
+      const designed = designedVoiceOf(voiceId);
+      if ((named ?? designed) && !engine.blends) return;
       const engineVoice = named?.first ?? voiceId;
       const blend =
         named ??
-        (engine.blends ? usableBlend(capabilities, voiceId, voiceBlend?.(utterance.speakerId, voiceId)) : undefined);
+        (engine.blends && !designed
+          ? usableBlend(capabilities, voiceId, voiceBlend?.(utterance.speakerId, voiceId))
+          : undefined);
       for (const [sequence, { sentence, pauseMs }] of sentences.entries()) {
         const synthesized = await synthesizeSentence(sentence, engineVoice, signal, speed, blend, utterance.delivery);
         if (!synthesized || signal.aborted) return;
@@ -306,7 +310,11 @@ export const createKokoroProvider = ({
 
 export const MLX_KOKORO_CAPABILITIES: KokoroCapabilities = Object.freeze({
   languages: Object.freeze(['pt-BR']),
-  voices: Object.freeze([...PT_BR_BASE_VOICES, ...PT_BR_BLENDS.map(({ id }) => id)]),
+  voices: Object.freeze([
+    ...PT_BR_BASE_VOICES,
+    ...PT_BR_BLENDS.map(({ id }) => id),
+    ...DESIGNED_VOICES.map(({ id }) => id),
+  ]),
   streaming: true,
   emotion: false,
 });

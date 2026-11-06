@@ -8,6 +8,7 @@ import {
   SCENE_BREAK_PAUSE_MS,
   type Wav,
 } from './delivery-shaping.ts';
+import { DESIGNED_VOICES } from './designed-voices.ts';
 import {
   createKokoroProvider,
   KOKORO_CAPABILITIES,
@@ -675,5 +676,29 @@ test('rpg-cm63.45 an engine that cannot blend stays silent so the next provider 
   assert.ok(NAMED_BLEND);
   const { engine, seen } = capturingEngine(false);
   assert.deepEqual(await speakNamedBlend(engine, NAMED_BLEND.id), []);
+  assert.deepEqual(seen, []);
+});
+
+const DESIGNED = DESIGNED_VOICES[0];
+
+test('rpg-cm63.63 a designed voice goes to the engine under its own id with no blend and is reported by id', async () => {
+  assert.ok(DESIGNED);
+  const { engine, seen } = capturingEngine(true);
+  const chunks = await speakNamedBlend(engine, DESIGNED.id);
+  assert.deepEqual(seen, [{ voiceId: DESIGNED.id, blend: undefined }]);
+  assert.equal(chunks[0]?.voiceId, DESIGNED.id);
+});
+
+test('rpg-cm63.63 a designed voice ignores the per-character blend', async () => {
+  assert.ok(DESIGNED);
+  const { engine, seen } = capturingEngine(true);
+  await speakNamedBlend(engine, DESIGNED.id, () => ({ first: DESIGNED.id, second: 'pm_santa', weight: 0.2 }));
+  assert.equal(seen[0]?.blend, undefined);
+});
+
+test('rpg-cm63.63 an engine that cannot load voicepacks stays silent for a designed voice', async () => {
+  assert.ok(DESIGNED);
+  const { engine, seen } = capturingEngine(false);
+  assert.deepEqual(await speakNamedBlend(engine, DESIGNED.id), []);
   assert.deepEqual(seen, []);
 });

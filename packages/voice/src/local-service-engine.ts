@@ -45,6 +45,7 @@ export interface ServiceEngineOptions {
   readonly hfHome: string;
   readonly tokenEnv: string;
   readonly env?: Readonly<Record<string, string>>;
+  readonly prepare?: () => Promise<void>;
   readonly ready: () => boolean;
   readonly body: (request: SynthesisRequest) => unknown;
   readonly blends?: boolean;
@@ -110,6 +111,7 @@ export const createServiceEngine = ({
   hfHome,
   tokenEnv,
   env = {},
+  prepare,
   ready,
   body,
   blends,
@@ -123,6 +125,7 @@ export const createServiceEngine = ({
   const start = async (): Promise<Service> => {
     await mkdir(dir, { recursive: true });
     await copyFile(serviceSource, servicePath);
+    await prepare?.();
     const token = randomBytes(TOKEN_BYTES).toString(HEX);
     const child = spawn(python, [ISOLATED, servicePath, SERVE], {
       env: { ...inheritedEnv(), ...env, HF_HOME: hfHome, HF_HUB_OFFLINE: OFFLINE, [tokenEnv]: token },

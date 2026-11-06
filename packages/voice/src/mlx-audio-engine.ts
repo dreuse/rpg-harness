@@ -1,5 +1,8 @@
 import { existsSync } from 'node:fs';
+import { copyFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
+import { designedVoicepackPath } from './designed-voicepack-path.ts';
+import { DESIGNED_VOICES } from './designed-voices.ts';
 import {
   createKokoroProvider,
   type KokoroEngine,
@@ -20,6 +23,8 @@ export type { ServiceSpawn };
 export { inheritedEnv, MLX_KOKORO_CAPABILITIES, MLX_KOKORO_PROVIDER_ID };
 export const MLX_AUDIO_DIR_ENV = 'RPG_MLX_AUDIO_DIR';
 export const MLX_AUDIO_TOKEN_ENV = 'RPG_MLX_AUDIO_TOKEN';
+export const VOICEPACK_DIR_ENV = 'RPG_VOICEPACK_DIR';
+const VOICEPACK_DIR_NAME = 'voicepacks';
 export const MLX_AUDIO_MODEL_ID = 'mlx-community/Kokoro-82M-bf16';
 export const MLX_AUDIO_MODEL_REVISION = 'a71e4d38b236d968966a2002c4c895dbd12b1c3c';
 export const MLX_AUDIO_START_TIMEOUT_MS = SERVICE_START_TIMEOUT_MS;
@@ -71,6 +76,7 @@ export interface MlxAudioEngineOptions {
 
 export const createMlxAudioEngine = ({ dir, platform, arch, ...options }: MlxAudioEngineOptions): KokoroEngine => {
   const paths = mlxAudioPaths(dir);
+  const voicepackDir = join(dir, VOICEPACK_DIR_NAME);
   return createServiceEngine({
     ...options,
     name: 'mlx-audio',
@@ -80,6 +86,13 @@ export const createMlxAudioEngine = ({ dir, platform, arch, ...options }: MlxAud
     serviceSource: MLX_AUDIO_SERVICE_SOURCE,
     hfHome: paths.hfHome,
     tokenEnv: MLX_AUDIO_TOKEN_ENV,
+    env: { [VOICEPACK_DIR_ENV]: voicepackDir },
+    prepare: async () => {
+      await mkdir(voicepackDir, { recursive: true });
+      await Promise.all(
+        DESIGNED_VOICES.map((voice) => copyFile(designedVoicepackPath(voice), join(voicepackDir, voice.file))),
+      );
+    },
     blends: true,
     ready: () => mlxAudioSupported(platform, arch) && mlxAudioInstalled(dir),
     body: ({ text, voiceId, speed, blend }) => ({

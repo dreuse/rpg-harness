@@ -1,3 +1,4 @@
+import { DESIGNED_VOICES } from './designed-voices.ts';
 import { PT_BR_BLENDS } from './pt-br-blends.ts';
 
 export type CatalogGender = 'female' | 'male';
@@ -22,7 +23,10 @@ export const MAX_MANNER_PITCH_SEMITONES = 2;
 export const NEUTRAL_DELIVERY: MannerDelivery = Object.freeze({ pace: 1, pitch: 0 });
 
 const BLEND_VOICES = Object.fromEntries(
-  PT_BR_BLENDS.map(({ id, gender, ages, timbre, licence }) => [id, Object.freeze({ gender, ages, timbre, licence })]),
+  [...PT_BR_BLENDS, ...DESIGNED_VOICES].map(({ id, gender, ages, timbre, licence }) => [
+    id,
+    Object.freeze({ gender, ages, timbre, licence }),
+  ]),
 );
 
 const GENDER_MARKER_INDEX = 1;

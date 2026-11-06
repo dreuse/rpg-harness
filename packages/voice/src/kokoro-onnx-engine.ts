@@ -2,6 +2,8 @@ import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { encodeWav } from './delivery-shaping.ts';
+import { designedVoicepackPath } from './designed-voicepack-path.ts';
+import { designedVoiceOf } from './designed-voices.ts';
 import {
   KOKORO_PT_BR_MODEL_FILES,
   KOKORO_PT_BR_VOICE_FILES,
@@ -131,10 +133,13 @@ export const createKokoroOnnxEngine = (dir: string, ports: OnnxPorts = defaultPo
 
   const voiceBytes = async (voiceId: string): Promise<Uint8Array> => {
     const path = `${VOICE_DIR}/${voiceId}${VOICE_EXTENSION}`;
-    if (!KOKORO_PT_BR_VOICE_FILES.some((file) => file.path === path)) throw new Error(`unknown voice: ${voiceId}`);
+    const designed = designedVoiceOf(voiceId);
+    if (!designed && !KOKORO_PT_BR_VOICE_FILES.some((file) => file.path === path)) {
+      throw new Error(`unknown voice: ${voiceId}`);
+    }
     const cached = voices.get(voiceId);
     if (cached) return cached;
-    const bytes = new Uint8Array(await readFile(join(root, path)));
+    const bytes = new Uint8Array(await readFile(designed ? designedVoicepackPath(designed) : join(root, path)));
     voices.set(voiceId, bytes);
     return bytes;
   };

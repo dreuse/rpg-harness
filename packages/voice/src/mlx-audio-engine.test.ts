@@ -6,6 +6,8 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { PassThrough } from 'node:stream';
 import { test } from 'node:test';
+import { DESIGNED_VOICEPACK_DIR } from './designed-voicepack-path.ts';
+import { DESIGNED_VOICES } from './designed-voices.ts';
 import {
   createMlxAudioEngine,
   createMlxAudioProvider,
@@ -160,6 +162,12 @@ test('starts the service with fixed arguments, a token and no inherited secrets'
       const env = options.env ?? {};
       assert.equal(env.HF_HOME, paths.hfHome);
       assert.equal(env.HF_HUB_OFFLINE, '1');
+      assert.equal(env.RPG_VOICEPACK_DIR, join(dir, 'voicepacks'));
+      for (const voice of DESIGNED_VOICES)
+        assert.deepEqual(
+          readFileSync(join(dir, 'voicepacks', voice.file)),
+          readFileSync(join(DESIGNED_VOICEPACK_DIR, voice.file)),
+        );
       assert.match(env.RPG_MLX_AUDIO_TOKEN ?? '', /^[0-9a-f]{64}$/);
       assert.equal(env[SECRET_ENV], undefined);
       await engine.unload();

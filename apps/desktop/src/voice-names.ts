@@ -59,6 +59,10 @@ export const VOICE_NAMES: Readonly<Record<string, VoiceName>> = Object.freeze({
   pm_bruno: { name: 'Bruno', kind: BR_MALE },
   pm_caio: { name: 'Caio', kind: BR_MALE },
   pm_otavio: { name: 'Otávio', kind: BR_MALE },
+  pf_luiza: { name: 'Luiza', kind: BR_FEMALE },
+  pf_beatriz: { name: 'Beatriz', kind: BR_FEMALE },
+  pm_davi: { name: 'Davi', kind: BR_MALE },
+  pm_henrique: { name: 'Henrique', kind: BR_MALE },
 });
 
 const named = (id: string) => (Object.hasOwn(VOICE_NAMES, id) ? VOICE_NAMES[id] : undefined);

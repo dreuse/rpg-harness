@@ -2,6 +2,7 @@ import hmac
 import io
 import json
 import os
+import re
 import shutil
 import signal
 import sys
@@ -30,6 +31,12 @@ SYNTHESIZE_PATH = "/synthesize"
 MAX_BODY_BYTES = 16 * 1024
 MAX_TEXT_CHARS = 2000
 BLEND_VOICE = "blend"
+PACK_VOICE = "pack"
+PACK_DIR_ENV = "RPG_VOICEPACK_DIR"
+PACK_ID = re.compile(r"p[fm]_[a-z]+")
+PACK_EXTENSION = ".bin"
+PACK_DTYPE = "<f4"
+PACK_SHAPE = (510, 1, 256)
 MIN_SPEED = 0.5
 MAX_SPEED = 2.0
 NO_SPLIT = r"\n+"
@@ -82,6 +89,25 @@ def blended_parts(model, text, voice, speed, blend):
         yield audio, model.config.sample_rate
 
 
+def pack_path(voice):
+    root = os.environ.get(PACK_DIR_ENV, "")
+    if not root or not isinstance(voice, str) or not PACK_ID.fullmatch(voice):
+        return None
+    path = os.path.join(root, voice + PACK_EXTENSION)
+    return path if os.path.isfile(path) else None
+
+
+def packed_parts(model, text, voice, speed, path):
+    import mlx.core as mx
+    import numpy as np
+
+    pipeline = model._get_pipeline(voice[0])
+    pipeline.voices = {}
+    pipeline.voices[PACK_VOICE] = mx.array(np.fromfile(path, dtype=PACK_DTYPE).reshape(PACK_SHAPE))
+    for _, _, audio in pipeline(text, voice=PACK_VOICE, speed=speed, split_pattern=NO_SPLIT):
+        yield audio, model.config.sample_rate
+
+
 def single_parts(model, text, voice, speed):
     for result in model.generate(text=text, voice=voice, speed=speed, lang_code=voice[0], split_pattern=NO_SPLIT):
         yield result.audio, result.sample_rate
@@ -92,7 +118,13 @@ def synthesize(model, text, voice, speed, blend=None):
 
     parts = []
     sample_rate = 0
-    source = single_parts(model, text, voice, speed) if blend is None else blended_parts(model, text, voice, speed, blend)
+    path = pack_path(voice)
+    if path is not None:
+        source = packed_parts(model, text, voice, speed, path)
+    elif blend is None:
+        source = single_parts(model, text, voice, speed)
+    else:
+        source = blended_parts(model, text, voice, speed, blend)
     for audio, sample_rate in source:
         parts.append(np.array(audio))
     pcm = (np.clip(np.concatenate(parts), -1, 1) * PCM_MAX).astype(np.int16)
@@ -111,7 +143,7 @@ def parse_blend(blend, voice):
     if not isinstance(blend, dict):
         raise ValueError("blend")
     first, second, weight = blend.get("first"), blend.get("second"), blend.get("weight")
-    if first != voice or second not in VOICES | BLEND_PARTNERS or second == first:
+    if first != voice or first not in VOICES or second not in VOICES | BLEND_PARTNERS or second == first:
         raise ValueError("blend")
     if isinstance(weight, bool) or not isinstance(weight, (int, float)) or not 0 < weight < 1:
         raise ValueError("blend")
@@ -123,7 +155,7 @@ def parse(body):
     text, voice, speed = request.get("text"), request.get("voice"), request.get("speed")
     if not isinstance(text, str) or not text.strip() or len(text) > MAX_TEXT_CHARS:
         return None
-    if voice not in VOICES:
+    if not isinstance(voice, str) or (voice not in VOICES and pack_path(voice) is None):
         return None
     if isinstance(speed, bool) or not isinstance(speed, (int, float)) or not MIN_SPEED <= speed <= MAX_SPEED:
         return None
