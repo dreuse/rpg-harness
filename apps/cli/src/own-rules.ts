@@ -3,20 +3,7 @@ import { type CondensedRules, condense, rulesetItems } from '../../../packages/m
 
 const TITLE_MARKS = /^#+\s*/;
 
-const CONDENSED_CACHE_LIMIT = 32;
-const condensedCache = new Map<string, CondensedRules>();
-
-const condensedDocument = ({ text }: RulesDocument): CondensedRules => {
-  const cached = condensedCache.get(text);
-  if (cached !== undefined) return cached;
-  const fresh = condense(text);
-  condensedCache.set(text, fresh);
-  if (condensedCache.size > CONDENSED_CACHE_LIMIT) {
-    const oldest = condensedCache.keys().next().value;
-    if (oldest !== undefined) condensedCache.delete(oldest);
-  }
-  return fresh;
-};
+const condensedDocument = ({ text, condensed }: RulesDocument): CondensedRules => condensed ?? condense(text);
 
 const condensedOf = (documents: readonly RulesDocument[]): CondensedRules => {
   const condensed = documents.map(condensedDocument);

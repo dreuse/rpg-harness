@@ -43,7 +43,11 @@ import {
 } from '../../../packages/engine/src/gm-settings.ts';
 import { contextBudgetOf } from '../../../packages/engine/src/memory.ts';
 import { oocStateOf, withoutRetconned } from '../../../packages/engine/src/ooc.ts';
-import type { RulesDocument } from '../../../packages/engine/src/own-rules.ts';
+import {
+  MAX_RULES_DOCUMENTS,
+  type RulesDocument,
+  SETTING_DOCUMENT_KIND,
+} from '../../../packages/engine/src/own-rules.ts';
 import { GameMasterInterruptedError } from '../../../packages/engine/src/scripted-session.ts';
 import {
   correctStoryFact,
@@ -1487,9 +1491,16 @@ export const createCampaignFrom = async (
   client?: string,
   gm: GameMaster = FAKE_GAME_MASTER,
 ): Promise<CampaignSummary> => {
-  const { name, language, intent, play, rulesDocuments = [] } = command;
+  const { name, language, intent, play, rulesDocuments = [], settingDocuments = [] } = command;
   const config = commandConfig(command, client, packsIn(dataDir));
-  const documents = loadOwnRules(dataDir, rulesDocuments);
+  if (rulesDocuments.length + settingDocuments.length > MAX_RULES_DOCUMENTS)
+    throw new Error(`Pick from 1 to ${MAX_RULES_DOCUMENTS} rules and setting files in total.`);
+  if (new Set([...rulesDocuments, ...settingDocuments]).size !== rulesDocuments.length + settingDocuments.length)
+    throw new Error('A rules or setting file was added twice.');
+  const documents = [
+    ...loadOwnRules(dataDir, rulesDocuments),
+    ...loadOwnRules(dataDir, settingDocuments, SETTING_DOCUMENT_KIND),
+  ];
   const character = startingCharacter(config);
   await createCampaign(
     dataDir,

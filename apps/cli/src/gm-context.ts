@@ -21,7 +21,7 @@ import {
   recordSummary,
 } from '../../../packages/engine/src/memory.ts';
 import { oocStateOf, withoutRetconned } from '../../../packages/engine/src/ooc.ts';
-import { rulesDocumentsOf } from '../../../packages/engine/src/own-rules.ts';
+import { rulesDocumentsOf, settingDocumentsOf } from '../../../packages/engine/src/own-rules.ts';
 import { directoryOf } from '../../../packages/engine/src/story-memory.ts';
 import { campaignConfigOf, loadState } from '../../../packages/engine/src/turn.ts';
 import { parseCampaignConfig } from '../../../packages/intent/src/config.ts';
@@ -259,6 +259,14 @@ const rulesetOf = (
   return [...described, ...ownRulesItems(documents, playerInput, recentTurns, room)];
 };
 
+const settingOf = (state: CampaignState, playerInput: string, recentTurns: readonly string[]) => {
+  const title = state.currentScene?.title ?? state.campaign.name;
+  const documents = settingDocumentsOf(state.events);
+  if (documents.length === NONE) return [title];
+  const room = REQUIRED_SECTION_CAPS.setting - estimateTokens(title);
+  return [title, ...ownRulesItems(documents, playerInput, recentTurns, room)];
+};
+
 export const contextPacketOf = (
   database: DatabaseSync,
   state: CampaignState,
@@ -367,7 +375,7 @@ export const contextPacketOf = (
         ...(contradicted.length === NONE ? [] : [continuityRetryPrompt(contradicted)]),
       ],
       ruleset: rulesetOf(state, config, committed.turn.input, turns.map(turnText)),
-      setting: [state.currentScene?.title ?? state.campaign.name],
+      setting: settingOf(state, committed.turn.input, turns.map(turnText)),
       style: [
         ...(config === undefined ? [] : styleLinesOf(config, packs)),
         ...tableNotes,

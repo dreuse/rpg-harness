@@ -105,6 +105,7 @@ export type CreateCampaign = Header<'CreateCampaign'> & {
   readonly choices?: Readonly<Record<string, unknown>>;
   readonly language?: string;
   readonly rulesDocuments?: readonly string[];
+  readonly settingDocuments?: readonly string[];
 };
 export type ArchiveCampaign = Header<'ArchiveCampaign'> & { readonly name: string };
 export type DeleteCampaign = Header<'DeleteCampaign'> & {
@@ -447,6 +448,7 @@ const COMMAND_FIELDS: Record<CommandType, Readonly<Record<string, FieldSpec>>> =
     language: { kind: 'locale', optional: true },
     play: { kind: 'record', optional: true },
     rulesDocuments: { kind: 'names', optional: true },
+    settingDocuments: { kind: 'names', optional: true },
   },
   ArchiveCampaign: { name: NAME },
   DeleteCampaign: { name: NAME, confirm: ID, archived: { kind: 'flag', optional: true } },

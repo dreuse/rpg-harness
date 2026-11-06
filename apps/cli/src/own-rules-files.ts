@@ -2,13 +2,16 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
+  isCondensed,
   MAX_RULES_DOCUMENT_CHARS,
   MAX_RULES_DOCUMENTS,
   type RulesDocument,
+  type SETTING_DOCUMENT_KIND,
 } from '../../../packages/engine/src/own-rules.ts';
 import { classifyFile, type IngestFormat, isSafeFileName } from '../../../packages/imports/src/formats.ts';
 import { makeProvenance, UNKNOWN_LOCATOR } from '../../../packages/imports/src/provenance.ts';
 import { interpretImported, wrapUntrusted } from '../../../packages/imports/src/untrusted.ts';
+import { condense } from '../../../packages/memory/src/rules.ts';
 import { readInside } from './import-gateway.ts';
 
 export const OWN_RULES_DIR = 'own-rules';
@@ -43,7 +46,16 @@ export const stageOwnRules = (dataDir: string, root: string, files: readonly str
   return { names: staged.map(({ fileName }) => fileName) };
 };
 
-export const loadOwnRules = (dataDir: string, names: readonly string[]): RulesDocument[] => {
+const condensedFor = (text: string) => {
+  const condensed = condense(text);
+  return isCondensed(condensed) ? { condensed } : {};
+};
+
+export const loadOwnRules = (
+  dataDir: string,
+  names: readonly string[],
+  kind?: typeof SETTING_DOCUMENT_KIND,
+): RulesDocument[] => {
   const dir = join(dataDir, OWN_RULES_DIR);
   if (new Set(names).size !== names.length) throw new Error('A rules file was added twice.');
   return names.map((name) => {
@@ -59,6 +71,13 @@ export const loadOwnRules = (dataDir: string, names: readonly string[]): RulesDo
       quality: 'high',
     });
     const data = interpretImported(wrapUntrusted(text, provenance));
-    return { name: fileName, format, sourceHash: data.provenance.sourceHash, text: data.text };
+    return {
+      name: fileName,
+      format,
+      sourceHash: data.provenance.sourceHash,
+      text: data.text,
+      ...condensedFor(data.text),
+      ...(kind === undefined ? {} : { kind }),
+    };
   });
 };
