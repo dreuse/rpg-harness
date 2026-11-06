@@ -45,6 +45,7 @@ import { hermeticGmEnv } from './gm-test-env.ts';
 const CAMPAIGN = 'api-gm';
 const KEY = 'sk-ant-gateway-test-key';
 const NARRATION = 'Firelight catches the stranger smiling as you sit down.';
+const EARLIER_NARRATION = 'The stranger glances up from the bar and waits for you to speak.';
 const ACTION = 'I sit by the fire';
 const SECOND_ACTION = 'I order a drink';
 const GM_SECRET = 'SECRET_THE_STRANGER_IS_THE_KING';
@@ -163,7 +164,11 @@ describe('rpg-42a.28 API game master wiring', () => {
 
   it('reports the provider error for the failed turn without a placeholder and asks the provider again next turn', async (t) => {
     const dataDir = await seededCampaign(t);
-    const { received, gm } = await providerGm(t, [{ status: UNAUTHORIZED, body: KEY }, textReply(NARRATION)]);
+    const { received, gm } = await providerGm(t, [
+      { status: UNAUTHORIZED, body: KEY },
+      textReply(EARLIER_NARRATION),
+      textReply(NARRATION),
+    ]);
     const errors: unknown[] = [];
     const lines = (async function* () {
       yield* [ACTION, SECOND_ACTION];
@@ -177,13 +182,13 @@ describe('rpg-42a.28 API game master wiring', () => {
     assert.match(String((errors[0] as Error).message), /HTTP 401/);
     assert.ok(!output.some((text) => text.includes(FAKE_GM_REPLY)));
     assert.ok(output.at(-1)?.includes(NARRATION));
-    assert.equal(received.length, 2);
+    assert.equal(received.length, 3);
     assert.ok(![...output, ...errors.map(String)].some((text) => text.includes(KEY)));
     assert.deepEqual(
       readCampaignState(dataDir, CAMPAIGN)
         .turns.slice(-2)
         .map(({ narration }) => narration),
-      ['', NARRATION],
+      [EARLIER_NARRATION, NARRATION],
     );
   });
 

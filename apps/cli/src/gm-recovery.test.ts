@@ -11,6 +11,8 @@ import { apiRouteOf, GM_API_URL_ENV, ProviderError } from './gm-api.ts';
 const CAMPAIGN = 'recovery';
 const KEY = 'sk-ant-recovery-key';
 const REAL_NARRATION = 'The stranger nods and slides a worn key across the bar.';
+const EARLIER_NARRATION = 'The stranger looks up from the bar and studies you.';
+const LATER_INPUT = 'I ask about the key';
 const PLACEHOLDER = 'The world shifts in answer.';
 const SUMMARY = 'The party met a stranger at the bar.';
 const REFUSED = { status: 401, body: '{}' };
@@ -56,6 +58,26 @@ describe('rpg-42a.101 the game master recovers after a provider failure', () => 
     act(opened, 'turn-2', 'I ask about the key');
     await opened.narrate();
     assert.equal(narrations(dataDir).at(-1), REAL_NARRATION);
+  });
+
+  it('narrates the earlier pending turn before the new action', async (t) => {
+    const { dataDir, opened } = await start(t, [REFUSED, textReply(EARLIER_NARRATION), textReply(REAL_NARRATION)]);
+    act(opened, 'turn-1');
+    await assert.rejects(opened.narrate(), ProviderError);
+    act(opened, 'turn-2', LATER_INPUT);
+    await opened.narrate();
+    assert.deepEqual(narrations(dataDir).slice(-2), [EARLIER_NARRATION, REAL_NARRATION]);
+  });
+
+  it('keeps later actions out of the context for the earlier pending turn', async (t) => {
+    const { provider, opened } = await start(t, [REFUSED, textReply(EARLIER_NARRATION), textReply(REAL_NARRATION)]);
+    act(opened, 'turn-1');
+    await assert.rejects(opened.narrate(), ProviderError);
+    act(opened, 'turn-2', LATER_INPUT);
+    await opened.narrate();
+    const earlierRequest = JSON.stringify(provider.received[1]?.body);
+    assert.ok(!earlierRequest.includes(LATER_INPUT));
+    assert.ok(JSON.stringify(provider.received[2]?.body).includes(LATER_INPUT));
   });
 
   it('commits no placeholder narration for a failed turn', async (t) => {

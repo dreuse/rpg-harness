@@ -455,6 +455,11 @@ const acceptMarkedCheck = (
   return true;
 };
 
+const oldestPendingTurn = (state: CampaignState) =>
+  playTurns(state)
+    .map(({ actionId }) => storedTurn(state, actionId))
+    .find((turn) => turn?.turn.narration === PENDING_NARRATION);
+
 const narrateLatest = async (
   session: Session,
   request: (packet: ContextPacket, onSegment?: (segment: GmSegment) => void) => Promise<GmTurnReply>,
@@ -467,9 +472,8 @@ const narrateLatest = async (
 ): Promise<readonly GmSegment[]> => {
   const { engine, store, campaignId, database, rng } = session;
   const state = engine.getState(campaignId);
-  const latest = playTurns(state).at(-1);
-  const committed = latest === undefined ? undefined : storedTurn(state, latest.actionId);
-  if (committed === undefined || committed.turn.narration !== PENDING_NARRATION) return NO_SEGMENTS;
+  const committed = oldestPendingTurn(state);
+  if (committed === undefined) return NO_SEGMENTS;
   const preset = contextBudgetOf(state.changes);
   const language = campaignLanguageOf(state.changes);
   const ratio = contextRatioOf(state.changes, language);
@@ -624,7 +628,11 @@ const narrateLatest = async (
       sessionId,
       usage,
     });
-  if (acceptMarkedCheck(session, committed, proposals, offeredNow, defaults))
+  const morePending = oldestPendingTurn(engine.getState(campaignId));
+  if (
+    acceptMarkedCheck(session, committed, proposals, offeredNow, defaults) ||
+    (morePending !== undefined && morePending.turn.id !== committed.turn.id)
+  )
     return narrateLatest(session, request, sessionId, speak, calibrates, defaults, modelCheck, listener);
   return 'inconsistent' in outcome ? narratorSegments(FAKE_GM_REPLY) : segments;
 };

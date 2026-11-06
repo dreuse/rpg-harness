@@ -195,9 +195,15 @@ const named = (entities: readonly CampaignEntity[], input: string) => {
   return entities.filter(({ name }) => lower.includes(name.toLowerCase())).map(({ id }) => id);
 };
 
+const turnsBefore = (state: CampaignState, committed: CommittedTurn) => {
+  const played = playTurns(state);
+  const index = played.findIndex(({ id }) => id === committed.turn.id);
+  return index === -1 ? played : played.slice(0, index);
+};
+
 export const previousNarrationsOf = (state: CampaignState, committed: CommittedTurn): string[] =>
-  playTurns(state)
-    .filter(({ id, narration }) => id !== committed.turn.id && narration !== '')
+  turnsBefore(state, committed)
+    .filter(({ narration }) => narration !== '')
     .slice(-COMPARED_NARRATIONS)
     .map(({ narration }) => narration);
 
@@ -269,7 +275,7 @@ export const contextPacketOf = (
         !retconned.events.has(sourceEventId ?? '') && !retconned.entities.has(subjectId ?? ''),
     );
   const pending = visibleTo(pendingOf(scoped), viewer);
-  const turns = playTurns(state).filter(({ id }) => id !== committed.turn.id);
+  const turns = turnsBefore(state, committed);
   const recentTurnIds = new Set([...turns.slice(-RECENT_TURN_LIMIT), committed.turn].map(({ id }) => id));
   const turnOf = new Map(state.events.map(({ id, turnId }) => [id, turnId]));
   const touches = touchesOf(database, campaignId).filter(({ eventId }) => !retconned.events.has(eventId));
