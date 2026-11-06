@@ -19,6 +19,12 @@ import {
   slashCompletion,
   slashText,
 } from '../../../packages/client-protocol/src/slash-commands.ts';
+import {
+  STORY_MEMORY_GROUPS,
+  storyFacts,
+  storyFactText,
+  storyMemoryText,
+} from '../../../packages/client-protocol/src/story-memory-text.ts';
 import { SHEET_VIEW } from '../../../packages/client-protocol/src/view-registry.ts';
 import {
   breakdownLines,
@@ -228,6 +234,8 @@ export const motionOf = (env: NodeJS.ProcessEnv, { interactive, colors }: Capabi
 
 const SLASH_CLIENT: SlashClient = 'tui';
 const HELP_COMMAND = 'help';
+const MEMORY_COMMAND = 'memory';
+const MEMORY_CORRECTION = /^(\d+)\s+(.+)$/u;
 const USAGE_KEYS: Readonly<Record<string, string>> = {
   edit: 'help.edit',
   language: 'help.language',
@@ -592,6 +600,53 @@ const talkToGm = (session: ClientSession, data: () => TuiData, held: OocProposal
   ].join(NOTICE_SEPARATOR);
 };
 
+const rememberStory = (session: ClientSession, data: TuiData, args: string) => {
+  const { snapshot } = data;
+  const locale = localeOf(data);
+  const [actor] = snapshot.characters;
+  const read = session.getStoryMemory({
+    version: PROTOCOL_VERSION,
+    type: 'GetStoryMemory',
+    campaignId: snapshot.campaignId,
+  });
+  if (!read.ok) return storyMemoryText(locale, 'memory.unavailable');
+  const { memory, revision } = read.value;
+  const facts = storyFacts(memory);
+  const [, number, value] = MEMORY_CORRECTION.exec(args) ?? [];
+  if (number !== undefined && value !== undefined) {
+    const fact = facts[Number(number) - 1];
+    if (fact === undefined || actor === undefined) return storyMemoryText(locale, 'memory.unknown', { index: number });
+    const fixed = session.correctStoryFact({
+      version: PROTOCOL_VERSION,
+      type: 'CorrectStoryFact',
+      campaignId: snapshot.campaignId,
+      actionId: randomUUID(),
+      expectedRevision: revision,
+      actorId: actor.id,
+      entityId: fact.entityId,
+      kind: fact.kind,
+      key: fact.key,
+      value,
+    });
+    return fixed.ok
+      ? storyMemoryText(locale, 'memory.applied', { fact: storyFactText({ ...fact, value }) })
+      : storyMemoryText(locale, 'memory.rejected', { reason: fixed.error.message });
+  }
+  const corrected = ` (${storyMemoryText(locale, 'memory.corrected')})`;
+  const lines = STORY_MEMORY_GROUPS.flatMap((group) => [
+    storyMemoryText(locale, `memory.group.${group}`),
+    ...memory[group].map(
+      (fact) => `${facts.indexOf(fact) + 1}. ${storyFactText(fact)}${fact.corrected ? corrected : ''}`,
+    ),
+  ]);
+  return [
+    storyMemoryText(locale, 'memory.heading'),
+    ...(facts.length === 0
+      ? [storyMemoryText(locale, 'memory.empty')]
+      : [...lines, storyMemoryText(locale, 'memory.usage')]),
+  ].join(NEWLINE);
+};
+
 const valuesOf = (sheet: readonly ViewComponent[]) => new Map(sheet.map(({ id, value }) => [id, value]));
 
 type Narrate = () => Promise<unknown>;
@@ -798,6 +853,7 @@ export const runTui = async (
     if (name !== undefined && text !== undefined) return editField(session, data(), name, text);
     if (slash.kind === 'none') return submit(session, data(), input);
     if (slash.id === HELP_COMMAND) return helpLines(data()).join(NEWLINE);
+    if (slash.id === MEMORY_COMMAND) return rememberStory(session, data(), slash.args);
     const usage = USAGE_KEYS[slash.id];
     return usage === undefined
       ? slashText(locale, 'slash.unknown', { name: `${SLASH_PREFIX}${slash.id}` })

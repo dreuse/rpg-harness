@@ -1971,3 +1971,43 @@ test('rpg-42a.96 page saves who rolls with the GM form and omits it when left on
   assert.equal(saves[0].whoRolls, 'me');
   assert.equal('whoRolls' in saves[1], false);
 });
+
+const MEMORY_FORM = { 'data-memory': 'correct', 'data-memory-index': '0' };
+const MEMORY_INPUT = '#memory-panel-value-0';
+
+test('rpg-42a.61 page sends the typed correction for a remembered fact and ignores an empty field', () => {
+  const page = playingSheet();
+  const fact = { entityId: 'p1', entityName: 'Mira', kind: 'alive', key: '', value: 'alive', corrected: false };
+  const memory = { person: [fact], place: [], thread: [] };
+  page.receive({
+    type: 'StoryResult',
+    command: 'GetStoryMemory',
+    result: { ok: true, value: { version: 1, campaignId: CAMPAIGN, revision: 4, memory } },
+  });
+  page.fields[MEMORY_INPUT] = '';
+  page.submit(MEMORY_FORM);
+  assert.equal(
+    page.sent.some(({ type }) => type === 'CorrectStoryFact'),
+    false,
+  );
+  page.fields[MEMORY_INPUT] = 'dead';
+  page.submit(MEMORY_FORM);
+  const command = page.sent.findLast(({ type }) => type === 'CorrectStoryFact');
+  assert.ok(command && 'entityId' in command);
+  assert.equal(command.entityId, 'p1');
+  assert.equal(command.value, 'dead');
+});
+
+test('rpg-42a.61 page keeps a half-typed correction when the view updates', () => {
+  const page = playingSheet();
+  const fact = { entityId: 'p1', entityName: 'Mira', kind: 'alive', key: '', value: 'alive', corrected: false };
+  const memory = { person: [fact], place: [], thread: [] };
+  page.receive({
+    type: 'StoryResult',
+    command: 'GetStoryMemory',
+    result: { ok: true, value: { version: 1, campaignId: CAMPAIGN, revision: 4, memory } },
+  });
+  page.fields[MEMORY_INPUT] = 'dea';
+  page.receive({ type: 'Snapshot', snapshot: SNAPSHOT });
+  assert.equal(page.fields[MEMORY_INPUT], 'dea');
+});

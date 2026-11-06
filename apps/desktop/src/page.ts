@@ -8,6 +8,7 @@ import {
   type SlashOption,
   slashText,
 } from '../../../packages/client-protocol/src/slash-commands.ts';
+import { storyFacts, storyMemoryText } from '../../../packages/client-protocol/src/story-memory-text.ts';
 import { MOTION_SETTINGS } from '../../../packages/client-protocol/src/visualization.ts';
 import { DUCK_RELEASE_MS } from '../../../packages/voice/src/ducking-sink.ts';
 import { voiceLocaleFor } from '../../../packages/voice/src/language-voices.ts';
@@ -38,6 +39,9 @@ import {
   type KeyEventLike,
   type KeyTarget,
   LOCALE_ATTRIBUTE,
+  MEMORY_ATTRIBUTE,
+  MEMORY_INDEX,
+  MEMORY_PANEL,
   NAV_ATTRIBUTE,
   OOC_ATTRIBUTE,
   OOC_EXCHANGE,
@@ -111,6 +115,7 @@ export const ROOT_ID = 'app';
 export const FORM_ID = 'action-form';
 export const INPUT_ID = 'action-input';
 export const OOC_TOGGLE_ID = 'ooc-toggle';
+export const MEMORY_TOGGLE_ID = 'memory-toggle';
 export const SLASH_MENU_ID = 'slash-menu';
 export const SLASH_STATUS_ID = 'slash-status';
 export const SLASH_HINT_ID = 'slash-hint';
@@ -166,6 +171,8 @@ const DISCLOSURE_SELECTORS = [
 const HOME_REGION = '[data-region="campaigns"]';
 const KEEP_ENTER_REGIONS = [START_REGION, HOME_REGION, '[data-region="status"]', '[data-region="sheet"]'];
 const SHEET_INPUT_SELECTOR = `#${SHEET_INPUT}`;
+const EMPTY_MEMORY = { person: [], place: [], thread: [] };
+const MEMORY_FORM_SELECTOR = `[${MEMORY_ATTRIBUTE}="correct"]`;
 const SHEET_FORM_SELECTOR = `[${SHEET_FORM}]`;
 const ROLL_REPORT_FORM_SELECTOR = `[${ROLL_REPORT_FORM}]`;
 const ROLL_REPORT_INPUT_SELECTOR = `#${ROLL_REPORT_INPUT}`;
@@ -226,6 +233,7 @@ export type PageElements = {
   readonly slashStatus?: Pick<HTMLElement, 'textContent'>;
   readonly slashHint?: Pick<HTMLElement, 'textContent'>;
   readonly oocToggle?: Pick<HTMLButtonElement, 'addEventListener' | 'setAttribute' | 'textContent'>;
+  readonly memoryToggle?: Pick<HTMLButtonElement, 'addEventListener' | 'setAttribute' | 'textContent'>;
   readonly keys: KeyTarget;
 };
 export type PageOptions = {
@@ -275,7 +283,7 @@ const assignmentsOf = (speech: SpeechPreferences, campaignId: string | undefined
       );
 
 export const mountPage = ({
-  elements: { root, form, input, oocToggle, keys, slashMenu, slashStatus, slashHint },
+  elements: { root, form, input, oocToggle, memoryToggle, keys, slashMenu, slashStatus, slashHint },
   bridge,
   search,
   width,
@@ -419,6 +427,11 @@ export const mountPage = ({
     const focused = selectorOf(root.querySelector<HTMLElement>(FOCUSED_SELECTOR));
     const typed = entryValue();
     const sheetTyped = sheetInputs().map((field) => ({ field, value: field?.value, checked: field?.checked }));
+    const memoryInputs = () =>
+      storyFacts(client.state().memory.view?.memory ?? EMPTY_MEMORY).map((_, index) =>
+        root.querySelector<HTMLInputElement>(`#${MEMORY_PANEL}-value-${index}`),
+      );
+    const memoryTyped = memoryInputs().map((field) => field?.value);
     const gmTyped = gmInputs().map((field) => (field?.value === field?.defaultValue ? undefined : field?.value));
     const caret = root.querySelector<HTMLInputElement>(ENTRY_SELECTOR);
     const selection = { start: caret?.selectionStart ?? null, end: caret?.selectionEnd ?? null };
@@ -429,6 +442,8 @@ export const mountPage = ({
     const talking = client.state().ooc.active;
     oocToggle?.setAttribute('aria-pressed', String(talking));
     if (oocToggle !== undefined) oocToggle.textContent = translate(preferences.locale, 'ooc.toggle');
+    memoryToggle?.setAttribute('aria-pressed', String(client.state().memory.open));
+    if (memoryToggle !== undefined) memoryToggle.textContent = storyMemoryText(preferences.locale, 'memory.heading');
     input.placeholder = translate(preferences.locale, talking ? 'ooc.placeholder' : 'action.placeholder');
     sound?.update(
       preferences.sound,
@@ -494,6 +509,10 @@ export const mountPage = ({
     gmInputs().forEach((field, index) => {
       const kept = gmTyped[index];
       if (field !== null && kept !== undefined) field.value = kept;
+    });
+    memoryInputs().forEach((field, index) => {
+      const kept = memoryTyped[index];
+      if (field !== null && kept !== undefined && kept !== '') field.value = kept;
     });
     if (focusRollsOnRender) {
       focusRollsOnRender = false;
@@ -866,6 +885,14 @@ export const mountPage = ({
       event.preventDefault();
       return client.saveGmDefaults(gmTypedIn(GM_DEFAULTS_FORM_SELECTOR));
     }
+    const memoryForm = closestTarget(event)?.closest(MEMORY_FORM_SELECTOR);
+    if (memoryForm) {
+      event.preventDefault();
+      const index = memoryForm.getAttribute(MEMORY_INDEX);
+      const typed = root.querySelector<HTMLInputElement>(`#${MEMORY_PANEL}-value-${index}`)?.value?.trim() ?? '';
+      if (typed !== '') client.correctFact(Number(index), typed);
+      return;
+    }
     if (closestTarget(event)?.closest(SHEET_FORM_SELECTOR)) {
       event.preventDefault();
       return saveSheet();
@@ -963,6 +990,10 @@ export const mountPage = ({
     client.toggleOoc();
     render();
   });
+  memoryToggle?.addEventListener('click', () => {
+    client.toggleMemory();
+    render();
+  });
   bindKeys(keys, () => preferences, run);
   render();
   voice.start().then(render);
@@ -997,6 +1028,7 @@ const boot = () => {
       form: byId<HTMLFormElement>(FORM_ID),
       input: byId<HTMLInputElement>(INPUT_ID),
       oocToggle: byId<HTMLButtonElement>(OOC_TOGGLE_ID),
+      memoryToggle: byId<HTMLButtonElement>(MEMORY_TOGGLE_ID),
       slashMenu: byId(SLASH_MENU_ID),
       slashStatus: byId(SLASH_STATUS_ID),
       slashHint: byId(SLASH_HINT_ID),

@@ -29,12 +29,14 @@ import {
   type SavedVoiceSettings,
   type SaveVoiceSettings,
   type StartOptions,
+  type StoryMemoryView,
   type SubmitOocMessage,
   type SubmitPlayerAction,
   type ViewComponent,
   type ViewDescriptor,
 } from '../../../packages/client-protocol/src/protocol.ts';
 import { resolveSlash, type SlashClient, slashText } from '../../../packages/client-protocol/src/slash-commands.ts';
+import { storyFacts } from '../../../packages/client-protocol/src/story-memory-text.ts';
 import { parseViewDescriptor } from '../../../packages/client-protocol/src/view-registry.ts';
 import { VISUALIZATION_EVENT, type VisualizationEvent } from '../../../packages/client-protocol/src/visualization.ts';
 import { NARRATION, NARRATION_FAILED, type Ready } from '../../../packages/client-protocol/src/wire.ts';
@@ -74,6 +76,7 @@ const PLANNED = 'Planned';
 const CREATED = 'Created';
 const CHANGED = 'Changed';
 const OOC_RESULT = 'OocResult';
+const STORY_RESULT = 'StoryResult';
 const DESKTOP_CLIENT = 'desktop';
 const OPTIONS_REQUEST = planCommand(INITIAL_DRAFT);
 const NO_REVISION = -1;
@@ -100,6 +103,13 @@ export type StartState = {
   readonly plan?: Result<CampaignPlan> | undefined;
   readonly created?: string | undefined;
 };
+export type MemoryState = {
+  readonly open: boolean;
+  readonly view?: StoryMemoryView;
+  readonly unavailable?: boolean;
+  readonly error?: string;
+};
+
 export type OocProposalStatus = 'open' | 'applying' | 'applied' | 'declined';
 export type OocProposalState = {
   readonly proposal: OocProposal;
@@ -148,6 +158,7 @@ export type DesktopState = {
   readonly sheetErrors: Readonly<Record<string, string>>;
   readonly sheetEditing: boolean;
   readonly ooc: OocState;
+  readonly memory: MemoryState;
 };
 
 export type Transport = {
@@ -189,6 +200,7 @@ export const initialState: DesktopState = {
   sheetErrors: {},
   sheetEditing: false,
   ooc: { active: false, exchanges: [] },
+  memory: { open: false },
 };
 
 const statusLabel = ({ status, attempts }: Connection, locale: string) =>
@@ -370,6 +382,7 @@ export const viewModel = (
       : undefined,
     created: state.start.created,
     ooc: state.ooc,
+    memory: state.memory,
   };
 };
 
@@ -620,6 +633,7 @@ export const createDesktopClient = ({
       sheetErrors: {},
       sheetEditing: false,
       ooc: initialState.ooc,
+      memory: initialState.memory,
     };
     update({});
     follow();
@@ -698,6 +712,7 @@ export const createDesktopClient = ({
     if (message.type === CREATED && isResult(message.result)) return onCreated(message.result);
     if (message.type === CHANGED && isResult(message.result)) return onChanged(message.command, message.result);
     if (message.type === OOC_RESULT) return onOocResult(message);
+    if (message.type === STORY_RESULT) return onStoryResult(message);
     if (message.type === ACCEPTED) return settle(message.actionId);
     if (message.type === REJECTED) {
       const error = isRecord(message.error) ? String(message.error.message) : String(message.error);
@@ -797,6 +812,52 @@ export const createDesktopClient = ({
       summary ?? state.ooc.undoable,
     );
     if (failed === undefined) refresh();
+  };
+
+  const askMemory = () => {
+    const { snapshot } = state;
+    if (snapshot === undefined) return;
+    send({ version: PROTOCOL_VERSION, type: 'GetStoryMemory', campaignId: snapshot.campaignId });
+  };
+
+  const onStoryResult = ({ command, result }: Record<string, unknown>) => {
+    if (!isResult(result)) return;
+    if (command === 'GetStoryMemory')
+      return update({
+        memory: result.ok
+          ? { open: state.memory.open, view: result.value as StoryMemoryView }
+          : { open: state.memory.open, unavailable: true },
+      });
+    if (!result.ok)
+      return update({
+        memory: {
+          ...state.memory,
+          error: result.error.message,
+        },
+      });
+    update({ memory: { open: state.memory.open, ...(state.memory.view ? { view: state.memory.view } : {}) } });
+    askMemory();
+    refresh();
+  };
+
+  const correctFact = (index: number, value: string) => {
+    const { snapshot, memory } = state;
+    const fact = memory.view === undefined ? undefined : storyFacts(memory.view.memory)[index];
+    const actorId = snapshot?.characters[0]?.id;
+    if (snapshot === undefined || memory.view === undefined || fact === undefined || actorId === undefined) return;
+    update({ memory: { open: memory.open, view: memory.view } });
+    send({
+      version: PROTOCOL_VERSION,
+      type: 'CorrectStoryFact',
+      campaignId: snapshot.campaignId,
+      actionId: newActionId(),
+      expectedRevision: memory.view.revision,
+      actorId,
+      entityId: fact.entityId,
+      kind: fact.kind,
+      key: fact.key,
+      value,
+    });
   };
 
   const talkToGm = (input: string): Result<SubmitOocMessage> => {
@@ -901,6 +962,7 @@ export const createDesktopClient = ({
         sheetErrors: {},
         sheetEditing: false,
         ooc: initialState.ooc,
+        memory: initialState.memory,
       };
       update({});
       send(LIST_CAMPAIGNS);
@@ -960,6 +1022,12 @@ export const createDesktopClient = ({
       return ROLL_PATTERN.test(input.trim()) ? rollNow() : submitAction(input);
     },
     toggleOoc: () => update({ ooc: { ...state.ooc, active: !state.ooc.active } }),
+    toggleMemory: () => {
+      const open = !state.memory.open;
+      update({ memory: { open, ...(state.memory.view ? { view: state.memory.view } : {}) } });
+      if (open) askMemory();
+    },
+    correctFact,
     confirmOoc,
     declineOoc: (exchangeId: string, index: number) =>
       changeExchange(exchangeId, (exchange) => setProposal(exchange, index, { status: 'declined' })),

@@ -125,6 +125,8 @@ const ACTIONS: ReadonlySet<string> = new Set([
   'EditSheetField',
 ]);
 
+const STORY_COMMANDS: ReadonlySet<string> = new Set(['GetStoryMemory', 'CorrectStoryFact']);
+
 const OOC_COMMANDS: ReadonlySet<string> = new Set(['SubmitOocMessage', 'ConfirmOocProposal', 'UndoOocChange']);
 
 export const daemonTransport = (daemon: Pick<Daemon, 'ready' | 'command' | 'subscribe'>): Transport => {
@@ -159,6 +161,12 @@ export const daemonTransport = (daemon: Pick<Daemon, 'ready' | 'command' | 'subs
         type: 'OocResult',
         command: command.type,
         actionId: command.actionId,
+        result: result ?? failure('Rejected', String(message)),
+      });
+    if (STORY_COMMANDS.has(command.type))
+      return emit({
+        type: 'StoryResult',
+        command: command.type,
         result: result ?? failure('Rejected', String(message)),
       });
     if (command.type === 'PlanCampaign' || command.type === 'CreateCampaign')

@@ -6,8 +6,14 @@ import {
   modelHintOf,
 } from '../../../packages/client-protocol/src/gm-usage.ts';
 import { loadStartDraft, type StartScreen } from '../../../packages/client-protocol/src/guided-start.ts';
-import type { GmSnapshot } from '../../../packages/client-protocol/src/protocol.ts';
+import type { GmSnapshot, StoryMemoryEntry, StoryMemoryView } from '../../../packages/client-protocol/src/protocol.ts';
 import type { SlashOption } from '../../../packages/client-protocol/src/slash-commands.ts';
+import {
+  STORY_MEMORY_GROUPS,
+  storyFacts,
+  storyFactText,
+  storyMemoryText,
+} from '../../../packages/client-protocol/src/story-memory-text.ts';
 import { MOTION_SETTINGS } from '../../../packages/client-protocol/src/visualization.ts';
 import { type GmSettings, WHO_ROLLS, type WhoRolls } from '../../../packages/domain/src/gm.ts';
 import { RULES_STRICTNESSES, type RulesStrictness } from '../../../packages/domain/src/rules-usage.ts';
@@ -594,6 +600,27 @@ export const OOC_ATTRIBUTE = 'data-ooc';
 export const OOC_EXCHANGE = 'data-ooc-exchange';
 export const OOC_INDEX = 'data-ooc-index';
 export const OOC_PANEL = 'ooc-panel';
+export const MEMORY_ATTRIBUTE = 'data-memory';
+export const MEMORY_INDEX = 'data-memory-index';
+export const MEMORY_PANEL = 'memory-panel';
+
+const memoryFact = (fact: StoryMemoryEntry, index: number, locale: string) =>
+  `<li><span>${escapeHtml(storyFactText(fact))}</span>${fact.corrected ? ` <em>${escapeHtml(storyMemoryText(locale, 'memory.corrected'))}</em>` : ''}<form ${MEMORY_ATTRIBUTE}="correct" ${MEMORY_INDEX}="${index}"><label for="${MEMORY_PANEL}-value-${index}">${escapeHtml(storyMemoryText(locale, 'memory.value'))}</label><input id="${MEMORY_PANEL}-value-${index}" name="value" autocomplete="off" required><button type="submit">${escapeHtml(storyMemoryText(locale, 'memory.correct'))}</button></form></li>`;
+
+const memoryGroups = ({ memory }: StoryMemoryView, locale: string) => {
+  const facts = storyFacts(memory);
+  return facts.length === 0
+    ? systemLine(storyMemoryText(locale, 'memory.empty'))
+    : STORY_MEMORY_GROUPS.map(
+        (group) =>
+          `<section aria-labelledby="${MEMORY_PANEL}-${group}"><h4 id="${MEMORY_PANEL}-${group}">${escapeHtml(storyMemoryText(locale, `memory.group.${group}`))}</h4><ul>${memory[group].map((fact) => memoryFact(fact, facts.indexOf(fact), locale)).join('')}</ul></section>`,
+      ).join('');
+};
+
+const memoryPanel = ({ memory }: ViewModel, locale: string) =>
+  memory.open
+    ? `<section id="${MEMORY_PANEL}" data-memory-panel aria-labelledby="${MEMORY_PANEL}-heading"><h3 id="${MEMORY_PANEL}-heading">${escapeHtml(storyMemoryText(locale, 'memory.heading'))}</h3>${memory.unavailable ? systemLine(storyMemoryText(locale, 'memory.unavailable')) : memory.view === undefined ? '' : memoryGroups(memory.view, locale)}${memory.error === undefined ? '' : `<p role="alert">${escapeHtml(storyMemoryText(locale, 'memory.rejected', { reason: memory.error }))}</p>`}</section>`
+    : '';
 
 const oocButton = (action: string, label: string, exchangeId: string, index: number) =>
   `<button type="button" ${OOC_ATTRIBUTE}="${action}" ${OOC_EXCHANGE}="${escapeHtml(exchangeId)}" ${OOC_INDEX}="${index}">${escapeHtml(label)}</button>`;
@@ -731,7 +758,7 @@ const REGION_BODIES: Readonly<Record<Region, (model: ViewModel, locale: string) 
       )
       .join(
         '',
-      )}</ol>${model.conversation.length === 0 ? empty(locale, 'conversation') : ''}${rollOfferButton(model, locale)}${rollReportForm(model, locale)}${rollTray(model, locale)}${oocPanel(model, locale)}`,
+      )}</ol>${model.conversation.length === 0 ? empty(locale, 'conversation') : ''}${rollOfferButton(model, locale)}${rollReportForm(model, locale)}${rollTray(model, locale)}${oocPanel(model, locale)}${memoryPanel(model, locale)}`,
   sheet: ({ sheetGroups, sheetEditing, character }, locale) => {
     const name = character === undefined ? '' : `<h3>${escapeHtml(character)}</h3>`;
     if (sheetGroups.length > 0) return sheetBody(sheetGroups, sheetEditing, name, locale);

@@ -345,7 +345,7 @@ test('rpg-42a.93: Tab completes slash command names and lists the matches', () =
   assert.equal(press([key('i'), ...typed('/rol'), TAB, ...typed('now')]).draft, '/roll now');
   const listed = press([key('i'), ...typed('/'), TAB]);
   assert.equal(listed.draft, '/');
-  assert.match(listed.notice ?? '', /\/gm \/roll \/retry \/edit \/language \/voice \/help/);
+  assert.match(listed.notice ?? '', /\/gm \/roll \/retry \/edit \/language \/voice \/memory \/help/);
   assert.equal(press([key('i'), ...typed('/l'), TAB]).draft, '/language ');
   assert.equal(press([key('i'), ...typed('hello'), TAB]).draft, 'hello');
   assert.equal(press([key('i'), ...typed('/zzz'), TAB]).notice, undefined);
@@ -1332,4 +1332,91 @@ test('rpg-42a.101: /retry is listed and named in every locale', () => {
   assert.equal(matchSlash('en', 'tui', '/ret')[0]?.id, 'retry');
   assert.equal(matchSlash('es', 'tui', '/reint')[0]?.id, 'retry');
   assert.equal(matchSlash('pt-BR', 'tui', '/rep')[0]?.id, 'retry');
+});
+
+test('rpg-42a.61: /memory lists the story facts by person, place and thread and corrects one by number', async () => {
+  const { session, campaignId } = engineSession();
+  const entry = (entityId: string, entityName: string, value: string, corrected = false) => ({
+    entityId,
+    entityName,
+    kind: 'alive' as const,
+    key: '',
+    value,
+    sourceEventId: 'e1',
+    corrected,
+  });
+  const memory = {
+    person: [entry('p1', 'Mira', 'alive', true)],
+    place: [entry('l1', 'Ember Inn', 'alive')],
+    thread: [],
+  };
+  const fixes: unknown[] = [];
+  const remembering = {
+    ...session,
+    getStoryMemory: (command) => ({
+      ok: true,
+      value: { version: command.version, campaignId, revision: 7, memory },
+    }),
+    correctStoryFact: (command) => {
+      fixes.push(command);
+      return { ok: true, value: { revision: 8 } };
+    },
+  } as ClientSession;
+  const output: string[] = [];
+  await runTui(remembering, campaignId, {
+    capabilities: PLAIN_WIDE,
+    lines: each(['/memory', '/memory 2 dead', '/memory 9 dead', 'q']),
+    write: (text) => output.push(text),
+  });
+  const printed = output.join('');
+  assert.match(printed, /What the story remembers/);
+  assert.match(printed, /People\n1\. Mira - alive: alive \(corrected\)\nPlaces\n2\. Ember Inn - alive: alive\nThreads/);
+  assert.equal(fixes.length, 1);
+  assert.match(JSON.stringify(fixes[0]), /"entityId":"l1".*"kind":"alive".*"value":"dead"/);
+  assert.equal((fixes[0] as { expectedRevision: number }).expectedRevision, 7);
+  assert.match(printed, /Corrected: Ember Inn - alive: dead/);
+  assert.match(printed, /There is no fact number 9\./);
+});
+
+test('rpg-42a.61: /memory shows a plain notice when the story is rejected', async () => {
+  const { session, campaignId } = engineSession();
+  const rejected = {
+    ...session,
+    getStoryMemory: () => ({ ok: false, error: { code: 'Rejected', message: 'no story' } }),
+  } as ClientSession;
+  const output: string[] = [];
+  await runTui(rejected, campaignId, {
+    capabilities: PLAIN_WIDE,
+    lines: each(['/memory', '/memory 1 dead', 'q']),
+    write: (text) => output.push(text),
+  });
+  assert.equal(output.join('').match(/The story memory is not available right now\./g)?.length, 2);
+});
+
+test('rpg-42a.61: /memory says why a correction was refused', async () => {
+  const { session, campaignId } = engineSession();
+  const entry = {
+    entityId: 'p1',
+    entityName: 'Mira',
+    kind: 'alive',
+    key: '',
+    value: 'alive',
+    sourceEventId: 'e1',
+    corrected: false,
+  };
+  const refusing = {
+    ...session,
+    getStoryMemory: (command) => ({
+      ok: true,
+      value: { version: command.version, campaignId, revision: 7, memory: { person: [entry], place: [], thread: [] } },
+    }),
+    correctStoryFact: () => ({ ok: false, error: { code: 'StaleRevision', message: 'stale' } }),
+  } as ClientSession;
+  const output: string[] = [];
+  await runTui(refusing, campaignId, {
+    capabilities: PLAIN_WIDE,
+    lines: each(['/memory 1 dead', 'q']),
+    write: (text) => output.push(text),
+  });
+  assert.match(output.join(''), /The correction was refused: stale/);
 });
