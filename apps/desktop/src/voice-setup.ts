@@ -66,16 +66,42 @@ export type AudioContextLike = {
   createBufferSource(): {
     buffer: DecodedAudio | null | undefined;
     connect(target: unknown): unknown;
+    onended: ((event: Event) => unknown) | null;
     start(at: number): void;
     stop(): void;
   };
 };
 
+export const MAX_SPEECH_CHARS = 4000;
+const SENTENCE_END = /[.!?…]["')\]]*\s/g;
+const WHITESPACE = /\s/g;
+
+const lastMatchEnd = (text: string, pattern: RegExp) => {
+  let end = 0;
+  for (const match of text.matchAll(pattern)) end = match.index + match[0].length;
+  return end;
+};
+
+export const splitSpeech = (text: string, limit: number): string[] => {
+  const pieces: string[] = [];
+  let rest = text.trim();
+  while (rest.length > limit) {
+    const window = rest.slice(0, limit + 1);
+    const cut = lastMatchEnd(window, SENTENCE_END) || lastMatchEnd(window, WHITESPACE) || limit;
+    pieces.push(rest.slice(0, cut).trim());
+    rest = rest.slice(cut).trim();
+  }
+  if (rest !== '') pieces.push(rest);
+  return pieces;
+};
+
 export const browserAudio = (context: () => AudioContextLike, now = () => performance.now()): AudioOut => {
   let shared: AudioContextLike | undefined;
   const playing = new Set<ReturnType<AudioContextLike['createBufferSource']>>();
+  let stops = 0;
   return {
     stop: () => {
+      stops += 1;
       for (const source of playing) source.stop();
       playing.clear();
     },
@@ -84,8 +110,10 @@ export const browserAudio = (context: () => AudioContextLike, now = () => perfor
       const audio = shared;
       await audio.resume();
       const started = now();
+      const stopsAtStart = stops;
       const buffers = await Promise.all(chunks.map((chunk) => audio.decodeAudioData(chunk.slice().buffer)));
       const decodeMs = now() - started;
+      if (stops !== stopsAtStart) return { decodeMs };
       const gain = audio.createGain();
       gain.gain.value = volume;
       gain.connect(audio.destination);
@@ -95,6 +123,7 @@ export const browserAudio = (context: () => AudioContextLike, now = () => perfor
         const source = audio.createBufferSource();
         source.buffer = buffer;
         source.connect(gain);
+        source.onended = () => playing.delete(source);
         source.start(at);
         playing.add(source);
         at += buffer.duration;

@@ -127,7 +127,7 @@ const gmLine = (locale: string, narration: string, pending: boolean) =>
 const replayButton = (locale: string, actionId: string, narration: string, replay: ReplayView | undefined) => {
   if (replay?.available !== true || narration.trim() === '') return '';
   const playing = replay.playing === actionId;
-  return `<button type="button" ${REPLAY}="${escapeHtml(actionId)}" aria-label="${escapeHtml(translate(locale, playing ? 'replay.stop' : 'replay.play'))}"${playing ? ' aria-pressed="true"' : ''}><span aria-hidden="true">${playing ? REPLAY_STOP_ICON : REPLAY_PLAY_ICON}</span></button>`;
+  return `<button type="button" ${REPLAY}="${escapeHtml(actionId)}" aria-label="${escapeHtml(translate(locale, playing ? 'replay.stop' : 'replay.play'))}"><span aria-hidden="true">${playing ? REPLAY_STOP_ICON : REPLAY_PLAY_ICON}</span></button>`;
 };
 
 const GM_FIELD = 'gm';

@@ -1073,10 +1073,8 @@ test('rpg-cm63.46 each narration turn gets a replay button named in the player l
     const idle = renderView({ ...model, replay: { available: true } }, locale);
     assert.match(idle, new RegExp(`<button type="button" data-replay="a0" aria-label="${play}">`));
     const playing = renderView({ ...model, replay: { available: true, playing: 'a0' } }, locale);
-    assert.match(
-      playing,
-      new RegExp(`<button type="button" data-replay="a0" aria-label="${stop}" aria-pressed="true">`),
-    );
+    assert.match(playing, new RegExp(`<button type="button" data-replay="a0" aria-label="${stop}">`));
+    assert.doesNotMatch(playing, /data-replay="a0"[^>]*aria-pressed/);
   }
 });
 

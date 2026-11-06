@@ -1855,7 +1855,7 @@ test('rpg-cm63.46 page replays a narration turn through the voice bridge and sto
     },
   ]);
   assert.deepEqual(voice.playbackCommands, ['stop']);
-  assert.match(page.root.innerHTML, /aria-label="Stop this passage" aria-pressed="true"/);
+  assert.match(page.root.innerHTML, /aria-label="Stop this passage"/);
   page.click(REPLAY_BUTTON);
   assert.deepEqual(stops, ['stop']);
   assert.match(page.root.innerHTML, /aria-label="Play this passage"/);
@@ -1867,6 +1867,15 @@ test('rpg-cm63.46 page replays a narration turn through the voice bridge and sto
   for (const run of timers.splice(0)) run();
   await settle();
   assert.equal(replays().length, 2);
+});
+
+test('rpg-cm63.50 page replays narration longer than the speech limit as several requests', async () => {
+  const sentence = `${'a'.repeat(1999)}. `;
+  const { page, replays } = await replayPage(true, { ...REPLAY_TURN, narration: sentence.repeat(3).trim() });
+  page.click(REPLAY_BUTTON);
+  await settle();
+  assert.equal(replays().length, 1);
+  assert.equal((replays()[0] as { text: string }).text, sentence.trim());
 });
 
 test('rpg-cm63.46 page shows no replay button before a voice is installed and spoken', async () => {

@@ -100,7 +100,9 @@ import {
   type AudioOut,
   browserAudio,
   createVoiceSetup,
+  MAX_SPEECH_CHARS,
   type SpeechPreferences,
+  splitSpeech,
   type VoiceBridge,
 } from './voice-setup.ts';
 
@@ -378,13 +380,13 @@ export const mountPage = ({
     const nameOf = (speakerId?: string) => snapshot?.speakers?.find(({ id }) => id === speakerId)?.name ?? speakerId;
     void replay.toggle(
       actionId,
-      segments.map(({ speakerId, delivery, text }) => {
+      segments.flatMap(({ speakerId, delivery, text }) => {
         const name = nameOf(speakerId);
-        return {
-          text,
+        return splitSpeech(text, MAX_SPEECH_CHARS).map((piece) => ({
+          text: piece,
           ...(name === undefined ? {} : { speakerId: name }),
           ...(delivery !== undefined && keepsDelivery(voice.view().preferences.spokenOutput) ? { delivery } : {}),
-        };
+        }));
       }),
     );
   };

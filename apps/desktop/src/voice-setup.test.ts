@@ -8,8 +8,10 @@ import {
   createVoiceSetup,
   DEFAULT_SPEECH,
   MAX_NPC_NAME_LENGTH,
+  MAX_SPEECH_CHARS,
   NARRATOR_ONLY_MODE,
   type SpeechPreferences,
+  splitSpeech,
   VOICE_ON_MODE,
   type VoiceBridge,
 } from './voice-setup.ts';
@@ -358,6 +360,7 @@ test('rpg-cm63.7 browser audio decodes every chunk, queues them in order and app
       createBufferSource: () => {
         const source = {
           buffer: undefined as { duration: number } | undefined,
+          onended: null,
           connect: () => {},
           start: (at: number) => started.push([at, source.buffer?.duration ?? 0]),
           stop: () => stopped.push(source.buffer?.duration ?? 0),
@@ -379,6 +382,71 @@ test('rpg-cm63.7 browser audio decodes every chunk, queues them in order and app
   audio.stop?.();
   audio.stop?.();
   assert.deepEqual(stopped, [2, 5, 1]);
+});
+
+const fakeContext = (log: { started: number; stopped: number; sources: { onended: (() => void) | null }[] }) => {
+  let release: () => void = () => {};
+  const context = () => ({
+    currentTime: 0,
+    destination: {},
+    resume: async () => {},
+    decodeAudioData: async () => {
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      return { duration: 1 };
+    },
+    createGain: () => ({ gain: { value: 1 }, connect: () => {} }),
+    createBufferSource: () => {
+      const source = {
+        buffer: undefined as { duration: number } | undefined,
+        onended: null as (() => void) | null,
+        connect: () => {},
+        start: () => {
+          log.started += 1;
+        },
+        stop: () => {
+          log.stopped += 1;
+        },
+      };
+      log.sources.push(source);
+      return source;
+    },
+  });
+  return { context, release: () => release() };
+};
+
+test('rpg-cm63.50 browser audio stop during an in-flight decode silences that segment', async () => {
+  const log = { started: 0, stopped: 0, sources: [] };
+  const { context, release } = fakeContext(log);
+  const audio = browserAudio(context);
+  const played = audio.play([new Uint8Array(1)], 1);
+  await settle();
+  audio.stop?.();
+  release();
+  await played;
+  assert.equal(log.started, 0);
+});
+
+test('rpg-cm63.50 browser audio forgets a source once it has ended', async () => {
+  const log = { started: 0, stopped: 0, sources: [] as { onended: (() => void) | null }[] };
+  const { context, release } = fakeContext(log);
+  const audio = browserAudio(context);
+  const played = audio.play([new Uint8Array(1)], 1);
+  await settle();
+  release();
+  await played;
+  log.sources[0]?.onended?.();
+  audio.stop?.();
+  assert.equal(log.stopped, 0);
+});
+
+test('rpg-cm63.50 splitSpeech keeps short text whole and splits long text at sentence boundaries', () => {
+  assert.deepEqual(splitSpeech('One. Two.', MAX_SPEECH_CHARS), ['One. Two.']);
+  assert.deepEqual(splitSpeech('One two. Three four. Five.', 12), ['One two.', 'Three four.', 'Five.']);
+  const unbroken = 'x'.repeat(25);
+  assert.deepEqual(splitSpeech(unbroken, 10), ['x'.repeat(10), 'x'.repeat(10), 'x'.repeat(5)]);
+  for (const piece of splitSpeech('word '.repeat(2000), MAX_SPEECH_CHARS)) assert.ok(piece.length <= MAX_SPEECH_CHARS);
 });
 
 const ENGINE_SUMMARY = { samples: 3, cacheHitRate: 0, errors: { timeout: 1 }, stages: {}, peakQueueDepth: 4 };

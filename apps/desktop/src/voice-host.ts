@@ -52,6 +52,7 @@ import { MAX_PLAYBACK_SPEED, MIN_PLAYBACK_SPEED } from '../../../packages/voice/
 import { choosePtBrRoute, type PtBrRoute } from '../../../packages/voice/src/pt-br-route.ts';
 import type { SpeechChunk } from '../../../packages/voice/src/tts.ts';
 import type { CommittedUtterance, Delivery } from '../../../packages/voice/src/voice.ts';
+import { MAX_SPEECH_CHARS } from './voice-setup.ts';
 
 export const VOICE_ROUTE_ENV = 'RPG_VOICE';
 export const FAKE_VOICE_ROUTE = 'fake';
@@ -59,8 +60,7 @@ export const VOICE_MODELS_DIR = 'voice-models';
 export const MLX_AUDIO_SUBDIR = 'mlx-audio';
 export const CHATTERBOX_SUBDIR = 'chatterbox';
 export const F5_SUBDIR = 'f5-tts';
-export { AUDIO_CACHE_DIR };
-export const MAX_SPEECH_CHARS = 4000;
+export { AUDIO_CACHE_DIR, MAX_SPEECH_CHARS };
 export const MAX_STYLE_CHARS = 200;
 export const MAX_EMOTION_CHARS = 100;
 export const MAX_PRONUNCIATIONS = 100;
