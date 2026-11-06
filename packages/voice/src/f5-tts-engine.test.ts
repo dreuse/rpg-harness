@@ -73,6 +73,12 @@ test('Kokoro stays the default pt-BR voice provider', () => {
   assert.equal(voicesFor('pt-BR', 'mlx')?.providerId, MLX_KOKORO_PROVIDER_ID);
 });
 
+test('the male references are different clips', () => {
+  const males = F5_VOICES.filter((voice) => voice.gender === 'male');
+  assert.equal(new Set(males.map((voice) => voice.member)).size, males.length);
+  assert.equal(new Set(males.map((voice) => voice.clip.sha256)).size, males.length);
+});
+
 test('there are at least two female and two male voices, each tagged and with a recorded licence and checksum', () => {
   const count = (gender: string) => F5_VOICES.filter((voice) => voice.gender === gender).length;
   assert.ok(count('female') >= MIN_FEMALE);

@@ -261,10 +261,10 @@ All four clips come from Google FLEURS `pt_br` (`google/fleurs` at `70bb2e84b976
 | `f5-pt-f1` | female | 239 | 5.88 | `train/10037811280993524975.wav` | 376378 | `3ffc02e569d3794458183d3a1912180795b86310a2be0f39538e574dad117189` |
 | `f5-pt-f2` | female | 176 | 8.16 | `train/11084584502097351417.wav` | 522298 | `fcf372dfe679fd013fd216c16e6e80dea0ea39e7b117f5e58bd9027814168e9c` |
 | `f5-pt-m1` | male | 140 | 6.12 | `dev/1331833229962432141.wav` | 391738 | `169a25c13fe054bfde45c3adb5712b6c2ecd8c0c911fedea7c30a6d945ff6c0d` |
-| `f5-pt-m2` | male | 165 | 6.00 | `dev/14597665433717979060.wav` | 384058 | `dd4ce1cfc91ad9bcb73d744d8bd5ea3b37e6c51b134302b2d4e40ec93a31a5b0` |
+| `f5-pt-m2` | male | 148 | 8.16 | `dev/11868703931408793172.wav` | 522298 | `a593c0305f27d69f063712fceb3daeffaeda8cbcc4b5f8ee700ebafbb7ec897c` |
 
 - Attribution: Google FLEURS pt_br, CC BY 4.0, anonymous read-speech volunteer. Conneau et al., FLEURS: Few-shot Learning Evaluation of Universal Representations of Speech, arXiv:2205.12446.
-- Licence gaps: the licence is read from the dataset card only. The FLEURS sentences come from FLoRes (a separate licence, not checked). Speaker consent is not stated per clip in the card. FLEURS has no speaker id, so two clips could share a speaker. The pitch gap (140 to 239 Hz) makes it unlikely, not certain.
+- Licence gaps: the licence is read from the dataset card only. The FLEURS sentences come from FLoRes (a separate licence, not checked). Speaker consent is not stated per clip in the card. FLEURS has no speaker id, so two clips could share a speaker. Bead rpg-cm63.65 replaced the first `f5-pt-m2`, which was the same speaker as `f5-pt-m1` (embedding cosine 0.86). The new `f5-pt-m2` has cosine 0.185 to `f5-pt-m1`, 0.018 to `f5-pt-f1` and -0.112 to `f5-pt-f2`. The two female references were not compared with each other. The `f5-pt-m2` pitch is an autocorrelation estimate (same method gives 117 Hz for `f5-pt-m1`), unlike the earlier rows.
 - The clips are not in git. The installer streams the two archives from the pinned revision (read caps 62.3 MB and 113.2 MB), keeps only these four members, and checks every sha256.
 
 ### Delivery to speed

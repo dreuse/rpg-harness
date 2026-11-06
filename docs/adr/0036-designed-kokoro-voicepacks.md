@@ -34,7 +34,7 @@ MLX and ONNX render each pack with the same voice: embedding cosine between the 
 - Scores of 0.24 to 0.31 mean timbre transfer, not a clone. The packs do not reproduce the volunteers.
 - Ages are declared tags: `young` for the higher-pitch reference and `adult` for the lower one, per gender. Reference pitch was the only evidence. No voice is tagged `old`. Timbre tags come from the base voice with the highest weight. None is verified by listening.
 - `pm_henrique` is 80% `am_liam`, an English voice. Phonemes are pt-BR, but the accent is not checked.
-- The existing F5 references `f5-pt-m1` and `f5-pt-m2` are the same speaker (embedding cosine 0.86, same cluster over all 386 FLEURS dev clips).
+- The first F5 references `f5-pt-m1` and `f5-pt-m2` were the same speaker (embedding cosine 0.86, same cluster over all 386 FLEURS dev clips). Fixed in bead rpg-cm63.65: `f5-pt-m2` is now a clip from another dev speaker, cosine 0.185 to `f5-pt-m1`. Clustering estimates three dev speakers, and `f5-pt-m1` has the lower pitch.
 - Packaging: `packages/**` goes into `app.asar`, which the ONNX engine reads in the Electron process. The MLX engine copies the packs to `<engine dir>/voicepacks` before it starts the service, like the service source, because Python cannot read inside an asar. A packaged run is not tested.
 
 **Run** (dev machine, needs the ONNX model and base voices under `~/rpg-voice-samples/blends/onnx-model`):
