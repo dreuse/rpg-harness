@@ -8,6 +8,7 @@ import {
   createVoiceSetup,
   DEFAULT_SPEECH,
   MAX_NPC_NAME_LENGTH,
+  NARRATOR_ONLY_MODE,
   type SpeechPreferences,
   VOICE_ON_MODE,
   type VoiceBridge,
@@ -166,6 +167,17 @@ test('rpg-cm63.7 an installed model skips consent and goes straight to the previ
   assert.equal(controller.view().step, 'ready');
   assert.equal(calls[0]?.[0], 'preview');
   assert.deepEqual(outputs, [VOICE_ON_MODE]);
+});
+
+test('rpg-42a.98 turning voice on defaults to full with NPC voices installed and to narrator without them', async () => {
+  const full = setup({ installed: true });
+  await full.controller.turnOn();
+  assert.deepEqual(full.outputs, ['full']);
+  const narratorOnly = setup({
+    providers: [{ ...KOKORO, voices: [KOKORO.narrator], installed: true, bytes: OFFER.bytes }],
+  });
+  await narratorOnly.controller.turnOn();
+  assert.deepEqual(narratorOnly.outputs, [NARRATOR_ONLY_MODE]);
 });
 
 test('rpg-cm63.7 declining keeps text-only play and downloads nothing', async () => {

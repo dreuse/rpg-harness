@@ -30,6 +30,7 @@ const harness = (mode: Parameters<typeof createTurnSpeech>[0]['mode'] = 'full') 
     speech,
     turnId: TURN,
     mode,
+    narrator: PROFILE,
     utterancesOf: (segments) => segments.map(({ text, speakerId }) => utteranceOf(text, speakerId)),
   });
   return { turn, calls, generation };
@@ -43,16 +44,62 @@ test('the first streamed sentence opens the turn and is held before the reply en
   assert.deepEqual(calls.slice(2), [`hold:${TURN}:${SECOND}`]);
 });
 
-test('rpg-cm63.36: a streamed NPC segment is spoken in full mode and skipped in narrator mode', () => {
-  const NPC_LINE = { speakerId: 'old-tam', text: 'Sit down, stranger.' };
-  const full = harness('full');
-  full.turn.heard({ text: FIRST });
-  full.turn.heard(NPC_LINE);
-  assert.deepEqual(full.calls.slice(1), [`hold:${TURN}:${FIRST}`, `hold:${TURN}:${NPC_LINE.text}`]);
-  const narratorOnly = harness('narrator');
-  narratorOnly.turn.heard({ text: FIRST });
-  narratorOnly.turn.heard(NPC_LINE);
-  assert.deepEqual(narratorOnly.calls.slice(1), [`hold:${TURN}:${FIRST}`]);
+const NPC_LINE = { speakerId: 'old-tam', text: 'Sit down, stranger.' };
+const NPC_PROFILE: VoiceProfile = { ...PROFILE, id: 'old-tam' };
+
+const speakersHeldBy = (mode: Parameters<typeof createTurnSpeech>[0]['mode']) => {
+  const held: CommittedUtterance[] = [];
+  const turn = createTurnSpeech({
+    speech: {
+      hold: (_turn, utterance) => void held.push(utterance),
+      commit: () => {},
+      reject: () => {},
+      finish: () => {},
+      generation: () => 0,
+    },
+    turnId: TURN,
+    mode,
+    narrator: PROFILE,
+    utterancesOf: (segments) =>
+      segments.map(({ text, speakerId }) => ({ ...utteranceOf(text, speakerId), profile: NPC_PROFILE })),
+  });
+  turn.heard({ text: FIRST });
+  turn.heard(NPC_LINE);
+  return held.map(({ text, speakerId, profile }) => [text, speakerId, profile.id]);
+};
+
+test('rpg-42a.98: narrator mode reads NPC lines in the narrator voice, full and cinematic keep NPC voices', () => {
+  assert.deepEqual(speakersHeldBy('narrator'), [
+    [FIRST, 'narrator', 'narrator'],
+    [NPC_LINE.text, 'narrator', 'narrator'],
+  ]);
+  for (const mode of ['full', 'cinematic'] as const) {
+    assert.deepEqual(speakersHeldBy(mode), [
+      [FIRST, 'narrator', 'old-tam'],
+      [NPC_LINE.text, 'old-tam', 'old-tam'],
+    ]);
+  }
+});
+
+test('rpg-42a.98: an NPC voice is held with the narrator profile as its synthesis fallback', () => {
+  const fallbacks: unknown[] = [];
+  const turn = createTurnSpeech({
+    speech: {
+      hold: (_turn, _utterance, fallback) => void fallbacks.push(fallback),
+      commit: () => {},
+      reject: () => {},
+      finish: () => {},
+      generation: () => 0,
+    },
+    turnId: TURN,
+    mode: 'full',
+    narrator: PROFILE,
+    utterancesOf: (segments) =>
+      segments.map(({ text, speakerId }) => ({ ...utteranceOf(text, speakerId), profile: NPC_PROFILE })),
+  });
+  turn.heard({ text: FIRST });
+  turn.heard(NPC_LINE);
+  assert.deepEqual(fallbacks, [undefined, PROFILE]);
 });
 
 test('a streamed reply that matches the recorded narration is kept', () => {
@@ -64,14 +111,58 @@ test('a streamed reply that matches the recorded narration is kept', () => {
   assert.equal(calls.at(-1), `finish:${TURN}`);
 });
 
-test('a streamed reply replaced by a different narration discards the queued audio', () => {
+test('rpg-42a.98: a streamed reply replaced by a different narration drops the stale audio and speaks the final one', () => {
+  const { turn, calls } = harness();
+  const replacement = 'The game master is unavailable.';
+  turn.heard({ text: FIRST });
+  turn.settle({ narration: replacement, segments: [{ text: replacement }] });
+  assert.deepEqual(calls.slice(-5), [
+    `reject:${TURN}`,
+    `finish:${TURN}`,
+    `hold:${TURN}:${replacement}`,
+    `commit:${TURN}`,
+    `finish:${TURN}`,
+  ]);
+});
+
+test('rpg-42a.98: settle speaks only the final paragraphs that were not streamed yet', () => {
   const { turn, calls } = harness();
   turn.heard({ text: FIRST });
   turn.settle({
-    narration: 'The game master is unavailable.',
-    segments: [{ text: 'The game master is unavailable.' }],
+    narration: `${FIRST}\n\n${SECOND}`,
+    segments: [{ text: FIRST }, { speakerId: 'npc-stranger', text: SECOND }],
   });
-  assert.deepEqual(calls.slice(-2), [`reject:${TURN}`, `finish:${TURN}`]);
+  assert.deepEqual(calls, [
+    `commit:${TURN}`,
+    `hold:${TURN}:${FIRST}`,
+    `hold:${TURN}:${SECOND}`,
+    `commit:${TURN}`,
+    `finish:${TURN}`,
+  ]);
+});
+
+test('rpg-42a.98: a retried attempt resets the streamed text and queued audio before it streams', () => {
+  const { turn, calls } = harness();
+  turn.heard({ text: FIRST });
+  turn.restart();
+  turn.heard({ text: SECOND });
+  turn.settle({ narration: SECOND, segments: [{ text: SECOND }] });
+  assert.deepEqual(calls, [
+    `commit:${TURN}`,
+    `hold:${TURN}:${FIRST}`,
+    `reject:${TURN}`,
+    `finish:${TURN}`,
+    `commit:${TURN}`,
+    `hold:${TURN}:${SECOND}`,
+    `commit:${TURN}`,
+    `finish:${TURN}`,
+  ]);
+});
+
+test('rpg-42a.98: a restart before anything streamed touches nothing', () => {
+  const { turn, calls } = harness();
+  turn.restart();
+  assert.deepEqual(calls, []);
 });
 
 test('abandon discards the queued audio of a failed stream', () => {
@@ -95,8 +186,9 @@ test('spoken output modes pick which speakers are read', () => {
   const npc = utteranceOf('Sit.', 'npc-stranger');
   assert.deepEqual(
     [narrator, npc].filter((item) => spokenIn('narrator', item)),
-    [narrator],
+    [narrator, npc],
   );
+  assert.equal(spokenIn('off', narrator), false);
   assert.deepEqual(
     [narrator, npc].filter((item) => spokenIn('dialogue', item)),
     [npc],
@@ -151,6 +243,7 @@ test('a failing utterance builder never breaks the turn and discards its audio',
     speech,
     turnId: TURN,
     mode: 'full',
+    narrator: PROFILE,
     utterancesOf: () => {
       throw new Error('no profile');
     },
@@ -180,6 +273,7 @@ test('an utterance held for speech carries the saved speed as its profile pace i
       },
       turnId: TURN,
       mode,
+      narrator: narratorProfileOf('en', FAST),
       utterancesOf: (segments) =>
         segments.map(({ text }) => ({ ...utteranceOf(text), profile: narratorProfileOf('en', FAST) })),
     });

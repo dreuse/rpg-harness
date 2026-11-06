@@ -537,3 +537,141 @@ describe('rpg-cm63.17 speech runtime lifetime', () => {
     assert.match(written.join(''), /not available on this computer/);
   });
 });
+
+describe('rpg-42a.98 every paragraph is read, retried attempts restart, failures tell the player', () => {
+  const NPC_ONE = { speakerId: 'marta-vale', text: 'Stay close to the wall, friend.' };
+  const NPC_TWO = { speakerId: 'viajante-ferido', text: 'Please, I cannot walk any further.' };
+  const CLOSING = { text: 'The wind carries their voices away.' };
+  const OWNER_TURN: readonly GmSegment[] = [{ text: FIRST }, NPC_ONE, NPC_TWO, CLOSING];
+  const narrationOf = (segments: readonly GmSegment[]) => segments.map(({ text }) => text).join('\n\n');
+
+  const streaming = (segments: readonly GmSegment[]): GameMaster => ({
+    request: async (_packet, { onSegment }) => {
+      for (const segment of segments) onSegment?.(segment);
+      return reply(narrationOf(segments), segments);
+    },
+    summarizer: FAKE_GAME_MASTER.summarizer,
+  });
+
+  it('replays the owner turn in narrator mode and logs every paragraph in order in the narrator voice', async (t) => {
+    const { dataDir, played, runtime } = await setup(t);
+    const opened = openWith(dataDir, streaming(OWNER_TURN), runtime);
+    t.after(() => opened.close());
+    submit(opened, { spokenOutput: 'narrator' });
+    await opened.narrate();
+    await runtime.speech.idle();
+    assert.deepEqual(
+      played,
+      OWNER_TURN.map(({ text }) => `narrator|${text}`),
+    );
+  });
+
+  it('keeps the speaker tags of NPC lines in full mode', async (t) => {
+    const { dataDir, played, runtime } = await setup(t);
+    const opened = openWith(dataDir, streaming(OWNER_TURN), runtime);
+    t.after(() => opened.close());
+    submit(opened, { spokenOutput: 'full' });
+    await opened.narrate();
+    await runtime.speech.idle();
+    assert.deepEqual(played, [
+      `narrator|${FIRST}`,
+      `marta-vale|${NPC_ONE.text}`,
+      `viajante-ferido|${NPC_TWO.text}`,
+      `narrator|${CLOSING.text}`,
+    ]);
+  });
+
+  it('a resent attempt stops the first attempt audio before the second one streams', async (t) => {
+    const { dataDir, played, blocked, runtime } = await setup(t);
+    const gate = Promise.withResolvers<void>();
+    let calls = 0;
+    const gm: GameMaster = {
+      request: async (_packet, { onSegment }) => {
+        calls += 1;
+        if (calls === 1) {
+          onSegment?.({ text: FIRST });
+          await settle();
+          throw new ProviderError('too long', 400, true);
+        }
+        onSegment?.({ text: SECOND });
+        await gate.promise;
+        return reply(SECOND);
+      },
+      summarizer: FAKE_GAME_MASTER.summarizer,
+    };
+    const opened = openWith(dataDir, gm, runtime);
+    t.after(() => opened.close());
+    submit(opened, { spokenOutput: 'narrator' });
+    blocked.current = true;
+    const narrating = opened.narrate();
+    await settle();
+    await settle();
+    assert.deepEqual(played, [`narrator|${FIRST}`, `narrator|${SECOND}`]);
+    gate.resolve();
+    await narrating;
+    blocked.release();
+    await runtime.speech.idle();
+    assert.equal(calls, 2);
+    assert.deepEqual(played, [`narrator|${FIRST}`, `narrator|${SECOND}`]);
+  });
+
+  it('speaks the final paragraphs that were not streamed instead of dropping the turn', async (t) => {
+    const { dataDir, played, runtime } = await setup(t);
+    const gm: GameMaster = {
+      request: async (_packet, { onSegment }) => {
+        onSegment?.({ text: FIRST });
+        return reply(narrationOf(OWNER_TURN), OWNER_TURN);
+      },
+      summarizer: FAKE_GAME_MASTER.summarizer,
+    };
+    const opened = openWith(dataDir, gm, runtime);
+    t.after(() => opened.close());
+    submit(opened, { spokenOutput: 'narrator' });
+    await opened.narrate();
+    await runtime.speech.idle();
+    assert.deepEqual(
+      played,
+      OWNER_TURN.map(({ text }) => `narrator|${text}`),
+    );
+  });
+
+  it('speaks the recorded narration when it differs from what streamed', async (t) => {
+    const { dataDir, played, runtime } = await setup(t);
+    const gm: GameMaster = {
+      request: async (_packet, { onSegment }) => {
+        onSegment?.({ text: FIRST });
+        return reply(SECOND);
+      },
+      summarizer: FAKE_GAME_MASTER.summarizer,
+    };
+    const opened = openWith(dataDir, gm, runtime);
+    t.after(() => opened.close());
+    submit(opened, { spokenOutput: 'narrator' });
+    runtime.speech.pause();
+    await opened.narrate();
+    runtime.speech.resume();
+    await runtime.speech.idle();
+    assert.deepEqual(played, [`narrator|${SECOND}`]);
+  });
+
+  it('tells the player in the next turn when a line could not be read aloud', async (t) => {
+    const failing: TtsProvider = {
+      ...kokoro([]),
+      async *synthesize() {
+        yield await Promise.reject(new Error(KEY));
+      },
+    };
+    const { dataDir, runtime } = await setup(t, [failing]);
+    const opened = openWith(dataDir, streaming([{ text: FIRST }]), runtime);
+    t.after(() => opened.close());
+    submit(opened, { spokenOutput: 'narrator' });
+    await opened.narrate();
+    await runtime.speech.idle();
+    submit(opened, undefined, 'typed-2');
+    await opened.narrate();
+    await runtime.speech.idle();
+    const narration = readCampaignState(dataDir, CAMPAIGN).turns.at(-1)?.narration ?? '';
+    assert.match(narration, /could not be read aloud/);
+    assert.ok(!narration.includes(KEY));
+  });
+});

@@ -220,6 +220,84 @@ test('a failing synthesis emits an error metric without text', async () => {
   assert.ok(!JSON.stringify(metrics).includes(SECRET));
 });
 
+const failingFor = (failures: readonly string[], tried: string[]) => ({
+  synthesize: async function* (item: CommittedUtterance): AsyncGenerator<SpeechChunk> {
+    tried.push(item.profile.id);
+    if (failures.includes(item.profile.id)) throw new Error(SECRET);
+    yield chunk(item.eventId);
+  },
+});
+const BACKUP: VoiceProfile = { ...PROFILE, id: 'backup' };
+
+test('rpg-42a.98: a failed synthesis retries once with the same voice and then plays', async () => {
+  const tried: string[] = [];
+  const played: string[] = [];
+  const metrics: SpeechMetrics[] = [];
+  let attempts = 0;
+  const speech = createStreamingSpeech({
+    now: () => 0,
+    synthesize: async function* (item) {
+      attempts += 1;
+      tried.push(item.profile.id);
+      if (attempts === 1) throw new Error(SECRET);
+      yield chunk(item.eventId);
+    },
+    sink: { play: async (c) => void played.push(c.utteranceEventId) },
+    onMetrics: (m) => metrics.push(m),
+  });
+  speech.hold('t', utterance('a'), BACKUP);
+  speech.commit('t');
+  await speech.idle();
+  assert.deepEqual(tried, ['n', 'n']);
+  assert.deepEqual(played, ['a']);
+  assert.ok(!metrics.some((m) => m.kind === 'error'));
+});
+
+test('rpg-42a.98: a voice that fails twice falls back to the backup profile', async () => {
+  const tried: string[] = [];
+  const played: string[] = [];
+  const failed: string[] = [];
+  const speech = createStreamingSpeech({
+    now: () => 0,
+    ...failingFor(['n'], tried),
+    sink: { play: async (c) => void played.push(c.utteranceEventId) },
+    onMetrics: () => {},
+    onFailure: (item) => void failed.push(item.eventId),
+  });
+  speech.hold('t', utterance('a'), BACKUP);
+  speech.commit('t');
+  await speech.idle();
+  assert.deepEqual(tried, ['n', 'n', 'backup']);
+  assert.deepEqual(played, ['a']);
+  assert.deepEqual(failed, []);
+});
+
+test('rpg-42a.98: when the backup voice fails too the failure is reported once and the queue goes on', async () => {
+  const tried: string[] = [];
+  const played: string[] = [];
+  const failed: string[] = [];
+  const metrics: SpeechMetrics[] = [];
+  const speech = createStreamingSpeech({
+    now: () => 0,
+    ...failingFor(['n', 'backup'], tried),
+    sink: { play: async (c) => void played.push(c.utteranceEventId) },
+    onMetrics: (m) => metrics.push(m),
+    onFailure: (item) => void failed.push(item.eventId),
+  });
+  speech.hold('t', utterance('a'), BACKUP);
+  speech.hold('t', { ...utterance('b'), profile: { ...PROFILE, id: 'ok' } });
+  speech.commit('t');
+  await speech.idle();
+  assert.deepEqual(
+    tried.filter((id) => id !== 'ok'),
+    ['n', 'n', 'backup'],
+  );
+  assert.deepEqual(played, ['b']);
+  assert.deepEqual(failed, ['a']);
+  assert.equal(metrics.filter((m) => m.kind === 'error').length, 1);
+  assert.ok(!JSON.stringify(metrics).includes(SECRET));
+});
+
 test('segments held after commit start synthesis at once and record one first-audio per turn', async () => {
   const { speech, started, metrics, gates } = harness();
   speech.commit('t');

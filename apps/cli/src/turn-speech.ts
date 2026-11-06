@@ -20,12 +20,14 @@ export interface TurnSpeechOptions {
   readonly speech: Pick<StreamingSpeech, 'hold' | 'commit' | 'reject' | 'finish' | 'generation'>;
   readonly turnId: string;
   readonly mode: SpokenOutputMode;
+  readonly narrator: VoiceProfile;
   readonly utterancesOf: (segments: readonly GmSegment[]) => readonly CommittedUtterance[];
 }
 
 export interface TurnSpeech {
   readonly streams: boolean;
   heard(segment: GmSegment): void;
+  restart(): void;
   settle(reply: { readonly narration: string; readonly segments: readonly GmSegment[] }): void;
   abandon(): void;
 }
@@ -43,7 +45,6 @@ export const narratorProfileOf = (language: string, speed = DEFAULT_PLAYBACK_SPE
 };
 
 export const spokenIn = (mode: SpokenOutputMode, { speakerId }: CommittedUtterance): boolean => {
-  if (mode === 'narrator') return speakerId === NARRATOR_SPEAKER;
   if (mode === 'dialogue') return speakerId !== NARRATOR_SPEAKER;
   return mode !== 'off';
 };
@@ -51,15 +52,29 @@ export const spokenIn = (mode: SpokenOutputMode, { speakerId }: CommittedUtteran
 const sameWords = (left: string, right: string) =>
   left.trim().split(WHITESPACE).join(WORD_JOIN) === right.trim().split(WHITESPACE).join(WORD_JOIN);
 
-export const createTurnSpeech = ({ speech, turnId, mode, utterancesOf }: TurnSpeechOptions): TurnSpeech => {
+const unheardOf = (segments: readonly GmSegment[], heardText: string): readonly GmSegment[] | undefined => {
+  let consumed = '';
+  for (let at = 0; ; at += 1) {
+    if (sameWords(consumed, heardText)) return segments.slice(at);
+    const next = segments[at];
+    if (next === undefined) return undefined;
+    consumed = `${consumed}${WORD_JOIN}${next.text}`;
+  }
+};
+
+export const createTurnSpeech = ({ speech, turnId, mode, narrator, utterancesOf }: TurnSpeechOptions): TurnSpeech => {
   const heard: string[] = [];
   const born = speech.generation();
   const stopped = () => speech.generation() !== born;
   const settings = { ...DEFAULT_VOICE_SETTINGS, spokenOutput: mode };
-  const spoken = (segments: readonly GmSegment[]) =>
-    utterancesOf(segments)
-      .filter((utterance) => spokenIn(mode, utterance))
-      .map((utterance) => spokenUtterance(utterance, settings));
+  const readByNarrator = (utterance: CommittedUtterance): CommittedUtterance =>
+    mode === 'narrator' ? { ...utterance, speakerId: NARRATOR_SPEAKER, profile: narrator } : utterance;
+  const holdSpoken = (segments: readonly GmSegment[]) => {
+    for (const utterance of utterancesOf(segments).filter((item) => spokenIn(mode, item))) {
+      const voiced = spokenUtterance(readByNarrator(utterance), settings);
+      speech.hold(turnId, voiced, voiced.speakerId === NARRATOR_SPEAKER ? undefined : narrator);
+    }
+  };
 
   const discard = () => {
     speech.reject(turnId);
@@ -82,16 +97,18 @@ export const createTurnSpeech = ({ speech, turnId, mode, utterancesOf }: TurnSpe
       if (stopped()) return;
       if (heard.length === 0) speech.commit(turnId);
       heard.push(segment.text);
-      for (const utterance of spoken([segment])) speech.hold(turnId, utterance);
+      holdSpoken([segment]);
     }),
-    settle: guarded(({ narration, segments }) => {
+    restart: guarded(() => {
+      if (heard.length === 0) return;
+      heard.length = 0;
+      discard();
+    }),
+    settle: guarded(({ segments }) => {
       if (stopped()) return speech.finish(turnId);
-      if (heard.length > 0) {
-        if (sameWords(heard.join(WORD_JOIN), narration)) speech.finish(turnId);
-        else discard();
-        return;
-      }
-      for (const utterance of spoken(segments)) speech.hold(turnId, utterance);
+      const unheard = heard.length === 0 ? segments : unheardOf(segments, heard.join(WORD_JOIN));
+      if (unheard === undefined) discard();
+      holdSpoken(unheard ?? segments);
       speech.commit(turnId);
       speech.finish(turnId);
     }),

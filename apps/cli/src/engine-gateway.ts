@@ -497,7 +497,10 @@ const narrateLatest = async (
           repeated,
           gmRolls,
         }),
-      send: (packet) => request(packet, streamed ? forward : undefined),
+      send: (packet) => {
+        if (streamed) voice?.restart();
+        return request(packet, streamed ? forward : undefined);
+      },
       ratio,
     }).catch((error: unknown) => {
       if (!(error instanceof ProviderError && error.message === TOO_LONG_MESSAGE)) {
@@ -664,11 +667,12 @@ const openSession = (
         const npcVoices = assignedNpcVoices({ entities, campaignId, narrator, assigned: settings.npcVoices ?? {} });
         const runtime = await speech();
         prepareVoice(runtime.providers, narrator.language);
-        const notice = takePreloadFailureNotice(runtime.providers, narrator.language);
+        const notice = takePreloadFailureNotice(runtime.providers, narrator.language) ?? runtime.takeFailureNotice();
         const voice = createTurnSpeech({
           speech: runtime.speech,
           turnId,
           mode: settings.spokenOutput,
+          narrator,
           utterancesOf: (segments) =>
             utterancesFor({
               store,

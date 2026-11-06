@@ -1,6 +1,6 @@
 import type { PlaybackSink } from './playback.ts';
 import type { SpeechChunk } from './tts.ts';
-import type { CommittedUtterance } from './voice.ts';
+import type { CommittedUtterance, VoiceProfile } from './voice.ts';
 
 export const MIN_SEGMENT_CHARS = 24;
 export const PREFETCH_DEPTH = 2;
@@ -44,11 +44,12 @@ export interface StreamingSpeechDeps {
   readonly synthesize: (utterance: CommittedUtterance, signal: AbortSignal) => AsyncIterable<SpeechChunk>;
   readonly sink: PlaybackSink;
   readonly onMetrics: (metrics: SpeechMetrics) => void;
+  readonly onFailure?: (utterance: CommittedUtterance) => void;
   readonly now: () => number;
 }
 
 export interface StreamingSpeech {
-  hold(turnId: string, utterance: CommittedUtterance): void;
+  hold(turnId: string, utterance: CommittedUtterance, fallback?: VoiceProfile): void;
   commit(turnId: string): void;
   reject(turnId: string): void;
   finish(turnId: string): void;
@@ -75,6 +76,7 @@ interface Job {
 
 export const createStreamingSpeech = (deps: StreamingSpeechDeps): StreamingSpeech => {
   const held = new Map<string, CommittedUtterance[]>();
+  const fallbacks = new WeakMap<CommittedUtterance, VoiceProfile>();
   const waiting: Entry[] = [];
   const jobs: Job[] = [];
   let generation = 0;
@@ -92,16 +94,22 @@ export const createStreamingSpeech = (deps: StreamingSpeechDeps): StreamingSpeec
   const startJob = ({ utterance, turnId }: Entry): Job => {
     const controller = new AbortController();
     const begun = deps.now();
+    const fallback = fallbacks.get(utterance);
+    const attempts = [utterance, utterance, ...(fallback === undefined ? [] : [{ ...utterance, profile: fallback }])];
     const collect = async (): Promise<SpeechChunk[]> => {
-      const out: SpeechChunk[] = [];
-      try {
-        for await (const item of deps.synthesize(utterance, controller.signal)) out.push(item);
-      } catch {
-        deps.onMetrics({ kind: 'error' });
-        return [];
+      for (const attempt of attempts) {
+        const out: SpeechChunk[] = [];
+        try {
+          for await (const item of deps.synthesize(attempt, controller.signal)) out.push(item);
+          deps.onMetrics({ kind: 'synthesis', ms: deps.now() - begun });
+          return out;
+        } catch {
+          if (controller.signal.aborted) return [];
+        }
       }
-      deps.onMetrics({ kind: 'synthesis', ms: deps.now() - begun });
-      return out;
+      deps.onMetrics({ kind: 'error' });
+      deps.onFailure?.(utterance);
+      return [];
     };
     return { turnId, utterance, controller, chunks: collect() };
   };
@@ -154,7 +162,8 @@ export const createStreamingSpeech = (deps: StreamingSpeechDeps): StreamingSpeec
   };
 
   return {
-    hold(turnId, utterance) {
+    hold(turnId, utterance, fallback) {
+      if (fallback !== undefined) fallbacks.set(utterance, fallback);
       const state = turns.get(turnId);
       if (state === 'rejected') return;
       if (state === 'open') return enqueue(turnId, [utterance]);

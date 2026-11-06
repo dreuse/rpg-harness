@@ -1046,14 +1046,14 @@ test('rpg-cm63.7 page turns voice on in one step and changes mode mid-campaign w
   assert.match(page.root.innerHTML, /data-voice-step="ready"/);
   assert.deepEqual(voice.previews, [{ providerId: 'kokoro', voiceId: 'af_heart', language: 'en', speed: 1 }]);
   assert.deepEqual(played, [1]);
-  assert.deepEqual(spokenOutputs(page), ['narrator']);
+  assert.deepEqual(spokenOutputs(page), ['full']);
   page.click({ 'data-voice-setup': 'finish' });
   assert.doesNotMatch(page.root.innerHTML, /data-voice-step=/);
   assert.equal(page.focused.at(-1), '#settings-toggle');
   page.change({ 'data-voice-field': 'spokenOutput' }, 'cinematic');
   page.change({ 'data-voice-field': 'volume' }, '0.25');
   page.change({ 'data-voice-field': 'narratorVoice' }, 'am_adam');
-  assert.deepEqual(spokenOutputs(page), ['narrator', 'cinematic']);
+  assert.deepEqual(spokenOutputs(page), ['full', 'cinematic']);
   assert.match(page.root.innerHTML, /<option value="cinematic" selected>/);
   assert.deepEqual((preferences.at(-1) as UiPreferences).speech, {
     volume: 0.25,
@@ -1061,7 +1061,7 @@ test('rpg-cm63.7 page turns voice on in one step and changes mode mid-campaign w
     narratorVoice: 'am_adam',
   });
   page.click({ 'data-voice-setup': 'off' });
-  assert.deepEqual(spokenOutputs(page), ['narrator', 'cinematic', 'off']);
+  assert.deepEqual(spokenOutputs(page), ['full', 'cinematic', 'off']);
 });
 
 test('rpg-cm63.7 page without a voice bridge keeps text play and reports voice unavailable', async () => {

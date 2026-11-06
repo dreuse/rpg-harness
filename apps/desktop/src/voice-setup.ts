@@ -7,7 +7,8 @@ import type { SpokenOutputMode } from '../../../packages/voice/src/voice.ts';
 import { createVoiceDiagnostics, type VoiceDiagnosticsSummary } from '../../../packages/voice/src/voice-diagnostics.ts';
 import type { PreviewAudio, PreviewRequest, VoiceHostStatus, VoiceProviderStatus } from './voice-host.ts';
 
-export const VOICE_ON_MODE: SpokenOutputMode = 'narrator';
+export const VOICE_ON_MODE: SpokenOutputMode = 'full';
+export const NARRATOR_ONLY_MODE: SpokenOutputMode = 'narrator';
 export const MIN_VOLUME = 0;
 export const MAX_VOLUME = 1;
 export const MAX_NPC_NAME_LENGTH = 60;
@@ -197,6 +198,8 @@ export const createVoiceSetup = ({
     speech.narratorVoice !== undefined && provider.voices.includes(speech.narratorVoice)
       ? speech.narratorVoice
       : provider.narrator;
+  const hasNpcVoices = (provider: VoiceProviderStatus) =>
+    provider.voices.some((voice) => voice !== narratorOf(provider));
   const failed = (cause: unknown) => {
     diagnostics.fail(cause);
     error = classifyAudioFailure(cause);
@@ -254,7 +257,7 @@ export const createVoiceSetup = ({
   const previewSetup = async (provider: VoiceProviderStatus) => {
     go('previewing');
     if (!(await play(provider, narratorOf(provider)))) return go('failed');
-    setOutput(VOICE_ON_MODE);
+    setOutput(hasNpcVoices(provider) ? VOICE_ON_MODE : NARRATOR_ONLY_MODE);
     go('ready');
   };
 

@@ -94,6 +94,21 @@ test('a failing provider is counted as an error and does not throw', async () =>
   assert.ok(!JSON.stringify(runtime.diagnostics.summary()).includes(SECRET));
 });
 
+test('rpg-42a.98: a line no voice could read gives one notice for the next turn', async () => {
+  const failing: TtsProvider = {
+    ...provider('kokoro'),
+    synthesize: () => ({ [Symbol.asyncIterator]: () => ({ next: () => Promise.reject(new Error(SECRET)) }) }),
+  };
+  const runtime = createSpeechRuntime({ providers: [failing], sink: sinkOf([]) });
+  assert.equal(runtime.takeFailureNotice(), undefined);
+  runtime.speech.hold('t', utterance('kokoro'));
+  runtime.speech.hold('t', { ...utterance('kokoro'), eventId: 'event-2' });
+  runtime.speech.commit('t');
+  await runtime.speech.idle();
+  assert.match(runtime.takeFailureNotice() ?? '', /could not be read aloud/);
+  assert.equal(runtime.takeFailureNotice(), undefined);
+});
+
 test('dispose stops playback and disposes the sink', async () => {
   const disposed: string[] = [];
   const runtime = createSpeechRuntime({

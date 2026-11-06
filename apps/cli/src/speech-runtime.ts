@@ -24,11 +24,13 @@ import {
 
 export const VOICE_MODELS_DIR = 'voice-models';
 export const MLX_AUDIO_SUBDIR = 'mlx-audio';
+export const SYNTHESIS_FAILURE_NOTICE = 'Part of the story could not be read aloud, so it stays in text.';
 
 export interface SpeechRuntime {
   readonly speech: StreamingSpeech;
   readonly providers: readonly TtsProvider[];
   readonly diagnostics: VoiceDiagnostics;
+  takeFailureNotice(): string | undefined;
   dispose(): void;
 }
 
@@ -52,11 +54,25 @@ export const createSpeechRuntime = ({
       return;
     }
   }
-  const speech = createStreamingSpeech({ synthesize, sink, now, onMetrics: streamingMetricsSink(diagnostics) });
+  let failed = false;
+  const speech = createStreamingSpeech({
+    synthesize,
+    sink,
+    now,
+    onMetrics: streamingMetricsSink(diagnostics),
+    onFailure: () => {
+      failed = true;
+    },
+  });
   return {
     speech,
     providers,
     diagnostics,
+    takeFailureNotice: () => {
+      const notice = failed ? SYNTHESIS_FAILURE_NOTICE : undefined;
+      failed = false;
+      return notice;
+    },
     dispose: () => {
       speech.stop();
       sink.dispose?.();
