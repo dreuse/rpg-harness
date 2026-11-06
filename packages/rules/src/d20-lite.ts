@@ -39,6 +39,7 @@ export const DEFAULT_CHECK_DC = 10;
 export const DRAUGHT = 'draught';
 export const DRAUGHT_COST = 1;
 export const DRAUGHT_SIDES = 4;
+export const WEAPON_DAMAGE_SIDES = 6;
 
 const FIRST_LEVEL = 1;
 const KEEP_DICE = 2;
@@ -166,6 +167,13 @@ export const D20_LITE_CHECK_RULES: Readonly<Record<string, Attribute>> = {
   ...Object.fromEntries(ATTRIBUTES.map((attribute) => [`check.${attribute}`, attribute])),
 };
 
+export const D20_LITE_COMBAT = {
+  rules: ['attack.melee', 'attack.ranged'],
+  defense: DEFENSE,
+  hitPoints: HP,
+  damageSides: WEAPON_DAMAGE_SIDES,
+} as const;
+
 export const D20_LITE_RULES = {
   exert: {
     dslVersion: RULE_DSL_VERSION,
@@ -227,6 +235,16 @@ export const createSheet = ({ characterId, attributes }: SheetInput): TraitSheet
   };
 };
 
+export type CombatantInput = { id: TraitSheet['characterId']; defense: number; current: number; max: number };
+
+export const combatantSheet = ({ id, defense, current, max }: CombatantInput): TraitSheet => ({
+  characterId: id,
+  traits: [
+    { id: DEFENSE, kind: 'trait', value: defense },
+    { id: HP, kind: 'resource', current, max },
+  ],
+});
+
 const numberOf = (sheet: TraitSheet, id: string): number => {
   const trait = sheet.traits.find((item) => item.id === id);
   if (trait?.kind === 'resource') return trait.current;
@@ -286,6 +304,8 @@ export const attemptCheck = ({ actionId, sheet, attribute, dc, rng, edge = 0, ke
 export const checkBonus = ({ sheet, attribute, edge = 0 }: Pick<CheckInput, 'sheet' | 'attribute' | 'edge'>) =>
   numberOf(sheet, modId(attribute)) + edge;
 
+export const proficiencyOf = (sheet: TraitSheet) => numberOf(sheet, PROFICIENCY);
+
 export type AttackInput = {
   actionId: string;
   attacker: TraitSheet;
@@ -294,16 +314,18 @@ export type AttackInput = {
   damageSides: number;
   rng: Rng;
   edge?: number;
+  keep?: KeepMode;
 };
 
-export const attack = ({ actionId, attacker, target, attribute, damageSides, rng, edge = 0 }: AttackInput) => {
+export const attack = ({ actionId, attacker, target, attribute, damageSides, rng, edge = 0, keep }: AttackInput) => {
   const modifier = numberOf(attacker, modId(attribute));
   return resolveTable({
     actionId,
     table: attackTable(damageSides),
     sheet: target,
     rng,
-    modifiers: { [ATTACK_BONUS]: modifier + numberOf(attacker, PROFICIENCY) + edge, [DAMAGE_BONUS]: modifier },
+    modifiers: { [ATTACK_BONUS]: modifier + proficiencyOf(attacker) + edge, [DAMAGE_BONUS]: modifier },
+    ...(keep === undefined ? {} : { keep }),
   });
 };
 

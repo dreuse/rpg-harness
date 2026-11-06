@@ -14,6 +14,7 @@ import {
   type Character,
   type CharacterId,
   type CommittedTurn,
+  DAMAGE_APPLIED,
   type EventId,
   type NoCheckReason,
   OPENING_ACTION_ID,
@@ -30,6 +31,7 @@ import {
 } from '../../domain/src/campaign.ts';
 import type { Rng, RollEvent } from '../../rules/src/dice.ts';
 import type { AppliedModifier, KeepMode } from '../../rules/src/modifiers.ts';
+import type { DamageDealt } from './damage.ts';
 import { isRulesDocument, MAX_RULES_DOCUMENTS, type RulesDocument } from './own-rules.ts';
 
 export type PlayerAction = {
@@ -52,6 +54,7 @@ export type CheckResolution = {
   readonly target?: number;
   readonly source?: typeof PLAYER_SOURCE;
   readonly reported?: readonly number[];
+  readonly damage?: DamageDealt;
 };
 export const PLAYER_SOURCE = 'player';
 export type Check = (actionId: string, rng: Rng) => CheckResolution;
@@ -88,6 +91,7 @@ export type OpeningScene = {
 };
 
 const PENDING_NARRATION = '';
+const NO_DAMAGE = 0;
 const OPENING_INPUT = 'Begin.';
 const PLAYER_VISIBLE: TurnVisibility = 'player';
 
@@ -228,12 +232,15 @@ export const performAction = (
   if (stored !== undefined) return stored;
   validate(state, action);
   if (typeof check === 'function') {
-    const { reported, ...resolution } = check(action.actionId, rng);
+    const { reported, damage, ...resolution } = check(action.actionId, rng);
     const report: Step[] =
       reported === undefined ? [] : [[ROLL_REPORTED, { values: reported, source: PLAYER_SOURCE }, PLAYER_VISIBLE]];
+    const dealt: Step[] =
+      damage === undefined || damage.amount === NO_DAMAGE ? [] : [[DAMAGE_APPLIED, { ...damage }, PLAYER_VISIBLE]];
     return commit(store, action, [
       ...report,
       [CHECK_RESOLVED, { resolution: { ok: true, ...resolution } }, PLAYER_VISIBLE],
+      ...dealt,
     ]);
   }
   if (check !== undefined && 'reportedRoll' in check)

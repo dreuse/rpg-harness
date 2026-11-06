@@ -26,6 +26,7 @@ export const NO_CHECK_REASONS = ['no-rulebook', 'dice-off', 'unsupported-ruleboo
 export type NoCheckReason = (typeof NO_CHECK_REASONS)[number];
 export const CHECK_OFFERED = 'CheckOffered';
 export const GM_ROLLED = 'GmRolled';
+export const DAMAGE_APPLIED = 'DamageApplied';
 export const ROLL_REPORTED = 'RollReported';
 export const CONDITION_APPLIED = 'ConditionApplied';
 export const CONDITION_REMOVED = 'ConditionRemoved';

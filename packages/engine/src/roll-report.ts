@@ -6,6 +6,7 @@ const PROBE_SEED = 1;
 const MIN_FACE = 1;
 const HALF_FACE = 0.5;
 const SUM_START = 0;
+const REPORTABLE_ROLLS = 1;
 const UNBOUNDED = Number.POSITIVE_INFINITY;
 
 export type RollReportParams = {
@@ -29,7 +30,10 @@ const isFace = (value: unknown, sides: number) =>
 
 const probe = (check: Check) => check('probe', createSeededRng(PROBE_SEED));
 
-const termsOf = (check: Check) => probe(check).rolls.flatMap(({ pool }) => pool.dice);
+const termsOf = (check: Check) =>
+  probe(check)
+    .rolls.slice(0, REPORTABLE_ROLLS)
+    .flatMap(({ pool }) => pool.dice);
 
 const sidesOf = (check: Check) =>
   termsOf(check).flatMap(({ count, sides }) => Array.from({ length: count }, () => sides));
@@ -63,9 +67,10 @@ const facesOf = (values: readonly number[], sides: readonly number[], expression
   throw new RollReportError(range);
 };
 
-const rngOf = (faces: readonly number[], sides: readonly number[]): Rng => {
+const rngOf = (faces: readonly number[], sides: readonly number[], rng: Rng): Rng => {
   let index = 0;
   return () => {
+    if (index >= faces.length) return rng();
     const next = ((faces[index] ?? MIN_FACE) - MIN_FACE + HALF_FACE) / (sides[index] ?? MIN_FACE);
     index += 1;
     return next;
@@ -74,10 +79,10 @@ const rngOf = (faces: readonly number[], sides: readonly number[]): Rng => {
 
 export const reportedCheck =
   (check: Check, values: readonly number[]): Check =>
-  (actionId) => {
+  (actionId, rng) => {
     const sides = sidesOf(check);
     const faces = facesOf(values, sides, rollExpressionOf(check));
-    return { ...check(actionId, rngOf(faces, sides)), source: PLAYER_SOURCE, reported: values };
+    return { ...check(actionId, rngOf(faces, sides, rng)), source: PLAYER_SOURCE, reported: values };
   };
 
 export const reportedRoll = (values: readonly number[]): ReportedRoll => {

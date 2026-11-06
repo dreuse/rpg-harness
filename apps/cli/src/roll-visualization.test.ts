@@ -5,10 +5,13 @@ import {
   CAMPAIGN_CONFIGURED,
   type CampaignEvent,
   CHECK_OFFERED,
+  DAMAGE_APPLIED,
   PLAYER_ACTION_SUBMITTED,
   RULES_DOCUMENT_ADDED,
 } from '../../../packages/domain/src/campaign.ts';
+import type { CampaignEntity } from '../../../packages/domain/src/entity.ts';
 import { CHARACTER_CREATED, SHEET_FIELD_EDITED } from '../../../packages/engine/src/character.ts';
+import { NPC_SHEET_FIELD } from '../../../packages/engine/src/damage.ts';
 import { GM_SETTINGS_SAVED } from '../../../packages/engine/src/gm-settings.ts';
 import type { ReportedRoll } from '../../../packages/engine/src/turn.ts';
 import { generateCampaignConfig } from '../../../packages/intent/src/config.ts';
@@ -20,6 +23,7 @@ import {
   D20_LITE_MANIFEST,
   DEFAULT_CHECK_ATTRIBUTE,
   DEFAULT_CHECK_DC,
+  PROFICIENCY_BASE,
 } from '../../../packages/rules/src/d20-lite.ts';
 import { createSeededRng } from '../../../packages/rules/src/dice.ts';
 import { DEFAULT_POOL_CONFIG, rollPool } from '../../../packages/rules/src/dice-pool-lite.ts';
@@ -43,6 +47,7 @@ import {
 } from './roll-visualization.ts';
 
 const SEED = 7;
+const PROFICIENCY = PROFICIENCY_BASE;
 const DC = 12;
 const POOL_DICE = 4;
 const ENABLED = { enabled: true };
@@ -412,6 +417,111 @@ test('rpg-42a.74: an offered rule rolls a d20 whatever the player typed', () => 
   assert.equal(melee?.bonus, MIGHT_MOD);
   const ranged = offeredCheckFor(campaign, { ...OFFER, ruleId: 'attack.ranged' }, HERO)?.('a', createSeededRng(SEED));
   assert.equal(ranged?.bonus, -2);
+});
+
+const FOE_DEFENSE = 12;
+const FOE_HP = 9;
+const HIT_FACE = 19;
+const MISS_FACE = 2;
+const DAMAGE_FACE = 3;
+const HALF = 0.5;
+const D6 = 6;
+
+const drawing = (...rolls: [face: number, sides: number][]) => {
+  const queue = rolls.map(([face, sides]) => (face - 1 + HALF) / sides);
+  return () => queue.shift() ?? 0;
+};
+
+const foeSheet = (hp: number | null = FOE_HP, rulepack = D20_LITE_MANIFEST.revision) => ({
+  detail: 'sparse',
+  npcId: 'npc-tam',
+  role: 'minor',
+  name: 'Old Tam',
+  motivations: [],
+  background: '',
+  traits: [{ id: 'defense', value: FOE_DEFENSE }, ...(hp === null ? [] : [{ id: 'hp', value: hp }])],
+  rulepack: { id: D20_LITE_MANIFEST.id, edition: D20_LITE_MANIFEST.edition, revision: rulepack },
+});
+
+const tam = (sheet?: unknown, visibility: CampaignEntity['visibility'] = 'public'): CampaignEntity => ({
+  id: 'npc-tam',
+  campaignId: 'campaign-1',
+  kind: 'npc',
+  name: 'Old Tam',
+  data: sheet === undefined ? {} : { [NPC_SHEET_FIELD]: sheet },
+  visibility,
+  actorId: null,
+});
+
+const strongHero = () => [...configured(builtInConfig('d20-lite')), heroCreated({ ...ATTRIBUTES, might: 8 })];
+
+const strike = (events: CampaignEvent[], entities: CampaignEntity[], rng: () => number, ruleId = 'attack.melee') =>
+  offeredCheckFor(events, { ...OFFER, ruleId }, HERO, entities)?.('a', rng);
+
+test('rpg-42a.84: a hit against a target sheet rolls damage and reports it', () => {
+  const result = strike(strongHero(), [tam(foeSheet())], drawing([HIT_FACE, D20_SIDES], [DAMAGE_FACE, D6]));
+  assert.equal(result?.events[0]?.event, 'attack.hit');
+  assert.equal(result?.target, FOE_DEFENSE);
+  assert.equal(result?.bonus, MIGHT_MOD + PROFICIENCY);
+  assert.deepEqual(result?.damage, { targetId: 'npc-tam', amount: MIGHT_MOD + DAMAGE_FACE, defeated: false });
+  assert.deepEqual(
+    result?.modifiers?.map(({ id }) => id),
+    ['proficiency'],
+  );
+});
+
+test('rpg-42a.84: a miss deals nothing and a hit that empties the hit points defeats the target', () => {
+  const miss = strike(strongHero(), [tam(foeSheet())], drawing([MISS_FACE, D20_SIDES]));
+  assert.equal(miss?.events[0]?.event, 'attack.miss');
+  assert.equal(miss?.damage?.amount ?? 0, 0);
+  const rolls = drawing([HIT_FACE, D20_SIDES], [DAMAGE_FACE, D6]);
+  const finisher = strike(strongHero(), [tam(foeSheet(2))], rolls);
+  assert.deepEqual(finisher?.damage, { targetId: 'npc-tam', amount: 2, defeated: true });
+});
+
+test('rpg-42a.84: earlier damage lowers the hit points the next attack sees', () => {
+  const earlier = {
+    type: DAMAGE_APPLIED,
+    payload: { targetId: 'npc-tam', amount: FOE_HP - 1, defeated: false },
+  } as unknown as CampaignEvent;
+  const result = strike(
+    [...strongHero(), earlier],
+    [tam(foeSheet())],
+    drawing([HIT_FACE, D20_SIDES], [DAMAGE_FACE, D6]),
+  );
+  assert.deepEqual(result?.damage, { targetId: 'npc-tam', amount: 1, defeated: true });
+});
+
+test('rpg-42a.84: without usable target data the offered roll behaves as before', () => {
+  const rng = () => 0.5;
+  const plain = strike(strongHero(), [], rng);
+  assert.equal(plain?.damage, undefined);
+  assert.equal(plain?.target, DEFAULT_CHECK_DC);
+  assert.equal(plain?.bonus, MIGHT_MOD);
+  const unusable = [tam(), tam(foeSheet(null)), tam(foeSheet(FOE_HP, 'r99')), tam('not a sheet')];
+  for (const entity of unusable) {
+    const result = strike(strongHero(), [entity], rng);
+    assert.equal(result?.damage, undefined);
+    assert.equal(result?.target, DEFAULT_CHECK_DC);
+  }
+  const notAnAttack = strike(strongHero(), [tam(foeSheet())], rng, 'check.might');
+  assert.equal(notAnAttack?.damage, undefined);
+  assert.equal(notAnAttack?.target, DEFAULT_CHECK_DC);
+});
+
+test('rpg-42a.84: a GM-only npc target rolls as a plain check and leaks no defense', () => {
+  const result = strike(strongHero(), [tam(foeSheet(), 'gm')], () => 0.5);
+  assert.equal(result?.damage, undefined);
+  assert.equal(result?.target, DEFAULT_CHECK_DC);
+});
+
+test('rpg-42a.84: a pool rulepack rolls only, whatever the target sheet holds', () => {
+  const campaign = configured(builtInConfig('dice-pool-lite'));
+  const result = offeredCheckFor(campaign, { ...OFFER, ruleId: 'check.pool' }, HERO, [tam(foeSheet())])?.(
+    'a',
+    createSeededRng(SEED),
+  );
+  assert.equal(result?.damage, undefined);
 });
 
 test('rpg-42a.74: an offered rule the pack does not define is refused', () => {

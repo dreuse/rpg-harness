@@ -135,6 +135,15 @@ describe('rpg-42a.91 out-of-character channel', () => {
     assert.equal(correctD20Roll('nonsense', fix), undefined);
   });
 
+  it('refuses to correct an attack roll, whose damage was already applied', () => {
+    const fix = { value: 2, reason: 'high ground' };
+    for (const event of ['attack.hit', 'attack.critical', 'attack.miss', 'attack.fumble'])
+      assert.equal(
+        correctD20Roll({ ...resolutionAt(12), events: [{ event: 'attack.hit' }, { event }] }, fix),
+        undefined,
+      );
+  });
+
   it('turns "/gm you forgot my +2 for high ground" into a roll-fix proposal', () => {
     const reply = fakeOocReply(ROLL_FIX_TEXT.slice('/gm '.length), 'en');
     assert.deepEqual(

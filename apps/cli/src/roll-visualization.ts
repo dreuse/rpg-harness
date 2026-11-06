@@ -30,12 +30,14 @@ import {
   pendingCheckOffer,
 } from '../../../packages/engine/src/check-offer.ts';
 import { conditionModifiersOf, type ModifierPolicy, mergeModifiers } from '../../../packages/engine/src/conditions.ts';
+import { type Combatant, type CombatRules, combatantOf, targetNpcOf } from '../../../packages/engine/src/damage.ts';
 import { GM_ROLLER, PLAYER_ROLLER } from '../../../packages/engine/src/gm-roll.ts';
 import { gmSettingsOf } from '../../../packages/engine/src/gm-settings.ts';
 import { rulesDocumentsOf, usesOwnRules } from '../../../packages/engine/src/own-rules.ts';
 import { reportedCheck, reportedRoll, rollExpressionOf } from '../../../packages/engine/src/roll-report.ts';
 import {
   type Check,
+  type CheckResolution,
   campaignConfigOf,
   type NoCheck,
   PLAYER_SOURCE,
@@ -48,18 +50,22 @@ import {
   ATTRIBUTE_MIN,
   ATTRIBUTES,
   type Attribute,
+  attack,
   attemptCheck,
   checkBonus,
+  combatantSheet,
   createSheet,
   D20_LITE_CHECK_RULES,
+  D20_LITE_COMBAT,
   D20_LITE_MANIFEST,
   D20_LITE_VOCABULARY,
   D20_SIDES,
   DEFAULT_CHECK_ATTRIBUTE,
   DEFAULT_CHECK_DC,
   keptFace,
+  proficiencyOf,
 } from '../../../packages/rules/src/d20-lite.ts';
-import { type RollEvent, replayRoll } from '../../../packages/rules/src/dice.ts';
+import { type Rng, type RollEvent, replayRoll } from '../../../packages/rules/src/dice.ts';
 import {
   DEFAULT_POOL_CONFIG,
   DICE_POOL_LITE_CHECK_RULES,
@@ -69,6 +75,7 @@ import {
   rollPool,
 } from '../../../packages/rules/src/dice-pool-lite.ts';
 import {
+  type AppliedModifier,
   applicableModifiers,
   type KeepMode,
   type ModifierVocabulary,
@@ -77,6 +84,7 @@ import {
 } from '../../../packages/rules/src/modifiers.ts';
 import type { ActionResolution } from '../../../packages/rules/src/resolve.ts';
 import { isRecord, type ManifestIssue, type RulePackManifest } from '../../../packages/rules/src/rulepack.ts';
+import type { TraitSheet } from '../../../packages/rules/src/traits.ts';
 
 import { LocalizedError } from './messages.ts';
 import { citesOwnRulesSection } from './own-rules.ts';
@@ -189,7 +197,7 @@ const attributeOf = (input: string): Attribute =>
     .map((word) => ATTRIBUTE_WORDS.get(word))
     .find((attribute) => attribute !== undefined) ?? DEFAULT_CHECK_ATTRIBUTE;
 
-type OfferedRoll = Pick<CheckOffer, 'modifiers' | 'difficulty'>;
+type OfferedRoll = Pick<CheckOffer, 'modifiers' | 'difficulty'> & { readonly defender?: Combatant };
 
 type CheckSource = (
   events: readonly CampaignEvent[],
@@ -215,6 +223,54 @@ const modifiersFor = (
     vocabulary.effects,
   );
 
+const ATTACK_RULES: readonly string[] = D20_LITE_COMBAT.rules;
+const PROFICIENCY_ID = 'proficiency';
+const PROFICIENCY_REASON = 'Proficiency';
+const NO_DAMAGE = 0;
+
+type Strike = {
+  readonly actionId: string;
+  readonly rng: Rng;
+  readonly sheet: TraitSheet;
+  readonly attribute: Attribute;
+  readonly flat: number;
+  readonly keep: KeepMode | undefined;
+  readonly modifiers: readonly AppliedModifier[];
+  readonly defender: Combatant;
+};
+
+const strike = ({ actionId, rng, sheet, attribute, flat, keep, modifiers, defender }: Strike): CheckResolution => {
+  const { npcId, defense, current, max } = defender;
+  const struck = attack({
+    actionId,
+    attacker: sheet,
+    target: combatantSheet({ id: npcId, defense, current, max }),
+    attribute,
+    damageSides: D20_LITE_COMBAT.damageSides,
+    rng,
+    edge: flat,
+    ...(keep === undefined ? {} : { keep }),
+  });
+  if (!struck.ok) throw new RangeError(struck.error.issues.map(({ message }) => message).join(ISSUE_SEPARATOR));
+  const lost = struck.changes.find(({ id }) => id === D20_LITE_COMBAT.hitPoints);
+  const amount = lost === undefined ? NO_DAMAGE : Number(lost.from) - Number(lost.to);
+  const proficiency = proficiencyOf(sheet);
+  const attributeBonus = checkBonus({ sheet, attribute });
+  return {
+    rolls: struck.rolls,
+    events: struck.events,
+    bonus: attributeBonus + proficiency + flat,
+    attribute: { id: attribute, value: attributeBonus },
+    target: defense,
+    modifiers: [
+      ...modifiers,
+      { id: PROFICIENCY_ID, reason: PROFICIENCY_REASON, effect: { kind: 'flat', value: proficiency } },
+    ],
+    ...(keep === undefined ? {} : { keep }),
+    damage: { targetId: npcId, amount, defeated: current - amount <= NO_DAMAGE },
+  };
+};
+
 const unavailable = (noCheck: NoCheckReason): NoCheck => ({ noCheck });
 
 const d20Check: CheckSource = (events, actorId, input, worldProfile, ruleId, offered) => {
@@ -229,6 +285,9 @@ const d20Check: CheckSource = (events, actorId, input, worldProfile, ruleId, off
   const modifiers = modifiersFor(events, actorId, ruleId ?? `check.${attribute}`, D20_LITE_VOCABULARY, offered);
   const { flat, keep } = summarizeModifiers(modifiers);
   const dc = D20_LITE_VOCABULARY.difficulties[offered?.difficulty ?? ''] ?? DEFAULT_CHECK_DC;
+  const defender = ATTACK_RULES.includes(ruleId ?? '') ? offered?.defender : undefined;
+  if (defender !== undefined)
+    return (actionId, rng) => strike({ actionId, rng, sheet, attribute, flat, keep, modifiers, defender });
   return (actionId, rng) => {
     const check = attemptCheck({
       actionId,
@@ -392,16 +451,35 @@ export const checkFor = (
   return 'noCheck' in setup ? setup : setup[1](events, actorId, input, worldProfileOf(entities, actorId));
 };
 
+const defenderOf = (
+  events: readonly CampaignEvent[],
+  entities: readonly CampaignEntity[],
+  target: string | undefined,
+  pack: RulePackManifest,
+): Combatant | undefined => {
+  const npc = target === undefined ? undefined : targetNpcOf(entities, target);
+  const rules: CombatRules = {
+    pack: { id: pack.id, edition: pack.edition, revision: pack.revision },
+    defense: D20_LITE_COMBAT.defense,
+    hitPoints: D20_LITE_COMBAT.hitPoints,
+  };
+  return npc === undefined ? undefined : combatantOf(npc, events, rules);
+};
+
 export const offeredCheckFor = (
   events: readonly CampaignEvent[],
-  offer: Pick<CheckOffer, 'ruleId' | 'label' | 'modifiers' | 'difficulty'>,
+  offer: Pick<CheckOffer, 'ruleId' | 'label' | 'modifiers' | 'difficulty'> & Partial<Pick<CheckOffer, 'target'>>,
   actorId: CharacterId,
   entities = NO_ENTITIES,
 ): Check | undefined => {
-  const { ruleId, label } = offer;
+  const { ruleId, label, target } = offer;
   const entry = checkEntryOf(events, AS_WRITTEN);
+  const defender = entry === undefined ? undefined : defenderOf(events, entities, target, entry[0]);
   const offered = entry?.[2].includes(ruleId)
-    ? entry[1](events, actorId, label, worldProfileOf(entities, actorId), ruleId, offer)
+    ? entry[1](events, actorId, label, worldProfileOf(entities, actorId), ruleId, {
+        ...offer,
+        ...(defender === undefined ? {} : { defender }),
+      })
     : undefined;
   return typeof offered === 'function' ? offered : undefined;
 };

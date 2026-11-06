@@ -8,13 +8,16 @@ import {
   attack,
   attemptCheck,
   attributeModifier,
+  combatantSheet,
   createSheet,
+  D20_LITE_COMBAT,
   D20_LITE_CREATION,
   D20_LITE_MANIFEST,
   D20_LITE_RULES,
   DRAUGHT,
   gainExperience,
   keptFace,
+  proficiencyOf,
   rollInitiative,
   XP_PER_LEVEL,
 } from './d20-lite.ts';
@@ -238,6 +241,42 @@ test('a hit always deals at least one damage and hit points never drop below zer
   const fatal = strike(faces([NATURAL_MAX, D20], [DAMAGE_SIDES, DAMAGE_SIDES]), hero({ might: STRONG }), dying);
   assert.equal(fatal.ok, true);
   if (fatal.ok) assert.equal(numberIn(fatal.sheet, 'hp'), 0);
+});
+
+const FOE_DEFENSE = 14;
+const FOE_HP = 9;
+const foe = (current = FOE_HP) => combatantSheet({ id: 'foe', defense: FOE_DEFENSE, current, max: FOE_HP });
+
+test('a combatant sheet carries the defense and hit points the pack names', () => {
+  assert.equal(numberIn(foe(), D20_LITE_COMBAT.defense), FOE_DEFENSE);
+  assert.equal(numberIn(foe(), D20_LITE_COMBAT.hitPoints), FOE_HP);
+  assert.equal(maxOf(foe(), D20_LITE_COMBAT.hitPoints), FOE_HP);
+  assert.deepEqual(D20_LITE_COMBAT.rules, ['attack.melee', 'attack.ranged']);
+});
+
+test('an attack against a combatant sheet compares the total with its defense and keeps the advantage die', () => {
+  const attacker = hero({ might: STRONG });
+  const bonus = attributeModifier(STRONG) + proficiencyOf(attacker);
+  const needed = FOE_DEFENSE - bonus;
+  const hit = attack({
+    actionId: ACTION_ID,
+    attacker,
+    target: foe(),
+    attribute: 'might',
+    damageSides: D20_LITE_COMBAT.damageSides,
+    rng: faces([LOW_FACE, D20], [needed, D20], [DAMAGE_FACE, D20_LITE_COMBAT.damageSides]),
+    keep: 'highest',
+  });
+  assert.equal(hit.ok && hit.events[0]?.event, 'attack.hit');
+  const miss = attack({
+    actionId: ACTION_ID,
+    attacker,
+    target: foe(),
+    attribute: 'might',
+    damageSides: D20_LITE_COMBAT.damageSides,
+    rng: faces([needed - 1, D20]),
+  });
+  assert.equal(miss.ok && miss.events[0]?.event, 'attack.miss');
 });
 
 test('initiative orders by total, then agility modifier, then id', () => {

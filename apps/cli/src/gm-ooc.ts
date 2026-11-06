@@ -29,11 +29,20 @@ const HOUSE_RULE_SOURCE = 'house_rule';
 const NO_BASE_RULES: readonly CompiledRule[] = [];
 const ISSUE_SEPARATOR = '; ';
 const ROLL_FIX_MODIFIER_ID = 'table-correction';
+const ATTACK_EVENT_PREFIX = 'attack.';
+
+const isAttack = (events: unknown) =>
+  Array.isArray(events) &&
+  events.some(
+    (entry) => isRecord(entry) && typeof entry.event === 'string' && entry.event.startsWith(ATTACK_EVENT_PREFIX),
+  );
 
 export const correctD20Roll: RollCorrector = (resolution, { value, reason }) => {
-  const { rolls, bonus, target, modifiers, keep } = isRecord(resolution) ? resolution : ({} as Record<string, unknown>);
+  const { rolls, bonus, target, modifiers, keep, events } = isRecord(resolution)
+    ? resolution
+    : ({} as Record<string, unknown>);
   const first = Array.isArray(rolls) ? replayRoll(rolls[0]) : undefined;
-  if (first?.ok !== true || !Number.isFinite(bonus) || !Number.isFinite(target)) return undefined;
+  if (first?.ok !== true || !Number.isFinite(bonus) || !Number.isFinite(target) || isAttack(events)) return undefined;
   const faces = first.event.draws.flat();
   const face = keep === 'lowest' ? Math.min(...faces) : keep === 'highest' ? Math.max(...faces) : (faces[0] as number);
   const total = Number(bonus) + value;

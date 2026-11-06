@@ -5,9 +5,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it, type TestContext } from 'node:test';
 import { PROTOCOL_VERSION } from '../../../packages/client-protocol/src/protocol.ts';
-import { CHECK_OFFERED, CHECK_RESOLVED } from '../../../packages/domain/src/campaign.ts';
+import { CHECK_OFFERED, CHECK_RESOLVED, DAMAGE_APPLIED } from '../../../packages/domain/src/campaign.ts';
+import { NPC_SHEET_FIELD } from '../../../packages/engine/src/damage.ts';
 import type { ContextPacket } from '../../../packages/memory/src/packet.ts';
-import { D20_SIDES } from '../../../packages/rules/src/d20-lite.ts';
+import { openDatabase } from '../../../packages/persistence/src/database.ts';
+import { createEntityStore } from '../../../packages/persistence/src/entity-store.ts';
+import { D20_LITE_MANIFEST, D20_SIDES } from '../../../packages/rules/src/d20-lite.ts';
+import type { Rng } from '../../../packages/rules/src/dice.ts';
 import {
   createEngineGateway,
   FAKE_GAME_MASTER,
@@ -49,10 +53,12 @@ const hollowLantern = async (
   script: Script,
   pitch = D20_PITCH,
   settings: Parameters<ReturnType<typeof createEngineGateway>['settings']>[1] = {},
+  setup: { readonly rng?: Rng; readonly before?: (dataDir: string) => void } = {},
 ) => {
   const dataDir = tempDataDir(t);
   const describe = async () => 'Wren, a scout. Might 3, Agility 2, Wits 2, Presence 1';
   for await (const _ of createEngineGateway(dataDir).create(CAMPAIGN, pitch, describe));
+  setup.before?.(dataDir);
   createEngineGateway(dataDir).settings(CAMPAIGN, settings);
   const packets: ContextPacket[] = [];
   const gm: GameMaster = {
@@ -63,7 +69,7 @@ const hollowLantern = async (
     },
     summarizer: FAKE_GAME_MASTER.summarizer,
   };
-  const { session, campaignId, close, narrate } = openClientSession(dataDir, CAMPAIGN, gm);
+  const { session, campaignId, close, narrate } = openClientSession(dataDir, CAMPAIGN, gm, setup.rng);
   t.after(close);
   const envelope = { version: PROTOCOL_VERSION, campaignId } as const;
   const snapshot = () => {
@@ -314,5 +320,97 @@ describe('rpg-42a.94 a check the GM marks as needed rolls without a listed verb'
     await say('I look at the door');
     assert.equal(eventsOfType(CHECK_RESOLVED).length, 0);
     assert.equal(snapshot().rollOffer?.offerId, ATTACK_OFFER.id);
+  });
+});
+
+describe('rpg-42a.84 an offered attack resolves against the target sheet', () => {
+  const TAM_ID = 'npc-tam';
+  const TAM_DEFENSE = 10;
+  const TAM_HP = 6;
+  const HIGH_DRAW = 0.9;
+  const WOUND = 4;
+  const NO_DEFENSE_SHEET = { ...tamSheet(), traits: [] };
+
+  function tamSheet(hp = TAM_HP) {
+    return {
+      detail: 'sparse',
+      npcId: TAM_ID,
+      role: 'minor',
+      name: 'Old Tam',
+      motivations: [],
+      background: '',
+      traits: [
+        { id: 'defense', value: TAM_DEFENSE },
+        { id: 'hp', value: hp },
+      ],
+      rulepack: { id: D20_LITE_MANIFEST.id, edition: D20_LITE_MANIFEST.edition, revision: D20_LITE_MANIFEST.revision },
+    };
+  }
+
+  const withTam = (sheet: unknown) => (dataDir: string) => {
+    const connection = openDatabase(join(dataDir, `${encodeURIComponent(CAMPAIGN)}.sqlite`));
+    try {
+      createEntityStore(connection.database).saveEntity({
+        id: TAM_ID,
+        campaignId: connection.database.prepare('SELECT id FROM campaign').get()?.id as string,
+        kind: 'npc',
+        name: 'Old Tam',
+        data: { [NPC_SHEET_FIELD]: sheet },
+        visibility: 'public',
+        actorId: null,
+      });
+    } finally {
+      connection.close();
+    }
+  };
+
+  const script: Script = [
+    { narration: SETUP, proposals: [ATTACK_OFFER] },
+    { narration: AFTER_ROLL },
+    { narration: 'Tam snarls and lifts a stool.', proposals: [{ ...ATTACK_OFFER, id: 'tam-attack-2' }] },
+    { narration: 'The stool clatters to the floor.' },
+  ];
+
+  it('commits damage through the engine, shows it to the GM and defeats the target at zero', async (t) => {
+    const { say, packets, eventsOfType } = await hollowLantern(
+      t,
+      script,
+      D20_PITCH,
+      {},
+      {
+        rng: () => HIGH_DRAW,
+        before: withTam(tamSheet()),
+      },
+    );
+    await say(FIRST_INPUT);
+    await say(ACCEPT_INPUT);
+    const [first] = eventsOfType(DAMAGE_APPLIED);
+    assert.deepEqual(first?.payload, { targetId: TAM_ID, amount: WOUND, defeated: false });
+    assert.ok(
+      packets[1]?.sections.some(
+        ({ name, items }) => name === 'results' && items.some((i) => i.includes(DAMAGE_APPLIED)),
+      ),
+    );
+    await say(FIRST_INPUT);
+    await say(ACCEPT_INPUT);
+    const second = eventsOfType(DAMAGE_APPLIED).at(-1);
+    assert.deepEqual(second?.payload, { targetId: TAM_ID, amount: TAM_HP - WOUND, defeated: true });
+  });
+
+  it('rolls only when the target has no defense or hit point data', async (t) => {
+    const { say, eventsOfType } = await hollowLantern(
+      t,
+      script,
+      D20_PITCH,
+      {},
+      {
+        rng: () => HIGH_DRAW,
+        before: withTam(NO_DEFENSE_SHEET),
+      },
+    );
+    await say(FIRST_INPUT);
+    await say(ACCEPT_INPUT);
+    assert.equal(rolledSides(eventsOfType(CHECK_RESOLVED)), D20_SIDES);
+    assert.equal(eventsOfType(DAMAGE_APPLIED).length, 0);
   });
 });

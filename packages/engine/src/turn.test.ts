@@ -5,6 +5,7 @@ import {
   CAMPAIGN_PITCHED,
   CampaignNotFoundError,
   type CampaignStore,
+  DAMAGE_APPLIED,
   StaleRevisionError,
 } from '../../domain/src/campaign.ts';
 import { createCampaignStore } from '../../persistence/src/campaign-store.ts';
@@ -102,6 +103,31 @@ test('an action with a check resolves its roll in the same turn and shows it to 
     committed.events.map(({ id }) => id),
   );
   assert.deepEqual(calls, [ACTION.actionId]);
+  close();
+});
+
+test('a check that deals damage commits a DamageApplied event the player sees, after the roll', () => {
+  const { store, database, close } = openEngineStore();
+  const dealt = { targetId: 'npc-warden', amount: 4, defeated: false };
+  const committed = performAction(store, ACTION, () => ({ rolls: [], events: [], damage: dealt }));
+  assert.deepEqual(
+    committed.events.map(({ type }) => type),
+    ['PlayerActionSubmitted', 'ActionValidated', CHECK_RESOLVED, DAMAGE_APPLIED],
+  );
+  const [resolved, damaged] = committed.events.slice(-2);
+  assert.equal(JSON.stringify(resolved?.payload).includes('damage'), false);
+  assert.deepEqual(damaged?.payload, dealt);
+  assert.equal(damaged?.causationId, resolved?.id);
+  assert.equal(database.prepare(SELECT_VISIBILITY).get(String(damaged?.id))?.visibility, 'player');
+  const miss = performAction(store, { ...ACTION, actionId: 'action-2', expectedRevision: SETUP_REVISION + 1 }, () => ({
+    rolls: [],
+    events: [],
+    damage: { ...dealt, amount: 0 },
+  }));
+  assert.equal(
+    miss.events.some(({ type }) => type === DAMAGE_APPLIED),
+    false,
+  );
   close();
 });
 

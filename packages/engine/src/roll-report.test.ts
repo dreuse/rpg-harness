@@ -150,3 +150,28 @@ test('rpg-42a.83: without a RulePack a report is recorded alone', () => {
     close();
   }
 });
+
+const ONE_D6 = { dice: [{ count: 1, sides: 6 }], modifier: 0 };
+const ATTACK_FACE = 17;
+const REAL_DRAW = 0.99;
+const D6_SIDES = 6;
+
+const attackOf = (hits: boolean) => (actionId: string, rng: () => number) => {
+  const attackRoll = createRoller(rng)(`${actionId}:d20`, ONE_D20);
+  if (!attackRoll.ok) throw new RangeError('bad pool');
+  const damageRoll = hits ? createRoller(rng)(`${actionId}:damage`, ONE_D6) : undefined;
+  return {
+    rolls: [attackRoll.roll, ...(damageRoll?.ok ? [damageRoll.roll] : [])],
+    events: [{ event: hits ? 'attack.hit' : 'attack.miss' }],
+  };
+};
+
+test('rpg-42a.84: a player reports only the attack die and the damage die comes from the real rng', () => {
+  assert.equal(rollExpressionOf(attackOf(true)), '1d20');
+  assert.equal(rollExpressionOf(attackOf(false)), '1d20');
+  const rebuilt = reportedCheck(attackOf(true), [ATTACK_FACE])('a-1', () => REAL_DRAW);
+  assert.deepEqual(
+    rebuilt.rolls.map(({ draws }) => draws.flat()),
+    [[ATTACK_FACE], [D6_SIDES]],
+  );
+});
