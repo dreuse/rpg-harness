@@ -44,6 +44,7 @@ import {
   claudeCodeRouteOf,
   GM_PROFILE_ENV,
   gameMcpConfig,
+  gameServerLaunchable,
   READ_ONLY_GAME_TOOLS,
   requestClaudeNarration,
   requestClaudeSummary,
@@ -420,6 +421,13 @@ describe('rpg-42a.33 Claude Code CLI game master', () => {
     assert.equal(server?.command, process.execPath);
     assert.deepEqual(server?.env, { RPG_DATABASE_PATH: DATABASE, ELECTRON_RUN_AS_NODE: '1' });
     assert.deepEqual(Object.values(gameMcpConfig(DATABASE, {}).mcpServers)[0]?.env, { RPG_DATABASE_PATH: DATABASE });
+  });
+
+  it('rpg-42a.78 skips the game MCP server when its entry sits inside an asar archive', () => {
+    assert.equal(gameServerLaunchable('/app/Resources/app.asar/apps/mcp-server/src/main.ts'), false);
+    assert.equal(gameServerLaunchable('C:\\App\\resources\\app.asar\\apps\\mcp-server\\src\\main.ts'), false);
+    assert.equal(gameServerLaunchable('/repo/apps/mcp-server/src/main.ts'), true);
+    assert.equal(gameServerLaunchable('/repo/app.asarx/main.ts'), true);
   });
 
   it('rpg-42a.48 reports the token usage and cost of a summary call', async (t) => {

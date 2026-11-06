@@ -61,6 +61,7 @@ export const WRITE_GAME_TOOLS = CAMPAIGN_TOOLS.filter(({ annotations }) => !anno
 );
 
 const MCP_SERVER_ENTRY = join(import.meta.dirname, '../../mcp-server/src/main.ts');
+const ASAR_SEGMENT = /[\\/][^\\/]*\.asar[\\/]/;
 const ELECTRON_RUN_AS_NODE_ENV = 'ELECTRON_RUN_AS_NODE';
 const ENABLED = '1';
 const DATABASE_ENV = 'RPG_DATABASE_PATH';
@@ -177,6 +178,8 @@ export const claudeArgs = (
   effort,
 ];
 
+export const gameServerLaunchable = (entry: string = MCP_SERVER_ENTRY): boolean => !ASAR_SEGMENT.test(entry);
+
 export const gameMcpConfig = (databasePath: string, versions: { readonly electron?: string } = process.versions) => ({
   mcpServers: {
     [GAME_SERVER]: {
@@ -251,7 +254,7 @@ const attempt = async (route: ClaudeCodeRoute, system: string, input: string, da
   const schema = databasePath === undefined ? undefined : NARRATION_SCHEMA;
   const dir = mkdtempSync(join(tmpdir(), TEMP_PREFIX));
   try {
-    const config = databasePath === undefined ? undefined : join(dir, MCP_CONFIG_FILE);
+    const config = databasePath === undefined || !gameServerLaunchable() ? undefined : join(dir, MCP_CONFIG_FILE);
     if (config !== undefined && databasePath !== undefined)
       writeFileSync(config, JSON.stringify(gameMcpConfig(databasePath)), { mode: PRIVATE_FILE_MODE });
     const cwd = preparedWorkspace(route);
@@ -308,7 +311,9 @@ export const launchClaude = (env: NodeJS.ProcessEnv, dataDir: string, campaignDa
   const workspace = ensureClaudeWorkspace(join(dataDir, CLAUDE_WORKSPACE_DIR));
   const args = [
     ...SETTING_SOURCES,
-    ...(campaignDatabase === undefined ? [] : [MCP_CONFIG_FLAG, JSON.stringify(gameMcpConfig(campaignDatabase))]),
+    ...(campaignDatabase === undefined || !gameServerLaunchable()
+      ? []
+      : [MCP_CONFIG_FLAG, JSON.stringify(gameMcpConfig(campaignDatabase))]),
   ];
   const { status, error } = spawnSync(bin, args, {
     cwd: workspace,
