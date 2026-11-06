@@ -12,6 +12,7 @@ const USE = 'use';
 const REFUSED = 'Activation refused';
 const DRY_RUN = 'decline';
 const ADDED_RULES_FILES = 'Added rules files: ';
+const ADDED_SETTING_FILES = 'Added setting files: ';
 
 export type ImportHostOptions = {
   readonly dataDir: string;
@@ -28,7 +29,7 @@ const readRequest = (request: unknown): ImportRequest | undefined => {
   const { kind, packId, decision } = request as Record<string, unknown>;
   if (kind === 'pick' && typeof packId === 'string') return { kind, packId };
   if (kind === 'decide' && (decision === 'activate' || decision === 'decline')) return { kind, decision };
-  if (kind === 'pickOwn') return { kind };
+  if (kind === 'pickOwn' || kind === 'pickSetting') return { kind };
   return undefined;
 };
 
@@ -65,7 +66,10 @@ export const createImportHost = ({ dataDir, showOpenDialog }: ImportHostOptions)
     return { status: 'preview', lines: reportOf(lines.at(-2)) };
   };
 
-  const pickOwn = async (): Promise<ImportResult> => {
+  let rulesNames: readonly string[] = [];
+  let settingNames: readonly string[] = [];
+
+  const pickOwn = async (kind: 'pickOwn' | 'pickSetting'): Promise<ImportResult> => {
     const paths = await showOpenDialog();
     const [first] = paths;
     if (first === undefined) return { status: 'cancelled' };
@@ -76,7 +80,13 @@ export const createImportHost = ({ dataDir, showOpenDialog }: ImportHostOptions)
         dataDir,
         root,
         paths.map((path) => basename(path)),
+        kind === 'pickOwn' ? settingNames : rulesNames,
       );
+      if (kind === 'pickSetting') {
+        settingNames = names;
+        return { status: 'settingFiles', names, lines: [`${ADDED_SETTING_FILES}${names.join(', ')}`] };
+      }
+      rulesNames = names;
       return { status: 'ownFiles', names, lines: [`${ADDED_RULES_FILES}${names.join(', ')}`] };
     } catch (error) {
       return failed(messageOf(error));
@@ -96,7 +106,7 @@ export const createImportHost = ({ dataDir, showOpenDialog }: ImportHostOptions)
     run: async (input: unknown): Promise<ImportResult> => {
       const request = readRequest(input);
       if (request === undefined) return failed(BAD_IMPORT_REQUEST);
-      if (request.kind === 'pickOwn') return pickOwn();
+      if (request.kind === 'pickOwn' || request.kind === 'pickSetting') return pickOwn(request.kind);
       return request.kind === 'pick' ? pick(request.packId) : decide(request.decision);
     },
   };

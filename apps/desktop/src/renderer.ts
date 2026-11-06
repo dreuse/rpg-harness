@@ -12,6 +12,7 @@ import {
   OWN_RULES_FIELD,
   planCommand,
   rulesetLabel,
+  SETTING_FILES_FIELD,
   type StartAction,
   type StartDraft,
   type StartVoices,
@@ -106,7 +107,7 @@ export type StalledTurn = { readonly action: SubmitPlayerAction; readonly failur
 export type StreamedNarration = { readonly turnId: string; readonly text: string };
 export type RejectedAction = { readonly actionId: string; readonly input: string; readonly message: string };
 export type ImportState = {
-  readonly status: 'needsPack' | 'preview' | 'installed' | 'declined' | 'failed' | 'ownFiles';
+  readonly status: 'needsPack' | 'preview' | 'installed' | 'declined' | 'failed' | 'ownFiles' | 'settingFiles';
   readonly lines: readonly string[];
 };
 export type StartState = {
@@ -1153,6 +1154,11 @@ export const createDesktopClient = ({
     importOwnRules: async () => {
       const result = await importWith({ kind: 'pickOwn' });
       if (result?.status === 'ownFiles') startAction({ kind: 'set', field: OWN_RULES_FIELD, value: result.names });
+    },
+    importSettingFiles: async () => {
+      const result = await importWith({ kind: 'pickSetting' });
+      if (result?.status === 'settingFiles')
+        startAction({ kind: 'set', field: SETTING_FILES_FIELD, value: result.names });
     },
     closeStart: () => update({ start: { ...state.start, open: false } }),
     startAction,

@@ -572,7 +572,9 @@ export const mountPage = ({
       ? client.importRulebook()
       : action === 'pickOwn'
         ? client.importOwnRules()
-        : client.decideImport(action));
+        : action === 'pickSetting'
+          ? client.importSettingFiles()
+          : client.decideImport(action));
   const startEdit = (step: string) => {
     if (!STEP_INDEX.test(step)) return;
     keepName();

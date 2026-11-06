@@ -32,8 +32,10 @@ export const START_STEPS = { describe: ['describe', 'begin', 'summary'], guide: 
 const PLAY_FIELDS = ['language', 'narratorVoice', 'whoRolls', 'rulesStrictness'] as const;
 export const RULES_SOURCE_FIELD = 'rulesSource';
 export const OWN_RULES_FIELD = 'ownRules';
+export const SETTING_FILES_FIELD = 'settingFiles';
 export const RULES_SOURCES = ['own', 'none'] as const;
 const RULES_SOURCE_FIELDS = [RULES_SOURCE_FIELD, OWN_RULES_FIELD] as const;
+const CREATE_ONLY_FIELDS = [...RULES_SOURCE_FIELDS, SETTING_FILES_FIELD] as const;
 const OWN_RULES_USAGE: RulesUsage = { resolution: 'dice', sheet: 'none' };
 const NONE_RULES_USAGE: RulesUsage = { resolution: 'adjudicated', sheet: 'none' };
 const OWN_FILES_VALUE = 'my own files';
@@ -159,6 +161,7 @@ export const START_CATALOG: Catalog = {
     'rules.own.detail': 'The GM runs the rules from your files. Add md or txt files.',
     'rules.ownFiles': 'Rules files: {files}.',
     'rules.ownNone': 'No rules files added yet.',
+    'genre.settingFiles': 'Setting files: {files}.',
     'value.ownFiles': 'my own files',
     'character.noSheet':
       'This game does not use a character sheet. Give your character a name and a short description.',
@@ -253,6 +256,7 @@ export const START_CATALOG: Catalog = {
     'rules.own.detail': 'O mestre segue as regras dos seus arquivos. Adicione arquivos md ou txt.',
     'rules.ownFiles': 'Arquivos de regras: {files}.',
     'rules.ownNone': 'Nenhum arquivo de regras adicionado ainda.',
+    'genre.settingFiles': 'Arquivos de cenário: {files}.',
     'value.ownFiles': 'meus próprios arquivos',
     'character.noSheet': 'Este jogo não usa ficha de personagem. Dê ao seu personagem um nome e uma descrição curta.',
     'features.noDice': 'Este jogo não usa dados.',
@@ -309,7 +313,7 @@ const fieldLabel = (locale: string, field: string) => {
   return key === undefined ? field : text(locale, key);
 };
 const STEP_FIELDS: Partial<Record<StartStep, readonly string[]>> = {
-  genre: ['genre'],
+  genre: ['genre', SETTING_FILES_FIELD],
   rules: ['ruleset', ...RULES_SOURCE_FIELDS],
   character: ['character'],
   features: FEATURES,
@@ -354,6 +358,7 @@ const CHOICE_CHECKS: Readonly<Record<string, (value: unknown) => boolean>> = {
   ruleset: isEdition,
   [RULES_SOURCE_FIELD]: (value: unknown) => RULES_SOURCES.some((known) => known === value),
   [OWN_RULES_FIELD]: isFileNames,
+  [SETTING_FILES_FIELD]: isFileNames,
   ...Object.fromEntries(FEATURES.map((feature) => [feature, (value: unknown) => value === FEATURE_ON[feature]])),
 };
 
@@ -430,7 +435,7 @@ export const nextDraft = (draft: StartDraft, action: StartAction): StartDraft =>
 const planFields = ({ path, intent, choices }: StartDraft, client?: string) => {
   if (path === 'describe') return intent === '' ? {} : { intent };
   const planned = {
-    ...without(choices, [...PLAY_FIELDS, ...RULES_SOURCE_FIELDS]),
+    ...without(choices, [...PLAY_FIELDS, ...CREATE_ONLY_FIELDS]),
     ...(choices[RULES_SOURCE_FIELD] === undefined ? {} : { ruleset: null }),
   };
   return { choices: client === undefined ? planned : { ...planned, client } };
@@ -456,6 +461,7 @@ export const createCommand = (draft: StartDraft, client?: string, locale = DEFAU
   const play = playOf(draft);
   const language = typeof draft.choices.language === 'string' ? draft.choices.language : safeLocale(locale);
   const ownFiles = draft.choices[RULES_SOURCE_FIELD] === 'own' ? draft.choices[OWN_RULES_FIELD] : undefined;
+  const settingFiles = draft.choices[SETTING_FILES_FIELD];
   return {
     version: PROTOCOL_VERSION,
     type: 'CreateCampaign',
@@ -464,6 +470,7 @@ export const createCommand = (draft: StartDraft, client?: string, locale = DEFAU
     language,
     ...(Object.keys(play).length === 0 ? {} : { play }),
     ...(Array.isArray(ownFiles) && ownFiles.length > 0 ? { rulesDocuments: ownFiles as string[] } : {}),
+    ...(Array.isArray(settingFiles) && settingFiles.length > 0 ? { settingDocuments: settingFiles as string[] } : {}),
   };
 };
 
@@ -690,6 +697,11 @@ const ownFilesNotice = ({ choices }: StartDraft, locale: string) => {
   ];
 };
 
+const settingFilesNotice = ({ choices }: StartDraft, locale: string) =>
+  isFileNames(choices[SETTING_FILES_FIELD]) && (choices[SETTING_FILES_FIELD] as string[]).length > 0
+    ? [text(locale, 'genre.settingFiles', { files: (choices[SETTING_FILES_FIELD] as string[]).join(', ') })]
+    : [];
+
 const PAGES: Readonly<
   Record<
     StartStep,
@@ -727,7 +739,7 @@ const PAGES: Readonly<
   }),
   genre: (draft, { genres }, _plan, locale) => ({
     title: text(locale, 'genre.title'),
-    text: [text(locale, 'genre.text'), ...packNotice(locale)],
+    text: [text(locale, 'genre.text'), ...packNotice(locale), ...settingFilesNotice(draft, locale)],
     options: genres.map(({ id, name, blurb, imported }) =>
       imported === true
         ? choose('genre', id, name, blurb, draft)

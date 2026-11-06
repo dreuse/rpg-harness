@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it, type TestContext } from 'node:test';
@@ -252,6 +252,29 @@ describe('rpg-42a.120 imported rulebook reaches the GM packet', () => {
 });
 
 describe('rpg-42a.82 staging the player files', () => {
+  it('rpg-42a.149 refuses a picked name that a kept file already uses and leaves the kept bytes alone', async (t) => {
+    const dataDir = scratch(t, 'rpg-own-rules-');
+    const source = scratch(t, 'rpg-own-rules-src-');
+    writeFileSync(join(source, RULES_FILE), RULES_TEXT);
+    stageOwnRules(dataDir, source, [RULES_FILE]);
+    writeFileSync(join(source, RULES_FILE), '# Other');
+    assert.throws(() => stageOwnRules(dataDir, source, [RULES_FILE], [RULES_FILE]), /already/);
+    assert.equal(readFileSync(join(dataDir, 'own-rules', RULES_FILE), 'utf8'), RULES_TEXT);
+  });
+
+  it('rpg-42a.149 keeps the named files when staging another pick', async (t) => {
+    const dataDir = scratch(t, 'rpg-own-rules-');
+    const source = scratch(t, 'rpg-own-rules-src-');
+    writeFileSync(join(source, RULES_FILE), RULES_TEXT);
+    writeFileSync(join(source, SETTING_FILE), '# Setting');
+    stageOwnRules(dataDir, source, [RULES_FILE]);
+    stageOwnRules(dataDir, source, [SETTING_FILE], [RULES_FILE]);
+    assert.equal(loadOwnRules(dataDir, [RULES_FILE]).length, 1);
+    assert.equal(loadOwnRules(dataDir, [SETTING_FILE]).length, 1);
+    stageOwnRules(dataDir, source, [SETTING_FILE]);
+    assert.throws(() => loadOwnRules(dataDir, [RULES_FILE]), /not added/);
+  });
+
   it('refuses the same file name twice when loading', async (t) => {
     const dataDir = scratch(t, 'rpg-own-rules-');
     const source = scratch(t, 'rpg-own-rules-src-');

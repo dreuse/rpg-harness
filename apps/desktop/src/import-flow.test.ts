@@ -121,7 +121,7 @@ test('rpg-42a.68 the rules step offers the import button with desktop wording an
   const html = htmlOf(client);
   assert.match(html, /<button type="button" data-start-import="pick">Import a rulebook<\/button>/);
   assert.doesNotMatch(html, /rpg import/);
-  const other = htmlOf(harness([], { ...PICKED, step: RULES_STEP - 1 }).client);
+  const other = htmlOf(harness([], { ...PICKED, step: RULES_STEP + 1 }).client);
   assert.doesNotMatch(other, /data-start-import/);
 });
 
@@ -172,4 +172,25 @@ test('rpg-42a.82 a cancelled or failed pick leaves the draft files as they were'
   await client.importOwnRules();
   assert.deepEqual(client.state().start.draft.choices, { rulesSource: 'own' });
   assert.equal(client.state().start.import?.status, 'failed');
+});
+
+const GENRE_DRAFT: StartDraft = { ...UNPICKED, step: START_STEPS.guide.indexOf('genre') };
+
+test('rpg-42a.149 a failed setting pick shows its error as an alert on the genre step', async () => {
+  const { client } = harness([{ status: 'failed', lines: ['bad setting'] }], GENRE_DRAFT);
+  await client.importSettingFiles();
+  assert.match(htmlOf(client), /<div role="alert"><pre>bad setting<\/pre><\/div>/);
+});
+
+test('rpg-42a.149 the genre step offers a button to add setting files and saves their names', async () => {
+  const { client, requests } = harness(
+    [{ status: 'settingFiles', names: ['world.md'], lines: ['Added setting files: world.md'] }],
+    GENRE_DRAFT,
+  );
+  assert.match(htmlOf(client), /data-start-import="pickSetting"/);
+  assert.doesNotMatch(htmlOf(harness([], UNPICKED).client), /data-start-import="pickSetting"/);
+  await client.importSettingFiles();
+  assert.deepEqual(requests, [{ kind: 'pickSetting' }]);
+  assert.deepEqual(client.state().start.draft.choices, { settingFiles: ['world.md'] });
+  assert.match(htmlOf(client), /world\.md/);
 });

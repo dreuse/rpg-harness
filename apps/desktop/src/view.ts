@@ -879,7 +879,7 @@ export const renderVoice = (
 
 export const START_OPEN = 'data-start-open';
 export const START_IMPORT = 'data-start-import';
-export const IMPORT_ACTIONS = ['pick', 'pickOwn', 'activate', 'decline'] as const;
+export const IMPORT_ACTIONS = ['pick', 'pickOwn', 'pickSetting', 'activate', 'decline'] as const;
 export type ImportAction = (typeof IMPORT_ACTIONS)[number];
 export const START_OPTION = 'data-start-option';
 export const START_PREVIEW = 'data-start-preview';
@@ -1011,10 +1011,15 @@ const ownFilesButton = (start: StartScreen, locale: string) =>
     ? `<button type="button" ${START_IMPORT}="pickOwn">${escapeHtml(translate(locale, 'start.importOwn'))}</button>`
     : '';
 
+const settingButton = (model: ViewModel, locale: string) =>
+  `<div data-start-import-block><button type="button" ${START_IMPORT}="pickSetting">${escapeHtml(translate(locale, 'start.importSetting'))}</button>${importOutcome(model, locale)}</div>`;
+
 const startImport = (model: ViewModel, start: StartScreen, locale: string) =>
-  start.step === 'rules'
-    ? `<div data-start-import-block><p>${escapeHtml(translate(locale, 'start.importHint'))}</p><button type="button" ${START_IMPORT}="pick">${escapeHtml(translate(locale, 'start.import'))}</button>${ownFilesButton(start, locale)}${importOutcome(model, locale)}</div>`
-    : '';
+  start.step === 'genre'
+    ? settingButton(model, locale)
+    : start.step === 'rules'
+      ? `<div data-start-import-block><p>${escapeHtml(translate(locale, 'start.importHint'))}</p><button type="button" ${START_IMPORT}="pick">${escapeHtml(translate(locale, 'start.import'))}</button>${ownFilesButton(start, locale)}${importOutcome(model, locale)}</div>`
+      : '';
 
 const startBody = (model: ViewModel, locale: string) => {
   const { start, created, playing, home } = model;

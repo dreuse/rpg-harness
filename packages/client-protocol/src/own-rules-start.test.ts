@@ -106,3 +106,17 @@ test('rpg-42a.82 CreateCampaign accepts a list of rules file names and refuses o
 test('rpg-42a.82 every locale has the new rules texts', () => {
   assert.deepEqual(missingKeys(START_CATALOG), []);
 });
+
+test('rpg-42a.149 setting files ride on create as settingDocuments and show on the genre step', () => {
+  const SETTING = ['world.md'];
+  const atGenre = run([{ kind: 'path', path: 'guide' }, { kind: 'next' }]);
+  const withSetting = run([{ kind: 'set', field: 'settingFiles', value: SETTING }], atGenre);
+  assert.deepEqual(createCommand(withSetting).settingDocuments, SETTING);
+  assert.equal('settingDocuments' in createCommand(atGenre), false);
+  assert.deepEqual(planCommand(withSetting).choices, {});
+  assert.ok(startScreen(withSetting, OPTIONS, undefined, 'en').text.some((line) => line.includes('world.md')));
+  assert.deepEqual(parseStartDraft(JSON.parse(JSON.stringify(withSetting))), withSetting);
+  const tooMany = { ...withSetting, choices: { settingFiles: Array(99).fill('a.md') } };
+  assert.deepEqual(parseStartDraft(JSON.parse(JSON.stringify(tooMany))).choices, {});
+  assert.deepEqual(missingKeys(START_CATALOG), []);
+});

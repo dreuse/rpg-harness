@@ -107,6 +107,23 @@ test('rpg-42a.82 picking own rules files stages them and reports the names', () 
     assert.equal(existsSync(join(dataDir, OWN_DIR, RULES_FILE)), true);
   }));
 
+test('rpg-42a.149 picking setting files keeps the staged rules files and reports the names', () =>
+  withFolders(async (root, dataDir) => {
+    writeFileSync(join(root, RULES_FILE), '# Combat\nRoll 2d6.');
+    writeFileSync(join(root, 'world.md'), '# World');
+    let picked = [join(root, RULES_FILE)];
+    const host = createImportHost({ dataDir, showOpenDialog: async () => picked });
+    await host.run(PICK_OWN);
+    picked = [join(root, 'world.md')];
+    assert.deepEqual(await host.run({ kind: 'pickSetting' }), {
+      status: 'settingFiles',
+      names: ['world.md'],
+      lines: ['Added setting files: world.md'],
+    });
+    assert.equal(existsSync(join(dataDir, OWN_DIR, RULES_FILE)), true);
+    assert.equal(existsSync(join(dataDir, OWN_DIR, 'world.md')), true);
+  }));
+
 test('rpg-42a.82 a cancelled dialog, mixed folders and an unsupported file add no rules files', () =>
   withFolders(async (root, dataDir) => {
     assert.deepEqual(await hostFor(dataDir, []).run(PICK_OWN), { status: 'cancelled' });

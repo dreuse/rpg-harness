@@ -31,17 +31,25 @@ const textOf = (file: string, bytes: Uint8Array): { format: IngestFormat; text: 
   return { format: probe.format, text };
 };
 
-export const stageOwnRules = (dataDir: string, root: string, files: readonly string[]) => {
+export const stageOwnRules = (
+  dataDir: string,
+  root: string,
+  files: readonly string[],
+  keep: readonly string[] = [],
+) => {
   if (files.length === 0 || files.length > MAX_RULES_DOCUMENTS)
     throw new Error(`Pick from 1 to ${MAX_RULES_DOCUMENTS} rules files.`);
+  const clash = files.find((file) => keep.includes(file));
+  if (clash !== undefined) throw new Error(`${clash} is already added as another kind of file.`);
   const staged = files.map((file) => {
     const { fileName, bytes } = readInside(root, file);
     textOf(fileName, bytes);
     return { fileName, bytes };
   });
   const dir = join(dataDir, OWN_RULES_DIR);
-  rmSync(dir, { recursive: true, force: true });
   mkdirSync(dir, { recursive: true });
+  for (const entry of readdirSync(dir))
+    if (!keep.includes(entry)) rmSync(join(dir, entry), { recursive: true, force: true });
   for (const { fileName, bytes } of staged) writeFileSync(join(dir, fileName), bytes);
   return { names: staged.map(({ fileName }) => fileName) };
 };
