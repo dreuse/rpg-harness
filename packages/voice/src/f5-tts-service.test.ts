@@ -56,11 +56,38 @@ describe('f5 service', { skip: PYTHON_AVAILABLE ? false : 'python3 is not instal
     assert.equal(expanded('Olá, mundo.\nSem números.'), 'Olá, mundo.\nSem números.');
   });
 
+  it('speaks grouped decimals, negatives and ordinals', () => {
+    const expanded = (text: string): string =>
+      JSON.parse(
+        runService(
+          `print(json.dumps(service.expand_digits(sys.stdin.read(), lambda n: '<%d>' % n, lambda n: '[%do]' % n)))`,
+          text,
+        ),
+      );
+    assert.equal(expanded('1.000,50 moedas'), '<1000> vírgula <50> moedas');
+    assert.equal(expanded('1.234.567,89'), '<1234567> vírgula <89>');
+    assert.equal(expanded('-5 graus e a -5'), 'menos <5> graus e a menos <5>');
+    assert.equal(expanded('3-5 e a-5'), '<3>-<5> e a-<5>');
+    assert.equal(expanded('o 3º andar'), 'o [3o] andar');
+    assert.equal(expanded('a 1ª vez'), 'a [1a] vez');
+    assert.equal(expanded('3,5º'), '3,5º');
+  });
+
   it('keeps the digits when the converter fails', () => {
     const code = `def fail(n):
     raise OverflowError(n)
 print(json.dumps(service.expand_digits(sys.stdin.read(), fail)))`;
     assert.equal(JSON.parse(runService(code, 'Serial 12345 e 3,5.')), 'Serial 12345 e 3,5.');
+  });
+
+  it('keeps the raw ordinal when the ordinal converter fails or returns nothing', () => {
+    const code = `def missing(n):
+    raise KeyError(n)
+print(json.dumps([
+    service.expand_digits('o 3º e 1ª', lambda n: '<%d>' % n, missing),
+    service.expand_digits('o 0º e 0ª', lambda n: '<%d>' % n, lambda n: ''),
+]))`;
+    assert.deepEqual(JSON.parse(runService(code)), ['o 3º e 1ª', 'o 0º e 0ª']);
   });
 
   it('rejects an unknown voice, empty or oversized text and out-of-range or non-numeric speed', () => {
