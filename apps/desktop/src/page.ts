@@ -195,7 +195,8 @@ const HEADING_SELECTOR = '#heading-status';
 const FIRST_CONTINUE_SELECTOR = '#home-continue-0';
 const OPEN_MENU_SELECTOR = 'details[open]';
 const SETTINGS_TOGGLE_SELECTOR = '#settings-toggle';
-const SETUP_DIALOG_SELECTOR = '[data-voice-step]';
+const SETUP_STEP_ATTRIBUTE = 'data-voice-step';
+const SETUP_DIALOG_SELECTOR = `[${SETUP_STEP_ATTRIBUTE}]`;
 const SETUP_PRIMARY_SELECTOR = `${SETUP_DIALOG_SELECTOR} [data-primary]`;
 const SETUP_CLOSED = 'closed';
 const SOUND_ACCEPT_SELECTOR = '[data-sound-setup="accept"]';
@@ -225,6 +226,7 @@ const FOCUS_ATTRIBUTES = [
   MOTION_ATTRIBUTE,
   VOICE_SETUP,
   VOICE_PREVIEW,
+  SETUP_STEP_ATTRIBUTE,
   REPLAY,
   ROLL_BADGE_ATTRIBUTE,
 ];

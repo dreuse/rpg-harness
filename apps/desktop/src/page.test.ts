@@ -118,7 +118,12 @@ const fakePage = () => {
       style: { setProperty: (name: string, value: string) => (style[name] = value) },
       addEventListener: on('root:'),
       querySelector: (selector: string) =>
-        selector === FOCUSED ? active : selector.includes(':hover') && !held ? null : node(selector),
+        selector === FOCUSED
+          ? active
+          : (selector.includes(':hover') && !held) ||
+              (selector.includes('[data-primary]') && html.includes('data-voice-step="downloading"'))
+            ? null
+            : node(selector),
     },
     form: { addEventListener: on('form:'), requestSubmit: () => listeners.get('form:submit')?.(event({})) },
     input: {
@@ -1182,6 +1187,36 @@ test('rpg-cm63.7 page turns voice on in one step and changes mode mid-campaign w
   });
   page.click({ 'data-voice-setup': 'off' });
   assert.deepEqual(spokenOutputs(page), ['full', 'cinematic', 'off']);
+});
+
+test('rpg-42a.145 voice download progress keeps keyboard focus on the dialog', async () => {
+  const page = fakePage();
+  const voice = fakeVoiceBridge();
+  let tick = (_bytes: number) => {};
+  const bridge: VoiceBridge = {
+    ...voice.bridge,
+    download: () => new Promise<void>(() => {}),
+    onProgress: (listener) => {
+      tick = listener;
+    },
+  };
+  mount(page, {}, deniedMicrophone, undefined, WIDE_WIDTH, { bridge: { ...page.bridge, voice: bridge } });
+  page.receive(READY);
+  continueHarbor(page);
+  page.receive({ type: 'Snapshot', snapshot: SNAPSHOT });
+  await settle();
+  page.click({ 'data-voice-setup': 'on' });
+  await settle();
+  page.click({ 'data-voice-setup': 'accept' });
+  await settle();
+  assert.match(page.root.innerHTML, /data-voice-step="downloading"/);
+  tick(10);
+  await settle();
+  const before = page.focused.length;
+  tick(20);
+  await settle();
+  assert.equal(page.focused.length, before + 1);
+  assert.equal(page.focused.at(-1), '[data-voice-step=""]');
 });
 
 test('rpg-cm63.7 page without a voice bridge keeps text play and reports voice unavailable', async () => {
