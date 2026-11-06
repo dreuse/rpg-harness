@@ -1577,17 +1577,22 @@ test('rpg-42a.88 page lists the installed narrator voices on the begin step, pre
   const page = fakePage();
   const voice = fakeVoiceBridge();
   const preferences: { speech?: { narratorVoice?: string } }[] = [];
-  const BEGIN: StartDraft = { ...INITIAL_DRAFT, path: 'guide', step: GUIDE_STEPS.indexOf('begin') };
+  const BEGIN: StartDraft = {
+    ...INITIAL_DRAFT,
+    path: 'guide',
+    step: GUIDE_STEPS.indexOf('begin'),
+    choices: { voiceOutput: true },
+  };
   mount(page, {}, deniedMicrophone, BEGIN, WIDE_WIDTH, {
     bridge: { ...page.bridge, voice: voice.bridge, savePreferences: (saved) => preferences.push(saved) },
     audio: { play: async () => ({ decodeMs: 1 }) },
   });
   page.receive(READY);
   await settle();
-  assert.match(page.root.innerHTML, /data-start-preview="2"/);
-  page.change({ 'data-start-voice': '' }, '3');
-  assert.match(page.root.innerHTML, /data-start-preview="3"/);
-  page.click({ 'data-start-preview': '3' });
+  assert.match(page.root.innerHTML, /data-start-preview="4"/);
+  page.change({ 'data-start-voice': '' }, '5');
+  assert.match(page.root.innerHTML, /data-start-preview="5"/);
+  page.click({ 'data-start-preview': '5' });
   await settle();
   assert.deepEqual(
     voice.previews.map((request) => (request as { voiceId: string }).voiceId),
@@ -1595,6 +1600,71 @@ test('rpg-42a.88 page lists the installed narrator voices on the begin step, pre
   );
   assert.equal(preferences.at(-1)?.speech?.narratorVoice, 'am_adam');
   assert.equal(page.saved.at(-1)?.choices.narratorVoice, 'am_adam');
+});
+
+test('rpg-42a.99 page lists only voices of the chosen story language and defaults to that language narrator', async () => {
+  const page = fakePage();
+  const voice = fakeVoiceBridge();
+  const brazilian: VoiceProviderStatus = {
+    ...VOICE_PROVIDER,
+    id: 'kokoro-mlx',
+    languages: ['pt-BR'],
+    voices: ['pf_dora', 'pm_alex'],
+    narrator: 'pf_dora',
+    installed: true,
+  };
+  const both = async () => ({ providers: [{ ...VOICE_PROVIDER, installed: true }, brazilian], cacheBytes: 0 });
+  const BEGIN: StartDraft = {
+    ...INITIAL_DRAFT,
+    path: 'guide',
+    step: GUIDE_STEPS.indexOf('begin'),
+    choices: { voiceOutput: true, language: 'pt-BR' },
+  };
+  mount(page, {}, deniedMicrophone, BEGIN, WIDE_WIDTH, {
+    bridge: { ...page.bridge, voice: { ...voice.bridge, check: both } },
+    audio: { play: async () => ({ decodeMs: 1 }) },
+  });
+  page.receive(READY);
+  await settle();
+  assert.match(page.root.innerHTML, /<option value="\d+" selected>Dora/);
+  assert.doesNotMatch(page.root.innerHTML, /Heart|Adam/);
+});
+
+test('rpg-42a.99 page previews and keeps a story-language voice while the voice locale differs', async () => {
+  const page = fakePage();
+  const voice = fakeVoiceBridge();
+  const preferences: { speech?: { narratorVoice?: string } }[] = [];
+  const brazilian: VoiceProviderStatus = {
+    ...VOICE_PROVIDER,
+    id: 'kokoro-mlx',
+    languages: ['pt-BR'],
+    voices: ['pf_dora', 'pm_alex'],
+    narrator: 'pf_dora',
+    installed: true,
+  };
+  const both = async () => ({ providers: [{ ...VOICE_PROVIDER, installed: true }, brazilian], cacheBytes: 0 });
+  const BEGIN: StartDraft = {
+    ...INITIAL_DRAFT,
+    path: 'guide',
+    step: GUIDE_STEPS.indexOf('begin'),
+    choices: { voiceOutput: true, language: 'pt-BR' },
+  };
+  mount(page, {}, deniedMicrophone, BEGIN, WIDE_WIDTH, {
+    bridge: {
+      ...page.bridge,
+      voice: { ...voice.bridge, check: both },
+      savePreferences: (saved) => preferences.push(saved),
+    },
+    audio: { play: async () => ({ decodeMs: 1 }) },
+  });
+  page.receive(READY);
+  await settle();
+  page.change({ 'data-start-voice': '' }, '5');
+  page.click({ 'data-start-preview': '5' });
+  await settle();
+  const request = voice.previews.at(-1) as { voiceId: string; providerId: string; language: string };
+  assert.deepEqual([request.voiceId, request.providerId, request.language], ['pm_alex', 'kokoro-mlx', 'pt-BR']);
+  assert.equal(preferences.at(-1)?.speech?.narratorVoice, 'pm_alex');
 });
 
 const REPLAY_TURN = {

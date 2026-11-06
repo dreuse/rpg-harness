@@ -108,6 +108,7 @@ main[data-screen="home"] {
 main[data-screen="home"] > section {
   flex: none;
   max-height: none;
+  overflow: visible;
 }
 
 [data-columns] > div {
@@ -1064,8 +1065,32 @@ section[data-region="start"] form {
 }
 
 [data-region="start"] [data-actions] {
+  position: sticky;
+  inset-block-end: 0;
+  z-index: 1;
   justify-content: flex-end;
-  padding-block-start: 0;
+  padding-block: var(--space-2);
+  background: var(--surface-raised);
+  border-block-start: var(--border-width) solid var(--border);
+}
+
+main[data-screen="home"] [data-region="start"] [data-actions] {
+  inset-block-end: calc(-1 * var(--space-6));
+}
+
+[data-region="start"] select {
+  min-height: var(--target-min);
+  padding: var(--space-2) var(--space-3);
+  font: inherit;
+  color: var(--text);
+  background-color: var(--surface);
+  border: var(--border-width) solid var(--border-strong);
+  border-radius: var(--radius-1);
+  cursor: pointer;
+}
+
+[data-region="start"] select:hover {
+  border-color: var(--accent);
 }
 
 [data-start-control="back"] {

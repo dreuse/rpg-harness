@@ -331,7 +331,11 @@ export const mountPage = ({
     ...(bridge.voice === undefined ? {} : { bridge: bridge.voice }),
     audio: speechAudio,
     speech: saved.speech,
-    language: () => voice.view().preferences.locale,
+    language: () => {
+      const { open, draft } = client.state().start;
+      const story = draft.choices.language;
+      return open && typeof story === 'string' ? story : voice.view().preferences.locale;
+    },
     campaign: () => client.state().snapshot?.campaignId,
     speakers: () => client.state().snapshot?.speakers?.map(({ name }) => name) ?? [],
     speed: () => voice.view().preferences.speed,

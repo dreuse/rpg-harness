@@ -464,7 +464,47 @@ test('rpg-42a.88 begin step prefills the app language, app-rolled dice and as-wr
   assert.deepEqual(answer('language'), { kind: 'set', field: 'language', value: 'pt-BR' });
   assert.deepEqual(answer('whoRolls'), { kind: 'set', field: 'whoRolls', value: 'app' });
   assert.deepEqual(answer('rulesStrictness'), { kind: 'set', field: 'rulesStrictness', value: 'as-written' });
-  assert.deepEqual(screen.options.find(({ action }) => action.kind === 'toggle')?.selected, false);
+  assert.deepEqual(
+    screen.options.find(({ action }) => action.kind === 'toggle' && action.on === true)?.selected,
+    false,
+  );
+});
+
+test('rpg-42a.99 spoken story is an Off/On pair, Off by default, and the voice list shows only when On', () => {
+  const spoken = (draft: StartDraft) =>
+    startScreen(draft, OPTIONS, undefined, DEFAULT_LOCALE, VOICES).options.filter(
+      ({ action }) => action.kind === 'toggle',
+    );
+  const voiceLabels = (draft: StartDraft) =>
+    startScreen(draft, OPTIONS, undefined, DEFAULT_LOCALE, VOICES)
+      .options.filter(({ action }) => action.kind === 'set' && action.field === 'narratorVoice')
+      .map(({ label }) => label);
+  assert.deepEqual(
+    spoken(atBegin()).map(({ label, selected }) => [label, selected]),
+    [
+      ['Off', true],
+      ['On', false],
+    ],
+  );
+  assert.deepEqual(voiceLabels(atBegin()), []);
+  const on = atBegin({ kind: 'toggle', field: 'voiceOutput', on: true });
+  assert.equal(nextDraft(on, { kind: 'toggle', field: 'voiceOutput', on: true }), on);
+  assert.deepEqual(
+    spoken(on).map(({ selected }) => selected),
+    [false, true],
+  );
+  assert.deepEqual(voiceLabels(on), ['af_heart', 'am_adam']);
+  const off = nextDraft(on, { kind: 'toggle', field: 'voiceOutput', on: false });
+  assert.deepEqual(off.choices, {});
+  const labels = startScreen(on, OPTIONS, undefined, DEFAULT_LOCALE, VOICES).options.map(({ label }) => label);
+  assert.ok(labels.indexOf('On') < labels.indexOf('af_heart'));
+});
+
+test('rpg-42a.99 changing the story language drops a narrator voice picked for the previous language', () => {
+  const picked = atBegin({ kind: 'set', field: 'narratorVoice', value: 'am_adam' });
+  assert.equal(picked.choices.narratorVoice, 'am_adam');
+  const switched = nextDraft(picked, { kind: 'set', field: 'language', value: 'pt-BR' });
+  assert.deepEqual(switched.choices, { language: 'pt-BR' });
 });
 
 test('rpg-42a.88 chosen play settings reach CreateCampaign as language and play, not as plan choices', () => {
@@ -499,7 +539,8 @@ test('rpg-42a.88 the voice question appears only when voices are installed and o
   const group = (screen: StartScreen) =>
     screen.options.filter(({ action }) => action.kind === 'set' && action.field === 'narratorVoice');
   assert.deepEqual(group(startScreen(atBegin(), OPTIONS, undefined)), []);
-  const voiced = group(startScreen(atBegin(), OPTIONS, undefined, DEFAULT_LOCALE, VOICES));
+  const voiceOn = { kind: 'toggle', field: 'voiceOutput', on: true } as const;
+  const voiced = group(startScreen(atBegin(voiceOn), OPTIONS, undefined, DEFAULT_LOCALE, VOICES));
   assert.deepEqual(
     voiced.map(({ label, selected }) => [label, selected]),
     [
@@ -508,7 +549,7 @@ test('rpg-42a.88 the voice question appears only when voices are installed and o
     ],
   );
   assert.deepEqual(voiced[1]?.preview, { kind: 'preview', voice: 'am_adam' });
-  const picked = atBegin({ kind: 'set', field: 'narratorVoice', value: 'am_adam' });
+  const picked = atBegin(voiceOn, { kind: 'set', field: 'narratorVoice', value: 'am_adam' });
   assert.deepEqual(
     selectedLabels(startScreen(picked, OPTIONS, undefined, DEFAULT_LOCALE, VOICES)).filter((label) =>
       VOICES.ids.includes(label),

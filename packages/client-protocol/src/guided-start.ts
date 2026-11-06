@@ -43,7 +43,7 @@ export type StartAction =
   | { readonly kind: 'choose'; readonly field: string; readonly value: unknown }
   | { readonly kind: 'set'; readonly field: string; readonly value: unknown }
   | { readonly kind: 'preview'; readonly voice: string }
-  | { readonly kind: 'toggle'; readonly field: Feature }
+  | { readonly kind: 'toggle'; readonly field: Feature; readonly on?: boolean }
   | { readonly kind: 'enter'; readonly text: string }
   | { readonly kind: 'edit'; readonly step: number }
   | { readonly kind: 'next' | 'skip' | 'back' | 'start' };
@@ -147,6 +147,10 @@ export const START_CATALOG: Catalog = {
     'begin.language': 'Story language',
     'begin.voice': 'Narrator voice',
     'begin.spoken': 'Spoken story',
+    'begin.spoken.off': 'Off',
+    'begin.spoken.off.detail': 'The story stays in text.',
+    'begin.spoken.on': 'On',
+    'begin.spoken.on.detail': 'The narrator reads the story aloud.',
     'begin.dice': 'Who rolls the dice',
     'begin.strictness': 'Rules strictness',
     'whoRolls.app': 'The app',
@@ -223,6 +227,10 @@ export const START_CATALOG: Catalog = {
     'begin.language': 'Idioma da história',
     'begin.voice': 'Voz do narrador',
     'begin.spoken': 'História em voz alta',
+    'begin.spoken.off': 'Desligada',
+    'begin.spoken.off.detail': 'A história fica só em texto.',
+    'begin.spoken.on': 'Ligada',
+    'begin.spoken.on.detail': 'O narrador lê a história em voz alta.',
     'begin.dice': 'Quem rola os dados',
     'begin.strictness': 'Rigor das regras',
     'whoRolls.app': 'O app',
@@ -281,6 +289,8 @@ const FIRST_STEP = 0;
 const SPOKEN_ON = 'narrator' as const;
 const DICE_FEATURE: Feature = 'diceVisualization';
 const VOICE_FEATURE: Feature = 'voiceOutput';
+const LANGUAGE_FIELD = 'language';
+const NARRATOR_FIELD = 'narratorVoice';
 const DRAFT_KEYS = ['path', 'step', 'name', 'intent', 'choices'];
 const NEXT = 1;
 const EDITION_KEYS = ['id', 'edition'] as const;
@@ -343,10 +353,18 @@ export const nextDraft = (draft: StartDraft, action: StartAction): StartDraft =>
     const intent = stepOf(draft) === 'describe' ? '' : draft.intent;
     return advance({ ...draft, intent, choices: without(draft.choices, STEP_FIELDS[stepOf(draft)] ?? []) });
   }
-  if (action.kind === 'set') return { ...draft, choices: { ...draft.choices, [action.field]: action.value } };
+  if (action.kind === 'set')
+    return {
+      ...draft,
+      choices: {
+        ...(action.field === LANGUAGE_FIELD ? without(draft.choices, [NARRATOR_FIELD]) : draft.choices),
+        [action.field]: action.value,
+      },
+    };
   if (action.kind === 'choose')
     return advance({ ...draft, choices: { ...draft.choices, [action.field]: action.value } });
   if (action.kind === 'toggle') {
+    if (action.on === Object.hasOwn(draft.choices, action.field)) return draft;
     const choices = without(draft.choices, [action.field]);
     return {
       ...draft,
@@ -660,6 +678,20 @@ const choiceOptions = (
     ),
   );
 
+const spokenOption = (draft: StartDraft, locale: string, on: boolean): StartOption => ({
+  label: text(locale, `begin.spoken.${on ? 'on' : 'off'}`),
+  detail: text(locale, `begin.spoken.${on ? 'on' : 'off'}.detail`),
+  group: text(locale, 'begin.spoken'),
+  action: { kind: 'toggle', field: VOICE_FEATURE, on },
+  selected: Object.hasOwn(draft.choices, VOICE_FEATURE) === on,
+});
+
+const spokenOptions = (draft: StartDraft, locale: string, voices: StartVoices): StartOption[] => [
+  spokenOption(draft, locale, false),
+  spokenOption(draft, locale, true),
+  ...(Object.hasOwn(draft.choices, VOICE_FEATURE) ? voiceOptions(draft, locale, voices) : []),
+];
+
 const beginPage = (
   draft: StartDraft,
   options: StartOptions,
@@ -670,18 +702,7 @@ const beginPage = (
   text: [text(locale, 'begin.text')],
   options: [
     ...languageOptions(draft, locale),
-    ...(voices === undefined
-      ? []
-      : [
-          ...voiceOptions(draft, locale, voices),
-          {
-            label: text(locale, `feature.${VOICE_FEATURE}`),
-            detail: text(locale, `feature.${VOICE_FEATURE}.detail`),
-            group: text(locale, 'begin.spoken'),
-            action: { kind: 'toggle', field: VOICE_FEATURE } as const,
-            selected: Object.hasOwn(draft.choices, VOICE_FEATURE),
-          },
-        ]),
+    ...(voices === undefined ? [] : spokenOptions(draft, locale, voices)),
     ...(usesDice(usageOf(draft, options))
       ? choiceOptions(draft, locale, 'begin.dice', 'whoRolls', WHO_ROLLS, DEFAULT_WHO_ROLLS, 'whoRolls')
       : []),

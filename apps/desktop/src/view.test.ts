@@ -1000,7 +1000,10 @@ test('rpg-42a.88 the begin step groups each question under a heading and preview
   const voices = { ids: ['af_heart', 'am_adam'], current: 'af_heart' };
   const html = renderView(
     viewModel(
-      { ...initialState, start: { open: true, draft: guideAt('begin'), options: START_OPTIONS } },
+      {
+        ...initialState,
+        start: { open: true, draft: guideAt('begin', { voiceOutput: true }), options: START_OPTIONS },
+      },
       WIDE_WIDTH,
       DEFAULT_PREFERENCES,
       undefined,
@@ -1014,13 +1017,26 @@ test('rpg-42a.88 the begin step groups each question under a heading and preview
   assert.match(html, /<label for="start-voice">Narrator voice<\/label>/);
   assert.match(
     html,
-    /<select id="start-voice" data-start-voice><option value="2" selected>[^<]+<\/option><option value="3">/,
+    /<select id="start-voice" data-start-voice><option value="4" selected>[^<]+<\/option><option value="5">/,
   );
-  assert.match(html, /<button type="button" id="start-voice-preview" data-start-preview="2">Preview<\/button>/);
+  assert.match(html, /<button type="button" id="start-voice-preview" data-start-preview="4">Preview<\/button>/);
   assert.match(html, /data-start-control="next" data-primary>Next</);
   assert.match(html, /data-start-control="skip">Skip</);
   const quiet = startHtml(guideAt('begin'));
   assert.doesNotMatch(quiet, /data-start-preview|Spoken story|Narrator voice/);
+  const off = renderView(
+    viewModel(
+      { ...initialState, start: { open: true, draft: guideAt('begin'), options: START_OPTIONS } },
+      WIDE_WIDTH,
+      DEFAULT_PREFERENCES,
+      undefined,
+      voices,
+    ),
+    DEFAULT_PREFERENCES.locale,
+  );
+  assert.match(off, /aria-pressed="true"[^>]*>(?:(?!<\/button>)[\s\S])*Off/);
+  assert.match(off, /aria-pressed="false"[^>]*>(?:(?!<\/button>)[\s\S])*On</);
+  assert.doesNotMatch(off, /start-voice|Narrator voice/);
 });
 
 const REPLAY_NAMES = [

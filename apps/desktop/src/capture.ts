@@ -232,6 +232,11 @@ const guideFromRules = (feature: string, ruleset: string) => [
   `${clickOption(feature)} await ${until(`document.querySelector('[data-start-option][aria-pressed="true"]')`)};`,
   nextStep('begin'),
 ];
+const spokenStory = (label: string, on: boolean) =>
+  steps(
+    `[...document.querySelectorAll('[data-start-option]')].find((option) => option.querySelector('[data-option-label]').textContent.trim() === ${JSON.stringify(label)}).click();`,
+    `await ${until(`document.querySelector('#start-voice') ${on ? '!==' : '==='} null`)};`,
+  );
 const BEGIN_TO_SUMMARY = steps(
   nextStep('summary'),
   `await ${until(`document.querySelector('[data-start-control="start"]:not([disabled])')`)};`,
@@ -302,6 +307,8 @@ export const JOURNEY: Readonly<
     { script: FIRST_HOME, shot: 'first-run-home' },
     { script: OPEN_START, shot: 'guided-start' },
     { script: guide(JOURNEY_GUIDE, JOURNEY_FEATURE, JOURNEY_RULESET), shot: 'guided-begin' },
+    { script: spokenStory('On', true), shot: 'guided-begin-voice-on' },
+    { script: spokenStory('Off', false) },
     { script: BEGIN_TO_SUMMARY, shot: 'guided-summary' },
     { script: FIRST_TURN, shot: 'first-roll' },
     {
@@ -375,6 +382,8 @@ export const JOURNEY: Readonly<
     { script: OPEN_START, shot: 'pt-BR-guided-start' },
     { script: PORTUGUESE_TO_RULES, shot: 'pt-BR-rules' },
     { script: steps(...guideFromRules(PORTUGUESE_FEATURE, PORTUGUESE_RULESET)), shot: 'pt-BR-begin' },
+    { script: spokenStory('Ligada', true), shot: 'pt-BR-begin-voice-on' },
+    { script: spokenStory('Desligada', false) },
     { script: BEGIN_TO_SUMMARY, shot: 'pt-BR-summary' },
     { script: FIRST_TURN, shot: 'pt-BR-play' },
     { script: SET_UP_VOICE },
