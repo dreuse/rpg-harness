@@ -82,6 +82,7 @@ import {
   STORY_LANGUAGE_ATTRIBUTE,
   type StartControl,
   slashMenuHtml,
+  syncRangeReadout,
   VOICE_ATTRIBUTE,
   VOICE_CLEAR,
   VOICE_FIELD,
@@ -143,6 +144,7 @@ const TOGGLE = 'toggle';
 const SUBMIT = 'submit';
 const RESIZE = 'resize';
 const INPUT = 'input';
+const RANGE_SELECTOR = '[data-range-format]';
 const CHANGE = 'change';
 const OUTPUT_FIELDS = ['spokenOutput', 'locale', 'speed'];
 const NO_DURATION_MS = 0;
@@ -880,7 +882,9 @@ export const mountPage = ({
     }
     if (target?.closest(RETRY_SELECTOR)) client.retry();
   });
-  root.addEventListener(INPUT, () => {
+  root.addEventListener(INPUT, (event) => {
+    const range = closestTarget(event)?.closest(RANGE_SELECTOR);
+    if (range) syncRangeReadout(range as unknown as Parameters<typeof syncRangeReadout>[0]);
     const query = root.querySelector<HTMLInputElement>(SEARCH_SELECTOR)?.value;
     if (query !== undefined && query !== client.state().home.query) client.search(query);
   });

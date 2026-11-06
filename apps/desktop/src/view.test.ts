@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readFileSync as readSource } from 'node:fs';
 import { test } from 'node:test';
 import { INITIAL_DRAFT, START_STEPS, type StartDraft } from '../../../packages/client-protocol/src/guided-start.ts';
 import { type CampaignSummary, PROTOCOL_VERSION } from '../../../packages/client-protocol/src/protocol.ts';
 import type { VisualizationEvent } from '../../../packages/client-protocol/src/visualization.ts';
 import type { RulesUsage } from '../../../packages/domain/src/rules-usage.ts';
+import { DEFAULT_SOUND_SETTINGS } from '../../../packages/voice/src/sound-settings.ts';
 import { DEFAULT_PREFERENCES, MAX_FONT_SCALE, type RendererAction } from './accessibility.ts';
 import { PREFERENCES_QUERY, START_QUERY } from './preload.ts';
 import { type DesktopState, initialState, OPENING_ACTION_ID, PLAY_REGIONS, viewModel } from './renderer.ts';
@@ -17,6 +18,8 @@ import {
   queryPreferences,
   queryStart,
   renderView,
+  soundPanel,
+  syncRangeReadout,
 } from './view.ts';
 import type { DesktopVoiceView } from './voice.ts';
 
@@ -1114,4 +1117,45 @@ test('rpg-42a.96: the GM form offers who rolls with a default, app, me and ask, 
     html,
     /<form data-gm-form>[\s\S]*?<label>Who rolls the dice <select name="whoRolls"><option value="">Default \(the app rolls\)<\/option><option value="app">The app rolls<\/option><option value="me" selected>I roll my own dice<\/option><option value="ask">Ask me each time<\/option><\/select><\/label>/,
   );
+});
+
+const SOUND_MUSIC_ON = { ...DEFAULT_SOUND_SETTINGS, music: { enabled: true, volume: 0.25 } };
+const VIEW_CSS = readSource(new URL('./view.css', import.meta.url), 'utf8');
+
+test('rpg-42a.81 sliders show their value next to the label and expose aria-valuetext', () => {
+  const sound = soundPanel(SOUND_MUSIC_ON, 'en');
+  assert.match(sound, /<output for="sound-music-volume" data-range-readout>25%<\/output>/);
+  assert.match(sound, /id="sound-music-volume"[^>]* aria-valuetext="25%"/);
+  assert.match(sound, /<output for="sound-ambience-volume" data-range-readout>50%<\/output>/);
+});
+
+test('rpg-42a.81 a background volume slider is disabled while its sound is off', () => {
+  const sound = soundPanel(SOUND_MUSIC_ON, 'en');
+  assert.match(sound, /id="sound-ambience-volume"[^>]* disabled/);
+  assert.doesNotMatch(sound, /id="sound-music-volume"[^>]* disabled/);
+});
+
+test('rpg-42a.81 syncRangeReadout rewrites the readout and aria-valuetext on input', () => {
+  const sets: Record<string, string> = {};
+  const readout = { textContent: '' };
+  const input = {
+    value: '1.5',
+    getAttribute: (name: string): string | null => (name === 'data-range-format' ? 'speed' : null),
+    setAttribute: (name: string, value: string) => (sets[name] = value),
+    closest: () => ({ querySelector: () => readout }),
+  };
+  syncRangeReadout(input);
+  assert.equal(readout.textContent, '1.5x');
+  assert.equal(sets['aria-valuetext'], '1.5x');
+  input.getAttribute = (name: string) => (name === 'data-range-format' ? 'percent' : null);
+  input.value = '0.3';
+  syncRangeReadout(input);
+  assert.equal(readout.textContent, '30%');
+});
+
+test('rpg-42a.81 sliders use the theme accent and groups have a single border level', () => {
+  assert.match(VIEW_CSS, /input\[type="range"\][^{]*\{[^}]*accent-color: var\(--accent\)/);
+  assert.match(VIEW_CSS, /\[data-settings-section\] fieldset \{[^}]*border: 0/);
+  assert.match(VIEW_CSS, /\[data-settings-section\] \{[^}]*align-self: start/);
+  assert.match(VIEW_CSS, /\[data-settings-section\] legend,[^{]*\{[^}]*padding-block-end: var\(--space-1\)/);
 });

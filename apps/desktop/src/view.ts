@@ -206,12 +206,45 @@ const options = (
     .join('');
 const select = (id: string, field: string, label: string, body: string, extra = '') =>
   labelled(id, label, `<select id="${id}" ${VOICE_FIELD}="${field}">${body}</select>`, extra);
-const range = (id: string, field: string, label: string, [min, max, step]: readonly number[], value: number) =>
-  labelled(
-    id,
-    label,
-    `<input id="${id}" type="range" min="${min}" max="${max}" step="${step}" value="${value}" ${VOICE_FIELD}="${field}">`,
-  );
+const RANGE_FORMAT = 'data-range-format';
+const RANGE_READOUT = 'data-range-readout';
+const ARIA_VALUETEXT = 'aria-valuetext';
+const SPEED_DECIMALS = 1;
+const RANGE_FORMATS: Record<string, (value: number) => string> = {
+  speed: (value) => `${value.toFixed(SPEED_DECIMALS)}x`,
+  percent: (value) => `${Math.round(value * PERCENT)}%`,
+};
+const rangeText = (format: string, value: number) => RANGE_FORMATS[format]?.(value) ?? String(value);
+
+interface RangeElement {
+  value: string;
+  getAttribute(name: string): string | null;
+  setAttribute(name: string, value: string): void;
+  closest(selector: string): { querySelector(selector: string): { textContent: string | null } | null } | null;
+}
+
+export const syncRangeReadout = (input: RangeElement) => {
+  const format = input.getAttribute(RANGE_FORMAT);
+  if (format === null) return;
+  const text = rangeText(format, Number(input.value));
+  input.setAttribute(ARIA_VALUETEXT, text);
+  const readout = input.closest('[data-voice-row]')?.querySelector(`[${RANGE_READOUT}]`);
+  if (readout) readout.textContent = text;
+};
+
+const rangeInput = (
+  id: string,
+  [min, max, step]: readonly number[],
+  value: number,
+  format: string,
+  attributes: string,
+  disabled = false,
+) =>
+  `<input id="${id}" type="range" min="${min}" max="${max}" step="${step}" value="${value}" ${attributes} ${RANGE_FORMAT}="${format}" ${ARIA_VALUETEXT}="${rangeText(format, value)}"${disabled ? DISABLED : ''}>`;
+const rangeRow = (id: string, label: string, input: string, value: number, format: string) =>
+  `<div data-voice-row><label for="${id}">${escapeHtml(label)}</label><output for="${id}" ${RANGE_READOUT}>${rangeText(format, value)}</output>${input}</div>`;
+const range = (id: string, field: string, label: string, bounds: readonly number[], value: number, format: string) =>
+  rangeRow(id, label, rangeInput(id, bounds, value, format, `${VOICE_FIELD}="${field}"`), value, format);
 const mib = (bytes: number) => Math.round(bytes / BYTES_PER_MIB);
 const ms = (locale: string, value: number) => translate(locale, 'voice.diagnostics.ms', { value: Math.round(value) });
 
@@ -252,7 +285,7 @@ const basicVoice = ({ preferences }: DesktopVoiceView, setup: VoiceSetupView, lo
     'locale',
     translate(locale, 'voice.language'),
     options(languages, preferences.locale, (language) => languageName(locale, language)),
-  )}${range('voice-speed', 'speed', translate(locale, 'voice.speedLabel'), [MIN_PLAYBACK_SPEED, MAX_PLAYBACK_SPEED, SPEED_STEP], preferences.speed)}${range('voice-volume', 'volume', translate(locale, 'voice.volume'), [MIN_VOLUME, MAX_VOLUME, VOLUME_STEP], setup.speech.volume)}</fieldset>`;
+  )}${range('voice-speed', 'speed', translate(locale, 'voice.speedLabel'), [MIN_PLAYBACK_SPEED, MAX_PLAYBACK_SPEED, SPEED_STEP], preferences.speed, 'speed')}${range('voice-volume', 'volume', translate(locale, 'voice.volume'), [MIN_VOLUME, MAX_VOLUME, VOLUME_STEP], setup.speech.volume, 'percent')}</fieldset>`;
 };
 
 const npcRow =
@@ -364,7 +397,7 @@ const soundRow = (settings: SoundSettings, channel: (typeof SOUND_CHANNELS)[numb
   const { enabled, volume } = settings[channel];
   const toggleId = `sound-${channel}`;
   const volumeId = `${toggleId}-volume`;
-  return `<div data-voice-row><label for="${toggleId}"><input id="${toggleId}" type="checkbox" ${SOUND_FIELD_TOGGLE}="${channel}"${enabled ? ' checked' : ''}> ${escapeHtml(translate(locale, `sound.${channel}`))}</label></div><div data-voice-row><label for="${volumeId}">${escapeHtml(translate(locale, `sound.volume.${channel}`))}</label><input id="${volumeId}" type="range" min="${MIN_CHANNEL_VOLUME}" max="${MAX_CHANNEL_VOLUME}" step="${SOUND_VOLUME_STEP}" value="${volume}" ${SOUND_FIELD_VOLUME}="${channel}"></div>`;
+  return `<div data-voice-row><label for="${toggleId}"><input id="${toggleId}" type="checkbox" ${SOUND_FIELD_TOGGLE}="${channel}"${enabled ? ' checked' : ''}> ${escapeHtml(translate(locale, `sound.${channel}`))}</label></div>${rangeRow(volumeId, translate(locale, `sound.volume.${channel}`), rangeInput(volumeId, [MIN_CHANNEL_VOLUME, MAX_CHANNEL_VOLUME, SOUND_VOLUME_STEP], volume, 'percent', `${SOUND_FIELD_VOLUME}="${channel}"`, !enabled), volume, 'percent')}`;
 };
 
 export const SOUND_SETUP = 'data-sound-setup';

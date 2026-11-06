@@ -519,6 +519,7 @@ main > nav button {
   gap: var(--space-2);
   align-content: start;
   min-width: 0;
+  align-self: start;
 }
 
 [data-settings-section] > h3,
@@ -545,9 +546,8 @@ main > nav button {
   gap: var(--space-2);
   min-width: 0;
   margin: 0;
-  padding: var(--space-2);
-  border: var(--border-width) solid var(--border-strong);
-  border-radius: var(--radius-1);
+  padding: 0;
+  border: 0;
 }
 
 [data-settings-section] :is([data-language-control], [data-story-language-control], [data-motion-control]) {
@@ -578,6 +578,7 @@ main > nav button {
   padding: 0;
   font-size: inherit;
   font-weight: var(--weight-strong);
+  padding-block-end: var(--space-1);
 }
 
 [data-settings-section] :is([data-voice-basic], [data-voice-npcs]) legend {
@@ -591,6 +592,18 @@ main > nav button {
 [data-voice-row] {
   display: grid;
   gap: var(--space-1);
+}
+
+[data-voice-row]:has(> output) {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+[data-voice-row] > input[type="range"] {
+  grid-column: 1 / -1;
+}
+
+input[type="range"] {
+  accent-color: var(--accent);
 }
 
 [data-voice-row] > :is(select, input) {
