@@ -68,7 +68,13 @@ import {
   proficiencyOf,
   steppedSides,
 } from '../../../packages/rules/src/d20-lite.ts';
-import { type Rng, type RollEvent, replayRoll } from '../../../packages/rules/src/dice.ts';
+import {
+  createRoller,
+  type Rng,
+  type RollEvent,
+  type RollResult,
+  replayRoll,
+} from '../../../packages/rules/src/dice.ts';
 import {
   DEFAULT_POOL_CONFIG,
   DICE_POOL_LITE_CHECK_RULES,
@@ -240,6 +246,8 @@ const PROFICIENCY_ID = 'proficiency';
 const PROFICIENCY_REASON = 'Proficiency';
 const NO_DAMAGE = 0;
 const NO_STEP = 0;
+const DAMAGE_ROLL_INDEX = 1;
+const SPARE_DAMAGE_SUFFIX = ':damage-spare';
 
 type Strike = {
   readonly actionId: string;
@@ -252,6 +260,11 @@ type Strike = {
   readonly modifiers: readonly AppliedModifier[];
   readonly defender: Combatant;
   readonly rolls: RollTable;
+};
+
+const rolledOrThrow = (result: RollResult) => {
+  if (!result.ok) throw new RangeError(result.issues.map(({ message }) => message).join(ISSUE_SEPARATOR));
+  return result.roll;
 };
 
 const strike = ({
@@ -280,6 +293,12 @@ const strike = ({
     ...(step === undefined ? {} : { step }),
   });
   if (!struck.ok) throw new RangeError(struck.error.issues.map(({ message }) => message).join(ISSUE_SEPARATOR));
+  const damageSides = steppedSides(D20_LITE_COMBAT.damageSides, step ?? NO_STEP);
+  const damageRoll =
+    struck.rolls[DAMAGE_ROLL_INDEX] ??
+    rolledOrThrow(
+      createRoller(rng)(`${actionId}${SPARE_DAMAGE_SUFFIX}`, { dice: [{ count: 1, sides: damageSides }], modifier: 0 }),
+    );
   const lost = struck.changes.find(({ id }) => id === D20_LITE_COMBAT.hitPoints);
   const amount = lost === undefined ? NO_DAMAGE : Number(lost.from) - Number(lost.to);
   const proficiency = proficiencyOf(sheet);
@@ -296,6 +315,7 @@ const strike = ({
     ],
     ...(keep === undefined ? {} : { keep }),
     ...(rolls.version === undefined ? {} : { version: rolls.version }),
+    attack: { targetId: npcId, damageBonus: attributeBonus, damageRoll },
     damage: { targetId: npcId, amount, defeated: current - amount <= NO_DAMAGE },
   };
 };
@@ -543,6 +563,16 @@ export const combatRulesOf = (
 ): CombatRules | undefined => {
   const pack = checkEntryOf(events, AS_WRITTEN, installed)?.[0];
   return pack === D20_LITE_MANIFEST ? combatRulesFor(installed?.manifest ?? pack) : undefined;
+};
+
+export const remainingHitPointsOf = (
+  events: readonly CampaignEvent[],
+  entities: readonly CampaignEntity[],
+  targetId: string,
+): number | undefined => {
+  const npc = entities.find(({ id }) => id === targetId);
+  const rules = combatRulesOf(events);
+  return npc === undefined || rules === undefined ? undefined : combatantOf(npc, events, rules)?.current;
 };
 
 const defenderOf = (

@@ -78,6 +78,7 @@ import { creationRulesFor, packsWith, usageFor } from './quickstart.ts';
 import {
   checkForAction,
   emitVisualizations,
+  remainingHitPointsOf,
   resultsOf,
   rollExpressionFor,
   rulesStrictnessFor,
@@ -705,7 +706,10 @@ export const createClientSessions = (
             actionId,
             expectedRevision,
             proposal: prepared,
-            correctRoll: correctD20Roll,
+            correctRoll: (resolution, fix) =>
+              correctD20Roll(resolution, fix, (targetId) =>
+                remainingHitPointsOf(state.events, readWorld(campaignId, undefined).entities, targetId),
+              ),
             ...(story === undefined ? {} : { correctFact: story.correct }),
           });
           sync();

@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import {
   type CampaignStore,
   CHECK_RESOLVED,
+  DAMAGE_APPLIED,
   MAIN_BRANCH,
   OPENING_ACTION_ID,
   PLAYER_ACTION_SUBMITTED,
@@ -16,6 +17,7 @@ import { createEntityStore } from '../../persistence/src/entity-store.ts';
 import { createRoller } from '../../rules/src/dice.ts';
 import { createScriptedRng } from '../../testkit/src/fixtures.ts';
 import { playTurns } from './character.ts';
+import { damageTakenOf } from './damage.ts';
 import { createEngine } from './engine.ts';
 import {
   MAX_CANON_VALUE_LENGTH,
@@ -357,5 +359,39 @@ test('rpg-42a.107: a confirmed retcon returns the player action it took back', (
   assert.equal(engine.applyOoc(application(store, 'retcon', RETCON_PROPOSAL)).retconnedInput, 'I do second');
   assert.equal('retconnedInput' in engine.undoOoc(undo(store, 'undo-retcon')), false);
   assert.equal('retconnedInput' in engine.applyOoc(application(store, 'note', noteProposal())), false);
+  close();
+});
+
+const STRUCK = 'warden';
+const FIRST_DAMAGE = 3;
+const FIXED_DAMAGE = 7;
+const strikeCheck: Check = (actionId, rng) => ({
+  ...d20Check(actionId, rng),
+  damage: { targetId: STRUCK, amount: FIRST_DAMAGE, defeated: false },
+});
+const damagingCorrector =
+  (amount: number): RollCorrector =>
+  (resolution, fix) => ({
+    ...(correctRoll(resolution, fix) as object),
+    damage: { targetId: STRUCK, amount, defeated: false },
+  });
+const takenNow = (engine: ReturnType<typeof createEngine>) =>
+  damageTakenOf(engine.getState(CAMPAIGN.id).events, STRUCK);
+
+test('rpg-42a.134: a roll fix on an attack corrects the damage once and undo restores it', () => {
+  const { store, engine, close } = seeded();
+  act(store, engine, 'strike', strikeCheck);
+  assert.equal(takenNow(engine), FIRST_DAMAGE);
+  const fixWith = (actionId: string, amount: number) =>
+    engine.applyOoc({ ...application(store, actionId, FIX_PROPOSAL), correctRoll: damagingCorrector(amount) });
+  fixWith('fix-1', FIXED_DAMAGE);
+  assert.equal(takenNow(engine), FIXED_DAMAGE);
+  fixWith('fix-2', FIXED_DAMAGE);
+  assert.equal(takenNow(engine), FIXED_DAMAGE);
+  engine.undoOoc(undo(store, 'undo-fix-2'));
+  assert.equal(takenNow(engine), FIXED_DAMAGE);
+  engine.undoOoc(undo(store, 'undo-fix-1'));
+  assert.equal(takenNow(engine), FIRST_DAMAGE);
+  assert.equal(engine.getState(CAMPAIGN.id).events.filter(({ type }) => type === DAMAGE_APPLIED).length, 1);
   close();
 });

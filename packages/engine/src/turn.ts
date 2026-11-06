@@ -62,6 +62,7 @@ export type CheckResolution = {
   readonly source?: typeof PLAYER_SOURCE;
   readonly reported?: readonly number[];
   readonly damage?: DamageDealt;
+  readonly attack?: { readonly targetId: string; readonly damageBonus: number; readonly damageRoll: RollEvent };
   readonly version?: EffectiveRulesVersion;
 };
 export const PLAYER_SOURCE = 'player';

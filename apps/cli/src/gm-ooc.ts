@@ -15,7 +15,7 @@ import {
   type EffectiveRules,
 } from '../../../packages/imports/src/house-rules.ts';
 import { parseCampaignConfig } from '../../../packages/intent/src/config.ts';
-import { D20_LITE_MANIFEST, NATURAL_MAX, NATURAL_MIN } from '../../../packages/rules/src/d20-lite.ts';
+import { D20_LITE_MANIFEST, damageDealtBy, NATURAL_MAX, NATURAL_MIN } from '../../../packages/rules/src/d20-lite.ts';
 import { replayRoll } from '../../../packages/rules/src/dice.ts';
 import { DICE_POOL_LITE_MANIFEST } from '../../../packages/rules/src/dice-pool-lite.ts';
 import type { CompiledRule } from '../../../packages/rules/src/dsl.ts';
@@ -52,33 +52,84 @@ const isAttack = (events: unknown) =>
     (entry) => isRecord(entry) && typeof entry.event === 'string' && entry.event.startsWith(ATTACK_EVENT_PREFIX),
   );
 
-export const correctD20Roll: RollCorrector = (resolution, { value, reason }) => {
-  const { rolls, bonus, target, modifiers, keep, events, version } = isRecord(resolution)
+type Tier = 'critical' | 'fumble' | 'success' | 'failure';
+type RemainingHitPoints = (targetId: string) => number | undefined;
+
+const CHECK_EVENTS: Record<Tier, readonly string[]> = {
+  critical: ['check.critical'],
+  fumble: ['check.fumble'],
+  success: ['check.success'],
+  failure: ['check.failure'],
+};
+const ATTACK_EVENTS: Record<Tier, readonly string[]> = {
+  critical: ['attack.critical', 'attack.hit'],
+  fumble: ['attack.fumble', 'attack.miss'],
+  success: ['attack.hit'],
+  failure: ['attack.miss'],
+};
+const NO_DAMAGE = 0;
+
+const damagingOf = (tier: Tier) => tier === 'critical' || tier === 'success';
+
+const damageRollOf = (attack: unknown) => {
+  const stored = isRecord(attack) ? replayRoll(attack.damageRoll) : undefined;
+  return isRecord(attack) &&
+    typeof attack.targetId === 'string' &&
+    Number.isFinite(attack.damageBonus) &&
+    stored?.ok === true
+    ? { targetId: attack.targetId, damageBonus: Number(attack.damageBonus), die: stored.event.total }
+    : undefined;
+};
+
+export const correctD20Roll = (
+  resolution: unknown,
+  { value, reason, applied = NO_DAMAGE }: Parameters<RollCorrector>[1],
+  remainingOf?: RemainingHitPoints,
+): ReturnType<RollCorrector> => {
+  const { rolls, bonus, target, modifiers, keep, events, version, attack } = isRecord(resolution)
     ? resolution
     : ({} as Record<string, unknown>);
   if (version !== undefined) return undefined;
   const first = Array.isArray(rolls) ? replayRoll(rolls[0]) : undefined;
-  if (first?.ok !== true || !Number.isFinite(bonus) || !Number.isFinite(target) || isAttack(events)) return undefined;
+  if (first?.ok !== true || !Number.isFinite(bonus) || !Number.isFinite(target)) return undefined;
+  const striking = isAttack(events);
+  const stored = striking ? damageRollOf(attack) : undefined;
+  const remaining = stored === undefined ? undefined : remainingOf?.(stored.targetId);
+  if (striking && (stored === undefined || remaining === undefined)) return undefined;
   const faces = first.event.draws.flat();
   const face = keep === 'lowest' ? Math.min(...faces) : keep === 'highest' ? Math.max(...faces) : (faces[0] as number);
   const total = Number(bonus) + value;
-  const outcome =
+  const tier: Tier =
     face === NATURAL_MAX
-      ? 'check.critical'
+      ? 'critical'
       : face === NATURAL_MIN
-        ? 'check.fumble'
+        ? 'fumble'
         : face + total >= Number(target)
-          ? 'check.success'
-          : 'check.failure';
+          ? 'success'
+          : 'failure';
+  const struck = stored === undefined || remaining === undefined ? undefined : { ...stored, remaining };
+  const amount =
+    struck === undefined || !damagingOf(tier)
+      ? NO_DAMAGE
+      : damageDealtBy(struck.die, struck.damageBonus, tier === 'critical', struck.remaining + applied);
   return {
     ...(resolution as Record<string, unknown>),
     ok: true,
-    events: [{ event: outcome }],
+    events: (striking ? ATTACK_EVENTS : CHECK_EVENTS)[tier].map((event) => ({ event })),
     bonus: total,
     modifiers: [
       ...(Array.isArray(modifiers) ? modifiers : []),
       { id: ROLL_FIX_MODIFIER_ID, reason, effect: { kind: 'flat', value } },
     ],
+    ...(struck === undefined
+      ? {}
+      : {
+          damage: {
+            targetId: struck.targetId,
+            amount,
+            defeated: struck.remaining + applied - amount <= NO_DAMAGE,
+          },
+        }),
   };
 };
 

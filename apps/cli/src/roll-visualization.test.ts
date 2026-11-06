@@ -483,6 +483,20 @@ test('rpg-42a.84: a miss deals nothing and a hit that empties the hit points def
   assert.deepEqual(finisher?.damage, { targetId: 'npc-tam', amount: 2, defeated: true });
 });
 
+test('rpg-42a.134: an attack stores the damage inputs a roll correction needs, even after a miss', () => {
+  const hit = strike(strongHero(), [tam(foeSheet())], drawing([HIT_FACE, D20_SIDES], [DAMAGE_FACE, D6]));
+  const miss = strike(strongHero(), [tam(foeSheet())], drawing([MISS_FACE, D20_SIDES], [DAMAGE_FACE, D6]));
+  for (const result of [hit, miss]) {
+    const stored = (
+      result as unknown as { attack: { targetId: string; damageBonus: number; damageRoll: { total: number } } }
+    ).attack;
+    assert.equal(stored.targetId, 'npc-tam');
+    assert.equal(stored.damageBonus, MIGHT_MOD);
+    assert.equal(stored.damageRoll.total, DAMAGE_FACE);
+  }
+  assert.equal(miss?.rolls.length, 1);
+});
+
 test('rpg-42a.84: earlier damage lowers the hit points the next attack sees', () => {
   const earlier = {
     type: DAMAGE_APPLIED,

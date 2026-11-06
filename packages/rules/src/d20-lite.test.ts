@@ -18,6 +18,7 @@ import {
   D20_LITE_MANIFEST,
   D20_LITE_RULES,
   DRAUGHT,
+  damageDealtBy,
   gainExperience,
   keptFace,
   proficiencyOf,
@@ -210,6 +211,23 @@ test('check records a verifiable d20 roll and is reproducible with a seed', () =
 
 const strike = (rng: Rng, attacker = hero(), target = hero({}, 'foe')) =>
   attack({ actionId: ACTION_ID, attacker, target, attribute: 'might', damageSides: DAMAGE_SIDES, rng });
+
+test('damageDealtBy matches the damage the attack rules take off the target', () => {
+  const cases = [
+    { face: HIGH_FACE, die: DAMAGE_FACE, might: STRONG, current: 20, critical: false },
+    { face: NATURAL_MAX, die: DAMAGE_FACE, might: STRONG, current: 20, critical: true },
+    { face: NATURAL_MAX, die: DAMAGE_SIDES, might: STRONG, current: 5, critical: true },
+    { face: HIGH_FACE, die: 1, might: FEEBLE, current: 20, critical: false },
+  ];
+  for (const { face, die, might, current, critical } of cases) {
+    const target = combatantSheet({ id: 'foe' as TraitSheet['characterId'], defense: 1, current, max: 20 });
+    const result = strike(faces([face, D20], [die, DAMAGE_SIDES]), hero({ might }), target);
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+    const lost = current - (numberIn(result.sheet, 'hp') as number);
+    assert.equal(lost, damageDealtBy(die, attributeModifier(might), critical, current));
+  }
+});
 
 test('a hit reduces target hit points by the damage roll', () => {
   const target = hero({}, 'foe');

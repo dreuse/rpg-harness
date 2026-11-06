@@ -4,6 +4,7 @@ import {
   type CampaignState,
   type CampaignStore,
   CHECK_RESOLVED,
+  DAMAGE_APPLIED,
   MAIN_BRANCH,
   OPENING_ACTION_ID,
   StaleRevisionError,
@@ -21,6 +22,7 @@ import {
 import { CLAIM_KINDS, SINGLETON_CLAIM_KINDS } from '../../domain/src/story-memory.ts';
 import { MAX_MODIFIER_TEXT_LENGTH, MAX_MODIFIER_VALUE } from '../../rules/src/modifiers.ts';
 import { isRecord } from '../../rules/src/rulepack.ts';
+import type { DamageDealt } from './damage.ts';
 import type { StoryCorrection } from './story-memory.ts';
 import { commitSystem, InvalidActionError, loadState, requireValid } from './turn.ts';
 
@@ -43,6 +45,7 @@ const SECRET_CLAIM = 'secret';
 const LINE_BREAK = /[\r\n]/;
 const CORRECTABLE_ROLL_EVENTS: readonly string[] = [CHECK_RESOLVED, ROLL_CORRECTED];
 const NOT_FOUND = -1;
+const NO_DAMAGE = 0;
 const FIRST_INDEX = 0;
 const CORRECTION_SUFFIXES: Partial<Record<OocProposalKind, string>> = {
   roll_fix: ROLL_FIX_ACTION_SUFFIX,
@@ -68,7 +71,7 @@ export type OocState = {
 
 export const EMPTY_OOC_STATE: OocState = { notes: [], houseRules: [], retconned: [], journal: [] };
 
-export type RollFix = { readonly value: number; readonly reason: string };
+export type RollFix = { readonly value: number; readonly reason: string; readonly applied?: number };
 export type RollCorrector = (resolution: unknown, fix: RollFix) => unknown;
 export type FactCorrector = (correction: StoryCorrection) => void;
 export type OocApplication = {
@@ -83,6 +86,29 @@ export type OocUndo = Omit<OocApplication, 'proposal' | 'correctRoll' | 'correct
 
 const strings = (value: unknown): string[] =>
   Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
+
+const damageOf = (value: unknown): DamageDealt | undefined =>
+  isRecord(value) &&
+  typeof value.targetId === 'string' &&
+  typeof value.amount === 'number' &&
+  Number.isFinite(value.amount) &&
+  typeof value.defeated === 'boolean'
+    ? (value as DamageDealt)
+    : undefined;
+
+const appliedDamageOf = (events: readonly CampaignEvent[], source: CampaignEvent): number => {
+  const resolution = isRecord(source.payload.resolution) ? source.payload.resolution : undefined;
+  if (source.type === ROLL_CORRECTED) return damageOf(resolution?.damage)?.amount ?? NO_DAMAGE;
+  const targetId = isRecord(resolution?.attack) ? resolution.attack.targetId : undefined;
+  return events
+    .filter(
+      ({ type, turnId, payload }) =>
+        type === DAMAGE_APPLIED &&
+        turnId === source.turnId &&
+        (targetId === undefined || payload.targetId === targetId),
+    )
+    .reduce((sum, { payload }) => sum + Number(payload.amount), NO_DAMAGE);
+};
 
 const journalEntryOf = (value: unknown): JournalEntry[] =>
   isRecord(value) &&
@@ -279,11 +305,15 @@ export const applyOocProposal = (store: CampaignStore, application: OocApplicati
       ({ type, turnId }) => CORRECTABLE_ROLL_EVENTS.includes(type) && ids.has(turnId),
     );
     if (source === undefined) throw new InvalidActionError(actionId, 'the last turn has no roll to correct');
+    const applied = appliedDamageOf(visible.events, source);
     const resolution = application.correctRoll?.(source.payload.resolution, {
       value: proposal.value,
       reason: proposal.reason,
+      applied,
     });
     if (resolution === undefined) throw new InvalidActionError(actionId, 'the last roll cannot be corrected');
+    const corrected = damageOf(isRecord(resolution) ? resolution.damage : undefined);
+    const delta = corrected === undefined ? NO_DAMAGE : corrected.amount - applied;
     const actor = visible.turns[index] as Turn;
     commitSystem(
       store,
@@ -296,7 +326,12 @@ export const applyOocProposal = (store: CampaignStore, application: OocApplicati
         input: `${OOC_CORRECTION_INPUT}${proposal.kind}`,
         intent: `${OOC_CORRECTION_INPUT}${proposal.kind}`,
       },
-      [[ROLL_CORRECTED, { correctsEventId: source.id, reason: proposal.reason, resolution }, 'player']],
+      [
+        [ROLL_CORRECTED, { correctsEventId: source.id, reason: proposal.reason, resolution }, 'player'],
+        ...(corrected === undefined || delta === NO_DAMAGE
+          ? []
+          : [[DAMAGE_APPLIED, { ...corrected, amount: delta }, 'player'] as const]),
+      ],
     );
     save(store, campaignId, actionId, expectedRevision + 1, journaled({}));
   }

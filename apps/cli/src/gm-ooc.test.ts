@@ -176,6 +176,10 @@ const resolutionAt = (face: number, bonus = 1, target = 14) => {
   assert.ok(rolled.ok);
   return { ok: true, rolls: [rolled.roll], events: [{ event: 'check.failure' }], bonus, target, modifiers: [] };
 };
+const HP_LEFT = 10;
+const DAMAGE_SIDES = 6;
+const DIE_FACE = 4;
+const DAMAGE_BONUS = 2;
 const outcomeOf = (resolution: unknown) => (resolution as { events: { event: string }[] }).events[0]?.event;
 
 describe('rpg-42a.91 out-of-character channel', () => {
@@ -190,13 +194,45 @@ describe('rpg-42a.91 out-of-character channel', () => {
     assert.equal(correctD20Roll('nonsense', fix), undefined);
   });
 
-  it('refuses to correct an attack roll, whose damage was already applied', () => {
+  it('refuses to correct an attack roll that does not store its damage inputs', () => {
     const fix = { value: 2, reason: 'high ground' };
     for (const event of ['attack.hit', 'attack.critical', 'attack.miss', 'attack.fumble'])
       assert.equal(
-        correctD20Roll({ ...resolutionAt(12), events: [{ event: 'attack.hit' }, { event }] }, fix),
+        correctD20Roll({ ...resolutionAt(12), events: [{ event: 'attack.hit' }, { event }] }, fix, () => HP_LEFT),
         undefined,
       );
+  });
+
+  it('rpg-42a.134: re-resolves an attack against the stored defense and corrects its damage', () => {
+    const fix = { value: 2, reason: 'high ground' };
+    const damageDie = createRoller(() => (DIE_FACE - 1 + HALF) / DAMAGE_SIDES)('d', {
+      dice: [{ count: 1, sides: DAMAGE_SIDES }],
+      modifier: 0,
+    });
+    assert.ok(damageDie.ok);
+    const attackAt = (face: number, bonus = 1) => ({
+      ...resolutionAt(face, bonus),
+      events: [{ event: 'attack.miss' }],
+      attack: { targetId: 'warden', damageBonus: DAMAGE_BONUS, damageRoll: damageDie.roll },
+    });
+    const corrected = (face: number, value = 2, applied = 0, remaining = HP_LEFT, bonus = 1) =>
+      correctD20Roll(attackAt(face, bonus), { ...fix, value, applied }, () => remaining) as {
+        events: { event: string }[];
+        damage: { amount: number; defeated: boolean };
+      };
+    const hit = corrected(12);
+    assert.deepEqual(hit.events, [{ event: 'attack.hit' }]);
+    assert.deepEqual(hit.damage, { targetId: 'warden', amount: DIE_FACE + DAMAGE_BONUS, defeated: false });
+    const crit = corrected(20, 0, 0, HP_LEFT);
+    assert.deepEqual(crit.events, [{ event: 'attack.critical' }, { event: 'attack.hit' }]);
+    assert.deepEqual(crit.damage, { targetId: 'warden', amount: HP_LEFT, defeated: true });
+    const fumble = corrected(1, 30);
+    assert.deepEqual(fumble.events, [{ event: 'attack.fumble' }, { event: 'attack.miss' }]);
+    assert.equal(fumble.damage.amount, 0);
+    const undone = corrected(12, -5, DIE_FACE + DAMAGE_BONUS, HP_LEFT - DIE_FACE - DAMAGE_BONUS);
+    assert.deepEqual(undone.events, [{ event: 'attack.miss' }]);
+    assert.equal(undone.damage.amount, 0);
+    assert.equal(correctD20Roll(attackAt(12), fix), undefined);
   });
 
   it('rpg-42a.108: refuses to correct a roll resolved under a house rule', () => {

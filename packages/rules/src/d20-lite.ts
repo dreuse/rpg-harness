@@ -29,6 +29,7 @@ export const STAMINA_MAX = 6;
 export const EXERT_COST = 2;
 export const RECOVER_AMOUNT = 3;
 export const MIN_DAMAGE = 1;
+export const NORMAL_MULTIPLIER = 1;
 export const CRITICAL_MULTIPLIER = 2;
 export const XP_PER_LEVEL = 100;
 export const MAX_LEVEL = 10;
@@ -150,6 +151,9 @@ const damage = (sides: number, multiplier: number): RuleEffect => {
   };
 };
 
+export const damageDealtBy = (die: number, damageBonus: number, critical: boolean, remaining: number): number =>
+  Math.min(Math.max(die + damageBonus, MIN_DAMAGE) * (critical ? CRITICAL_MULTIPLIER : NORMAL_MULTIPLIER), remaining);
+
 export const attackTable = (damageSides: number): RuleDsl[] => [
   rule(
     'attack.critical',
@@ -157,7 +161,11 @@ export const attackTable = (damageSides: number): RuleDsl[] => [
     natural(NATURAL_MAX),
   ),
   rule('attack.fumble', emit('attack.fumble', 'attack.miss'), natural(NATURAL_MIN)),
-  rule('attack.hit', [damage(damageSides, 1), ...emit('attack.hit')], meets(ref(ATTACK_BONUS), ref(DEFENSE))),
+  rule(
+    'attack.hit',
+    [damage(damageSides, NORMAL_MULTIPLIER), ...emit('attack.hit')],
+    meets(ref(ATTACK_BONUS), ref(DEFENSE)),
+  ),
   rule('attack.miss', emit('attack.miss')),
 ];
 
