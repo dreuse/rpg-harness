@@ -150,3 +150,19 @@ test('the first segment reaches the callback before the reply ends', async (t: T
   assert.equal(heard.length, 3);
   assert.ok(ended - (heard[0] ?? ended) >= MIN_GAP_MS);
 });
+
+test('rpg-42a.101 a streamed usage limit keeps its reset time', async (t: TestContext) => {
+  const limit = JSON.stringify({
+    type: 'result',
+    is_error: true,
+    result: 'Claude usage limit reached · resets 3:30pm (Europe/Lisbon)',
+  });
+  const bin = fakeClaude(t, [limit], 1);
+  await assert.rejects(
+    streamClaudeNarration(claudeCodeRouteOf(bin, DATA_ENV), 'sys', 'input', () => {}),
+    (error: unknown) =>
+      error instanceof ProviderError &&
+      error.failure?.kind === 'limit' &&
+      error.failure.detail === '3:30pm (Europe/Lisbon)',
+  );
+});

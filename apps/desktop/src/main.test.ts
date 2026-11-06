@@ -123,6 +123,26 @@ test('UI08 daemon transport maps engine replies to renderer lines', async () => 
   assert.deepEqual(closes, []);
 });
 
+test('rpg-42a.101 daemon transport reports a failed narration before the action settles', async () => {
+  const failure = { kind: 'limit' as const, detail: '3:30pm' };
+  const daemon = {
+    ...fakeDaemon(),
+    command: async () => ({
+      id: 0,
+      type: 'Result' as const,
+      result: { ok: true as const, value: {} },
+      narrationFailed: failure,
+    }),
+  };
+  const { transport, lines } = collect(daemon);
+  transport.send(command('SubmitPlayerAction', { actionId: 'a1' }));
+  await flush();
+  assert.deepEqual(lines, [
+    { type: 'NarrationFailed', actionId: 'a1', failure },
+    { type: 'Accepted', actionId: 'a1' },
+  ]);
+});
+
 test('rpg-cm63.22 daemon transport relays streamed narration lines before the action settles', async () => {
   const daemon = {
     ...fakeDaemon(),

@@ -7,6 +7,7 @@ import { missingKeys } from '../../../packages/client-protocol/src/locale.ts';
 import { PROTOCOL_VERSION } from '../../../packages/client-protocol/src/protocol.ts';
 import { toVisualizationEvent } from '../../../packages/client-protocol/src/visualization.ts';
 import { archiveCampaign, createCampaignFrom, deleteCampaign, unarchiveCampaign } from './engine-gateway.ts';
+import { ProviderError } from './gm-api.ts';
 import { type CampaignGateway, main } from './main.ts';
 import { CLI_CATALOG, CLI_LOCALES, errorText } from './messages.ts';
 import { PLAIN_TERMINAL, renderLinear, rollFrames, type TuiData } from './tui.ts';
@@ -160,4 +161,18 @@ test('rpg-42a.39 a malformed locale renders English instead of throwing', () => 
   assert.ok(mechanic);
   assert.match(rollFrames(mechanic, 1, 'pt_BR').at(-1) ?? '', /; modifier \+2;/);
   assert.match(renderLinear({ ...data, locale: 'not a locale!' }, WIDE).join('\n'), /^Conversation:$/m);
+});
+
+test('rpg-42a.101 a provider failure reads in the player language, with the reason and not the raw message', () => {
+  const failure = new ProviderError('Claude Code stopped with exit code 1.', undefined, false, {
+    kind: 'limit',
+    detail: '3:30pm',
+  });
+  assert.match(errorText('en', failure), /usage limit is reached\. It resets 3:30pm/);
+  assert.match(errorText('pt-BR', failure), /limite de uso/);
+  assert.match(errorText('es', failure), /límite de uso/);
+  assert.equal(
+    errorText('en', new ProviderError('The provider is unavailable (HTTP 503).')).includes('HTTP 503'),
+    true,
+  );
 });

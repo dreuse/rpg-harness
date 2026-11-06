@@ -22,6 +22,7 @@ import { PLAYER_VIEWER } from '../../../packages/memory/src/knowledge.ts';
 import { createCampaignStore } from '../../../packages/persistence/src/campaign-store.ts';
 import { openDatabase } from '../../../packages/persistence/src/database.ts';
 import { createClientSessions, scopedEventsOf } from './client-session.ts';
+import { ProviderError } from './gm-api.ts';
 import { hermeticGmEnv } from './gm-test-env.ts';
 import { EXIT_OK } from './main.ts';
 import {
@@ -344,7 +345,7 @@ test('rpg-42a.93: Tab completes slash command names and lists the matches', () =
   assert.equal(press([key('i'), ...typed('/rol'), TAB, ...typed('now')]).draft, '/roll now');
   const listed = press([key('i'), ...typed('/'), TAB]);
   assert.equal(listed.draft, '/');
-  assert.match(listed.notice ?? '', /\/gm \/roll \/edit \/language \/voice \/help/);
+  assert.match(listed.notice ?? '', /\/gm \/roll \/retry \/edit \/language \/voice \/help/);
   assert.equal(press([key('i'), ...typed('/l'), TAB]).draft, '/language ');
   assert.equal(press([key('i'), ...typed('hello'), TAB]).draft, 'hello');
   assert.equal(press([key('i'), ...typed('/zzz'), TAB]).notice, undefined);
@@ -1265,4 +1266,70 @@ test('rpg-42a.90: the terminal roll line breaks the total down in English and Br
     /; Die 12; wits -3; darkness -2: the lantern went out; Total 7 against 10$/,
   );
   assert.match(rollFrames(event, ROLL_STEPS, 'pt-BR').at(-1) ?? '', /; Dado 12; wits -3; .*; Total 7 contra 10$/);
+});
+
+const limited = () => new ProviderError('limit', undefined, false, { kind: 'limit', detail: '3:30pm (Europe/Lisbon)' });
+
+const failingNarration = async (capabilities: Capabilities, inputs: readonly (string | Key)[], locale?: string) => {
+  const { campaignId, session } = engineSession();
+  const output: string[] = [];
+  let calls = 0;
+  const submitted: string[] = [];
+  const spying: ClientSession = {
+    ...session,
+    submitPlayerAction: (command) => {
+      submitted.push(command.input);
+      return session.submitPlayerAction(command);
+    },
+  };
+  await runTui(
+    spying,
+    campaignId,
+    {
+      capabilities,
+      ...(locale === undefined ? {} : { locale }),
+      keys: each(inputs.filter((input): input is Key => typeof input !== 'string')),
+      lines: each(inputs.filter((input): input is string => typeof input === 'string')),
+      write: (text) => output.push(text),
+    },
+    async () => {
+      calls += 1;
+      if (calls === 1) throw limited();
+    },
+  );
+  return { text: stripVTControlCharacters(output.join('')).replace(/\s+/g, ' '), calls, submitted };
+};
+
+test('rpg-42a.101: a provider failure shows the reason and /retry narrates the pending action again', async () => {
+  const { text, calls, submitted } = await failingNarration(PLAIN_WIDE, ['I wave', '/retry', 'q']);
+  assert.match(text, /usage limit is reached\. It resets 3:30pm \(Europe\/Lisbon\)/);
+  assert.match(text, /Type \/retry to try again\./);
+  assert.equal(calls, 2);
+  assert.deepEqual(submitted, ['I wave']);
+});
+
+test('rpg-42a.101: the interactive TUI shows the failure notice and keeps running', async () => {
+  const { text, calls } = await failingNarration(COLOR, [
+    key('i'),
+    ...typed('I wave'),
+    RETURN,
+    key('i'),
+    ...typed('/retry'),
+    RETURN,
+    key('q'),
+  ]);
+  assert.match(text, /usage limit is reached/);
+  assert.equal(calls, 2);
+});
+
+test('rpg-42a.101: the failure notice follows the terminal language', async () => {
+  const { text } = await failingNarration(PLAIN_WIDE, ['I wave', 'q'], 'pt-BR');
+  assert.match(text, /limite de uso/);
+  assert.match(text, /\/repetir/);
+});
+
+test('rpg-42a.101: /retry is listed and named in every locale', () => {
+  assert.equal(matchSlash('en', 'tui', '/ret')[0]?.id, 'retry');
+  assert.equal(matchSlash('es', 'tui', '/reint')[0]?.id, 'retry');
+  assert.equal(matchSlash('pt-BR', 'tui', '/rep')[0]?.id, 'retry');
 });

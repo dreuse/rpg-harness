@@ -3,12 +3,14 @@ import { createInterface } from 'node:readline';
 import { type ContextPacket, packetParts } from '../../../packages/memory/src/packet.ts';
 import { type GmReply, isRecord, ProviderError } from './gm-api.ts';
 import {
+  boundedText,
   type ClaudeCodeRoute,
   claudeArgs,
   MAX_OUTPUT_BYTES,
   NARRATION_SCHEMA,
   preparedWorkspace,
   replyOf,
+  startFailure,
 } from './gm-claude-code.ts';
 import { toolInputStream } from './gm-segment-stream.ts';
 import { type GmSegment, segmentsOf } from './gm-segments.ts';
@@ -21,7 +23,6 @@ const STREAM_EVENT = 'stream_event';
 const STRUCTURED_OUTPUT_TOOL = 'StructuredOutput';
 const RESULT_EVENT = 'result';
 const EXIT_OK = 0;
-const ABORT_ERROR = 'AbortError';
 const IGNORE = () => {};
 const OUTPUT_TOO_LARGE = 'Claude Code sent too much output.';
 const MALFORMED_STREAM = 'Claude Code streamed a reply that is not valid narration.';
@@ -68,19 +69,12 @@ export const streamClaudeNarration = async (
   const child = spawn(route.bin, claudeStreamArgs(route, system), {
     cwd,
     env: route.env,
-    stdio: ['pipe', 'pipe', 'ignore'],
+    stdio: ['pipe', 'pipe', 'pipe'],
     signal: AbortSignal.timeout(route.timeoutMs),
   });
+  const stderr = boundedText(child.stderr);
   const exited = new Promise<number | null>((resolve, reject) => {
-    child.on('error', (error) =>
-      reject(
-        new ProviderError(
-          error.name === ABORT_ERROR
-            ? `Claude Code timed out after ${route.timeoutMs} ms.`
-            : 'Claude Code could not be started.',
-        ),
-      ),
-    );
+    child.on('error', (error) => reject(startFailure(error, route.timeoutMs)));
     child.on('close', resolve);
   });
   exited.catch(IGNORE);
@@ -106,7 +100,7 @@ export const streamClaudeNarration = async (
     if (capped) throw new ProviderError(OUTPUT_TOO_LARGE);
     const code = await exited;
     if (code === EXIT_OK && leaksProposals(result)) throw new MalformedStreamReply();
-    return replyOf({ code, stdout: result }, route.model);
+    return replyOf({ code, stdout: result, stderr: stderr() }, route.model);
   } finally {
     child.kill();
   }

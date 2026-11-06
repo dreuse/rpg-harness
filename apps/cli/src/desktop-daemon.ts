@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
+import type { GmFailure } from '../../../packages/client-protocol/src/gm-failure.ts';
 import {
   type CampaignCommand,
   type ClientEvent,
@@ -45,7 +46,7 @@ import {
   summaryOf,
   unarchiveCampaign,
 } from './engine-gateway.ts';
-import { API_KEY_ENV, gmRouteOf } from './gm-api.ts';
+import { API_KEY_ENV, gmRouteOf, ProviderError, failureOf as providerFailureOf } from './gm-api.ts';
 import { writeGmDefaults } from './gm-defaults.ts';
 import { failureOf, planResult } from './quickstart.ts';
 import { dataDirFromEnv } from './setup-check.ts';
@@ -151,8 +152,11 @@ const send = (message: object, done?: () => void) => {
 
 const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
-const reportNarrationFailure = (error: unknown) =>
+const narrationFailureOf = (error: unknown): GmFailure | undefined => {
+  if (error instanceof ProviderError) return providerFailureOf(error);
   process.stderr.write(`The game master could not narrate this turn: ${messageOf(error)}${NEWLINE}`);
+  return undefined;
+};
 
 const daemonSpeech = () =>
   liveSpeech(
@@ -264,11 +268,13 @@ const replier = ({ name, campaign, problem }: Served, gm: GameMaster) => {
     if (command.type === 'GetCampaignPanels') return send({ id, type: 'Result', result: session.getPanels(command) });
     if (command.type === 'SubmitPlayerAction') {
       const result = session.submitPlayerAction(command);
-      if (result.ok)
-        await narrate(streamed ? (turnId, text) => send({ id, type: NARRATION, turnId, text }) : undefined).catch(
-          reportNarrationFailure,
-        );
-      return send({ id, type: 'Result', result });
+      const narrationFailed = result.ok
+        ? await narrate(streamed ? (turnId, text) => send({ id, type: NARRATION, turnId, text }) : undefined).then(
+            () => undefined,
+            narrationFailureOf,
+          )
+        : undefined;
+      return send({ id, type: 'Result', result, ...(narrationFailed === undefined ? {} : { narrationFailed }) });
     }
     if (command.type === 'SelectCapability')
       return send({ id, type: 'Result', result: session.selectCapability(command) });

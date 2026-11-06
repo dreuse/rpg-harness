@@ -33,6 +33,7 @@ import {
   GM_API_URL_ENV,
   GM_ROUTE_ENV,
   languageInstruction,
+  ProviderError,
   RULES_RETRY_PROMPT,
 } from './gm-api.ts';
 import { SCENE_TURN_LIMIT, type Summarizer } from './gm-context.ts';
@@ -159,16 +160,30 @@ describe('rpg-42a.28 API game master wiring', () => {
     assert.match(output ?? '', /too long for the AI game master/);
   });
 
-  it('tells the player once about a provider error and continues on the fake route', async (t) => {
+  it('reports the provider error for the failed turn without a placeholder and asks the provider again next turn', async (t) => {
     const dataDir = await seededCampaign(t);
-    const { received, gm } = await providerGm(t, [{ status: UNAUTHORIZED, body: KEY }]);
-    const [first, second] = await play(dataDir, gm, [ACTION, SECOND_ACTION]);
-    assert.match(first ?? '', /HTTP 401/);
-    assert.ok(first?.endsWith(FAKE_GM_REPLY));
-    assert.ok(!second?.includes('HTTP'));
-    assert.ok(second?.endsWith(FAKE_GM_REPLY));
-    assert.equal(received.length, 1);
-    for (const text of [first, second]) assert.ok(!text?.includes(KEY));
+    const { received, gm } = await providerGm(t, [{ status: UNAUTHORIZED, body: KEY }, textReply(NARRATION)]);
+    const errors: unknown[] = [];
+    const lines = (async function* () {
+      yield* [ACTION, SECOND_ACTION];
+    })();
+    const output: string[] = [];
+    for await (const text of createEngineGateway(dataDir, gm).open(CAMPAIGN, 'play', lines, (error) =>
+      errors.push(error),
+    ))
+      output.push(text);
+    assert.equal(errors.length, 1);
+    assert.match(String((errors[0] as Error).message), /HTTP 401/);
+    assert.ok(!output.some((text) => text.includes(FAKE_GM_REPLY)));
+    assert.ok(output.at(-1)?.includes(NARRATION));
+    assert.equal(received.length, 2);
+    assert.ok(![...output, ...errors.map(String)].some((text) => text.includes(KEY)));
+    assert.deepEqual(
+      readCampaignState(dataDir, CAMPAIGN)
+        .turns.slice(-2)
+        .map(({ narration }) => narration),
+      ['', NARRATION],
+    );
   });
 
   it('tells the player once that no provider key is set', async (t) => {
@@ -344,16 +359,16 @@ describe('rpg-cm63.3 game master segments on every route', () => {
     for (let turn = 0; turn < 2; turn += 1) assertJoined(await gmReplyOf(noKey));
   });
 
-  it('returns the api segments, then narrator segments after the provider fails', async (t) => {
+  it('returns the api segments, fails once with the provider error, then answers again', async (t) => {
     const segments = [{ text: NARRATION }, { speakerId: 'npc-stranger', text: 'Sit.' }];
     const toolReply = {
       body: JSON.stringify({ content: [{ type: 'tool_use', id: 't1', name: 'narrate', input: { segments } }] }),
     };
-    const { gm } = await providerGm(t, [toolReply, { status: UNAUTHORIZED }]);
+    const { gm } = await providerGm(t, [toolReply, { status: UNAUTHORIZED }, toolReply]);
     const reply = await gmReplyOf(gm);
     assert.deepEqual(reply.segments, segments);
     assertJoined(reply);
-    assertJoined(await gmReplyOf(gm));
+    await assert.rejects(gmReplyOf(gm), ProviderError);
     assertJoined(await gmReplyOf(gm));
   });
 });

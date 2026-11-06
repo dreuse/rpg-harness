@@ -318,55 +318,32 @@ export const noKeyGameMaster = (): GameMaster => {
   };
 };
 
-const providerGameMaster = (narrate: PacketRequest, summarize: ModelSummarizer): GameMaster => {
-  let failed = false;
-  return {
-    request: async (packet, call) => {
-      if (failed) return narratorReply(FAKE_GM_REPLY);
-      try {
-        return await narrate(packet, call);
-      } catch (error) {
-        if (!(error instanceof ProviderError) || error.tooLong) throw error;
-        failed = true;
-        return narratorReply(
-          withNotice(`The AI game master is unavailable: ${error.message} The built-in narrator takes over.`),
-        );
-      }
-    },
-    summarizer: (level, texts, language, model) =>
-      failed ? fakeSummarizer(level, texts, language) : summarize(level, texts, language, model),
-  };
-};
-
 const chosen = (model: string | undefined) => (model === PROVIDER_DEFAULT_MODEL ? undefined : model);
 
 export const apiGameMaster = (route: ApiRoute, summaryRoute: ApiRoute = route): GameMaster => ({
-  ...providerGameMaster(
-    (packet, { model, onSegment }) => {
-      const routed = { ...route, model: chosen(model) ?? route.model };
-      return onSegment === undefined ? requestNarration(routed, packet) : streamNarration(routed, packet, onSegment);
-    },
-    (level, texts, language, model) =>
-      requestSummary({ ...summaryRoute, model: chosen(model) ?? summaryRoute.model }, level, texts, language),
-  ),
+  request: (packet, { model, onSegment }) => {
+    const routed = { ...route, model: chosen(model) ?? route.model };
+    return onSegment === undefined ? requestNarration(routed, packet) : streamNarration(routed, packet, onSegment);
+  },
+  summarizer: (level, texts, language, model) =>
+    requestSummary({ ...summaryRoute, model: chosen(model) ?? summaryRoute.model }, level, texts, language),
   calibratesContext: true,
 });
 
-export const claudeCodeGameMaster = (route: ClaudeCodeRoute): GameMaster =>
-  providerGameMaster(
-    (packet, { databasePath, model, onSegment }) => {
-      const routed = { ...route, model: chosen(model) ?? route.model };
-      return onSegment === undefined
-        ? requestClaudeNarration(routed, packet, databasePath)
-        : requestClaudeStream(routed, packet, onSegment).catch((error: unknown) =>
-            error instanceof MalformedStreamReply
-              ? requestClaudeNarration(routed, packet, databasePath)
-              : Promise.reject(error),
-          );
-    },
-    (level, texts, language, model) =>
-      requestClaudeSummary({ ...route, summaryModel: chosen(model) ?? route.summaryModel }, level, texts, language),
-  );
+export const claudeCodeGameMaster = (route: ClaudeCodeRoute): GameMaster => ({
+  request: (packet, { databasePath, model, onSegment }) => {
+    const routed = { ...route, model: chosen(model) ?? route.model };
+    return onSegment === undefined
+      ? requestClaudeNarration(routed, packet, databasePath)
+      : requestClaudeStream(routed, packet, onSegment).catch((error: unknown) =>
+          error instanceof MalformedStreamReply
+            ? requestClaudeNarration(routed, packet, databasePath)
+            : Promise.reject(error),
+        );
+  },
+  summarizer: (level, texts, language, model) =>
+    requestClaudeSummary({ ...route, summaryModel: chosen(model) ?? route.summaryModel }, level, texts, language),
+});
 
 const chosenGameMaster = async (env: NodeJS.ProcessEnv): Promise<{ gm: GameMaster; route: GmRoute }> => {
   const chosen = env[GM_ROUTE_ENV];

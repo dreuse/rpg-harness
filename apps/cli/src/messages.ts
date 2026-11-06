@@ -1,3 +1,4 @@
+import { gmFailureText } from '../../../packages/client-protocol/src/gm-failure.ts';
 import {
   type Catalog,
   createTranslator,
@@ -5,6 +6,7 @@ import {
   type Params,
 } from '../../../packages/client-protocol/src/locale.ts';
 import { RollReportError } from '../../../packages/engine/src/roll-report.ts';
+import { failureOf, ProviderError } from './gm-api.ts';
 
 export { DEFAULT_LOCALE, safeLocale } from '../../../packages/client-protocol/src/locale.ts';
 
@@ -37,6 +39,7 @@ export const CLI_CATALOG: Catalog = {
     'help.language': '/language <locale> - Change the story language, for example en, es or pt-BR.',
     'language.set': 'Story language set to {language}.',
     'help.roll': '/roll - Roll the check the GM offered.',
+    'help.retry': '/retry - Ask the GM again after a failed reply.',
     'help.gm':
       '/gm <text> or (( text )) - Talk to the GM out of character. /gm yes, /gm no and /gm revert answer or undo a proposal.',
     'tui.rollOffer': 'Roll offered: {label}. Type /roll or say you attempt it.',
@@ -232,6 +235,7 @@ export const CLI_CATALOG: Catalog = {
     'help.language': '/language <idioma> - Muda o idioma da história, por exemplo en, es ou pt-BR.',
     'language.set': 'Idioma da história: {language}.',
     'help.roll': '/roll - Faz a rolagem que o mestre ofereceu.',
+    'help.retry': '/repetir - Pede a resposta ao mestre de novo depois de uma falha.',
     'help.gm':
       '/gm <texto> ou (( texto )) - Fala com o mestre fora do personagem. /gm sim, /gm não e /gm reverter respondem ou desfazem uma proposta.',
     'tui.rollOffer': 'Rolagem oferecida: {label}. Digite /roll ou diga que tenta.',
@@ -419,5 +423,6 @@ export class LocalizedError extends Error {
 
 export const errorText = (locale: string, error: unknown) => {
   if (error instanceof LocalizedError || error instanceof RollReportError) return say(locale, error.key, error.params);
+  if (error instanceof ProviderError) return gmFailureText(locale, failureOf(error));
   return error instanceof Error ? error.message : String(error);
 };

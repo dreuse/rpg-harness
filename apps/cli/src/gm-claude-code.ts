@@ -2,6 +2,8 @@ import { spawn, spawnSync } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { type GmFailure, gmFailureText } from '../../../packages/client-protocol/src/gm-failure.ts';
+import { DEFAULT_LOCALE } from '../../../packages/client-protocol/src/locale.ts';
 import { CAMPAIGN_TOOLS } from '../../../packages/mcp/src/tools.ts';
 import type { SummaryLevel } from '../../../packages/memory/src/history.ts';
 import { type ContextPacket, frameData, packetParts } from '../../../packages/memory/src/packet.ts';
@@ -65,6 +67,12 @@ const ABORT_ERROR = 'AbortError';
 const TOOL_SEPARATOR = ',';
 const NO_BUILT_IN_TOOLS = '';
 const EXIT_INTERRUPTED = 1;
+const MAX_STDERR_BYTES = 16_384;
+const LIMIT_PATTERN = /usage limit|hit your limit|limit reached/i;
+const RESET_PATTERN = /resets?\s+(?:at\s+)?([^\n·|]+)/i;
+const AUTH_PATTERN = /not logged in|\/login|invalid api key|unauthorized|authentication/i;
+const RESET_GROUP = 1;
+const FINAL_FAILURE_KINDS: ReadonlySet<string> = new Set(['limit', 'auth', 'notInstalled']);
 const WORKSPACE_FAILED = 'The Claude Code workspace could not be prepared.';
 const SETTING_SOURCES = ['--setting-sources', 'project'];
 const PART_SEPARATOR = '\n';
@@ -99,6 +107,33 @@ export const claudeCodeRouteOf = (bin: string, env: NodeJS.ProcessEnv): ClaudeCo
   env: childEnvOf(CHILD_ENV_KEYS, env),
   workspace: workspaceOf(env),
 });
+
+export const claudeError = (failure: GmFailure, message = gmFailureText(DEFAULT_LOCALE, failure)) =>
+  new ProviderError(message, undefined, false, failure);
+
+export const claudeFailureOf = (said: string): GmFailure | undefined => {
+  if (LIMIT_PATTERN.test(said)) {
+    const reset = RESET_PATTERN.exec(said)?.[RESET_GROUP]?.trim();
+    return reset ? { kind: 'limit', detail: reset } : { kind: 'limit' };
+  }
+  return AUTH_PATTERN.test(said) ? { kind: 'auth' } : undefined;
+};
+
+export const startFailure = (error: Error, timeoutMs: number) =>
+  error.name === ABORT_ERROR
+    ? claudeError({ kind: 'timeout' }, `Claude Code timed out after ${timeoutMs} ms.`)
+    : claudeError({ kind: 'notInstalled' }, 'Claude Code could not be started.');
+
+export const boundedText = (stream: NodeJS.ReadableStream): (() => string) => {
+  const chunks: Buffer[] = [];
+  let size = 0;
+  stream.on('data', (chunk: Buffer) => {
+    if (size >= MAX_STDERR_BYTES) return;
+    size += chunk.length;
+    chunks.push(chunk);
+  });
+  return () => Buffer.concat(chunks).toString();
+};
 
 export const preparedWorkspace = ({ workspace }: ClaudeCodeRoute): string => {
   try {
@@ -148,16 +183,17 @@ export const gameMcpConfig = (databasePath: string, versions: { readonly electro
   },
 });
 
-export type Exit = { readonly code: number | null; readonly stdout: string };
+export type Exit = { readonly code: number | null; readonly stdout: string; readonly stderr?: string };
 
 const run = ({ bin, env, timeoutMs }: ClaudeCodeRoute, args: string[], input: string, cwd: string) =>
   new Promise<Exit>((resolve, reject) => {
     const child = spawn(bin, args, {
       cwd,
       env,
-      stdio: ['pipe', 'pipe', 'ignore'],
+      stdio: ['pipe', 'pipe', 'pipe'],
       signal: AbortSignal.timeout(timeoutMs),
     });
+    const stderr = boundedText(child.stderr);
     const chunks: Buffer[] = [];
     let size = 0;
     child.stdout.on('data', (chunk: Buffer) => {
@@ -165,16 +201,8 @@ const run = ({ bin, env, timeoutMs }: ClaudeCodeRoute, args: string[], input: st
       if (size > MAX_OUTPUT_BYTES) child.kill();
       else chunks.push(chunk);
     });
-    child.on('error', (error) =>
-      reject(
-        new ProviderError(
-          error.name === ABORT_ERROR
-            ? `Claude Code timed out after ${timeoutMs} ms.`
-            : 'Claude Code could not be started.',
-        ),
-      ),
-    );
-    child.on('close', (code) => resolve({ code, stdout: Buffer.concat(chunks).toString() }));
+    child.on('error', (error) => reject(startFailure(error, timeoutMs)));
+    child.on('close', (code) => resolve({ code, stdout: Buffer.concat(chunks).toString(), stderr: stderr() }));
     child.stdin.on('error', IGNORE);
     child.stdin.end(input);
   });
@@ -187,14 +215,21 @@ const parsed = (stdout: string): unknown => {
   }
 };
 
-export const replyOf = ({ code, stdout }: Exit, model: string | undefined): GmReply => {
-  if (code !== 0) throw new ProviderError(`Claude Code stopped with exit code ${code}.`);
+const saidOf = (body: unknown, stderr: string) =>
+  [isRecord(body) && typeof body.result === 'string' ? body.result : '', stderr].join(PART_SEPARATOR);
+
+export const replyOf = ({ code, stdout, stderr = '' }: Exit, model: string | undefined): GmReply => {
   const body = parsed(stdout);
+  const failure = claudeFailureOf(saidOf(body, stderr));
+  if (code !== 0)
+    throw failure === undefined
+      ? claudeError({ kind: 'exit', detail: String(code) }, `Claude Code stopped with exit code ${code}.`)
+      : claudeError(failure);
   if (!isRecord(body)) throw new ProviderError('Claude Code sent a malformed reply.');
   if (body.is_error !== false)
-    throw new ProviderError(
-      'Claude Code reported an error. Run claude once in a terminal to check that it is signed in.',
-    );
+    throw failure === undefined
+      ? new ProviderError('Claude Code reported an error. Run claude once in a terminal to check that it is signed in.')
+      : claudeError(failure);
   const text = typeof body.result === 'string' ? body.result.trim() : '';
   const segments = segmentsOf(body.structured_output) ?? segmentsOf({ segments: [{ text }] });
   if (segments === undefined) throw new ProviderError('Claude Code sent a malformed reply.');
@@ -227,6 +262,7 @@ const request = async (route: ClaudeCodeRoute, system: string, input: string, da
       return await attempt(route, system, input, databasePath);
     } catch (error) {
       if (!(error instanceof ProviderError) || tried === CLAUDE_MAX_RETRIES) throw error;
+      if (error.failure !== undefined && FINAL_FAILURE_KINDS.has(error.failure.kind)) throw error;
     }
   }
 };

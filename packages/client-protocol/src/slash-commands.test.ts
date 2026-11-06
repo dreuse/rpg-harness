@@ -46,7 +46,7 @@ test('rpg-42a.93 a slash prefix filters by client and shows name, description an
   assert.deepEqual(matchSlash('en', 'desktop', '/zzz'), []);
   assert.deepEqual(
     matchSlash('en', 'tui', '/').map(({ id }) => id),
-    ['gm', 'roll', 'edit', 'language', 'voice', 'help'],
+    ['gm', 'roll', 'retry', 'edit', 'language', 'voice', 'help'],
   );
   assert.deepEqual(
     matchSlash('en', 'line', '/').map(({ id }) => id),

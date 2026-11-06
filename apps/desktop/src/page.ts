@@ -46,6 +46,7 @@ import {
   queryPreferences,
   queryStart,
   REPLAY,
+  RETRY_TURN_ATTRIBUTE,
   ROLL_OFFER_ATTRIBUTE,
   ROLL_REPORT_FORM,
   ROLL_REPORT_INPUT,
@@ -771,6 +772,7 @@ export const mountPage = ({
     const ooc = target?.closest(`[${OOC_ATTRIBUTE}]`);
     if (ooc)
       return oocAction(ooc.getAttribute(OOC_ATTRIBUTE), ooc.getAttribute(OOC_EXCHANGE), ooc.getAttribute(OOC_INDEX));
+    if (target?.closest(`[${RETRY_TURN_ATTRIBUTE}]`)) return void client.retryNarration();
     if (target?.closest(`[${ROLL_OFFER_ATTRIBUTE}]`)) return void client.acceptRoll();
     const sheet = target?.closest(`[${SHEET_ACTION}]`);
     if (sheet) return sheetAction(sheet.getAttribute(SHEET_ACTION));

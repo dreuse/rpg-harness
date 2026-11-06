@@ -1,3 +1,4 @@
+import { type GmFailure, gmFailureKept, gmFailureText } from '../../../packages/client-protocol/src/gm-failure.ts';
 import {
   budgetWarning,
   GM_MODEL_CHOICES,
@@ -115,6 +116,9 @@ const orEmpty = (items: readonly string[], locale: string, region: Region) =>
 const speaker = (locale: string, who: 'player' | 'gm', text: string) =>
   `<p data-speaker="${who}"><span data-speaker-label>${escapeHtml(translate(locale, `speaker.${who}`))}</span>${escapeHtml(text)}</p>`;
 const systemLine = (text: string) => `<p data-speaker="system">${escapeHtml(text)}</p>`;
+export const RETRY_TURN_ATTRIBUTE = 'data-retry-turn';
+const failureNotice = (locale: string, failure: GmFailure) =>
+  `<p data-speaker="system" data-gm-failure role="alert">${escapeHtml(gmFailureText(locale, failure))} ${escapeHtml(gmFailureKept(locale))}</p>${button(RETRY_TURN_ATTRIBUTE, '', translate(locale, 'action.retryTurn'), false, true)}`;
 const gmLine = (locale: string, narration: string, pending: boolean) =>
   narration.trim() === ''
     ? systemLine(translate(locale, pending ? 'label.pending' : 'label.no-reply'))
@@ -715,8 +719,8 @@ const REGION_BODIES: Readonly<Record<Region, (model: ViewModel, locale: string) 
   conversation: (model, locale) =>
     `<ol aria-live="polite">${model.conversation
       .map(
-        ({ actionId, input, narration, pending, noRoll }) =>
-          `<li data-action-id="${escapeHtml(actionId)}"${pending ? ' aria-busy="true"' : ''}>${actionId === OPENING_ACTION_ID ? '' : speaker(locale, 'player', input)}${gmLine(locale, narration, pending)}${pending ? '' : replayButton(locale, actionId, narration, model.replay)}${noRoll === undefined ? '' : systemLine(translate(locale, `noRoll.${noRoll}`))}</li>`,
+        ({ actionId, input, narration, pending, noRoll, failure }) =>
+          `<li data-action-id="${escapeHtml(actionId)}"${pending ? ' aria-busy="true"' : ''}>${actionId === OPENING_ACTION_ID ? '' : speaker(locale, 'player', input)}${failure === undefined ? gmLine(locale, narration, pending) : failureNotice(locale, failure)}${pending ? '' : replayButton(locale, actionId, narration, model.replay)}${noRoll === undefined ? '' : systemLine(translate(locale, `noRoll.${noRoll}`))}</li>`,
       )
       .join(
         '',

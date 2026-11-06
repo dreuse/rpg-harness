@@ -1118,6 +1118,27 @@ describe('desktop does not require unsupported reuse of consumer claude subscrip
     assert.equal(after.turns.at(-1)?.input, ACTION);
   });
 
+  it('rpg-42a.101 reports a provider failure with the committed action pending, then narrates the retry', async (t) => {
+    const provider = await startProviderServer([{ status: 401, body: '{}' }, textReply(API_NARRATION)]);
+    t.after(provider.close);
+    const { env, campaignId } = await campaignEnv(t);
+    const daemon = supervise(t, { env: { ...env, [API_KEY_ENV]: FAKE_API_KEY, [GM_API_URL_ENV]: provider.url } });
+    const before = await snapshotOf(daemon, campaignId);
+    const command = actionCommand(before, ACTION);
+    const failed = await daemon.command(command);
+    assert.ok(failed.result?.ok);
+    assert.deepEqual(failed.narrationFailed, { kind: 'other', detail: 'The provider refused the request (HTTP 401).' });
+    const pending = await snapshotOf(daemon, campaignId);
+    assert.equal(pending.turns.at(-1)?.input, ACTION);
+    assert.equal(pending.turns.at(-1)?.narration, '');
+    const retried = await daemon.command(command);
+    assert.ok(retried.result?.ok);
+    assert.equal(retried.narrationFailed, undefined);
+    const after = await snapshotOf(daemon, campaignId);
+    assert.equal(after.turns.length, pending.turns.length);
+    assert.equal(after.turns.at(-1)?.narration, API_NARRATION);
+  });
+
   it('refuses to start when launched directly with consumer claude variables', () => {
     const run = spawnSync(process.execPath, [DAEMON_ENTRY], { env: { ...baseEnv(), [OAUTH_ENV]: FAKE_SECRET } });
     assert.equal(run.status, EXIT_CONSUMER_CREDENTIALS);

@@ -296,9 +296,30 @@ const SUBMIT_REPORT = steps(
   `await ${until(`document.querySelector('[data-rolls] [data-roll][data-reported]') && ${GM_REPLIED} && ${SETTLED}`)};`,
 );
 
+const GM_FAILURE_NOTICE = '[data-gm-failure]';
+const OPEN_FIRST_CAMPAIGN = steps(
+  `await ${until(`${CONNECTED} && document.querySelector('#home-continue-0')`)};`,
+  click('#home-continue-0'),
+  `await ${until(PLAY_READY)};`,
+);
+const FAIL_A_TURN = steps(
+  `document.querySelector('#action-input').value = ${JSON.stringify(JOURNEY_ACTION)};`,
+  `document.querySelector('#action-form').requestSubmit();`,
+  `await ${until(`document.querySelector(${JSON.stringify(GM_FAILURE_NOTICE)}) && ${SETTLED}`)};`,
+);
+const RETRY_FAILED_TURN = steps(
+  click('[data-retry-turn]'),
+  `await ${until(`${GM_REPLIED} && !document.querySelector(${JSON.stringify(GM_FAILURE_NOTICE)}) && ${SETTLED}`)};`,
+);
+
 export const JOURNEY: Readonly<
-  Record<'first' | 'reopen' | 'portuguese' | 'diceless' | 'physical', readonly JourneyStep[]>
+  Record<'first' | 'reopen' | 'portuguese' | 'diceless' | 'physical' | 'failure', readonly JourneyStep[]>
 > = {
+  failure: [
+    { script: OPEN_FIRST_CAMPAIGN },
+    { script: FAIL_A_TURN, shot: 'gm-failure-notice' },
+    { script: RETRY_FAILED_TURN, shot: 'gm-retry-narrated' },
+  ],
   physical: [
     { script: OPEN_REPORT, shot: 'report-field' },
     { script: SUBMIT_REPORT, shot: 'player-rolled' },

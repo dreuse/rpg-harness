@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { Key } from 'node:readline';
+import { gmFailureKept, gmFailureRetryHint, gmFailureText } from '../../../packages/client-protocol/src/gm-failure.ts';
 import { budgetWarning, gmUsageLines } from '../../../packages/client-protocol/src/gm-usage.ts';
 import { parseOocInput } from '../../../packages/client-protocol/src/ooc.ts';
 import {
@@ -32,6 +33,7 @@ import type { OocProposal } from '../../../packages/domain/src/ooc.ts';
 import { DEFAULT_RULES_USAGE, type RulesUsage, usesDice, usesSheet } from '../../../packages/domain/src/rules-usage.ts';
 import type { PlaybackCommand, PlaybackControl } from '../../../packages/voice/src/playback-controls.ts';
 import type { VoiceDiagnosticsSummary } from '../../../packages/voice/src/voice-diagnostics.ts';
+import { failureOf, ProviderError } from './gm-api.ts';
 import { DEFAULT_LOCALE, safeLocale, say } from './messages.ts';
 import { type ColorDepth, colorDepthOf, FRAME_COLUMNS, frame, paint, supportsUnicode } from './theme.ts';
 import { printable } from './views.ts';
@@ -135,6 +137,7 @@ const STATUS_SEPARATOR = ' | ';
 const EDIT_PATTERN = /^\/edit\s+(\S+)\s+(.+)$/i;
 const LANGUAGE_PATTERN = /^\/language\s+(\S+)$/i;
 const ROLL_PATTERN = /^\/roll$/i;
+const RETRY_PATTERN = /^\/retry$/i;
 const OOC_CONFIRM = /^(?:yes|y|sim|s)$/iu;
 const OOC_DECLINE = /^(?:no|n|não|nao)$/iu;
 const OOC_REVERT = /^(?:revert|reverter)$/iu;
@@ -165,6 +168,7 @@ const helpLines = (data: TuiData) => {
     say(locale, 'help.edit'),
     say(locale, 'help.language'),
     say(locale, 'help.roll'),
+    say(locale, 'help.retry'),
     say(locale, 'help.gm'),
     say(locale, 'help.toggle', { key: HELP_KEY }),
     say(locale, 'help.quit', { key: QUIT_KEY }),
@@ -587,6 +591,11 @@ const valuesOf = (sheet: readonly ViewComponent[]) => new Map(sheet.map(({ id, v
 
 type Narrate = () => Promise<unknown>;
 
+const failureNotice = (error: unknown, locale: string): string => {
+  if (!(error instanceof ProviderError)) throw error;
+  return [gmFailureText(locale, failureOf(error)), gmFailureKept(locale), gmFailureRetryHint(locale)].join(' ');
+};
+
 const PLAYBACK_PREFIX = '/';
 const DIAGNOSTICS_COMMAND = 'voice';
 const PLAYBACK_COMMANDS: readonly string[] = ['pause', 'resume', 'skip', 'stop'] satisfies PlaybackCommand[];
@@ -680,9 +689,14 @@ const interactive = async (
       if (submitted !== undefined && !immediate(submitted))
         narration.start(async () => {
           state = { ...state, notice: act(submitted) };
-          await narrate();
+          let failed: string | undefined;
+          try {
+            await narrate();
+          } catch (error) {
+            failed = failureNotice(error, localeOf(data()));
+          }
           if (state.quit) return;
-          state = { ...state, notice: state.notice ?? budget() };
+          state = { ...state, notice: failed ?? state.notice ?? budget() };
           refresh();
         });
       else {
@@ -731,9 +745,14 @@ const linear = async (
       else
         narration.start(async () => {
           const notice = act(text);
-          await narrate();
-          respond(notice);
-          const warning = budget();
+          let failed: string | undefined;
+          try {
+            await narrate();
+          } catch (error) {
+            failed = failureNotice(error, localeOf(data()));
+          }
+          respond(failed ?? notice);
+          const warning = failed === undefined ? budget() : undefined;
           if (warning !== undefined) print(wrap([warning], width));
         });
     }
@@ -769,6 +788,7 @@ export const runTui = async (
     const [, language] = LANGUAGE_PATTERN.exec(input.trim()) ?? [];
     if (language !== undefined) return setLanguage(session, data(), language);
     if (ROLL_PATTERN.test(input.trim())) return roll(session, data());
+    if (RETRY_PATTERN.test(input.trim())) return undefined;
     const [, name, text] = EDIT_PATTERN.exec(input) ?? [];
     if (name !== undefined && text !== undefined) return editField(session, data(), name, text);
     if (slash.kind === 'none') return submit(session, data(), input);

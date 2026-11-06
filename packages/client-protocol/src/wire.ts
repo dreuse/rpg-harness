@@ -1,8 +1,10 @@
+import type { GmFailure } from './gm-failure.ts';
 import type { ClientEvent, ProtocolVersion, Result } from './protocol.ts';
 
 export const READY = 'Ready';
 export const EVENT = 'Event';
 export const NARRATION = 'Narration';
+export const NARRATION_FAILED = 'NarrationFailed';
 export const SPEAKING = 'Speaking';
 
 export type GmRoute = 'api' | 'claude-code' | 'fake';
@@ -28,6 +30,7 @@ export type Reply = {
   readonly message?: string;
   readonly summary?: unknown;
   readonly result?: Result<unknown>;
+  readonly narrationFailed?: GmFailure;
 };
 export type Pushed = { readonly id: number; readonly type: typeof EVENT; readonly event: ClientEvent };
 export type Narrated = {

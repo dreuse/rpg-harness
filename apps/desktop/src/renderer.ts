@@ -1,3 +1,4 @@
+import type { GmFailure } from '../../../packages/client-protocol/src/gm-failure.ts';
 import {
   createCommand,
   DEFAULT_ADVENTURE_NAME,
@@ -36,7 +37,7 @@ import {
 import { resolveSlash, type SlashClient, slashText } from '../../../packages/client-protocol/src/slash-commands.ts';
 import { parseViewDescriptor } from '../../../packages/client-protocol/src/view-registry.ts';
 import { VISUALIZATION_EVENT, type VisualizationEvent } from '../../../packages/client-protocol/src/visualization.ts';
-import { NARRATION, type Ready } from '../../../packages/client-protocol/src/wire.ts';
+import { NARRATION, NARRATION_FAILED, type Ready } from '../../../packages/client-protocol/src/wire.ts';
 import type { CampaignId, NoCheckReason } from '../../../packages/domain/src/campaign.ts';
 import type { GmSettings } from '../../../packages/domain/src/gm.ts';
 import type { OocProposal } from '../../../packages/domain/src/ooc.ts';
@@ -57,6 +58,7 @@ type ConversationTurn = {
   readonly narration: string;
   readonly pending: boolean;
   readonly noRoll?: NoCheckReason | undefined;
+  readonly failure?: GmFailure | undefined;
 };
 const ROLL_PATTERN = /^\/roll$/i;
 const DESKTOP_SLASH_CLIENT: SlashClient = 'desktop';
@@ -88,6 +90,7 @@ export type Connection = {
   readonly lastError?: string;
   readonly engine?: Pick<Ready, 'pid' | 'gm'>;
 };
+export type StalledTurn = { readonly action: SubmitPlayerAction; readonly failure: GmFailure };
 export type StreamedNarration = { readonly turnId: string; readonly text: string };
 export type RejectedAction = { readonly actionId: string; readonly input: string; readonly message: string };
 export type StartState = {
@@ -134,6 +137,7 @@ export type DesktopState = {
   readonly views: Readonly<Record<string, ViewDescriptor>>;
   readonly outbox: readonly SubmitPlayerAction[];
   readonly streaming?: StreamedNarration | undefined;
+  readonly stalled?: StalledTurn | undefined;
   readonly rejected: readonly RejectedAction[];
   readonly start: StartState;
   readonly rolls: readonly VisualizationEvent[];
@@ -328,7 +332,8 @@ export const viewModel = (
         actionId,
         input,
         narration,
-        pending: false,
+        pending: narration === '' && state.outbox.some((queued) => queued.actionId === actionId),
+        ...(state.stalled?.action.actionId === actionId ? { failure: state.stalled.failure } : {}),
         ...(state.snapshot?.noRoll?.actionId === actionId ? { noRoll: state.snapshot.noRoll.reason } : {}),
       })),
       ...pending.map(({ actionId, input }) => ({ actionId, input, narration: '', pending: true })),
@@ -595,7 +600,7 @@ export const createDesktopClient = ({
   };
 
   const select = (campaignId: CampaignId) => {
-    const { snapshot, panels, streaming, ...rest } = state;
+    const { snapshot, panels, streaming, stalled, ...rest } = state;
     queuedEdits = [];
     state = {
       ...rest,
@@ -669,6 +674,11 @@ export const createDesktopClient = ({
       if (!inFlight(turnId)) return;
       const heard = state.streaming?.turnId === turnId ? `${state.streaming.text}${SEGMENT_JOIN}` : '';
       return update({ streaming: { turnId, text: `${heard}${text}` } });
+    }
+    if (message.type === NARRATION_FAILED && isRecord(message.failure)) {
+      const action = state.outbox.find((queued) => queued.actionId === message.actionId);
+      if (action !== undefined) update({ stalled: { action, failure: message.failure as GmFailure } });
+      return;
     }
     if (message.type === VISUALIZATION_EVENT) {
       const roll = parseVisualization(message);
@@ -845,9 +855,16 @@ export const createDesktopClient = ({
     });
     if (!parsed.ok) return parsed;
     const action = parsed.value as SubmitPlayerAction;
-    update({ outbox: [...state.outbox, action], streaming: undefined });
+    update({ outbox: [...state.outbox, action], streaming: undefined, stalled: undefined });
     if (!resendOnSnapshot) send(action);
     return { ok: true, value: action };
+  };
+
+  const retryNarration = () => {
+    const { stalled } = state;
+    if (stalled === undefined) return;
+    update({ outbox: [...state.outbox, stalled.action], streaming: undefined, stalled: undefined });
+    if (!resendOnSnapshot) send(stalled.action);
   };
 
   const rollNow = () => {
@@ -921,6 +938,7 @@ export const createDesktopClient = ({
         ? failure('Rejected', 'no physical roll is offered right now')
         : submitAction(offer.label, offer.offerId, [total]);
     },
+    retryNarration,
     submit: (input: string): Result<SubmitPlayerAction | SubmitOocMessage> => {
       if (state.ooc.active || parseOocInput(input) !== undefined) return talkToGm(input);
       const slash = resolveSlash(locale(), DESKTOP_SLASH_CLIENT, input);

@@ -95,6 +95,7 @@ const MCP_SERVER_ENTRY = join(import.meta.dirname, '../../mcp-server/src/main.ts
 
 type Reply = {
   readonly stdout?: string;
+  readonly stderr?: string;
   readonly code?: number;
   readonly hang?: boolean;
 };
@@ -129,7 +130,7 @@ fs.writeFileSync(path.join(__dirname, 'call-' + calls + '.json'), JSON.stringify
 const replies = ${JSON.stringify(replies)};
 const reply = replies[Math.min(calls, replies.length - 1)];
 if (reply.hang) setTimeout(() => {}, ${HANG_MS});
-else { process.stdout.write(reply.stdout ?? ''); process.exitCode = reply.code ?? 0; }
+else { process.stdout.write(reply.stdout ?? ''); process.stderr.write(reply.stderr ?? ''); process.exitCode = reply.code ?? 0; }
 `;
 
 const fakeClaude = (t: TestContext, replies: readonly Reply[] = [{ stdout: resultOf() }]) => {
@@ -615,5 +616,58 @@ describe('rpg-42a.33 Claude Code CLI game master', () => {
         },
       },
     });
+  });
+});
+
+describe('rpg-42a.101 Claude Code failures keep their real reason', () => {
+  const LIMIT_TEXT = "You've hit your limit · resets 3:30pm (Europe/Lisbon)";
+  const failureKind = async (t: TestContext, reply: Reply, route: Partial<ClaudeCodeRoute> = {}) => {
+    const { bin, calls } = fakeClaude(t, [reply]);
+    const error = await failureOf(requestClaudeNarration({ ...routeFor(bin), ...route }, packet(), DATABASE));
+    return { failure: error.failure, tries: calls().length };
+  };
+
+  it('reads the usage limit and its reset time from the error result, without a second try', async (t) => {
+    const { failure, tries } = await failureKind(t, {
+      stdout: resultOf({ is_error: true, result: LIMIT_TEXT }),
+      code: FAILURE_EXIT,
+    });
+    assert.deepEqual(failure, { kind: 'limit', detail: '3:30pm (Europe/Lisbon)' });
+    assert.equal(tries, 1);
+  });
+
+  it('reads a usage limit without a reset time', async (t) => {
+    const { failure } = await failureKind(t, {
+      stdout: resultOf({ is_error: true, result: 'Claude usage limit reached.' }),
+      code: FAILURE_EXIT,
+    });
+    assert.deepEqual(failure, { kind: 'limit' });
+  });
+
+  it('reads a sign-in problem from stdout or stderr, without a second try', async (t) => {
+    const fromStdout = await failureKind(t, {
+      stdout: resultOf({ is_error: true, result: 'Invalid API key · Please run /login' }),
+      code: FAILURE_EXIT,
+    });
+    assert.deepEqual(fromStdout.failure, { kind: 'auth' });
+    assert.equal(fromStdout.tries, 1);
+    const fromStderr = await failureKind(t, { stderr: 'Not logged in. Please run /login', code: FAILURE_EXIT });
+    assert.deepEqual(fromStderr.failure, { kind: 'auth' });
+  });
+
+  it('reports a missing Claude Code binary as not installed', async (t) => {
+    const { failure } = await failureKind(t, {}, { bin: join(tmpdir(), 'rpg-no-such-claude') });
+    assert.deepEqual(failure, { kind: 'notInstalled' });
+  });
+
+  it('reports a timeout', async (t) => {
+    const { failure } = await failureKind(t, { hang: true }, { timeoutMs: SHORT_TIMEOUT_MS });
+    assert.deepEqual(failure, { kind: 'timeout' });
+  });
+
+  it('falls back to the exit code only when the output says nothing', async (t) => {
+    const { failure, tries } = await failureKind(t, { code: FAILURE_EXIT });
+    assert.deepEqual(failure, { kind: 'exit', detail: String(FAILURE_EXIT) });
+    assert.equal(tries, CLAUDE_MAX_RETRIES + 1);
   });
 });

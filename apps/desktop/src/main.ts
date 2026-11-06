@@ -7,7 +7,7 @@ import {
 } from '../../../packages/client-protocol/src/guided-start.ts';
 import { localeOf } from '../../../packages/client-protocol/src/locale.ts';
 import { type ClientCommand, failure } from '../../../packages/client-protocol/src/protocol.ts';
-import { NARRATION } from '../../../packages/client-protocol/src/wire.ts';
+import { NARRATION, NARRATION_FAILED } from '../../../packages/client-protocol/src/wire.ts';
 import { isPlaybackCommand } from '../../../packages/voice/src/playback-controls.ts';
 import {
   DAEMON_ENTRY,
@@ -143,12 +143,13 @@ export const daemonTransport = (daemon: Pick<Daemon, 'ready' | 'command' | 'subs
   };
   const reply = async (command: ClientCommand) => {
     if (command.type === 'SubscribeEvents') return follow(command);
-    const { result, message } = await daemon.command(
+    const { result, message, narrationFailed } = await daemon.command(
       command,
       command.type === 'SubmitPlayerAction' ? ({ turnId, text }) => emit({ type: NARRATION, turnId, text }) : undefined,
     );
     if (ACTIONS.has(command.type) && 'actionId' in command) {
       const { actionId } = command;
+      if (narrationFailed !== undefined) emit({ type: NARRATION_FAILED, actionId, failure: narrationFailed });
       return emit(
         result?.ok ? { type: 'Accepted', actionId } : { type: 'Rejected', actionId, error: result?.error ?? message },
       );

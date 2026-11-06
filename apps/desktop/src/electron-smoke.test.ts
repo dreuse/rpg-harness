@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import {
+  chmodSync,
   copyFileSync,
   existsSync,
   globSync,
@@ -26,7 +27,7 @@ import {
   type GameMaster,
   openClientSession,
 } from '../../cli/src/engine-gateway.ts';
-import { FAKE_ROUTE, GM_ROUTE_ENV } from '../../cli/src/gm-api.ts';
+import { CLAUDE_BIN_ENV, CLAUDE_CODE_ROUTE, FAKE_ROUTE, GM_ROUTE_ENV } from '../../cli/src/gm-api.ts';
 import type { GmProposal } from '../../cli/src/gm-proposals.ts';
 import { DATA_DIR_ENV } from '../../cli/src/setup-check.ts';
 import {
@@ -102,7 +103,7 @@ const run = async (dataDir: string, extra: NodeJS.ProcessEnv, app = APP_DIR) => 
       ...extra,
       [SMOKE_ENV]: ENABLED,
       [DATA_DIR_ENV]: dataDir,
-      [GM_ROUTE_ENV]: FAKE_ROUTE,
+      [GM_ROUTE_ENV]: extra[GM_ROUTE_ENV] ?? FAKE_ROUTE,
       [VOICE_ROUTE_ENV]: FAKE_VOICE_ROUTE,
     },
     timeout: LAUNCH_TIMEOUT_MS,
@@ -325,6 +326,70 @@ test('rpg-42a.96 desktop journey of a physical roll: the report field and the pl
   const stdout = await run(dataDir, { [CAPTURE_ENV]: dir, [JOURNEY_ENV]: 'physical' });
   assert.doesNotMatch(stdout, new RegExp(JOURNEY_ERROR));
   const files = journeyShots(dir, 'physical');
+  for (const file of files) assert.ok(stdout.includes(`${CAPTURE_STATUS}${file}`), file);
+  checkBaselines(t, files);
+});
+
+const LIMIT_REPLY = JSON.stringify({
+  type: 'result',
+  is_error: true,
+  result: "You've hit your limit · resets 3:30pm (Europe/Lisbon)",
+});
+const RECOVERED_REPLY = JSON.stringify({
+  type: 'result',
+  is_error: false,
+  result: 'The guard squints at you, then waves you through the gate.',
+  usage: { input_tokens: 120, output_tokens: 40 },
+});
+const LIMIT_EXIT = 1;
+
+const limitThenRecoverClaude = (dir: string) => {
+  const bin = join(dir, 'claude');
+  writeFileSync(
+    bin,
+    `#!${process.execPath}
+const fs = require('node:fs');
+const path = require('node:path');
+const counter = path.join(__dirname, 'calls');
+const calls = fs.existsSync(counter) ? Number(fs.readFileSync(counter, 'utf8')) : 0;
+fs.writeFileSync(counter, String(calls + 1));
+fs.readFileSync(0);
+if (calls === 0) { process.stdout.write(${JSON.stringify(LIMIT_REPLY)}); process.exitCode = ${LIMIT_EXIT}; }
+else process.stdout.write(${JSON.stringify(RECOVERED_REPLY)});
+`,
+  );
+  chmodSync(bin, 0o755);
+  return bin;
+};
+
+test('rpg-42a.101 desktop journey of a failed provider turn: the notice with retry, then the recovered narration', {
+  skip,
+}, async (t) => {
+  const dataDir = mkdtempSync(join(tmpdir(), 'rpg-desktop-failure-'));
+  const binDir = mkdtempSync(join(tmpdir(), 'rpg-desktop-failure-bin-'));
+  t.after(() => {
+    rmSync(dataDir, { recursive: true, force: true });
+    rmSync(binDir, { recursive: true, force: true });
+  });
+  await createCampaignFrom(
+    dataDir,
+    {
+      version: PROTOCOL_VERSION,
+      type: 'CreateCampaign',
+      name: CAMPAIGN,
+      choices: { ruleset: PHYSICAL_RULESET, character: PHYSICAL_CHARACTER },
+    },
+    DESKTOP_CLIENT,
+  );
+  const dir = process.env[CAPTURE_ENV] || mkdtempSync(join(tmpdir(), 'rpg-desktop-failure-screens-'));
+  const stdout = await run(dataDir, {
+    [CAPTURE_ENV]: dir,
+    [JOURNEY_ENV]: 'failure',
+    [GM_ROUTE_ENV]: CLAUDE_CODE_ROUTE,
+    [CLAUDE_BIN_ENV]: limitThenRecoverClaude(binDir),
+  });
+  assert.doesNotMatch(stdout, new RegExp(JOURNEY_ERROR));
+  const files = journeyShots(dir, 'failure');
   for (const file of files) assert.ok(stdout.includes(`${CAPTURE_STATUS}${file}`), file);
   checkBaselines(t, files);
 });

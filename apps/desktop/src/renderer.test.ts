@@ -1096,3 +1096,60 @@ test('rpg-42a.96: a rejected report shows the server message in the alert', () =
     /<ul role="alert"><li>Attack Old Tam with your sword: 1d20 can only give 1 to 20/,
   );
 });
+
+const pendingTurnSnapshot = (revision: number, actionId: string): CampaignSnapshot => {
+  const snapshot = snapshotAt(revision, [actionId]);
+  return { ...snapshot, turns: snapshot.turns.map((turn) => ({ ...turn, narration: '' })) };
+};
+const LIMIT = { kind: 'limit', detail: '3:30pm (Europe/Lisbon)' };
+
+test('rpg-42a.101 a failed narration shows the reason and a retry, and retry resends the same action', () => {
+  const { wire, client } = connectedClient();
+  assert.ok(client.submit('wait').ok);
+  wire.receive({ type: 'NarrationFailed', actionId: 'a0', failure: LIMIT });
+  wire.receive({ type: 'Accepted', actionId: 'a0' });
+  wire.receive({ type: 'Snapshot', snapshot: pendingTurnSnapshot(3, 'a0') });
+  const model = viewModel(client.state(), WIDE_WIDTH);
+  assert.deepEqual(model.conversation.at(-1)?.failure, LIMIT);
+  assert.equal(client.state().outbox.length, 0);
+  const html = renderView(model, 'en');
+  assert.match(html, /usage limit is reached\. It resets 3:30pm \(Europe\/Lisbon\)/);
+  assert.match(html, /data-retry-turn/);
+  assert.doesNotMatch(html, /No reply/);
+  assert.match(renderView(model, 'pt-BR'), /limite de uso/);
+  assert.match(renderView(model, 'es'), /límite de uso/);
+
+  const sentBefore = wire.sent.length;
+  client.retryNarration();
+  const [resent] = wire.sent.slice(sentBefore);
+  assert.ok(resent?.type === 'SubmitPlayerAction' && resent.actionId === 'a0' && resent.input === 'wait');
+  assert.equal(client.state().stalled, undefined);
+  assert.equal(client.state().outbox.length, 1);
+  assert.equal(viewModel(client.state(), WIDE_WIDTH).conversation.at(-1)?.failure, undefined);
+});
+
+test('rpg-42a.101 a retry that works clears the notice and shows the narration', () => {
+  const { wire, client } = connectedClient();
+  client.submit('wait');
+  wire.receive({ type: 'NarrationFailed', actionId: 'a0', failure: LIMIT });
+  wire.receive({ type: 'Accepted', actionId: 'a0' });
+  wire.receive({ type: 'Snapshot', snapshot: pendingTurnSnapshot(3, 'a0') });
+  client.retryNarration();
+  wire.receive({ type: 'Accepted', actionId: 'a0' });
+  wire.receive({ type: 'Snapshot', snapshot: snapshotAt(4, ['a0']) });
+  const html = renderView(viewModel(client.state(), WIDE_WIDTH), 'en');
+  assert.match(html, /narration a0/);
+  assert.doesNotMatch(html, /data-retry-turn|usage limit/);
+});
+
+test('rpg-42a.101 a new action drops the retry of the older failed one', () => {
+  const { wire, client } = connectedClient();
+  client.submit('wait');
+  wire.receive({ type: 'NarrationFailed', actionId: 'a0', failure: LIMIT });
+  wire.receive({ type: 'Accepted', actionId: 'a0' });
+  client.submit('look');
+  assert.equal(client.state().stalled, undefined);
+  const before = wire.sent.length;
+  client.retryNarration();
+  assert.equal(wire.sent.length, before);
+});

@@ -1,6 +1,7 @@
 import { accessSync, constants, statSync } from 'node:fs';
 import { delimiter, join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
+import type { GmFailure } from '../../../packages/client-protocol/src/gm-failure.ts';
 import type { GmRoute } from '../../../packages/client-protocol/src/wire.ts';
 import { type GmUsage, ROUTE_DEFAULT_MODEL } from '../../../packages/domain/src/gm.ts';
 import type { RulesStrictness } from '../../../packages/domain/src/rules-usage.ts';
@@ -169,13 +170,18 @@ export type ApiRoute = {
 export class ProviderError extends Error {
   readonly status: number | undefined;
   readonly tooLong: boolean;
-  constructor(message: string, status?: number, tooLong = false) {
+  readonly failure: GmFailure | undefined;
+  constructor(message: string, status?: number, tooLong = false, failure?: GmFailure) {
     super(message);
     this.name = 'ProviderError';
     this.status = status;
     this.tooLong = tooLong;
+    this.failure = failure;
   }
 }
+
+export const failureOf = ({ failure, message }: ProviderError): GmFailure =>
+  failure ?? { kind: 'other', detail: message };
 
 export const apiRouteOf = (key: string, env: NodeJS.ProcessEnv): ApiRoute => ({
   key,
@@ -322,7 +328,7 @@ const open = async (
     return { ok: false, status: response.status, tooLong: sized && TOO_LONG_PATTERN.test(detail) };
   } catch (error) {
     if (error instanceof Error && error.name === TIMEOUT_ERROR)
-      throw new ProviderError(`The provider timed out after ${timeoutMs} ms.`);
+      throw new ProviderError(`The provider timed out after ${timeoutMs} ms.`, undefined, false, { kind: 'timeout' });
     throw new ProviderError('The provider could not be reached.');
   }
 };

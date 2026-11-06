@@ -1467,6 +1467,45 @@ test('rpg-42a.74 page accepts the roll offer from its button', () => {
   assert.equal(command.rollOfferId, 'tam-attack');
 });
 
+test('rpg-42a.101 page retries a failed narration from the notice button', async () => {
+  const page = fakePage();
+  mount(page);
+  page.receive(READY);
+  page.receive({ type: 'Campaigns', campaigns: [SNAPSHOT.campaign] });
+  continueHarbor(page);
+  page.receive({ type: 'Snapshot', snapshot: SNAPSHOT });
+  page.input.value = 'look around';
+  page.press('Enter');
+  await settle();
+  const first = page.sent.findLast(({ type }) => type === 'SubmitPlayerAction');
+  assert.ok(first?.type === 'SubmitPlayerAction');
+  page.receive({ type: 'NarrationFailed', actionId: first.actionId, failure: { kind: 'auth' } });
+  page.receive({ type: 'Accepted', actionId: first.actionId });
+  page.receive({
+    type: 'Snapshot',
+    snapshot: {
+      ...SNAPSHOT,
+      revision: 2,
+      turns: [
+        {
+          id: 't0',
+          campaignId: CAMPAIGN,
+          sceneId: 's1',
+          actionId: first.actionId,
+          actorId: 'hero',
+          input: 'look around',
+          narration: '',
+        },
+      ],
+    },
+  });
+  assert.match(page.root.innerHTML, /data-retry-turn/);
+  const before = page.sent.length;
+  page.click({ 'data-retry-turn': '' });
+  const retried = page.sent.slice(before).find(({ type }) => type === 'SubmitPlayerAction');
+  assert.ok(retried?.type === 'SubmitPlayerAction' && retried.actionId === first.actionId);
+});
+
 const startPlay = (
   page: ReturnType<typeof fakePage>,
   snapshot: object = SNAPSHOT,
