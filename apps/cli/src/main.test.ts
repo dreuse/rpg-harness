@@ -85,6 +85,10 @@ const setup = (input: readonly string[] = PLAYER_LINES) => {
       soundLocales.push(locale);
       yield 'music: on, volume 50%';
     },
+    voiceModel: async function* (request, locale) {
+      calls.push(`voiceModel:${JSON.stringify(request)}:${locale}`);
+      yield 'Brazilian Portuguese voice: not installed.';
+    },
   };
   const soundLocales: (string | undefined)[] = [];
   const out: string[] = [];
@@ -126,6 +130,7 @@ test('help lists every command with a one-line description in plain text', async
       'settings',
       'claude',
       'sound',
+      'voice-model',
       'help',
     ]) {
       assert.match(text, new RegExp(`^  ${command}\\b.* - .+$`, 'm'));
@@ -309,6 +314,7 @@ test('gateway failures exit 1 and report the error on stderr', async () => {
     settings: broken,
     claude: broken,
     sound: broken,
+    voiceModel: broken,
   };
   for (const argv of [
     [],
@@ -524,6 +530,26 @@ test('rpg-cm63.41 sound passes the CLI locale to the gateway', async () => {
   assert.equal(await main(['sound'], io, gateway), 0);
   assert.equal(await main(['sound'], { ...io, locale: 'pt-BR' }, gateway), 0);
   assert.deepEqual(soundLocales, ['en', 'pt-BR']);
+});
+
+test('voice-model passes the download consent and the locale to the gateway', async () => {
+  const { calls, gateway, io, out } = setup();
+  assert.equal(await main(['voice-model'], io, gateway), 0);
+  assert.equal(await main(['voice-model', '--yes'], { ...io, locale: 'pt-BR' }, gateway), 0);
+  assert.deepEqual(calls, ['voiceModel:{"accept":false}:en', 'voiceModel:{"accept":true}:pt-BR']);
+  assert.equal(out.length, 2);
+});
+
+test('voice-model rejects stray arguments and other sound options', async () => {
+  for (const argv of [
+    ['voice-model', 'extra'],
+    ['voice-model', '--music'],
+    ['voice-model', '--download'],
+  ]) {
+    const { calls, gateway, io } = setup();
+    assert.equal(await main(argv, io, gateway), EXIT_USAGE);
+    assert.deepEqual(calls, []);
+  }
 });
 
 test('sound rejects a volume outside 0 to 1, stray arguments and options for other commands', async () => {

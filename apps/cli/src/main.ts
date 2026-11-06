@@ -8,6 +8,7 @@ import type { SoundRequest } from './sound-command.ts';
 import { PLAIN_TERMINAL, type Terminal } from './tui.ts';
 import type { UpdateRequest } from './update.ts';
 import { printable, VIEW_NAMES, type ViewName } from './views.ts';
+import type { VoiceModelRequest } from './voice-model-command.ts';
 
 export const EXIT_OK = 0;
 export const EXIT_FAILURE = 1;
@@ -34,6 +35,7 @@ const CLIENT_COMMAND = 'new';
 const SETTINGS_COMMAND = 'settings';
 const CLAUDE_COMMAND = 'claude';
 const SOUND_COMMAND = 'sound';
+const VOICE_MODEL_COMMAND = 'voice-model';
 const SOUND_OPTIONS = [
   '--ambience',
   '--effects',
@@ -97,6 +99,7 @@ export type CampaignGateway = {
   settings: (campaign: string | undefined, changes: GmSettingsChanges, locale?: string) => string;
   claude: (campaign: string | undefined) => number;
   sound: (request: SoundRequest, locale?: string) => AsyncIterable<string>;
+  voiceModel: (request: VoiceModelRequest, locale?: string) => AsyncIterable<string>;
 };
 
 export type Io = {
@@ -161,6 +164,7 @@ const COMMANDS = [
     usage:
       'sound [--ambience] [--effects] [--music] [--ambience-volume <0-1>] [--effects-volume <0-1>] [--music-volume <0-1>] [--download [--yes]]',
   },
+  { name: VOICE_MODEL_COMMAND, usage: 'voice-model [--yes]' },
   { name: 'help', usage: 'help' },
 ] as const;
 
@@ -307,7 +311,9 @@ export const main = async (argv: readonly string[], io: Io, gateway: CampaignGat
       io,
       phrase(locale, 'cli.optionsOnlyWith', { options: list(SETTINGS_OPTIONS), command: SETTINGS_COMMAND }),
     );
-  const soundOption = SOUND_OPTION_KEYS.some((key) => parsed.values[key] !== undefined);
+  const soundOption = SOUND_OPTION_KEYS.some(
+    (key) => parsed.values[key] !== undefined && !(key === 'yes' && command === VOICE_MODEL_COMMAND),
+  );
   if (soundOption && command !== SOUND_COMMAND)
     return usageError(
       io,
@@ -425,6 +431,11 @@ export const main = async (argv: readonly string[], io: Io, gateway: CampaignGat
     const request = soundRequestOf(parsed.values);
     if (typeof request === 'string') return usageError(io, request);
     return run(io, () => gateway.sound(request, locale));
+  }
+  if (command === VOICE_MODEL_COMMAND) {
+    if (rest.length > 0) return unexpectedArgument(rest[0]);
+    const request = { accept: parsed.values.yes === true };
+    return run(io, () => gateway.voiceModel(request, locale));
   }
   return usageError(io, phrase(locale, 'cli.unsupported', { command }));
 };

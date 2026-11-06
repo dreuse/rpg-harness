@@ -118,6 +118,11 @@ export const CLI_CATALOG: Catalog = {
     'sound.installedNo': 'no (run sound --download)',
     'sound.offer': 'Download {size} MiB of CC0 sounds from {source}. Run again with --download --yes to accept.',
     'sound.downloaded': 'Downloaded and verified the sounds.',
+    'voiceModel.offer':
+      'Download {size} MiB of Brazilian Portuguese voice files from {source}. Run again with --yes to accept.',
+    'voiceModel.downloaded': 'Downloaded and verified the voice files.',
+    'voiceModel.installed': 'Brazilian Portuguese voice: installed.',
+    'voiceModel.missing': 'Brazilian Portuguese voice: not installed.',
     'campaign.archivedExists': 'An archived campaign named {name} already exists.',
     'campaign.noArchived': 'No archived campaign named {name}.',
     'campaign.keptToken': 'Kept campaign {name}: send its name as the confirm token to delete it.',
@@ -206,6 +211,7 @@ export const CLI_CATALOG: Catalog = {
       'Show or set the AI game master model, the cheaper summary model and a soft token budget per session. Without a campaign it sets the app default. Claude Code takes default, haiku, sonnet, opus or fable; the API takes a model id. Use unset to clear a value. The budget only warns. Also shows the tokens and cost used so far.',
     'command.claude':
       'Open Claude Code in the RPG workspace, with the game tools for a campaign if you name one. It never loads your other projects, global instructions or hooks.',
+    'command.voice-model': 'Show the Brazilian Portuguese voice download and install it after you accept with --yes.',
     'command.help': 'Show this help.',
     'quickstart.none': 'none',
     'quickstart.importHint': 'Run rpg import <file> to add its rule files, or name an installed ruleset.',
@@ -387,6 +393,11 @@ export const CLI_CATALOG: Catalog = {
     'sound.installedNo': 'não (execute sound --download)',
     'sound.offer': 'Baixe {size} MiB de sons CC0 de {source}. Execute de novo com --download --yes para aceitar.',
     'sound.downloaded': 'Sons baixados e verificados.',
+    'voiceModel.offer':
+      'Baixe {size} MiB de arquivos de voz em português do Brasil de {source}. Execute de novo com --yes para aceitar.',
+    'voiceModel.downloaded': 'Arquivos de voz baixados e verificados.',
+    'voiceModel.installed': 'Voz em português do Brasil: instalada.',
+    'voiceModel.missing': 'Voz em português do Brasil: não instalada.',
     'campaign.archivedExists': 'Já existe uma campanha arquivada chamada {name}.',
     'campaign.noArchived': 'Não existe campanha arquivada chamada {name}.',
     'campaign.keptToken': 'A campanha {name} foi mantida: envie o nome dela como confirmação para apagá-la.',
@@ -476,6 +487,8 @@ export const CLI_CATALOG: Catalog = {
       'Mostra ou define o modelo do mestre de IA, o modelo mais barato para resumos e um limite flexível de tokens por sessão. Sem campanha, define o padrão do app. O Claude Code aceita default, haiku, sonnet, opus ou fable; a API aceita um id de modelo. Use unset para limpar um valor. O limite só avisa. Também mostra os tokens e o custo usados até agora.',
     'command.claude':
       'Abre o Claude Code no espaço de trabalho do RPG, com as ferramentas do jogo se você indicar uma campanha. Nunca carrega seus outros projetos, instruções globais ou hooks.',
+    'command.voice-model':
+      'Mostra o download da voz em português do Brasil e instala depois que você aceita com --yes.',
     'command.help': 'Mostra esta ajuda.',
     'quickstart.none': 'nenhum',
     'quickstart.importHint':

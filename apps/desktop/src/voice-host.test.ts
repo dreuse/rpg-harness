@@ -5,11 +5,16 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, test } from 'node:test';
 import { audioCacheKey } from '../../../packages/voice/src/audio-budget.ts';
 import { createFileAudioCache } from '../../../packages/voice/src/audio-cache-store.ts';
-import type { ModelConsent, ModelManager } from '../../../packages/voice/src/kokoro-model.ts';
+import {
+  KOKORO_PT_BR_MODEL_OFFER,
+  type ModelConsent,
+  type ModelManager,
+} from '../../../packages/voice/src/kokoro-model.ts';
 import {
   createKokoroProvider,
   KOKORO_CAPABILITIES,
   KOKORO_MIME_TYPE,
+  KOKORO_ONNX_PROVIDER_ID,
   KOKORO_PROVIDER_ID,
   MLX_KOKORO_CAPABILITIES,
   MLX_KOKORO_PROVIDER_ID,
@@ -26,6 +31,7 @@ import {
   MAX_SPEECH_CHARS,
   MAX_STYLE_CHARS,
   mlxAudioProviders,
+  onnxProviders,
   PREVIEW_LINES,
   voiceProviders,
 } from './voice-host.ts';
@@ -379,7 +385,46 @@ test('the mlx voice is offered with the pt-BR narrator and installs only through
 test('the host lists the mlx voice only where it is supported', () => {
   const ids = (supported: boolean) => voiceProviders({}, '/dir', supported).map(({ id }) => id);
   assert.deepEqual(ids(true), [KOKORO_PROVIDER_ID, MLX_KOKORO_PROVIDER_ID, 'chatterbox', 'f5-tts']);
-  assert.deepEqual(ids(false), [KOKORO_PROVIDER_ID, 'f5-tts']);
+  assert.deepEqual(ids(false), [KOKORO_PROVIDER_ID, KOKORO_ONNX_PROVIDER_ID, 'f5-tts']);
+});
+
+test('the onnx pt-BR voice is offered with the pinned pt-BR files and the pt-BR narrator', async () => {
+  const [hosted] = onnxProviders(cacheDir);
+  assert.equal(hosted?.id, KOKORO_ONNX_PROVIDER_ID);
+  assert.deepEqual(hosted?.capabilities, MLX_KOKORO_CAPABILITIES);
+  assert.equal(hosted?.narrator, 'pf_dora');
+  assert.deepEqual(hosted?.model.offer, KOKORO_PT_BR_MODEL_OFFER);
+  assert.deepEqual(await hosted?.model.status(), { installed: false, bytes: 0 });
+  const host = createVoiceHost({ providers: hosted ? [hosted] : [], cacheDir });
+  await assert.rejects(
+    host.download(KOKORO_ONNX_PROVIDER_ID, { accepted: false }, () => {}),
+    RangeError,
+  );
+});
+
+test('the host forced to the onnx route lists the onnx voice even where mlx is supported', () => {
+  const env = { RPG_PT_BR_ROUTE: 'onnx' };
+  assert.ok(voiceProviders(env, '/dir').some(({ id }) => id === KOKORO_ONNX_PROVIDER_ID));
+  assert.ok(!voiceProviders(env, '/dir').some(({ id }) => id === MLX_KOKORO_PROVIDER_ID));
+});
+
+test('prepare preloads the healthy onnx voice for pt-BR', async () => {
+  const calls: string[] = [];
+  const provider = createKokoroProvider({
+    id: KOKORO_ONNX_PROVIDER_ID,
+    capabilities: MLX_KOKORO_CAPABILITIES,
+    engine: {
+      ready: () => true,
+      load: async () => void calls.push('load'),
+      synthesize: async () => AUDIO,
+      unload: async () => {},
+    },
+  });
+  const [hosted] = onnxProviders(cacheDir);
+  const host = createVoiceHost({ providers: hosted ? [{ ...hosted, provider }] : [], cacheDir });
+  assert.equal(host.prepare('pt-BR'), undefined);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(calls, ['load']);
 });
 
 test('rpg-cm63.55 chatterbox and f5 install only through consent and f5 reports its credits', async () => {

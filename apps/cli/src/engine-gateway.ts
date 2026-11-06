@@ -163,6 +163,7 @@ import { guidedStart } from './tui-start.ts';
 import type { TurnSpeech } from './turn-speech.ts';
 import { type CampaignFile, defaultUpdateContext, updateCommand } from './update.ts';
 import { editableSheet, renderView, type ViewName } from './views.ts';
+import type { VoiceModelRequest } from './voice-model-command.ts';
 
 const DATABASE_EXTENSION = '.sqlite';
 const SELECT_CAMPAIGN_ID = 'SELECT id FROM campaign LIMIT 1';
@@ -1497,6 +1498,13 @@ export const createEngineGateway = (
   settings: (name, changes, locale = DEFAULT_LOCALE) => gmSettingsCommand(dataDir, name, changes, locale),
   sound: async function* (request: SoundRequest, locale?: string) {
     yield* (await import('./sound-command.ts')).soundCommand(dataDir, request, locale === undefined ? {} : { locale });
+  },
+  voiceModel: async function* (request: VoiceModelRequest, locale?: string) {
+    yield* (await import('./voice-model-command.ts')).voiceModelCommand(
+      dataDir,
+      request,
+      locale === undefined ? {} : { locale },
+    );
   },
 });
 

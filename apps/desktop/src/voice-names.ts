@@ -1,4 +1,4 @@
-import { KOKORO_PROVIDER_ID } from '../../../packages/voice/src/kokoro-provider.ts';
+import { KOKORO_ONNX_PROVIDER_ID, KOKORO_PROVIDER_ID } from '../../../packages/voice/src/kokoro-provider.ts';
 import { translate } from './accessibility.ts';
 
 export const BRAZILIAN_PROVIDER_ID = 'kokoro-mlx';
@@ -19,6 +19,7 @@ const FIRST_NUMBER = 1;
 export const VOICE_NAMES: Readonly<Record<string, VoiceName>> = Object.freeze({
   [KOKORO_PROVIDER_ID]: { kind: 'builtIn' },
   [BRAZILIAN_PROVIDER_ID]: { kind: 'brazilian' },
+  [KOKORO_ONNX_PROVIDER_ID]: { kind: 'brazilian' },
   [CHATTERBOX_ID]: { kind: 'expressive' },
   [F5_ID]: { kind: 'expressive' },
   af_heart: { name: 'Heart', kind: US_FEMALE },

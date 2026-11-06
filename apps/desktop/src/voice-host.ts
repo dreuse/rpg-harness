@@ -26,14 +26,17 @@ import { createKokoroJsEngine, KOKORO_MODEL_DIR_ENV } from '../../../packages/vo
 import {
   createKokoroModelManager,
   KOKORO_MODEL_OFFER,
+  KOKORO_PT_BR_MODEL_FILES,
   type ModelConsent,
   type ModelManager,
   type ModelOffer,
 } from '../../../packages/voice/src/kokoro-model.ts';
+import { createKokoroOnnxEngine } from '../../../packages/voice/src/kokoro-onnx-engine.ts';
 import {
   createKokoroProvider,
   KOKORO_CAPABILITIES,
   KOKORO_MIME_TYPE,
+  KOKORO_ONNX_PROVIDER_ID,
   KOKORO_PROVIDER_ID,
   type KokoroCapabilities,
   type KokoroEngine,
@@ -43,13 +46,10 @@ import {
   speaksLanguage,
 } from '../../../packages/voice/src/kokoro-provider.ts';
 import { noVoiceNotice, voicesFor } from '../../../packages/voice/src/language-voices.ts';
-import {
-  createMlxAudioProvider,
-  MLX_AUDIO_DIR_ENV,
-  mlxAudioSupported,
-} from '../../../packages/voice/src/mlx-audio-engine.ts';
+import { createMlxAudioProvider, MLX_AUDIO_DIR_ENV } from '../../../packages/voice/src/mlx-audio-engine.ts';
 import { createMlxAudioInstaller, type MlxAudioInstaller } from '../../../packages/voice/src/mlx-audio-install.ts';
 import { MAX_PLAYBACK_SPEED, MIN_PLAYBACK_SPEED } from '../../../packages/voice/src/playback.ts';
+import { choosePtBrRoute, type PtBrRoute } from '../../../packages/voice/src/pt-br-route.ts';
 import type { SpeechChunk } from '../../../packages/voice/src/tts.ts';
 import type { CommittedUtterance, Delivery } from '../../../packages/voice/src/voice.ts';
 
@@ -119,7 +119,6 @@ export type VoiceHost = {
   prepare(language: string): string | undefined;
 };
 
-const DESKTOP_PT_BR_ROUTE = 'mlx';
 const PREVIEW_EVENT = 'voice-preview';
 const PREVIEW_SPEAKER = 'narrator';
 const NO_STYLE = '';
@@ -189,6 +188,7 @@ export const createVoiceHost = ({
   readonly cacheLimit?: number;
 }): VoiceHost => {
   let cache = createFileAudioCache(cacheDir, cacheLimit);
+  const route: PtBrRoute = providers.some(({ id }) => id === KOKORO_ONNX_PROVIDER_ID) ? 'onnx' : 'mlx';
   const downloads = new Map<string, Promise<void>>();
   const failedPreloads = new Set<string>();
   const find = (id: unknown) => {
@@ -300,7 +300,7 @@ export const createVoiceHost = ({
       cache = createFileAudioCache(cacheDir, cacheLimit);
     },
     prepare: (language) => {
-      const hosted = providers.find(({ id }) => id === voicesFor(language, DESKTOP_PT_BR_ROUTE)?.providerId);
+      const hosted = providers.find(({ id }) => id === voicesFor(language, route)?.providerId);
       if (hosted !== undefined && hosted.provider.healthy())
         hosted.provider
           .preload()
@@ -311,13 +311,13 @@ export const createVoiceHost = ({
         providers
           .filter(({ id }) => !failedPreloads.has(id))
           .map(({ id, provider }) => ({ id, healthy: () => provider.healthy() })),
-        DESKTOP_PT_BR_ROUTE,
+        route,
       );
     },
   };
 };
 
-const BRAZILIAN_NARRATOR = voicesFor('pt-BR', DESKTOP_PT_BR_ROUTE)?.narrator ?? '';
+const BRAZILIAN_NARRATOR = voicesFor('pt-BR', 'mlx')?.narrator ?? '';
 
 const serviceModel = (installer: ChatterboxInstaller | F5Installer | MlxAudioInstaller): ModelManager => ({
   offer: installer.offer,
@@ -368,7 +368,7 @@ export const f5Providers = (dir: string, installer: F5Installer = createF5Instal
   },
 ];
 
-const kokoroNarrator = () => voicesFor('en', DESKTOP_PT_BR_ROUTE)?.narrator ?? KOKORO_CAPABILITIES.voices[0] ?? '';
+const kokoroNarrator = () => voicesFor('en', 'mlx')?.narrator ?? KOKORO_CAPABILITIES.voices[0] ?? '';
 
 export const kokoroProviders = (dir: string): HostedProvider[] => [
   {
@@ -377,6 +377,20 @@ export const kokoroProviders = (dir: string): HostedProvider[] => [
     narrator: kokoroNarrator(),
     model: createKokoroModelManager({ dir }),
     provider: createKokoroProvider({ engine: createKokoroJsEngine(dir) }),
+  },
+];
+
+export const onnxProviders = (dir: string): HostedProvider[] => [
+  {
+    id: KOKORO_ONNX_PROVIDER_ID,
+    capabilities: MLX_KOKORO_CAPABILITIES,
+    narrator: BRAZILIAN_NARRATOR,
+    model: createKokoroModelManager({ dir, files: KOKORO_PT_BR_MODEL_FILES }),
+    provider: createKokoroProvider({
+      id: KOKORO_ONNX_PROVIDER_ID,
+      capabilities: MLX_KOKORO_CAPABILITIES,
+      engine: createKokoroOnnxEngine(dir),
+    }),
   },
 ];
 
@@ -459,10 +473,12 @@ export const fakeVoiceProviders = (schedule: (run: () => void, ms: number) => vo
 export const voiceProviders = (
   env: NodeJS.ProcessEnv,
   dataDir: string,
-  mlxSupported: boolean = mlxAudioSupported(),
+  mlxSupported: boolean = choosePtBrRoute(process.platform, process.arch, env) === 'mlx',
 ): HostedProvider[] => [
   ...kokoroProviders(env[KOKORO_MODEL_DIR_ENV] || join(dataDir, VOICE_MODELS_DIR)),
-  ...(mlxSupported ? mlxAudioProviders(env[MLX_AUDIO_DIR_ENV] || join(dataDir, MLX_AUDIO_SUBDIR)) : []),
+  ...(mlxSupported
+    ? mlxAudioProviders(env[MLX_AUDIO_DIR_ENV] || join(dataDir, MLX_AUDIO_SUBDIR))
+    : onnxProviders(env[KOKORO_MODEL_DIR_ENV] || join(dataDir, VOICE_MODELS_DIR))),
   ...(mlxSupported ? chatterboxProviders(env[CHATTERBOX_DIR_ENV] || join(dataDir, CHATTERBOX_SUBDIR)) : []),
   ...f5Providers(env[F5_DIR_ENV] || join(dataDir, F5_SUBDIR)),
 ];

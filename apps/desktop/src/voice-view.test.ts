@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
-import { KOKORO_CAPABILITIES } from '../../../packages/voice/src/kokoro-provider.ts';
+import { KOKORO_CAPABILITIES, KOKORO_ONNX_PROVIDER_ID } from '../../../packages/voice/src/kokoro-provider.ts';
 import { MLX_KOKORO_CAPABILITIES, MLX_KOKORO_PROVIDER_ID } from '../../../packages/voice/src/mlx-audio-engine.ts';
 import { initialState, viewModel } from './renderer.ts';
 import { renderView } from './view.ts';
@@ -191,6 +191,7 @@ test('rpg-cm63.15 the voice panel never shows a raw provider, voice or model id 
 
 test('rpg-cm63.15 every hosted provider and voice has a readable name and unknown ids get a neutral label', () => {
   assert.equal(BRAZILIAN_PROVIDER_ID, MLX_KOKORO_PROVIDER_ID);
+  assert.equal(VOICE_NAMES[KOKORO_ONNX_PROVIDER_ID]?.kind, 'brazilian');
   for (const id of [...KOKORO_CAPABILITIES.voices, ...MLX_KOKORO_CAPABILITIES.voices, MLX_KOKORO_PROVIDER_ID])
     assert.ok(Object.hasOwn(VOICE_NAMES, id), id);
   const page = html(everyVoice);
