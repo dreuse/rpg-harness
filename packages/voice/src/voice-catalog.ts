@@ -56,6 +56,10 @@ export const VOICE_CATALOG: Readonly<Record<string, CatalogVoice>> = Object.free
   pf_dora: voice('female', ['young', 'adult'], ['warm', 'smooth']),
   pm_alex: voice('male', ['young', 'adult'], ['crisp', 'bright']),
   pm_santa: voice('male', ['old'], ['warm', 'rough']),
+  'f5-pt-f1': voice('female', ['adult'], ['bright', 'light']),
+  'f5-pt-f2': voice('female', ['adult'], ['warm', 'smooth']),
+  'f5-pt-m1': voice('male', ['adult'], ['deep', 'smooth']),
+  'f5-pt-m2': voice('male', ['adult'], ['light', 'smooth']),
 });
 
 export const MANNER_TIMBRE: Readonly<Record<string, readonly string[]>> = Object.freeze({

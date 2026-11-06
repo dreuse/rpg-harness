@@ -134,3 +134,122 @@ RPG_VOICE_SAMPLES_DIR=/tmp/voice-samples node scripts/voice-samples/sound-demo.t
 
 - Writes `sound-demo-PLACEHOLDER-ambience.wav`: narration over ducked procedural noise. The ambience is a synthetic placeholder, not a CC0 recording.
 - Uses `en-US-narration-after.wav` from the same folder as narration when present, otherwise a tone placeholder.
+
+## F5-TTS pt-BR spike (rpg-cm63.52)
+
+Measured on 2026-11-05 on the same Apple M3 Max, 64 GB, macOS 26.6.2. Python 3.12.13 from `uv`, `f5-tts` 1.1.22, `torch` 2.15.0, `f5-tts-mlx` 0.2.6, `mlx` 0.32.4. Run once per row, with nothing else running. Not repeated, so expect run-to-run noise.
+
+```bash
+# throwaway venv outside the repo, then:
+python -I scripts/voice-spike/f5_bench.py --model-dir <model> --ref-audio <clip.wav> --ref-text "<clip text>" \
+  --passages <pt-BR passages.json> --out <dir> --device cpu|mps --nfe-step 32|16 [--threads 4]
+python -I scripts/voice-spike/f5_bench.py --backend mlx ...   # MLX route, venv with f5-tts-mlx
+```
+
+- Model: `firstpixel/F5-TTS-pt-br` at `5ebc6913f2d92e4c0cb5396a9867aa1c0c1c4281`, file `pt-br/model_last.safetensors`, 1,348,431,976 bytes, sha256 `c25e2678bdd4304071e3d0e39a283a7d23ffbc23678080c5b0b741dda2e07f0f`, licence `cc-by-nc-4.0` (card). `fuuuzzy/F5-TTS-pt-br` (`7c71fa7115fbbad3782ece7c0435c0444264be08`, `cc-by-nc-4.0`) holds files with the same sha256, so it is a copy. Config `F5TTS_Base`, vocab from `SWivid/F5-TTS` `F5TTS_Base/vocab.txt` at `84e5a410d9cead4de2f847e7c9369a6440bdfaca` (13,800 bytes). Vocoder `charactr/vocos-mel-24khz` at `0feb3fdd929bcd6649e0e7c5a688cf7dd012ef21` (MIT, 54,365,991 bytes).
+- Passages: the four pt-BR passages of the tables above, lower-cased as the model card asks. Sentence split at `.`, `!`, `?`. One `generate` call per sentence; first audio is the time to the first sentence.
+- Voice: reference clip `f5-pt-f1` (5.88 s) for every row. The cost grows with reference length plus generated length.
+- RTF: total synthesis time divided by audio duration. Peak memory from `/usr/bin/time -l`.
+- Intelligibility check, since nobody listened: each output was transcribed with `openai/whisper-small` (pt) and the word error rate (WER) against the passage text was computed. It shows words are understood. It does not rate voice quality.
+
+### Summary
+
+| Route | Device | Steps | Load ms | Warm-up ms | Median first audio ms | Median RTF | Peak RSS MiB | Peak footprint MiB | Mean WER |
+|---|---|---|---|---|---|---|---|---|---|
+| PyTorch, default threads | CPU | 32 | 8726 | 10933 | 15445 | 10.73 | 3338 | 2137 | 0.07 |
+| PyTorch, default threads | CPU | 16 | 8605 | 5351 | 6408 | 4.81 | 3338 | 2136 | 0.06 |
+| PyTorch, 4 threads | CPU | 32 | 7747 | 10742 | 13945 | 6.83 | 3337 | 2138 | not run |
+| PyTorch | MPS | 32 | 12020 | 4033 | 2159 | 1.31 | 3087 | 4734 | 0.04 |
+| PyTorch | MPS | 16 | 15199 | 1461 | 1111 | 0.68 | 3731 | 4734 | 0.06 |
+| f5-tts-mlx (v1 architecture, see below) | MLX | 8 x rk4 | 741 | 2359 | 3034 | 1.07 | 1665 | 15392 | 2.96 |
+
+Model size on disk: 1,348,431,976 + 54,365,991 + 13,800 + 461 = 1,402,812,228 bytes (1338 MiB). The PyTorch venv is 1549 MiB (macOS wheel). The four reference clips add 1.7 MB.
+
+### Per passage, PyTorch CPU (required route)
+
+| Steps | Passage | First audio ms | Total ms | Audio s | RTF |
+|---|---|---|---|---|---|
+| 32 | pt-BR-narration | 16550 | 50475 | 13.77 | 3.67 |
+| 32 | pt-BR-npc-warning | 9503 | 27435 | 1.76 | 15.59 |
+| 32 | pt-BR-npc-innkeeper | 20985 | 41831 | 3.27 | 12.77 |
+| 32 | pt-BR-emotional | 14340 | 30308 | 3.49 | 8.69 |
+| 16 | pt-BR-narration | 8385 | 24693 | 13.77 | 1.79 |
+| 16 | pt-BR-npc-warning | 4587 | 9773 | 1.76 | 5.55 |
+| 16 | pt-BR-npc-innkeeper | 5650 | 20360 | 3.27 | 6.22 |
+| 16 | pt-BR-emotional | 7166 | 14171 | 3.49 | 4.06 |
+
+### Per passage, PyTorch MPS
+
+| Steps | Passage | First audio ms | Total ms | Audio s | RTF |
+|---|---|---|---|---|---|
+| 32 | pt-BR-narration | 3377 | 9911 | 13.77 | 0.72 |
+| 32 | pt-BR-npc-warning | 1759 | 3701 | 1.76 | 2.10 |
+| 32 | pt-BR-npc-innkeeper | 2319 | 4423 | 3.27 | 1.35 |
+| 32 | pt-BR-emotional | 1999 | 4432 | 3.49 | 1.27 |
+| 16 | pt-BR-narration | 1698 | 5248 | 13.77 | 0.38 |
+| 16 | pt-BR-npc-warning | 930 | 1974 | 1.76 | 1.12 |
+| 16 | pt-BR-npc-innkeeper | 1211 | 2304 | 3.27 | 0.70 |
+| 16 | pt-BR-emotional | 1011 | 2311 | 3.49 | 0.66 |
+
+### Per passage, MLX (output is not usable)
+
+| Passage | First audio ms | Total ms | Audio s | RTF | WER |
+|---|---|---|---|---|---|
+| pt-BR-narration | 4701 | 14359 | 24.61 | 0.58 | 5.72 |
+| pt-BR-npc-warning | 2262 | 5113 | 3.23 | 1.58 | 2.67 |
+| pt-BR-npc-innkeeper | 3245 | 6484 | 5.93 | 1.09 | 1.69 |
+| pt-BR-emotional | 2822 | 6529 | 6.30 | 1.04 | 1.75 |
+
+### Provider run (the shipped code path)
+
+`packages/voice/src/f5-tts-engine.integration.test.ts` runs the real Python service through `createF5Provider`, with the 16-step default, on MPS, shaping off, service already loaded. Four voices times six deliveries, each line `Fala baixo. O capitão escuta tudo.` (two clause pieces):
+
+- First audio 841 to 1389 ms (the first piece). Service start 6.8 s.
+- RTF 0.88 to 1.42 on these short lines.
+
+### Verdict against the bar (RTF < 0.5 and first audio < 1.5 s with sentence streaming)
+
+- CPU only (the route every platform has): fails both, by about 10 times on first audio at 32 steps and about 4 times at 16 steps. Median RTF is 4.8 at best.
+- MPS, 16 steps: first audio passes (median 1.1 s; 0.84 to 1.39 s through the provider). RTF fails for short lines (0.66 to 1.12) and passes only for the long narration (0.38).
+- So F5-TTS is registered as the slower, more expressive option, not as a live-turn engine. The measured wait is stored in `F5_MEASURED_FIRST_AUDIO_MS` and shown in the consent text.
+- The 16-step default halves the wait. Its WER is the same as 32 steps in this run (0.06 against 0.04 to 0.07). Nobody listened, so the quality cost, if any, is unknown. The 32-step outputs are in the sample folder for comparison.
+
+### MLX on the pt-BR checkpoint: does not work
+
+- `f5-tts-mlx` 0.2.6 builds the F5TTS v1 network (`text_mask_padding=True`, no `pe_attn_head`) and loads `model_v1.safetensors`. The pt-BR checkpoint is a fine-tune of the older `F5TTS_Base` (`pe_attn_head=1`).
+- Attempt 1: point `fetch_from_hub` at a folder with the checkpoint and vocab. The weights load without a key or shape error. Output is gibberish: WER 2.96.
+- Attempt 2: build the DiT with `text_mask_padding=False`. Whisper heard a repeated unrelated sentence.
+- `mlx` 0.32.4 also needs `mx.random.normal` to receive integer shapes. `f5_bench.py` patches that.
+- Both attempts stopped there. A working MLX route needs a port of `pe_attn_head` or a v1-based pt-BR fine-tune. Neither was found. The PyTorch MPS route is the Apple Silicon fast path instead.
+
+### Reference voices
+
+All four clips come from Google FLEURS `pt_br` (`google/fleurs` at `70bb2e84b976b7e960aa89f1c648e09c59f894dd`). The dataset card says `license: cc-by-4.0`. Speakers are anonymous. Gender comes from the FLEURS `gender` column. FLEURS has no age column, so age is recorded as `adult` and is unverified. Timbre words follow the measured median pitch (`torchaudio` pitch detector, crude), not listening.
+
+| Voice | Gender | Median pitch Hz | Seconds | Archive member | Bytes | sha256 |
+|---|---|---|---|---|---|---|
+| `f5-pt-f1` | female | 239 | 5.88 | `train/10037811280993524975.wav` | 376378 | `3ffc02e569d3794458183d3a1912180795b86310a2be0f39538e574dad117189` |
+| `f5-pt-f2` | female | 176 | 8.16 | `train/11084584502097351417.wav` | 522298 | `fcf372dfe679fd013fd216c16e6e80dea0ea39e7b117f5e58bd9027814168e9c` |
+| `f5-pt-m1` | male | 140 | 6.12 | `dev/1331833229962432141.wav` | 391738 | `169a25c13fe054bfde45c3adb5712b6c2ecd8c0c911fedea7c30a6d945ff6c0d` |
+| `f5-pt-m2` | male | 165 | 6.00 | `dev/14597665433717979060.wav` | 384058 | `dd4ce1cfc91ad9bcb73d744d8bd5ea3b37e6c51b134302b2d4e40ec93a31a5b0` |
+
+- Attribution: Google FLEURS pt_br, CC BY 4.0, anonymous read-speech volunteer. Conneau et al., FLEURS: Few-shot Learning Evaluation of Universal Representations of Speech, arXiv:2205.12446.
+- Licence gaps: the licence is read from the dataset card only. The FLEURS sentences come from FLoRes (a separate licence, not checked). Speaker consent is not stated per clip in the card. FLEURS has no speaker id, so two clips could share a speaker. The pitch gap (140 to 239 Hz) makes it unlikely, not certain.
+- The clips are not in git. The installer streams the two archives from the pinned revision (read caps 62.3 MB and 113.2 MB), keeps only these four members, and checks every sha256.
+
+### Delivery to speed
+
+F5-TTS has a `speed` argument and no emotion argument. Each delivery emotion maps to the provider speed already computed from `KOKORO_DELIVERY_SPEED` (calm 0.9, whisper 0.8, tense 1.1, angry 1.15, excited 1.25, clamped to 0.5 to 2). Per-voice emotion reference clips would give real expression. No licensed emotional pt-BR clip was found, so none are used. A test keeps the mapping in step with the shared vocabulary.
+
+### Install problems found and fixed
+
+- `f5-tts` pulls `torch` 2.15.0 and `torchaudio` from the default index. The macOS venv is 1549 MiB. Linux and Windows wheels were not installed here and are likely larger (CUDA libraries on Linux). The offer shows the macOS figure.
+- `F5TTS` (the `f5_tts.api` class) accepts `ckpt_file`, `vocab_file` and `vocoder_local_path`, so the service runs with `HF_HUB_OFFLINE=1` after the download step.
+- `pydub` prints `SyntaxWarning` on import. Harmless.
+
+### Not measured
+
+- Windows, Linux and CUDA: nothing was run on them. The CPU rows are Apple M3 Max CPU cores. A mid-range x86 laptop will be slower. The 4-thread row is not a substitute: it was not slower than the default.
+- Listening quality, expression and voice similarity. WER only.
+- Peak memory for long passages beyond these four.
+- `num2words` for digits: the model card asks for numbers as words. The service lower-cases text and does not expand digits.

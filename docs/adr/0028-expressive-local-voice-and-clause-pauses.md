@@ -1,6 +1,6 @@
 # ADR 0028 — Clause pauses on Kokoro and an optional expressive local engine (rpg-cm63.47)
 
-**Status:** Accepted. **Decision:** (1) Kokoro speech splits at clause marks and appends a named silence after each piece, so commas, semicolons, colons and dashes are audible. (2) Chatterbox Multilingual is added as an optional local provider, id `chatterbox`, for Brazilian Portuguese (pt-BR) with emotion control. It is off by default, downloads only with consent, and never replaces Kokoro as the default or the fallback.
+**Status:** Accepted. Amended 2026-11-05 (F5-TTS reopened, see Amendment 1). **Decision:** (1) Kokoro speech splits at clause marks and appends a named silence after each piece, so commas, semicolons, colons and dashes are audible. (2) Chatterbox Multilingual is added as an optional local provider, id `chatterbox`, for Brazilian Portuguese (pt-BR) with emotion control. It is off by default, downloads only with consent, and never replaces Kokoro as the default or the fallback.
 
 **Context:** The owner reported that pt-BR voices run clauses together and show no emotion (bead rpg-cm63.47). Kokoro takes a voice and a speed only (ADR 0019). ADR 0019 Amendment 2 measured Chatterbox as too slow for live turns and did not compare other engines. Facts below were read on 2026-11-05 from the Hugging Face API, PyPI and the `chatterbox-tts` 0.1.7 wheel, or come from `docs/voice/spike-results.md`. Anything else is marked unverified.
 
@@ -52,3 +52,35 @@ The voices of this engine count toward the target of rpg-cm63.45 once the owner 
 - A second Python runtime of about 4 GB on disk and about 18 GB peak memory while loaded (measured). Idle unload stops the service.
 - The listening test (acceptance criterion 4) needs a person and the real model. It was not run in this bead.
 - Still to do: build the provider in the desktop and CLI composition roots, add a settings entry and an install action, run the Python service once with real weights, and measure first audio per clause.
+
+## Amendment 1 (2026-11-05, rpg-cm63.52): F5-TTS pt-BR added as a second optional provider
+
+**Owner decision.** The `CC-BY-NC-4.0` licence of F5-TTS is acceptable, because RPG Harness is not a commercial product. The licence rejection in the table above no longer applies. The engine must run on macOS, Windows and Linux. MLX may only be an Apple Silicon fast path.
+
+**Measured** (full tables in `docs/voice/spike-results.md`, Apple M3 Max, one run each):
+
+- PyTorch on CPU, `firstpixel/F5-TTS-pt-br`, 32 steps: median first audio 15445 ms, median RTF 10.73. At 16 steps: 6408 ms and 4.81. Peak footprint 2137 MiB, peak RSS 3338 MiB.
+- PyTorch on MPS, 16 steps: median first audio 1111 ms, median RTF 0.68 (long narration 0.38, short NPC lines 0.66 to 1.12). Through the provider and the real service: first audio 841 to 1389 ms. Peak footprint 4734 MiB.
+- Model: 1338 MiB on disk (acoustic model, vocab, vocoder). Venv: 1549 MiB on macOS.
+- Intelligibility: Whisper-small word error rate 0.04 to 0.07 across the four passages. Nobody has listened.
+- MLX (`f5-tts-mlx` 0.2.6): its network is the v1 architecture. The pt-BR checkpoint is a fine-tune of the older base. It loads and speaks gibberish (WER 2.96). Two attempts. Not shipped.
+- Not run: Windows, Linux, CUDA, x86 CPU.
+
+**Decision.**
+
+- RTF below 0.5 with first audio below 1.5 s is not met on CPU, and only the first-audio half is met on Apple GPU. F5-TTS is therefore a "slower, more expressive" option, not a live-turn engine. The measured wait is `F5_MEASURED_FIRST_AUDIO_MS` and appears in the consent text through `F5_WAIT_NOTE`.
+- Provider id `f5-tts`. Off by default. It never replaces Kokoro as the default or the fallback. Intended behaviour once the provider is wired: a campaign that picks it falls back to Kokoro when it is not installed or not healthy. Nothing is wired yet, so this is not yet exercised. `voicesFor('pt-BR')` still returns Kokoro.
+- The default is 16 steps (`F5_NFE_STEP`), half of F5's own default. The WER did not change in the spike. The quality cost is unknown until someone listens. The 32-step samples are kept for comparison.
+- The PyTorch route is the shipped route on every platform. The service picks CUDA, then MPS, then CPU.
+- MLX is deferred. It needs a v1-based pt-BR fine-tune or a port of `pe_attn_head`.
+
+**Voices.** Four named reference voices, two female and two male (`f5-pt-f1`, `f5-pt-f2`, `f5-pt-m1`, `f5-pt-m2`), cut from Google FLEURS `pt_br` clips (card: `cc-by-4.0`, anonymous volunteers). Each has gender, age, timbre words (in `VOICE_CATALOG`), source URL, sha256 and attribution (`f5-voices.ts`). Age is `adult` for all four and is unverified, because FLEURS has no age field. Timbre words follow measured pitch, not listening. The FLoRes sentence licence and per-speaker consent were not checked. No emotion reference clips exist, so delivery maps to speed only.
+
+**Provider design.** Same shape as Chatterbox: `f5-tts-engine.ts`, `f5-tts-install.ts`, `f5-tts-service.py`, shared process code in `local-service-engine.ts`. The install steps shared by Chatterbox and F5 moved to `python-service-install.ts`, and `chatterbox-install.ts` now uses it.
+
+- The service binds `127.0.0.1` on a random port, needs a bearer token, checks body size, text length, voice allowlist and speed range, and runs with `HF_HUB_OFFLINE=1`.
+- The installer needs a `ModelConsent` that matches the offer (source with licences, plus bytes). It writes a manifest from the TS constants, so revisions, files, voices and reference text have one source. It downloads pinned revisions, streams the two FLEURS archives with a read cap and keeps only the four clips, then hashes every file with SHA-256 and deletes a mismatch.
+- Attribution strings are in `F5_ATTRIBUTIONS`. The repo has no Settings > About voices screen for any provider yet, so nothing is surfaced.
+- Not built, as for Chatterbox: composition-root wiring, a settings entry and an install action. `status().supported` is true on darwin, linux and win32.
+
+**Still open.** Listening test and age labels. A run on Windows, Linux and CUDA. Digit expansion (the model card asks for numbers as words). A v1-based pt-BR fine-tune for MLX. Whether the Chatterbox pt-BR pack or its MLX and CoreML ports beat F5 on speed (rpg-cm63.47 follow-up, still unmeasured).
