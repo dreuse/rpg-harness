@@ -382,10 +382,10 @@ test('the mlx voice is offered with the pt-BR narrator and installs only through
   assert.deepEqual(calls, ['install:true', 'remove']);
 });
 
-test('the host lists the mlx voice only where it is supported', () => {
+test('the host lists the mlx voice only where it is supported and chatterbox everywhere', () => {
   const ids = (supported: boolean) => voiceProviders({}, '/dir', supported).map(({ id }) => id);
   assert.deepEqual(ids(true), [KOKORO_PROVIDER_ID, MLX_KOKORO_PROVIDER_ID, 'chatterbox', 'f5-tts']);
-  assert.deepEqual(ids(false), [KOKORO_PROVIDER_ID, KOKORO_ONNX_PROVIDER_ID, 'f5-tts']);
+  assert.deepEqual(ids(false), [KOKORO_PROVIDER_ID, KOKORO_ONNX_PROVIDER_ID, 'chatterbox', 'f5-tts']);
 });
 
 test('the onnx pt-BR voice is offered with the pinned pt-BR files and the pt-BR narrator', async () => {

@@ -47,4 +47,33 @@ describe('chatterbox service request validation', {
     ];
     for (const request of bad) assert.equal(parsed(request), null, JSON.stringify(request));
   });
+
+  it('picks cuda, then mps, then cpu', () => {
+    const devices = [
+      [true, true, 'cuda'],
+      [false, true, 'mps'],
+      [false, false, 'cpu'],
+    ] as const;
+    for (const [cuda, mps, expected] of devices) {
+      const result = spawnSync(
+        PYTHON,
+        [
+          '-I',
+          '-B',
+          '-c',
+          `import importlib.util as u, sys, types
+sys.modules['torch'] = types.SimpleNamespace(
+    cuda=types.SimpleNamespace(is_available=lambda: ${cuda ? 'True' : 'False'}),
+    backends=types.SimpleNamespace(mps=types.SimpleNamespace(is_available=lambda: ${mps ? 'True' : 'False'})),
+)
+spec = u.spec_from_file_location('service', ${JSON.stringify(CHATTERBOX_SERVICE_SOURCE)})
+service = u.module_from_spec(spec)
+spec.loader.exec_module(service)
+print(service.pick_device())`,
+        ],
+        { encoding: 'utf8' },
+      );
+      assert.equal(result.stdout.trim(), expected, result.stderr);
+    }
+  });
 });

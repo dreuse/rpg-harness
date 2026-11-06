@@ -58,8 +58,8 @@ const fakeRunner = (dir: string, content = GOOD, fail?: (step: Step) => Error | 
   return { steps, run };
 };
 
-const installer = (dir: string, run: StepRunner, platform = 'darwin', arch = 'arm64') =>
-  createChatterboxInstaller({ dir, run, platform, arch, files: TINY_FILES });
+const installer = (dir: string, run: StepRunner, platform = 'darwin') =>
+  createChatterboxInstaller({ dir, run, platform, files: TINY_FILES });
 
 test('offers the pinned package, model source and revision with the size of the real files plus the venv', () => {
   assert.match(CHATTERBOX_OFFER.source, /chatterbox-tts==0\.1\.7/);
@@ -69,14 +69,14 @@ test('offers the pinned package, model source and revision with the size of the 
   assert.equal(CHATTERBOX_OFFER.sizeMiB, Math.round(CHATTERBOX_OFFER.bytes / BYTES_PER_MIB));
 });
 
-test('installs nothing without consent for this exact offer or off Apple Silicon', async () => {
+test('installs nothing without consent for this exact offer or on an unknown platform', async () => {
   await withDir(async (dir) => {
     const { steps, run } = fakeRunner(dir);
     await assert.rejects(installer(dir, run).install(undefined), /consent/);
     await assert.rejects(installer(dir, run).install({ ...ACCEPTED, bytes: 1 }), /consent/);
-    const linux = installer(dir, run, 'linux', 'x64');
-    assert.deepEqual(await linux.status(), { supported: false, installed: false });
-    await assert.rejects(linux.install(ACCEPTED), /Apple Silicon/);
+    const plan9 = installer(dir, run, 'plan9');
+    assert.deepEqual(await plan9.status(), { supported: false, installed: false });
+    await assert.rejects(plan9.install(ACCEPTED), /macOS, Windows or Linux/);
     assert.deepEqual(steps, []);
   });
 });
@@ -157,4 +157,12 @@ test('remove deletes the venv and the model', async () => {
 test('rpg-cm63.55 the consent text carries the measured wait', () => {
   assert.ok(CHATTERBOX_OFFER.source.includes(CHATTERBOX_WAIT_NOTE));
   assert.match(CHATTERBOX_WAIT_NOTE, /about 8 seconds.*3\.1 times slower/);
+});
+
+test('is supported on macOS, Windows and Linux', async () => {
+  await withDir(async (dir) => {
+    for (const platform of ['darwin', 'linux', 'win32']) {
+      assert.equal((await installer(dir, fakeRunner(dir).run, platform).status()).supported, true);
+    }
+  });
 });

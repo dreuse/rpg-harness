@@ -148,7 +148,7 @@ const withPreload = (id: string, preload: () => Promise<void>) => ({ ...provider
 test('rpg-cm63.53 live providers pick the pt-BR route: mlx where supported, ONNX elsewhere', () => {
   const ids = (route: 'mlx' | 'onnx') => liveProviders('/data', {}, route).map(({ id }) => id);
   assert.deepEqual(ids('mlx'), ['kokoro', MLX_ID, 'chatterbox', 'f5-tts']);
-  assert.deepEqual(ids('onnx'), ['kokoro', 'kokoro-onnx', 'f5-tts']);
+  assert.deepEqual(ids('onnx'), ['kokoro', 'kokoro-onnx', 'chatterbox', 'f5-tts']);
 });
 
 test('a pt-BR campaign preloads the mlx voice without waiting for it', () => {

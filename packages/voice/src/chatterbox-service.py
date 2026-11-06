@@ -20,7 +20,7 @@ MODEL_FILES = [
 ]
 VOICES = {"chatterbox-default"}
 LANGUAGE_ID = "pt"
-DEVICES = ("mps", "cpu")
+DEVICES = ("cuda", "mps", "cpu")
 WARMUP_TEXT = "Olá."
 DEFAULT_EXAGGERATION = 0.5
 DEFAULT_CFG_WEIGHT = 0.5
@@ -63,7 +63,9 @@ def download():
 def pick_device():
     import torch
 
-    return DEVICES[0] if torch.backends.mps.is_available() else DEVICES[1]
+    if torch.cuda.is_available():
+        return DEVICES[0]
+    return DEVICES[1] if torch.backends.mps.is_available() else DEVICES[2]
 
 
 def load():

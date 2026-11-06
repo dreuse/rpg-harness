@@ -480,7 +480,7 @@ export const voiceProviders = (
   ...(mlxSupported
     ? mlxAudioProviders(env[MLX_AUDIO_DIR_ENV] || join(dataDir, MLX_AUDIO_SUBDIR))
     : onnxProviders(env[KOKORO_MODEL_DIR_ENV] || join(dataDir, VOICE_MODELS_DIR))),
-  ...(mlxSupported ? chatterboxProviders(env[CHATTERBOX_DIR_ENV] || join(dataDir, CHATTERBOX_SUBDIR)) : []),
+  ...chatterboxProviders(env[CHATTERBOX_DIR_ENV] || join(dataDir, CHATTERBOX_SUBDIR)),
   ...f5Providers(env[F5_DIR_ENV] || join(dataDir, F5_SUBDIR)),
 ];
 

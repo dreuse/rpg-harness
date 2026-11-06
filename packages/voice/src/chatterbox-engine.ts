@@ -10,7 +10,6 @@ import {
   type KokoroProviderOptions,
 } from './kokoro-provider.ts';
 import { createServiceEngine, type ServiceSpawn } from './local-service-engine.ts';
-import { mlxAudioSupported } from './mlx-audio-engine.ts';
 import type { Delivery } from './voice.ts';
 
 export const CHATTERBOX_PROVIDER_ID = 'chatterbox';
@@ -106,9 +105,10 @@ export const chatterboxExpression = (delivery: Delivery | undefined): Chatterbox
 };
 
 const SERVICE_FILE = 'chatterbox-service.py';
+const WINDOWS = 'win32';
 
-export const chatterboxPaths = (dir: string) => ({
-  python: join(dir, 'venv', 'bin', 'python'),
+export const chatterboxPaths = (dir: string, platform: string = process.platform) => ({
+  python: platform === WINDOWS ? join(dir, 'venv', 'Scripts', 'python.exe') : join(dir, 'venv', 'bin', 'python'),
   service: join(dir, SERVICE_FILE),
   hfHome: join(dir, 'hf'),
   modelDir: join(dir, 'model'),
@@ -122,8 +122,12 @@ const hasExactSize = (path: string, bytes: number): boolean => {
   }
 };
 
-export const chatterboxInstalled = (dir: string, files: readonly ModelFile[] = CHATTERBOX_MODEL_FILES): boolean => {
-  const { python, modelDir } = chatterboxPaths(dir);
+export const chatterboxInstalled = (
+  dir: string,
+  files: readonly ModelFile[] = CHATTERBOX_MODEL_FILES,
+  platform?: string,
+): boolean => {
+  const { python, modelDir } = chatterboxPaths(dir, platform);
   return existsSync(python) && files.every((file) => hasExactSize(join(modelDir, file.path), file.bytes));
 };
 
@@ -132,7 +136,6 @@ export interface ChatterboxEngineOptions {
   readonly spawn?: ServiceSpawn;
   readonly fetch?: typeof fetch;
   readonly platform?: string;
-  readonly arch?: string;
   readonly startTimeoutMs?: number;
   readonly files?: readonly ModelFile[];
 }
@@ -140,11 +143,10 @@ export interface ChatterboxEngineOptions {
 export const createChatterboxEngine = ({
   dir,
   platform,
-  arch,
   files = CHATTERBOX_MODEL_FILES,
   ...options
 }: ChatterboxEngineOptions): KokoroEngine => {
-  const paths = chatterboxPaths(dir);
+  const paths = chatterboxPaths(dir, platform);
   return createServiceEngine({
     ...options,
     name: CHATTERBOX_PROVIDER_ID,
@@ -155,7 +157,7 @@ export const createChatterboxEngine = ({
     hfHome: paths.hfHome,
     tokenEnv: CHATTERBOX_TOKEN_ENV,
     env: { [CHATTERBOX_MODEL_DIR_ENV]: paths.modelDir },
-    ready: () => mlxAudioSupported(platform, arch) && chatterboxInstalled(dir, files),
+    ready: () => chatterboxInstalled(dir, files, platform),
     body: ({ text, voiceId, delivery }) => ({ text, voice: voiceId, ...chatterboxExpression(delivery) }),
   });
 };

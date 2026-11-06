@@ -9,7 +9,6 @@ import {
   chatterboxPaths,
 } from './chatterbox-engine.ts';
 import type { ModelFile, ModelOffer } from './kokoro-model.ts';
-import { mlxAudioSupported } from './mlx-audio-engine.ts';
 import type { StepRunner } from './mlx-audio-install.ts';
 import {
   BYTES_PER_MIB,
@@ -19,6 +18,8 @@ import {
   type PythonServiceInstaller,
   type PythonServiceStatus,
 } from './python-service-install.ts';
+
+const SUPPORTED_PLATFORMS: readonly string[] = ['darwin', 'linux', 'win32'];
 
 export const CHATTERBOX_SPECS: readonly string[] = Object.freeze(['chatterbox-tts==0.1.7', 'setuptools<81']);
 
@@ -40,18 +41,16 @@ export interface ChatterboxInstallerOptions {
   readonly dir: string;
   readonly run?: StepRunner;
   readonly platform?: string;
-  readonly arch?: string;
   readonly files?: readonly ModelFile[];
 }
 
 export const createChatterboxInstaller = ({
   dir,
   run,
-  platform,
-  arch,
+  platform = process.platform,
   files = CHATTERBOX_MODEL_FILES,
 }: ChatterboxInstallerOptions): ChatterboxInstaller => {
-  const paths = chatterboxPaths(dir);
+  const paths = chatterboxPaths(dir, platform);
   return createPythonServiceInstaller({
     dir,
     offer: CHATTERBOX_OFFER,
@@ -63,11 +62,11 @@ export const createChatterboxInstaller = ({
     modelDir: paths.modelDir,
     files,
     downloadEnv: { [CHATTERBOX_MODEL_DIR_ENV]: paths.modelDir },
-    supported: () => mlxAudioSupported(platform, arch),
-    installed: () => chatterboxInstalled(dir, files),
+    supported: () => SUPPORTED_PLATFORMS.includes(platform),
+    installed: () => chatterboxInstalled(dir, files, platform),
     messages: {
       consent: 'Expressive voices need consent to download',
-      unsupported: 'Expressive voices need an Apple Silicon Mac',
+      unsupported: 'Expressive voices need macOS, Windows or Linux',
       uv: 'Expressive voices need uv to install. Install uv and try again.',
     },
     ...(run ? { run } : {}),

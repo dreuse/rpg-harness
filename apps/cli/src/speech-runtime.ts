@@ -178,9 +178,7 @@ export const liveProviders = (
           engine: createKokoroOnnxEngine(env[KOKORO_MODEL_DIR_ENV] || join(dataDir, VOICE_MODELS_DIR)),
         }),
       ]),
-  ...(route === 'mlx'
-    ? [createChatterboxProvider({ dir: env[CHATTERBOX_DIR_ENV] || join(dataDir, CHATTERBOX_SUBDIR) })]
-    : []),
+  createChatterboxProvider({ dir: env[CHATTERBOX_DIR_ENV] || join(dataDir, CHATTERBOX_SUBDIR) }),
   createF5Provider({ dir: env[F5_DIR_ENV] || join(dataDir, F5_SUBDIR) }),
 ];
 

@@ -53,7 +53,7 @@ test('the provider is an optional local pt-BR provider with one default voice an
   assert.deepEqual(CHATTERBOX_CAPABILITIES.languages, ['pt-BR']);
   assert.deepEqual(CHATTERBOX_CAPABILITIES.voices, [CHATTERBOX_VOICE]);
   assert.equal(CHATTERBOX_CAPABILITIES.emotion, true);
-  const provider = createChatterboxProvider({ dir: tmpdir(), platform: 'linux', arch: 'x64' });
+  const provider = createChatterboxProvider({ dir: tmpdir(), platform: 'linux' });
   assert.equal(provider.id, CHATTERBOX_PROVIDER_ID);
   assert.equal(provider.locality, 'local');
   assert.equal(provider.retention, 'none');
@@ -64,14 +64,14 @@ test('Kokoro stays the default pt-BR voice provider', () => {
   assert.equal(voicesFor('pt-BR', 'mlx')?.providerId, MLX_KOKORO_PROVIDER_ID);
 });
 
-test('is ready only on Apple Silicon with the venv and every pinned model file at its exact size', async () => {
+test('is ready on any platform with the venv and every pinned model file at its exact size', async () => {
   await withDir(async (dir) => {
-    const engine = createChatterboxEngine({ dir, platform: 'darwin', arch: 'arm64' });
+    const engine = createChatterboxEngine({ dir, platform: 'darwin' });
     assert.equal(engine.ready(), false);
     install(dir);
     assert.equal(chatterboxInstalled(dir), true);
     assert.equal(engine.ready(), true);
-    assert.equal(createChatterboxEngine({ dir, platform: 'linux', arch: 'x64' }).ready(), false);
+    assert.equal(createChatterboxEngine({ dir, platform: 'linux' }).ready(), true);
     const [first] = CHATTERBOX_MODEL_FILES;
     assert.ok(first);
     truncateSync(join(chatterboxPaths(dir).modelDir, first.path), first.bytes - 1);
@@ -142,4 +142,9 @@ test('the service script binds loopback, pins the model revision and every file 
   assert.ok(source.includes(`REVISION = "${CHATTERBOX_MODEL_REVISION}"`));
   assert.ok(source.includes(`VOICES = {"${CHATTERBOX_VOICE}"}`));
   for (const file of CHATTERBOX_MODEL_FILES) assert.ok(source.includes(`"${file.path}"`), file.path);
+});
+
+test('the venv python lives under Scripts on Windows', () => {
+  assert.equal(chatterboxPaths('/x', 'win32').python, join('/x', 'venv', 'Scripts', 'python.exe'));
+  assert.equal(chatterboxPaths('/x', 'linux').python, join('/x', 'venv', 'bin', 'python'));
 });
