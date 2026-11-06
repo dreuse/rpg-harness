@@ -119,9 +119,13 @@ test('rpg-42a.122 too many rules are refused at install time', () =>
     assert.deepEqual(installedRulesets(dataDir), []);
   }));
 
-const campaignOn = (rulepacks: readonly RulePackManifest[], id: string): CampaignEvent[] => {
+const campaignOn = (
+  rulepacks: readonly RulePackManifest[],
+  id: string,
+  edition = D20_LITE_MANIFEST.edition,
+): CampaignEvent[] => {
   const intent = createCampaignIntent({
-    ruleset: { value: { id, edition: D20_LITE_MANIFEST.edition }, provenance: 'explicit' },
+    ruleset: { value: { id, edition }, provenance: 'explicit' },
   });
   const generated = generateCampaignConfig(intent, { rulepacks, genres: [] });
   assert.ok(generated.ok, JSON.stringify(generated));
@@ -153,11 +157,42 @@ test('rpg-42a.123 a missing or corrupt stored ruleset is a clear error, never th
 test('rpg-42a.123 a stored file whose edition or revision differs from the campaign pin is refused', () =>
   withDataDir((dataDir) => {
     const manifest = installRuleset(dataDir, D20_LITE_MANIFEST, [compiled()]);
-    const events = campaignOn([...BUILT_IN_PACKS, manifest], manifest.id);
-    const original = readFileSync(fileOf(dataDir, manifest.id), 'utf8');
     for (const change of [{ edition: 'other-edition' }, { revision: 'other-revision' }]) {
-      const stored = JSON.parse(original);
-      writeFileSync(fileOf(dataDir, manifest.id), JSON.stringify({ ...stored, manifest: { ...manifest, ...change } }));
+      const events = campaignOn([...BUILT_IN_PACKS, { ...manifest, ...change }], manifest.id, change.edition);
       assert.throws(() => installedRulesetIn(dataDir, events), /rejected: its edition or revision differs/);
     }
+  }));
+
+test('rpg-42a.137 a stored file with an edited edition fails the content hash', () =>
+  withDataDir((dataDir) => {
+    const { id } = installRuleset(dataDir, D20_LITE_MANIFEST, [compiled()]);
+    const stored = JSON.parse(readFileSync(fileOf(dataDir, id), 'utf8'));
+    stored.manifest.edition = 'other-edition';
+    writeFileSync(fileOf(dataDir, id), JSON.stringify(stored));
+    assert.throws(() => loadInstalledRuleset(dataDir, id), /rejected: the content hash does not match/);
+  }));
+
+test('rpg-42a.137 editing a rule in the stored file breaks the content hash and an untouched install loads', () =>
+  withDataDir((dataDir) => {
+    const { id } = installRuleset(dataDir, D20_LITE_MANIFEST, [compiled()]);
+    assert.equal(loadInstalledRuleset(dataDir, id).manifest.id, id);
+    const stored = JSON.parse(readFileSync(fileOf(dataDir, id), 'utf8'));
+    stored.rules[0].rule.id = 'edited-rule';
+    writeFileSync(fileOf(dataDir, id), JSON.stringify(stored));
+    assert.throws(() => loadInstalledRuleset(dataDir, id), new RegExp(`Installed ruleset ${id} rejected: .*hash`));
+  }));
+
+test('rpg-42a.137 repeated lookups reuse the loaded ruleset until the file changes and failures are not cached', () =>
+  withDataDir((dataDir) => {
+    const manifest = installRuleset(dataDir, D20_LITE_MANIFEST, [compiled()]);
+    const events = campaignOn([...BUILT_IN_PACKS, manifest], manifest.id);
+    const first = installedRulesetIn(dataDir, events);
+    assert.equal(installedRulesetIn(dataDir, events), first);
+    const original = readFileSync(fileOf(dataDir, manifest.id), 'utf8');
+    writeFileSync(fileOf(dataDir, manifest.id), `${original} `);
+    assert.notEqual(installedRulesetIn(dataDir, events), first);
+    writeFileSync(fileOf(dataDir, manifest.id), '{not json');
+    assert.throws(() => installedRulesetIn(dataDir, events), /not valid JSON/);
+    writeFileSync(fileOf(dataDir, manifest.id), original);
+    assert.deepEqual(installedRulesetIn(dataDir, events)?.manifest, manifest);
   }));

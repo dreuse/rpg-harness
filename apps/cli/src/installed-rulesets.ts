@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readdirSync, readFileSync, renameSync, type Stats, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { CampaignEvent } from '../../../packages/domain/src/campaign.ts';
 import { campaignConfigOf } from '../../../packages/engine/src/turn.ts';
@@ -72,14 +72,20 @@ export const installRuleset = (dataDir: string, base: RulePackManifest, rules: r
   return manifest;
 };
 
+const cache = new Map<string, { mtimeMs: number; size: number; loaded: InstalledRuleset }>();
+
 export const loadInstalledRuleset = (dataDir: string, id: string): InstalledRuleset => {
   const path = pathOf(dataDir, id);
-  let size: number;
+  let stat: Stats;
   try {
-    size = statSync(path).size;
+    stat = statSync(path);
   } catch {
+    cache.delete(path);
     throw rejected(id, 'the file is missing');
   }
+  const { mtimeMs, size } = stat;
+  const hit = cache.get(path);
+  if (hit?.mtimeMs === mtimeMs && hit.size === size) return hit.loaded;
   if (size > MAX_INSTALLED_BYTES) throw rejected(id, 'the file is too large');
   let stored: unknown;
   try {
@@ -93,7 +99,15 @@ export const loadInstalledRuleset = (dataDir: string, id: string): InstalledRule
   if (!checked.ok) throw rejected(id, 'the manifest is invalid');
   if (checked.manifest.id !== id) throw rejected(id, 'the manifest id does not match the file name');
   const { manifest } = checked;
-  return { manifest, rules: stored.rules.map((entry) => recompile(id, manifest, entry)) };
+  const rules = stored.rules.map((entry) => recompile(id, manifest, entry));
+  const base = { ...manifest, id: baseIdOf(id) };
+  if (!id.endsWith(`${IMPORT_SEPARATOR}${contentHash(base, rules)}`))
+    throw rejected(id, 'the content hash does not match');
+  const loaded = { manifest, rules };
+  cache.delete(path);
+  if (cache.size >= MAX_INSTALLED_RULESETS) cache.delete(cache.keys().next().value as string);
+  cache.set(path, { mtimeMs, size, loaded });
+  return loaded;
 };
 
 export const installedRulesets = (dataDir: string): RulePackManifest[] => {
