@@ -17,7 +17,7 @@ import { type ChannelSetting, isVolume, SOUND_CHANNELS } from '../../../packages
 import { createSubtitleTranscript } from '../../../packages/voice/src/subtitles.ts';
 import { keepsDelivery } from '../../../packages/voice/src/tts.ts';
 import { type RendererAction, SUPPORTED_LOCALES, translate } from './accessibility.ts';
-import { SETTLE_MS } from './dice.ts';
+import { ROLL_COLLAPSE_MS, SETTLE_MS } from './dice.ts';
 import { BRIDGE_KEY, type Bridge } from './preload.ts';
 import { createDesktopClient, type DesktopState, REGIONS, type Region, type Transport, viewModel } from './renderer.ts';
 import { createDesktopSound, type DesktopSound, sceneSoundInput } from './sound-player.ts';
@@ -190,6 +190,10 @@ const SEARCH_SELECTOR = `#${HOME_SEARCH}`;
 const CANCEL_SELECTOR = '#home-cancel';
 const LOG_SELECTOR = '[data-region="conversation"] > ol';
 const SKIP_SELECTOR = '[data-roll-skip]';
+const ROLL_BADGE_ATTRIBUTE = 'data-roll-badge';
+const ROLL_BADGE_SELECTOR = `[${ROLL_BADGE_ATTRIBUTE}]`;
+const ROLLS_SELECTOR = '[data-rolls]';
+const ROLLS_HELD_SELECTOR = '[data-rolls]:is(:hover, :focus-within)';
 const MOTION_ATTRIBUTE = 'data-motion';
 const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)';
 const FOCUS_ATTRIBUTES = [
@@ -202,6 +206,7 @@ const FOCUS_ATTRIBUTES = [
   VOICE_SETUP,
   VOICE_PREVIEW,
   REPLAY,
+  ROLL_BADGE_ATTRIBUTE,
 ];
 const FOCUS_REGIONS: Partial<Record<RendererAction, Region>> = {
   focusConversation: 'conversation',
@@ -406,6 +411,7 @@ export const mountPage = ({
     });
     return Object.fromEntries(entries);
   };
+  let focusRollsOnRender = false;
   const render = () => {
     const model = viewModel(client.state(), width(), preferences, undefined, startVoices());
     const focused = selectorOf(root.querySelector<HTMLElement>(FOCUSED_SELECTOR));
@@ -487,6 +493,10 @@ export const mountPage = ({
       const kept = gmTyped[index];
       if (field !== null && kept !== undefined) field.value = kept;
     });
+    if (focusRollsOnRender) {
+      focusRollsOnRender = false;
+      return root.querySelector<HTMLElement>(ROLLS_SELECTOR)?.focus();
+    }
     const typing = focused === ENTRY_SELECTOR || focused === SEARCH_SELECTOR;
     if (soundFocus !== null && !typing) soundFocus.focus();
     else if (focused !== undefined) root.querySelector<HTMLElement>(focused)?.focus();
@@ -717,6 +727,28 @@ export const mountPage = ({
       settleLater(client.state());
     }, SETTLE_MS);
   };
+  let collapsing = false;
+  const collapseLater = ({ rolls, rollsCollapsed }: DesktopState) => {
+    if (collapsing || rollsCollapsed || rolls.length === 0) return;
+    collapsing = true;
+    const scheduled = rolls[0]?.resultId;
+    schedule(() => {
+      collapsing = false;
+      const current = client.state();
+      if (current.rolls[0]?.resultId === scheduled && root.querySelector(ROLLS_HELD_SELECTOR) === null)
+        return client.collapseRolls();
+      collapseLater(current);
+    }, ROLL_COLLAPSE_MS);
+  };
+  let badgeSettling = false;
+  const settleBadgeLater = ({ rollBadgeFresh }: DesktopState) => {
+    if (badgeSettling || !rollBadgeFresh) return;
+    badgeSettling = true;
+    schedule(() => {
+      badgeSettling = false;
+      client.settleBadge();
+    }, SETTLE_MS);
+  };
   let observedRevision: number | undefined;
   const observeSpeech = ({ snapshot }: DesktopState) => {
     if (snapshot?.revision === observedRevision) return;
@@ -726,6 +758,8 @@ export const mountPage = ({
   client.subscribe(loadVoice);
   client.subscribe(observeSpeech);
   client.subscribe(settleLater);
+  client.subscribe(collapseLater);
+  client.subscribe(settleBadgeLater);
   client.subscribe(render);
   root.addEventListener(
     TOGGLE,
@@ -769,6 +803,10 @@ export const mountPage = ({
     const control = target?.closest(`[${START_CONTROL}]`)?.getAttribute(START_CONTROL);
     if (isStartControl(control)) return startControl(control);
     if (target?.closest(SKIP_SELECTOR)) return client.settle();
+    if (target?.closest(ROLL_BADGE_SELECTOR)) {
+      focusRollsOnRender = true;
+      return client.reopenRolls();
+    }
     const ooc = target?.closest(`[${OOC_ATTRIBUTE}]`);
     if (ooc)
       return oocAction(ooc.getAttribute(OOC_ATTRIBUTE), ooc.getAttribute(OOC_EXCHANGE), ooc.getAttribute(OOC_INDEX));

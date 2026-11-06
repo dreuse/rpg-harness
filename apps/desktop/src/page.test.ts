@@ -6,6 +6,7 @@ import { DUCK_RELEASE_MS } from '../../../packages/voice/src/ducking-sink.ts';
 import type { MicrophoneState } from '../../../packages/voice/src/microphone.ts';
 import { DEFAULT_SOUND_SETTINGS } from '../../../packages/voice/src/sound-settings.ts';
 import { DEFAULT_PREFERENCES, MAX_FONT_SCALE, type UiPreferences } from './accessibility.ts';
+import { ROLL_COLLAPSE_MS, SETTLE_MS } from './dice.ts';
 import { FONT_SCALE_PROPERTY, mountPage, type PageElements, type PageOptions } from './page.ts';
 import { PREFERENCES_QUERY, START_QUERY } from './preload.ts';
 import type { DesktopSound } from './sound-player.ts';
@@ -50,6 +51,7 @@ const fakePage = () => {
   const fields: Record<string, string> = {};
   const selections: Record<string, [number, number]> = {};
   let prevented = 0;
+  let held = false;
   const inputAttributes: Record<string, string> = {};
   let onLine = (_line: string) => {};
   const bridge: PageOptions['bridge'] = {
@@ -114,7 +116,8 @@ const fakePage = () => {
       },
       style: { setProperty: (name: string, value: string) => (style[name] = value) },
       addEventListener: on('root:'),
-      querySelector: (selector: string) => (selector === FOCUSED ? active : node(selector)),
+      querySelector: (selector: string) =>
+        selector === FOCUSED ? active : selector.includes(':hover') && !held ? null : node(selector),
     },
     form: { addEventListener: on('form:'), requestSubmit: () => listeners.get('form:submit')?.(event({})) },
     input: {
@@ -165,6 +168,9 @@ const fakePage = () => {
     fields,
     selections,
     prevented: () => prevented,
+    set held(next: boolean) {
+      held = next;
+    },
     receive: (message: object) => onLine(JSON.stringify(message)),
     click: (attributes: Record<string, string>) => listeners.get('root:click')?.(event(attributes)),
     press: (key: string, attributes: Record<string, string> = {}, keys: Partial<KeyEventLike> = {}) =>
@@ -710,8 +716,8 @@ const ROLL = {
 
 test('UI15: page skips a roll, settles it after the animation and honours prefers-reduced-motion', () => {
   const timers: (() => void)[] = [];
-  const schedule = (run: () => void) => {
-    timers.push(run);
+  const schedule = (run: () => void, ms: number) => {
+    if (ms !== ROLL_COLLAPSE_MS) timers.push(run);
   };
   const page = fakePage();
   mount(page, {}, deniedMicrophone, undefined, WIDE_WIDTH, { schedule });
@@ -792,8 +798,8 @@ test('UI15: page settles only the roll it scheduled', () => {
   const timers: (() => void)[] = [];
   const page = fakePage();
   const client = mount(page, {}, deniedMicrophone, undefined, WIDE_WIDTH, {
-    schedule: (run) => {
-      timers.push(run);
+    schedule: (run, ms) => {
+      if (ms !== ROLL_COLLAPSE_MS) timers.push(run);
     },
   });
   page.receive(READY);
@@ -805,6 +811,95 @@ test('UI15: page settles only the roll it scheduled', () => {
   assert.equal(client.state().rolling, true);
   timers.shift()?.();
   assert.equal(client.state().rolling, false);
+});
+
+test('rpg-42a.102: the roll card collapses after the delay, waits while held and reopens from the badge', () => {
+  const timers: [() => void, number][] = [];
+  const page = fakePage();
+  const client = mount(page, {}, deniedMicrophone, undefined, WIDE_WIDTH, {
+    schedule: (run, ms) => timers.push([run, ms]),
+  });
+  page.receive(READY);
+  page.receive({ type: 'Campaigns', campaigns: [SNAPSHOT.campaign] });
+  continueHarbor(page);
+  page.receive(ROLL);
+  const collapse = () => {
+    const index = timers.findIndex(([, ms]) => ms === ROLL_COLLAPSE_MS);
+    assert.notEqual(index, -1);
+    timers.splice(index, 1)[0]?.[0]();
+  };
+  page.held = true;
+  collapse();
+  assert.equal(client.state().rollsCollapsed, false);
+  page.held = false;
+  collapse();
+  assert.equal(client.state().rollsCollapsed, true);
+  assert.match(page.root.innerHTML, /data-roll-badge/);
+  page.click({ 'data-roll-badge': '' });
+  assert.equal(client.state().rollsCollapsed, false);
+  assert.ok(timers.some(([, ms]) => ms === ROLL_COLLAPSE_MS));
+});
+
+const mountRolling = () => {
+  const timers: [() => void, number][] = [];
+  const page = fakePage();
+  const client = mount(page, {}, deniedMicrophone, undefined, WIDE_WIDTH, {
+    schedule: (run, ms) => timers.push([run, ms]),
+  });
+  page.receive(READY);
+  page.receive({ type: 'Campaigns', campaigns: [SNAPSHOT.campaign] });
+  continueHarbor(page);
+  page.receive(ROLL);
+  const fire = (ms: number) => {
+    const index = timers.findLastIndex(([, delay]) => delay === ms);
+    assert.notEqual(index, -1);
+    timers.splice(index, 1)[0]?.[0]();
+  };
+  return { page, client, timers, fire };
+};
+
+test('rpg-42a.102: a new roll before the timer fires keeps the card and starts a fresh delay', () => {
+  const { page, client, timers, fire } = mountRolling();
+  page.receive({ ...ROLL, resultId: 'r2' });
+  fire(ROLL_COLLAPSE_MS);
+  assert.equal(client.state().rollsCollapsed, false);
+  assert.ok(timers.some(([, ms]) => ms === ROLL_COLLAPSE_MS));
+});
+
+test('rpg-42a.102: reopening from the badge focuses the card and a redraw keeps focus on the badge', () => {
+  const { page, client, fire } = mountRolling();
+  fire(ROLL_COLLAPSE_MS);
+  page.root.querySelector('[data-roll-badge=""]')?.focus();
+  page.focused.length = 0;
+  page.receive({ type: 'Campaigns', campaigns: [SNAPSHOT.campaign] });
+  assert.equal(page.focused.at(-1), '[data-roll-badge=""]');
+  page.click({ 'data-roll-badge': '' });
+  assert.equal(client.state().rollsCollapsed, false);
+  assert.equal(page.focused.at(-1), '[data-rolls]');
+  assert.match(page.root.innerHTML, /<section data-rolls tabindex="-1"/);
+});
+
+const MIGHT_TYPED = '14';
+
+test('rpg-42a.102: reopening from the badge keeps unsaved sheet input', () => {
+  const { page, fire } = mountRolling();
+  page.receive({ type: 'Snapshot', snapshot: SNAPSHOT });
+  page.receive({ type: 'View', campaignId: CAMPAIGN, view: EDITABLE_SHEET });
+  page.click({ 'data-sheet-action': 'edit' });
+  page.fields[MIGHT_INPUT] = MIGHT_TYPED;
+  fire(ROLL_COLLAPSE_MS);
+  assert.equal(page.fields[MIGHT_INPUT], MIGHT_TYPED);
+  page.click({ 'data-roll-badge': '' });
+  assert.equal(page.fields[MIGHT_INPUT], MIGHT_TYPED);
+  assert.equal(page.focused.at(-1), '[data-rolls]');
+});
+
+test('rpg-42a.102: the badge highlight clears after the settle delay', () => {
+  const { client, fire } = mountRolling();
+  fire(ROLL_COLLAPSE_MS);
+  assert.equal(client.state().rollBadgeFresh, true);
+  fire(SETTLE_MS);
+  assert.equal(client.state().rollBadgeFresh, false);
 });
 
 test('rpg-42a.19 page keeps the focused entry and caret when the same step redraws', () => {

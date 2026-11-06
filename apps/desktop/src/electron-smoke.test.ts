@@ -38,6 +38,8 @@ import {
   JOURNEY,
   JOURNEY_ENV,
   JOURNEY_ERROR,
+  journeyLayouts,
+  journeyShotName,
   SHOT_DATA_EXTENSION,
 } from './capture.ts';
 import { SMOKE_ENV, SMOKE_STATUS, WINDOW_HEIGHT, WINDOW_WIDTH } from './main.ts';
@@ -189,9 +191,17 @@ const UPDATE_BASELINES_ENV = 'RPG_DESKTOP_UPDATE_BASELINES';
 const MAX_DIFF_RATIO = 0.002;
 
 const journeyShots = (dir: string, phase: keyof typeof JOURNEY) =>
-  JOURNEY[phase].flatMap(({ shot }) =>
-    shot === undefined ? [] : CAPTURE_THEMES.map((theme) => join(dir, `${shot}-${theme.name}.png`)),
+  JOURNEY[phase].flatMap((step) =>
+    step.shot === undefined
+      ? []
+      : CAPTURE_THEMES.flatMap((theme) =>
+          journeyLayouts(step).map(({ name }) =>
+            join(dir, `${journeyShotName(step.shot ?? '', name, theme.name)}.png`),
+          ),
+        ),
   );
+const widthOf = (file: string) =>
+  CAPTURE_LAYOUTS.find(({ name }) => basename(file).includes(`-${name}-`))?.width ?? WINDOW_WIDTH;
 
 type Phase = keyof typeof JOURNEY;
 
@@ -225,7 +235,7 @@ const checkBaselines = (t: TestContext, files: readonly string[]) => {
     const { size, audit, masks } = JSON.parse(readFileSync(file.replace(/\.png$/, SHOT_DATA_EXTENSION), 'utf8'));
     assert.deepEqual(
       size,
-      { width: WINDOW_WIDTH, height: WINDOW_HEIGHT },
+      { width: widthOf(file), height: WINDOW_HEIGHT },
       `${basename(file)} was not captured at scale 1`,
     );
     const blocking = auditPage(audit).filter(({ impact }) => BLOCKING_IMPACTS.includes(impact));

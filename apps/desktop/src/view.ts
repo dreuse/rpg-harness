@@ -28,7 +28,7 @@ import {
   type UiPreferences,
   voiceLabel,
 } from './accessibility.ts';
-import { renderRoll, rollSummary } from './dice.ts';
+import { renderRoll, renderRollBadge, rollSummary } from './dice.ts';
 import { PREFERENCES_QUERY, START_QUERY } from './preload.ts';
 import {
   OPENING_ACTION_ID,
@@ -577,10 +577,12 @@ const rollHistory = (older: ViewModel['rolls'], locale: string) =>
     ? ''
     : `<details data-roll-history><summary>${escapeHtml(translate(locale, 'roll.history'))}</summary><ol>${older.map((plan) => `<li>${escapeHtml(rollSummary(plan, locale))}</li>`).join('')}</ol></details>`;
 
-const rollTray = ({ rolls: [latest, ...older] }: ViewModel, locale: string) =>
+const rollTray = ({ rolls: [latest, ...older], rollsCollapsed, rollBadgeFresh }: ViewModel, locale: string) =>
   latest === undefined
     ? ''
-    : `<section data-rolls aria-label="${escapeHtml(translate(locale, 'region.rolls'))}">${renderRoll(latest, locale)}${rollHistory(older, locale)}</section>`;
+    : rollsCollapsed
+      ? renderRollBadge(latest, locale, rollBadgeFresh)
+      : `<section data-rolls tabindex="-1" aria-label="${escapeHtml(translate(locale, 'region.rolls'))}">${renderRoll(latest, locale)}${rollHistory(older, locale)}</section>`;
 
 export const ROLL_OFFER_ATTRIBUTE = 'data-roll-offer';
 export const OOC_ATTRIBUTE = 'data-ooc';
@@ -949,7 +951,7 @@ const storyLanguageControl = (current: string | undefined, locale: string): stri
   ).join('')}</fieldset>`;
 
 const mainOpen = (model: ViewModel, screen: 'home' | 'play') =>
-  `<main data-screen="${screen}" data-layout="${model.layout.name}" data-animate="${model.animate}" style="--font-scale: ${model.fontScale}">`;
+  `<main data-screen="${screen}" data-layout="${model.layout.name}" data-animate="${model.animate}" data-motion-mode="${model.motion}" style="--font-scale: ${model.fontScale}">`;
 
 const renderHome = (model: ViewModel, locale: string) =>
   `${mainOpen(model, 'home')}${pane(STATUS, locale, REGION_BODIES.status(model, locale), false)}${renderStart(model, locale)}${pane('campaigns', locale, REGION_BODIES.campaigns(model, locale), false)}</main>`;

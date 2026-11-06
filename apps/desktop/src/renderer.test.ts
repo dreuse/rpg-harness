@@ -597,6 +597,36 @@ test('UI15: skip settles the roll, history keeps recent rolls and motion prefere
   assert.equal(client.state().rolls.length, 5);
 });
 
+test('rpg-42a.102: the roll card collapses to a badge, reopens on demand and a new roll reopens it', () => {
+  const { wire, client } = connectedClient();
+  wire.receive(rollEvent('r1', 17));
+  assert.equal(viewModel(client.state(), WIDE_WIDTH).rollsCollapsed, false);
+  client.collapseRolls();
+  assert.equal(viewModel(client.state(), WIDE_WIDTH).rollsCollapsed, true);
+  client.reopenRolls();
+  assert.equal(viewModel(client.state(), WIDE_WIDTH).rollsCollapsed, false);
+  client.collapseRolls();
+  wire.receive(rollEvent('r2', 9));
+  assert.equal(viewModel(client.state(), WIDE_WIDTH).rollsCollapsed, false);
+});
+
+test('rpg-42a.102: the badge is fresh only after a collapse until it settles, a reopen or a new roll', () => {
+  const { wire, client } = connectedClient();
+  const fresh = () => viewModel(client.state(), WIDE_WIDTH).rollBadgeFresh;
+  wire.receive(rollEvent('r1', 17));
+  assert.equal(fresh(), false);
+  client.collapseRolls();
+  assert.equal(fresh(), true);
+  client.settleBadge();
+  assert.equal(fresh(), false);
+  client.collapseRolls();
+  client.reopenRolls();
+  assert.equal(fresh(), false);
+  client.collapseRolls();
+  wire.receive(rollEvent('r2', 9));
+  assert.equal(fresh(), false);
+});
+
 test('UI15: changed sheet values are highlighted until they settle', () => {
   const { wire, client } = connectedClient();
   const sheet = (hp: number) => ({

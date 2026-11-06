@@ -807,6 +807,49 @@ body:has(main[data-screen="home"]) #action-form {
   border-radius: var(--radius-2);
 }
 
+[data-roll-badge] {
+  align-self: flex-start;
+  display: grid;
+  place-items: center;
+  min-width: var(--target-min);
+  min-height: var(--target-min);
+  padding: var(--space-1);
+  background: var(--surface-raised);
+  border: var(--border-width) solid var(--border-strong);
+  border-radius: var(--radius-2);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-weight: var(--weight-strong);
+  cursor: pointer;
+}
+
+[data-roll-badge][data-fresh] {
+  animation: roll-badge-in var(--duration-settle) var(--ease);
+}
+
+[data-roll-badge] svg {
+  grid-area: 1 / 1;
+  width: var(--target-min);
+  height: var(--target-min);
+  fill: none;
+  stroke: currentcolor;
+  stroke-width: var(--marker-width);
+}
+
+[data-roll-badge] span {
+  grid-area: 1 / 1;
+  font-size: calc(var(--text-md) * var(--font-scale, 1));
+  font-variant-numeric: tabular-nums;
+}
+
+:root:has([data-animate="false"]) [data-roll-badge][data-fresh] {
+  animation: roll-badge-fade var(--duration-fade) var(--ease);
+}
+
+:root:has([data-motion-mode="off"]) [data-roll-badge][data-fresh] {
+  animation: none;
+}
+
 [data-roll] {
   display: grid;
   grid-template-columns: 1fr auto;
@@ -933,6 +976,20 @@ body:has(main[data-screen="home"]) #action-form {
 @keyframes tumble {
   from {
     transform: rotate(-1turn);
+  }
+}
+
+@keyframes roll-badge-in {
+  from {
+    opacity: 0;
+    transform: translate(40vw, -30vh) scale(4);
+    background: var(--accent);
+  }
+}
+
+@keyframes roll-badge-fade {
+  from {
+    opacity: 0;
   }
 }
 

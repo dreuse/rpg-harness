@@ -142,6 +142,8 @@ export type DesktopState = {
   readonly start: StartState;
   readonly rolls: readonly VisualizationEvent[];
   readonly rolling: boolean;
+  readonly rollsCollapsed: boolean;
+  readonly rollBadgeFresh: boolean;
   readonly sheetChanged: readonly string[];
   readonly sheetErrors: Readonly<Record<string, string>>;
   readonly sheetEditing: boolean;
@@ -181,6 +183,8 @@ export const initialState: DesktopState = {
   start: { open: false, draft: INITIAL_DRAFT },
   rolls: [],
   rolling: false,
+  rollsCollapsed: false,
+  rollBadgeFresh: false,
   sheetChanged: [],
   sheetErrors: {},
   sheetEditing: false,
@@ -351,6 +355,8 @@ export const viewModel = (
     sheetGroups: sheetGroupsOf(state.views[SHEET_VIEW]?.components ?? [], state, preferences.locale),
     sheetEditing: state.sheetEditing,
     rolls: dice ? state.rolls.map((roll, index) => rollPlan(roll, index === 0 && state.rolling ? motion : 'off')) : [],
+    rollsCollapsed: state.rollsCollapsed,
+    rollBadgeFresh: state.rollBadgeFresh,
     fontScale: preferences.fontScale,
     animate: motion === 'full',
     motion: preferences.motion,
@@ -608,6 +614,8 @@ export const createDesktopClient = ({
       views: {},
       rolls: [],
       rolling: false,
+      rollsCollapsed: false,
+      rollBadgeFresh: false,
       sheetChanged: [],
       sheetErrors: {},
       sheetEditing: false,
@@ -684,7 +692,7 @@ export const createDesktopClient = ({
       const roll = parseVisualization(message);
       if (roll === undefined) return;
       const rolls = [roll, ...state.rolls.filter(({ resultId }) => resultId !== roll.resultId)].slice(0, ROLL_HISTORY);
-      return update({ rolls, rolling: roll.replayed !== true });
+      return update({ rolls, rolling: roll.replayed !== true, rollsCollapsed: false, rollBadgeFresh: false });
     }
     if (message.type === PLANNED && isResult(message.result)) return onPlanned(message.command, message.result);
     if (message.type === CREATED && isResult(message.result)) return onCreated(message.result);
@@ -887,6 +895,8 @@ export const createDesktopClient = ({
         views: {},
         rolls: [],
         rolling: false,
+        rollsCollapsed: false,
+        rollBadgeFresh: false,
         sheetChanged: [],
         sheetErrors: {},
         sheetEditing: false,
@@ -896,6 +906,9 @@ export const createDesktopClient = ({
       send(LIST_CAMPAIGNS);
     },
     settle: () => update({ rolling: false, sheetChanged: [] }),
+    collapseRolls: () => update({ rollsCollapsed: true, rollBadgeFresh: true }),
+    reopenRolls: () => update({ rollsCollapsed: false, rollBadgeFresh: false }),
+    settleBadge: () => update({ rollBadgeFresh: false }),
     continueCampaign: (name: string) => {
       update({ home: { ...state.home, confirm: undefined, error: undefined } });
       sendNamed('OpenCampaign', name);

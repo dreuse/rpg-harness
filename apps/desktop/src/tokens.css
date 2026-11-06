@@ -54,6 +54,7 @@
   --duration-base: 200ms;
   --duration-roll: 900ms;
   --duration-settle: 1200ms;
+  --duration-fade: 200ms;
   --ease: cubic-bezier(0.2, 0, 0, 1);
 }
 

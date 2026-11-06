@@ -175,7 +175,12 @@ const JOURNEY_LISTENER = `window.${BRIDGE_KEY}.onLine((line) => { const message 
 const SHEET_INPUT_SELECTOR = `#sheet-field-${JOURNEY_EDIT.fieldId}`;
 const SHEET_VALUE = `document.querySelector('[data-stat="${JOURNEY_EDIT.fieldId}"] dd')?.textContent === '${JOURNEY_EDIT.value}'`;
 
-type JourneyStep = { readonly script: string; readonly shot?: string };
+type JourneyStep = { readonly script: string; readonly shot?: string; readonly layouts?: boolean };
+
+const WIDE_ONLY = CAPTURE_LAYOUTS.filter(({ name }) => name === WIDE_LAYOUT);
+export const journeyLayouts = ({ layouts }: JourneyStep) => (layouts === true ? CAPTURE_LAYOUTS : WIDE_ONLY);
+export const journeyShotName = (shot: string, layout: string, theme: string) =>
+  layout === WIDE_LAYOUT ? `${shot}-${theme}` : `${shot}-${layout}-${theme}`;
 
 const FINISH_VOICE_SETUP = steps(
   click('[data-voice-setup="finish"]'),
@@ -255,6 +260,8 @@ const FIRST_TURN = steps(
   `await ${until(`document.querySelector('[data-rolls] [data-roll]') && ${GM_REPLIED} && ${SETTLED}`)};`,
 );
 
+const COLLAPSED_ROLL = steps(`await ${until(`document.querySelector('[data-roll-badge]') && ${SETTLED}`)};`);
+
 const DICELESS_TO_RULES = steps(
   chooseOption(JOURNEY_GUIDE, 'primer'),
   nextStep('genre'),
@@ -332,6 +339,7 @@ export const JOURNEY: Readonly<
     { script: spokenStory('Off', false) },
     { script: BEGIN_TO_SUMMARY, shot: 'guided-summary' },
     { script: FIRST_TURN, shot: 'first-roll' },
+    { script: COLLAPSED_ROLL, shot: 'first-roll-collapsed', layouts: true },
     {
       script: steps(
         `await ${until('window.journeySnapshot?.turns.length > 1')};`,
@@ -479,22 +487,27 @@ export const captureJourney = async (
   await prepare(window);
   window.setContentSize(WINDOW_WIDTH, WINDOW_HEIGHT);
   const files: string[] = [];
-  for (const { script, shot } of journey) {
-    await webContents.executeJavaScript(script);
-    if (shot === undefined) continue;
+  for (const step of journey) {
+    await webContents.executeJavaScript(step.script);
+    if (step.shot === undefined) continue;
     for (const { name: themeName, features } of CAPTURE_THEMES) {
       await webContents.debugger.sendCommand(EMULATE_MEDIA, { features });
-      await webContents.executeJavaScript(settleProbe(WIDE_LAYOUT, features));
-      const file = join(dir, `${shot}-${themeName}${PNG_EXTENSION}`);
-      const png = await screenshot(window);
-      write(file, png);
-      const { width, height } = decodePng(png);
-      const audit = await webContents.executeJavaScript(AUDIT_PROBE);
-      const masks = await webContents.executeJavaScript(MASK_PROBE);
-      const data = { size: { width, height }, audit, masks };
-      write(join(dir, `${shot}-${themeName}${SHOT_DATA_EXTENSION}`), Buffer.from(JSON.stringify(data)));
-      files.push(file);
+      for (const { name: layout, width: layoutWidth } of journeyLayouts(step)) {
+        window.setContentSize(layoutWidth, WINDOW_HEIGHT);
+        await webContents.executeJavaScript(settleProbe(layout, features));
+        const name = journeyShotName(step.shot, layout, themeName);
+        const file = join(dir, `${name}${PNG_EXTENSION}`);
+        const png = await screenshot(window);
+        write(file, png);
+        const { width, height } = decodePng(png);
+        const audit = await webContents.executeJavaScript(AUDIT_PROBE);
+        const masks = await webContents.executeJavaScript(MASK_PROBE);
+        const data = { size: { width, height }, audit, masks };
+        write(join(dir, `${name}${SHOT_DATA_EXTENSION}`), Buffer.from(JSON.stringify(data)));
+        files.push(file);
+      }
     }
+    window.setContentSize(WINDOW_WIDTH, WINDOW_HEIGHT);
   }
   return files;
 };

@@ -697,13 +697,35 @@ const rolled = (resultId: string, face: number): VisualizationEvent => ({
 test('UI15: the conversation shows the latest roll with a skip button and a recent roll history', () => {
   const rolling = { ...state, rolls: [rolled('r2', 12), rolled('r1', 3)], rolling: true };
   const html = renderView(viewModel(rolling, WIDE_WIDTH), DEFAULT_PREFERENCES.locale);
-  assert.match(html, /<section data-rolls aria-label="Dice"><figure data-roll data-animated="true"/);
+  assert.match(html, /<section data-rolls tabindex="-1" aria-label="Dice"><figure data-roll data-animated="true"/);
   assert.match(html, /data-roll-skip/);
   assert.match(html, /<details data-roll-history><summary>Recent rolls<\/summary><ol><li>d20 3, total 3, /);
   assert.doesNotMatch(html, /<img/);
   const still = renderView(viewModel(rolling, WIDE_WIDTH, { ...DEFAULT_PREFERENCES, motion: 'off' }), 'en');
   assert.match(still, /data-animated="false"/);
   assert.doesNotMatch(renderView(viewModel(state, WIDE_WIDTH), 'en'), /data-rolls/);
+});
+
+test('rpg-42a.102: a collapsed roll card leaves a keyboard-reachable badge named after the last roll', () => {
+  const collapsed = { ...state, rolls: [rolled('r2', 1), rolled('r1', 3)], rollsCollapsed: true };
+  assert.doesNotMatch(renderView(viewModel(collapsed, WIDE_WIDTH), 'en'), /data-fresh/);
+  assert.match(
+    renderView(viewModel({ ...collapsed, rollBadgeFresh: true }, WIDE_WIDTH), 'en'),
+    /data-roll-badge data-fresh /,
+  );
+  const html = renderView(viewModel(collapsed, WIDE_WIDTH), 'en');
+  assert.match(html, /<button type="button" data-roll-badge aria-label="Last roll: 1, /);
+  assert.doesNotMatch(html, /data-roll-skip|<figure data-roll|data-roll-history|aria-live="[^"]*"[^>]*data-roll-badge/);
+  assert.match(renderView(viewModel(collapsed, WIDE_WIDTH), 'es'), /aria-label="Última tirada: 1, /);
+  assert.doesNotMatch(renderView(viewModel(state, WIDE_WIDTH), 'en'), /data-roll-badge/);
+});
+
+test('rpg-42a.102: the badge fades without moving when motion is reduced', () => {
+  const css = readFileSync(new URL('view.css', import.meta.url), 'utf8');
+  assert.match(css, /\[data-roll-badge\]\[data-fresh\] \{[^}]*animation: roll-badge-in/);
+  assert.match(css, /\[data-animate="false"\]\) \[data-roll-badge\]\[data-fresh\] \{[^}]*animation: roll-badge-fade/);
+  assert.match(css, /\[data-motion-mode="off"\]\) \[data-roll-badge\]\[data-fresh\] \{[^}]*animation: none/);
+  assert.doesNotMatch(css, /position: fixed;\s*inset-block-end: calc/);
 });
 
 test('UI15: changed sheet values carry a highlight marker', () => {

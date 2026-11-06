@@ -17,6 +17,7 @@ import { escapeHtml } from './view.ts';
 export const ROLL_MS = 900;
 export const SETTLE_MS = 1200;
 export const ROLL_HISTORY = 5;
+export const ROLL_COLLAPSE_MS = 4000;
 export const TUMBLE_STEPS = 8;
 const STILL_MS = 0;
 const STILL_STEPS = 1;
@@ -122,6 +123,22 @@ export const renderRoll = (plan: RollPlan, locale: string) =>
     .join(
       '',
     )}${plan.tokens.map((label) => `<span data-token>${escapeHtml(label)}</span>`).join('')}</div>${rollTotal(plan.final)}${rollOutcome(plan.final, locale)}${rollReportedBadge(plan.final, locale)}</div>${rollBreakdown(plan, locale)}<figcaption>${escapeHtml(rollSummary(plan, locale))}</figcaption>${plan.animated ? `<button type="button" data-roll-skip>${escapeHtml(translate(locale, 'roll.skip'))}</button>` : ''}</figure>`;
+
+const badgeResult = (plan: RollPlan, locale: string) => {
+  const { total, outcome } = plan.final;
+  const parts = [total, outcome === undefined ? undefined : outcomeText(translate, locale, outcome)].filter(
+    (part) => part !== undefined,
+  );
+  return parts.length === 0 ? rollSummary(plan, locale) : parts.join(PART_SEPARATOR);
+};
+
+export const renderRollBadge = (plan: RollPlan, locale: string, fresh: boolean) => {
+  const { total, outcome } = plan.final;
+  const shape = plan.groups[0]?.shape ?? GENERIC_DIE;
+  const label = escapeHtml(translate(locale, 'roll.badge', { result: badgeResult(plan, locale) }));
+  const attributes = outcome === undefined ? '' : ` data-outcome="${escapeHtml(outcomeLabel(outcome))}"`;
+  return `<button type="button" data-roll-badge${fresh ? ' data-fresh' : ''} aria-label="${label}"${attributes}><svg viewBox="0 0 100 100" aria-hidden="true">${SHAPES[shape] ?? SHAPES[GENERIC_DIE]}</svg><span aria-hidden="true">${total ?? ''}</span></button>`;
+};
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
