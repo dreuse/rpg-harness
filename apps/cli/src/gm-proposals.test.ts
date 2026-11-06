@@ -5,10 +5,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it, type TestContext } from 'node:test';
 import { PROTOCOL_VERSION } from '../../../packages/client-protocol/src/protocol.ts';
+import { NPC_SHEET_FIELD } from '../../../packages/engine/src/damage.ts';
 import { MAX_ROLL_EXPRESSION_LENGTH } from '../../../packages/engine/src/gm-roll.ts';
 import { pendingOf } from '../../../packages/memory/src/graph.ts';
 import { openDatabase } from '../../../packages/persistence/src/database.ts';
 import { createEntityStore, createFactStore } from '../../../packages/persistence/src/entity-store.ts';
+import { D20_LITE_COMBAT, D20_LITE_MANIFEST } from '../../../packages/rules/src/d20-lite.ts';
 import {
   createEngineGateway,
   FAKE_GAME_MASTER,
@@ -22,6 +24,7 @@ import {
   MAX_MOOD_TAGS,
   MAX_NAME_LENGTH,
   MAX_PROPOSALS,
+  MAX_SHEET_TRAITS,
   MAX_TAG_LENGTH,
   PROPOSALS_SCHEMA,
   proposalsOf,
@@ -78,9 +81,11 @@ const tempDataDir = (t: TestContext) => {
   return dataDir;
 };
 
-const narratedWith = async (t: TestContext, proposals: unknown) => {
+const D20_INTENT = 'A fantasy story using the d20-lite rules';
+
+const narratedWith = async (t: TestContext, proposals: unknown, intent?: string) => {
   const dataDir = tempDataDir(t);
-  for await (const _ of createEngineGateway(dataDir).create(CAMPAIGN, undefined, NO_CHARACTER));
+  for await (const _ of createEngineGateway(dataDir).create(CAMPAIGN, intent, NO_CHARACTER));
   const gm: GameMaster = {
     request: async () => ({
       narration: NARRATION,
@@ -117,6 +122,73 @@ const narratedWith = async (t: TestContext, proposals: unknown) => {
     snapshot: session.getSnapshot({ ...envelope, type: 'GetCampaignSnapshot' }),
   };
 };
+
+const SHEET_PACK = {
+  id: D20_LITE_MANIFEST.id,
+  edition: D20_LITE_MANIFEST.edition,
+  revision: D20_LITE_MANIFEST.revision,
+};
+const SHEET_TRAITS = [
+  { id: D20_LITE_COMBAT.defense, value: 12 },
+  { id: D20_LITE_COMBAT.hitPoints, value: 8 },
+];
+const gmSheet = (extra: Record<string, unknown> = {}) => ({
+  motivations: ['Guard the gate'],
+  background: 'A retired soldier.',
+  traits: SHEET_TRAITS,
+  rulepack: SHEET_PACK,
+  ...extra,
+});
+const sheetProposal = (sheet: unknown) => ({ ...STRANGER, sheet });
+const npcsOf = <T extends { kind: string }>(entities: readonly T[]) => entities.filter(({ kind }) => kind === 'npc');
+
+describe('rpg-42a.127 GM npc sheet proposals', () => {
+  it('stores a bounded sparse sheet on the new npc, named from the proposal', async (t) => {
+    const { entities } = await narratedWith(t, [sheetProposal(gmSheet())], D20_INTENT);
+    assert.deepEqual(
+      npcsOf(entities).map(({ id, data }) => [id, data[NPC_SHEET_FIELD]]),
+      [[STRANGER.id, { detail: 'sparse', npcId: STRANGER.id, role: 'minor', name: STRANGER.name, ...gmSheet() }]],
+    );
+  });
+
+  it('commits nothing for a malformed, mismatched or incomplete sheet, and commits the same npc without it', async (t) => {
+    const bad = [
+      gmSheet({ rulepack: { ...SHEET_PACK, revision: 'other' } }),
+      gmSheet({ traits: [SHEET_TRAITS[0]] }),
+      gmSheet({ traits: [SHEET_TRAITS[0], { id: D20_LITE_COMBAT.hitPoints, value: 8.5 }] }),
+    ];
+    for (const sheet of bad) {
+      const { entities } = await narratedWith(t, [sheetProposal(sheet)], D20_INTENT);
+      assert.deepEqual(npcsOf(entities), []);
+    }
+    const { entities } = await narratedWith(t, [STRANGER], D20_INTENT);
+    assert.deepEqual(
+      npcsOf(entities).map(({ id }) => id),
+      [STRANGER.id],
+    );
+  });
+
+  it('refuses a sheet that is oversized, has extra keys, or is not an object', () => {
+    const tooMany = Array.from({ length: MAX_SHEET_TRAITS + 1 }, (_, index) => ({ id: `trait-${index}`, value: 1 }));
+    const refused = [
+      'tough',
+      gmSheet({ extra: 'x' }),
+      gmSheet({ npcId: 'someone-else' }),
+      gmSheet({ background: 'x'.repeat(MAX_FACT_LENGTH + 1) }),
+      gmSheet({ motivations: Array.from({ length: MAX_FACTS + 1 }, () => 'goal') }),
+      gmSheet({ traits: tooMany }),
+      gmSheet({ traits: [{ id: 'armor', value: 1, extra: true }] }),
+      gmSheet({ rulepack: { ...SHEET_PACK, extra: 'x' } }),
+    ];
+    for (const sheet of refused) assert.equal(proposalsOf({ proposals: [sheetProposal(sheet)] }), undefined);
+  });
+
+  it('declares the sheet sub-schema without extra keys', () => {
+    const entity = PROPOSALS_SCHEMA.items.anyOf[0].properties.sheet;
+    assert.equal(entity.additionalProperties, false);
+    assert.equal(entity.properties.traits.maxItems, MAX_SHEET_TRAITS);
+  });
+});
 
 describe('rpg-42a.43 GM proposals', () => {
   it('parses valid entity and pending proposals', () => {

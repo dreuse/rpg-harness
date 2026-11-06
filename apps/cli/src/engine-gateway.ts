@@ -163,6 +163,7 @@ import {
 import {
   checkForAction,
   checkRulesFor,
+  combatRulesOf,
   enforcedStrictnessFor,
   gmRollExpressionFor,
   gmRollsAllowed,
@@ -610,6 +611,7 @@ const narrateLatest = async (
       proposals,
       checkRulesFor(state.events, rulesStrictnessFor(state, defaults)),
       modifierPolicyOf(state.events, rulesStrictnessFor(state, defaults)),
+      combatRulesOf(state.events),
     );
   }
   if (sent !== undefined)

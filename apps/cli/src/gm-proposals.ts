@@ -22,6 +22,7 @@ import {
   endCondition,
   type ModifierPolicy,
 } from '../../../packages/engine/src/conditions.ts';
+import { type CombatRules, NPC_SHEET_FIELD } from '../../../packages/engine/src/damage.ts';
 import {
   GM_ROLL_VISIBILITIES,
   type GmRollVisibility,
@@ -59,6 +60,7 @@ export const MAX_ID_LENGTH = 64;
 export const MAX_NAME_LENGTH = 80;
 export const MAX_FACT_LENGTH = 300;
 export const MAX_FACTS = 5;
+export const MAX_SHEET_TRAITS = 12;
 export const MAX_TAG_LENGTH = 40;
 export const MAX_MOOD_TAGS = 5;
 export const MAX_PENDING_TEXT_LENGTH = 300;
@@ -96,6 +98,7 @@ const PROPOSAL_KEYS = {
     'locationKind',
     'mood',
     VOICE_TRAITS_FIELD,
+    NPC_SHEET_FIELD,
   ],
   [PENDING_PROPOSAL]: ['kind', 'id', 'pendingKind', 'text', 'entityIds', 'visibility'],
   [CHECK_PROPOSAL]: ['kind', 'id', 'ruleId', 'target', 'label', 'difficulty', 'modifiers', NEEDS_CHECK_FIELD],
@@ -109,6 +112,13 @@ const PROPOSAL_KEYS = {
 
 type ProposalVisibility = (typeof PROPOSAL_VISIBILITIES)[number];
 
+export type NpcSheetProposal = {
+  readonly motivations: readonly string[];
+  readonly background: string;
+  readonly traits: readonly { readonly id: string; readonly value: number }[];
+  readonly rulepack: { readonly id: string; readonly edition: string; readonly revision: string };
+};
+
 export type EntityProposal = {
   readonly kind: typeof ENTITY_PROPOSAL;
   readonly id: EntityId;
@@ -118,6 +128,7 @@ export type EntityProposal = {
   readonly locationKind?: string;
   readonly mood?: readonly string[];
   readonly voiceTraits?: VoiceTraits;
+  readonly sheet?: NpcSheetProposal;
   readonly visibility: ProposalVisibility;
 };
 
@@ -231,6 +242,38 @@ const durationSchema = {
   additionalProperties: false,
 } as const;
 
+const sheetRulepackSchema = {
+  type: 'object',
+  properties: {
+    id: { type: 'string', maxLength: MAX_TAG_LENGTH },
+    edition: { type: 'string', maxLength: MAX_TAG_LENGTH },
+    revision: { type: 'string', maxLength: MAX_TAG_LENGTH },
+  },
+  required: ['id', 'edition', 'revision'],
+  additionalProperties: false,
+} as const;
+
+const sheetSchema = {
+  type: 'object',
+  properties: {
+    motivations: { type: 'array', maxItems: MAX_FACTS, items: { type: 'string', maxLength: MAX_FACT_LENGTH } },
+    background: { type: 'string', maxLength: MAX_FACT_LENGTH },
+    traits: {
+      type: 'array',
+      maxItems: MAX_SHEET_TRAITS,
+      items: {
+        type: 'object',
+        properties: { id: { type: 'string', maxLength: MAX_TAG_LENGTH }, value: { type: 'number' } },
+        required: ['id', 'value'],
+        additionalProperties: false,
+      },
+    },
+    rulepack: sheetRulepackSchema,
+  },
+  required: ['traits', 'rulepack'],
+  additionalProperties: false,
+} as const;
+
 const voiceTraitsSchema = {
   type: 'object',
   properties: {
@@ -258,6 +301,7 @@ export const PROPOSALS_SCHEMA = {
           locationKind: { type: 'string', maxLength: MAX_TAG_LENGTH },
           mood: { type: 'array', maxItems: MAX_MOOD_TAGS, items: { type: 'string', maxLength: MAX_TAG_LENGTH } },
           voiceTraits: voiceTraitsSchema,
+          sheet: sheetSchema,
         },
         required: ['kind', 'id', 'entityKind', 'name'],
         additionalProperties: false,
@@ -386,6 +430,40 @@ const listOf = <T>(value: unknown, max: number, item: (entry: unknown) => T | un
   return items.every((entry) => entry !== undefined) ? (items as T[]) : undefined;
 };
 
+const SHEET_KEYS = ['motivations', 'background', 'traits', 'rulepack'];
+const TRAIT_KEYS = ['id', 'value'];
+const RULEPACK_KEYS = ['id', 'edition', 'revision'];
+
+const onlyKeys = (value: unknown, keys: readonly string[]): value is Record<string, unknown> =>
+  isRecord(value) && Object.keys(value).every((key) => keys.includes(key));
+
+const traitOf = (value: unknown) => {
+  if (!onlyKeys(value, TRAIT_KEYS) || typeof value.value !== 'number' || !Number.isFinite(value.value))
+    return undefined;
+  const id = textOf(value.id, MAX_TAG_LENGTH);
+  return id === undefined ? undefined : { id, value: value.value };
+};
+
+const sheetRulepackOf = (value: unknown) => {
+  if (!onlyKeys(value, RULEPACK_KEYS)) return undefined;
+  const [id, edition, revision] = RULEPACK_KEYS.map((key) => textOf(value[key], MAX_TAG_LENGTH));
+  return id === undefined || edition === undefined || revision === undefined ? undefined : { id, edition, revision };
+};
+
+const sheetOf = (value: unknown): NpcSheetProposal | undefined => {
+  if (!onlyKeys(value, SHEET_KEYS)) return undefined;
+  const motivations =
+    value.motivations === undefined
+      ? []
+      : listOf(value.motivations, MAX_FACTS, (goal) => textOf(goal, MAX_FACT_LENGTH));
+  const traits = listOf(value.traits, MAX_SHEET_TRAITS, traitOf);
+  const rulepack = sheetRulepackOf(value.rulepack);
+  const background = value.background ?? '';
+  const bounded = typeof background === 'string' && background.length <= MAX_FACT_LENGTH;
+  if (motivations === undefined || traits === undefined || rulepack === undefined || !bounded) return undefined;
+  return { motivations, background, traits, rulepack };
+};
+
 const entityOf = (value: Record<string, unknown>): EntityProposal | undefined => {
   const id = idOf(value.id);
   const name = textOf(value.name, MAX_NAME_LENGTH);
@@ -399,6 +477,8 @@ const entityOf = (value: Record<string, unknown>): EntityProposal | undefined =>
   const mood =
     value.mood === undefined ? undefined : listOf(value.mood, MAX_MOOD_TAGS, (tag) => textOf(tag, MAX_TAG_LENGTH));
   const voiceTraits = toVoiceTraits(value.voiceTraits);
+  const sheet = value.sheet === undefined ? undefined : sheetOf(value.sheet);
+  if (value.sheet !== undefined && sheet === undefined) return undefined;
   if (
     (value.locationKind !== undefined && locationKind === undefined) ||
     (value.mood !== undefined && mood === undefined)
@@ -413,6 +493,7 @@ const entityOf = (value: Record<string, unknown>): EntityProposal | undefined =>
     ...(locationKind === undefined ? {} : { locationKind }),
     ...(mood === undefined ? {} : { mood }),
     ...(voiceTraits === undefined ? {} : { voiceTraits }),
+    ...(sheet === undefined ? {} : { sheet }),
     visibility,
   };
 };
@@ -666,6 +747,17 @@ export const commitGmRolls = (
   return results;
 };
 
+const SPARSE_DETAIL = 'sparse';
+const SHEET_ROLE = 'minor';
+
+const sparseSheetOf = ({ id, name, sheet }: EntityProposal) => ({
+  detail: SPARSE_DETAIL,
+  npcId: id,
+  role: SHEET_ROLE,
+  name,
+  ...sheet,
+});
+
 export const commitProposals = (
   store: CampaignStore,
   entities: EntityStore,
@@ -674,6 +766,7 @@ export const commitProposals = (
   proposals: readonly GmProposal[],
   checkRules: readonly string[] = NO_RULES,
   policy?: ModifierPolicy,
+  combat?: CombatRules,
 ): readonly CommittedTurn[] => {
   const { campaignId } = committed.turn;
   const results: CommittedTurn[] = [];
@@ -724,7 +817,10 @@ export const commitProposals = (
               id: proposal.id,
               kind: proposal.entityKind,
               name: proposal.name,
-              data: proposal.voiceTraits === undefined ? {} : { [VOICE_TRAITS_FIELD]: proposal.voiceTraits },
+              data: {
+                ...(proposal.voiceTraits === undefined ? {} : { [VOICE_TRAITS_FIELD]: proposal.voiceTraits }),
+                ...(proposal.sheet === undefined ? {} : { [NPC_SHEET_FIELD]: sparseSheetOf(proposal) }),
+              },
               ...scope,
             },
             facts: (proposal.facts ?? []).map((statement, index) => ({
@@ -734,6 +830,7 @@ export const commitProposals = (
               ...scope,
             })),
             relationships: [],
+            ...(combat === undefined ? {} : { combat }),
           }),
         );
       else if (proposal.entityIds.every((id) => entities.getEntity(campaignId, id) !== undefined))

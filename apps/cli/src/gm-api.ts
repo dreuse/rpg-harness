@@ -7,6 +7,7 @@ import { type GmUsage, ROUTE_DEFAULT_MODEL } from '../../../packages/domain/src/
 import type { RulesStrictness } from '../../../packages/domain/src/rules-usage.ts';
 import { VOICE_AGES, VOICE_GENDERS, VOICE_MANNERS } from '../../../packages/domain/src/voice.ts';
 import type { ModifierPolicy } from '../../../packages/engine/src/conditions.ts';
+import type { CombatRules } from '../../../packages/engine/src/damage.ts';
 import type { SummaryLevel } from '../../../packages/memory/src/history.ts';
 import { type ContextPacket, frameData, packetParts } from '../../../packages/memory/src/packet.ts';
 import type { ModifierEffect } from '../../../packages/rules/src/modifiers.ts';
@@ -87,6 +88,8 @@ export const checkRulesPrompt = (ruleIds: readonly string[]): string =>
   `A check proposal has kind "check", a lowercase id, a ruleId from this list, the target and a short label for the roll offer: ${ruleIds.join(', ')}. When the player's action itself is a risky attempt, set needsCheck to true on that proposal and the engine rolls it at once; leave it out for an optional or later check.`;
 export const voiceTraitsPrompt = (npcIds: readonly string[]): string =>
   `These npcs have no voice traits yet: ${npcIds.join(', ')}. Add one voice-traits proposal for each, with kind "voice-traits", a lowercase id, the npc as entityId and voiceTraits holding gender, age and manner.`;
+export const npcSheetPrompt = ({ pack, defense, hitPoints }: CombatRules): string =>
+  `To make an npc fightable, add a sheet to its entity proposal with traits (a list of id and whole-number value, including ${defense} for defense and ${hitPoints} for hit points), optional motivations and background, and rulepack ${JSON.stringify(pack)}; the engine refuses a sheet that does not match.`;
 const effectText = (effect: ModifierEffect): string => {
   if (effect.kind === 'flat') return effect.value < 0 ? String(effect.value) : `+${effect.value}`;
   if (effect.kind === 'dice') return `${effect.count < 0 ? '' : '+'}${effect.count} dice`;

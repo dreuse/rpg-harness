@@ -35,6 +35,7 @@ import {
 } from '../../memory/src/history.ts';
 import { CONTEXT_BUDGETS, type ContextBudgetPreset, DEFAULT_CONTEXT_BUDGET } from '../../memory/src/packet.ts';
 import { normalize } from '../../narrative/src/consistency.ts';
+import { type CombatRules, combatantOf, NPC_SHEET_FIELD } from './damage.ts';
 import {
   commit,
   commitSystem,
@@ -60,6 +61,7 @@ export type EntityIntroduction = PlayerAction & {
   readonly entity: Omit<CampaignEntity, 'campaignId'>;
   readonly facts: readonly (Omit<Fact, 'campaignId' | 'subjectId' | 'sourceEventId'> & Scope)[];
   readonly relationships: readonly Omit<Relationship, 'campaignId'>[];
+  readonly combat?: CombatRules;
 };
 
 export type PendingOpening = PlayerAction & {
@@ -184,6 +186,13 @@ export const introduceEntity = (
   if (stored !== undefined) return project(stored);
   validate(state, input);
   requireValid(actionId, entity.name.trim() !== '', 'entity name is blank');
+  if (entity.data[NPC_SHEET_FIELD] !== undefined) {
+    const usable =
+      entity.kind === NPC_KIND &&
+      input.combat !== undefined &&
+      combatantOf({ ...entity, campaignId }, [], input.combat) !== undefined;
+    requireValid(actionId, usable, `npc sheet for ${entity.id} is not valid for the campaign rulepack`);
+  }
   const taken =
     entities.getEntity(campaignId, entity.id) !== undefined || state.characters.some(({ id }) => id === entity.id);
   requireValid(actionId, !taken, `entity ${entity.id} already exists`);

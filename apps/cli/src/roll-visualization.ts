@@ -505,6 +505,17 @@ export const checkFor = (
     : setup[1](events, actorId, input, worldProfileOf(entities, actorId), undefined, undefined, houseRules);
 };
 
+const combatRulesFor = (pack: RulePackManifest): CombatRules => ({
+  pack: { id: pack.id, edition: pack.edition, revision: pack.revision },
+  defense: D20_LITE_COMBAT.defense,
+  hitPoints: D20_LITE_COMBAT.hitPoints,
+});
+
+export const combatRulesOf = (events: readonly CampaignEvent[]): CombatRules | undefined => {
+  const pack = checkEntryOf(events, AS_WRITTEN)?.[0];
+  return pack === D20_LITE_MANIFEST ? combatRulesFor(pack) : undefined;
+};
+
 const defenderOf = (
   events: readonly CampaignEvent[],
   entities: readonly CampaignEntity[],
@@ -512,12 +523,7 @@ const defenderOf = (
   pack: RulePackManifest,
 ): Combatant | undefined => {
   const npc = target === undefined ? undefined : targetNpcOf(entities, target);
-  const rules: CombatRules = {
-    pack: { id: pack.id, edition: pack.edition, revision: pack.revision },
-    defense: D20_LITE_COMBAT.defense,
-    hitPoints: D20_LITE_COMBAT.hitPoints,
-  };
-  return npc === undefined ? undefined : combatantOf(npc, events, rules);
+  return npc === undefined ? undefined : combatantOf(npc, events, combatRulesFor(pack));
 };
 
 export const offeredCheckFor = (

@@ -21,12 +21,13 @@ import { createCampaignStore } from '../../../packages/persistence/src/campaign-
 import { openDatabase } from '../../../packages/persistence/src/database.ts';
 import { createEntityStore, createFactStore } from '../../../packages/persistence/src/entity-store.ts';
 import { createEventStore } from '../../../packages/persistence/src/event-store.ts';
-import { D20_LITE_VOCABULARY } from '../../../packages/rules/src/d20-lite.ts';
+import { D20_LITE_COMBAT, D20_LITE_MANIFEST, D20_LITE_VOCABULARY } from '../../../packages/rules/src/d20-lite.ts';
 import {
   checkRulesPrompt,
   GM_ROLL_PROMPT,
   languageInstruction,
   modifiersPrompt,
+  npcSheetPrompt,
   RULES_RETRY_PROMPT,
   RULES_STRICTNESS_PROMPTS,
   repetitionRetryPrompt,
@@ -509,6 +510,12 @@ it('rpg-42a.58 a campaign without a RulePack carries no style and no strictness 
 const d20ModifiersLine = (strictness: 'as-written' | 'relaxed') =>
   modifiersPrompt({ vocabulary: D20_LITE_VOCABULARY, strictness });
 
+const d20SheetLine = npcSheetPrompt({
+  pack: { id: D20_LITE_MANIFEST.id, edition: D20_LITE_MANIFEST.edition, revision: D20_LITE_MANIFEST.revision },
+  defense: D20_LITE_COMBAT.defense,
+  hitPoints: D20_LITE_COMBAT.hitPoints,
+});
+
 const d20CheckRulesLine = (fixture: ReturnType<typeof campaign>) => {
   const state = fixture.store.load(CAMPAIGN.id);
   assert.ok(state);
@@ -534,6 +541,7 @@ it('rpg-42a.58 tells the GM the strictness: as-written by default, then the save
     d20CheckRulesLine(fixture),
     GM_ROLL_PROMPT,
     d20ModifiersLine('as-written'),
+    d20SheetLine,
   ]);
   chooseStrictness(fixture.store, 'relaxed', 'relax');
   assert.deepEqual(instructionsOf(fixture, committed), [
@@ -542,9 +550,10 @@ it('rpg-42a.58 tells the GM the strictness: as-written by default, then the save
     d20CheckRulesLine(fixture),
     GM_ROLL_PROMPT,
     d20ModifiersLine('relaxed'),
+    d20SheetLine,
   ]);
   chooseStrictness(fixture.store, 'off', 'off');
-  assert.deepEqual(instructionsOf(fixture, committed), [SYSTEM_PROMPT, RULES_STRICTNESS_PROMPTS.off]);
+  assert.deepEqual(instructionsOf(fixture, committed), [SYSTEM_PROMPT, RULES_STRICTNESS_PROMPTS.off, d20SheetLine]);
   fixture.connection.close();
 });
 
@@ -560,6 +569,7 @@ it('rpg-42a.58 a regeneration packet adds the retry line after the strictness li
     d20CheckRulesLine(fixture),
     GM_ROLL_PROMPT,
     d20ModifiersLine('as-written'),
+    d20SheetLine,
     RULES_RETRY_PROMPT,
   ]);
   fixture.connection.close();
@@ -646,6 +656,18 @@ it('rpg-cm63.44 a present npc without voice traits makes the packet ask for them
   const answered = instructionsOf(fixture, play(fixture.store, 'greet-ilse-again', TRAIT_INPUT));
   assert.ok(!answered?.some((line) => line.includes('voice traits')));
   fixture.connection.close();
+});
+
+it('rpg-42a.127 the packet explains the npc sheet only when the pack has combat rules', () => {
+  const d20 = campaign(CREATED_EVENT.payload, D20_FANTASY());
+  const line = d20SheetLine;
+  assert.ok(instructionsOf(d20, play(d20.store, 'd20-turn'))?.includes(line));
+  for (const needle of [D20_LITE_COMBAT.defense, D20_LITE_COMBAT.hitPoints, D20_LITE_MANIFEST.revision])
+    assert.ok(line.includes(needle));
+  d20.connection.close();
+  const plain = campaign();
+  assert.ok(!instructionsOf(plain, play(plain.store, 'plain-turn'))?.some((entry) => entry.includes('sheet')));
+  plain.connection.close();
 });
 
 it('rpg-cm63.44 no voice-traits request without a present npc and the base prompt explains the traits', () => {

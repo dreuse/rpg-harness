@@ -8,6 +8,7 @@ import { createCampaignStore } from '../../persistence/src/campaign-store.ts';
 import { openDatabase } from '../../persistence/src/database.ts';
 import { createEntityStore, createFactStore } from '../../persistence/src/entity-store.ts';
 import { createEventStore, listScopedEvents } from '../../persistence/src/event-store.ts';
+import { type CombatRules, NPC_SHEET_FIELD } from './damage.ts';
 import {
   contextBudgetOf,
   ENTITY_INTRODUCED,
@@ -371,3 +372,60 @@ for (const [first, second] of DISTINCT_NAMES) {
     connection.close();
   });
 }
+
+const SHEET_PACK = { id: 'any-pack', edition: '2', revision: 'r7' };
+const SHEET_RULES: CombatRules = { pack: SHEET_PACK, defense: 'armor', hitPoints: 'vigor' };
+const SHEET_TRAITS = [
+  { id: 'armor', value: 13 },
+  { id: 'vigor', value: 9 },
+];
+const sheetOf = (traits: readonly { id: string; value: unknown }[] = SHEET_TRAITS, rulepack = SHEET_PACK) => ({
+  detail: 'sparse',
+  npcId: 'sheeted',
+  role: 'minor',
+  name: 'Sheeted',
+  motivations: [],
+  background: '',
+  traits,
+  rulepack,
+});
+const sheetIntro = (store: ReturnType<typeof seeded>['store'], sheet: unknown, combat?: CombatRules) => ({
+  ...actionFor(store, 'meet-sheeted'),
+  entity: { id: 'sheeted', kind: 'npc' as const, name: 'Sheeted', data: { [NPC_SHEET_FIELD]: sheet }, ...PUBLIC },
+  facts: [],
+  relationships: [],
+  ...(combat === undefined ? {} : { combat }),
+});
+
+test('rpg-42a.127 an npc introduced with a valid sheet keeps it on the entity', () => {
+  const { connection, store, entities, facts } = seeded();
+  introduceEntity(store, entities, facts, sheetIntro(store, sheetOf(), SHEET_RULES));
+  assert.deepEqual(entities.getEntity(CAMPAIGN.id, 'sheeted')?.data[NPC_SHEET_FIELD], sheetOf());
+  connection.close();
+});
+
+const REFUSED_SHEETS: readonly [string, unknown, CombatRules | undefined][] = [
+  ['a sheet without campaign combat rules', sheetOf(), undefined],
+  ['a malformed sheet', { detail: 'sparse' }, SHEET_RULES],
+  ['a sheet for another rulepack', sheetOf(SHEET_TRAITS, { ...SHEET_PACK, revision: 'r8' }), SHEET_RULES],
+  ['a sheet missing the defense trait', sheetOf([{ id: 'vigor', value: 9 }]), SHEET_RULES],
+  ['a fractional hit point trait', sheetOf([SHEET_TRAITS[0] as never, { id: 'vigor', value: 9.5 }]), SHEET_RULES],
+];
+for (const [label, sheet, combat] of REFUSED_SHEETS)
+  test(`rpg-42a.127 an npc introduction with ${label} commits nothing`, () => {
+    const { connection, store, entities, facts } = seeded();
+    assert.throws(() => introduceEntity(store, entities, facts, sheetIntro(store, sheet, combat)), InvalidActionError);
+    assert.equal(entities.getEntity(CAMPAIGN.id, 'sheeted'), undefined);
+    assert.equal(store.load(CAMPAIGN.id)?.turns.length, 1);
+    connection.close();
+  });
+
+test('rpg-42a.127 a sheet on a non-npc entity is refused', () => {
+  const { connection, store, entities, facts } = seeded();
+  const input = sheetIntro(store, sheetOf(), SHEET_RULES);
+  assert.throws(
+    () => introduceEntity(store, entities, facts, { ...input, entity: { ...input.entity, kind: 'item' as const } }),
+    InvalidActionError,
+  );
+  connection.close();
+});

@@ -66,6 +66,7 @@ import {
   languageInstruction,
   modifiersPrompt,
   noCheckPrompt,
+  npcSheetPrompt,
   OPENING_PROMPT,
   OWN_RULES_PROMPT,
   OWN_RULES_STRICTNESS_PROMPTS,
@@ -81,6 +82,7 @@ import { ownRulesItems } from './own-rules.ts';
 import { describeConfig, rulesDocumentStyleLines, styleLinesOf } from './quickstart.ts';
 import {
   checkRulesFor,
+  combatRulesOf,
   enforcedStrictnessFor,
   gmRollsAllowed,
   modifierPolicyOf,
@@ -324,6 +326,7 @@ export const contextPacketOf = (
     .slice(NONE, MAX_TRAIT_REQUESTS)
     .map(({ id }) => id);
   const tableNotes = tableNoteLines(state);
+  const combat = combatRulesOf(state.events);
   return buildContextPacket(
     {
       instructions: [
@@ -337,6 +340,7 @@ export const contextPacketOf = (
           ? [GM_ROLL_PROMPT]
           : []),
         ...modifierInstructions(state, defaults),
+        ...(combat === undefined ? [] : [npcSheetPrompt(combat)]),
         ...committed.events
           .filter(({ type }) => type === CHECK_SKIPPED)
           .map(({ payload }) => noCheckPrompt(String(payload.reason))),
