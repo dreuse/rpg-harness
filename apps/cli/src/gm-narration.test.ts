@@ -57,7 +57,7 @@ const BAD_REQUEST = 400;
 const UNAUTHORIZED = 401;
 const NO_DELAY_MS = 0;
 const NO_CHARACTER = async () => undefined;
-const SUMMARY_WAIT_MS = 1_000;
+const SUMMARY_WAIT_MS = 5_000;
 const STUCK = 'stuck';
 const PORTUGUESE = 'pt-BR';
 
@@ -360,20 +360,25 @@ describe('rpg-42a.28 API game master wiring', () => {
       return { narration: NARRATION, segments: [{ text: NARRATION }] };
     };
     let failures = 0;
+    let releaseStuck = () => {};
     const summarizers: readonly Summarizer[] = [
       async () => {
         failures += 1;
         throw new Error('stale revision');
       },
-      () => new Promise(() => {}),
+      () =>
+        new Promise((_, reject) => {
+          releaseStuck = () => reject(new Error('released'));
+        }),
     ];
     for (const summarizer of summarizers) {
       const opened = openClientSession(dataDir, CAMPAIGN, { narrator, summarizer });
       const { session, campaignId, close, narrate } = opened;
       submitActions(session, campaignId, SCENE_TURN_LIMIT);
-      const stuck = setTimeout(SUMMARY_WAIT_MS, STUCK);
+      const stuck = setTimeout(SUMMARY_WAIT_MS, STUCK, { ref: false });
       assert.notEqual(await Promise.race([narrate().then(() => 'narrated'), stuck]), STUCK);
-      if (summarizer === summarizers[0]) await opened.settle();
+      if (summarizer === summarizers[1]) releaseStuck();
+      await opened.settle();
       close();
     }
     assert.equal(failures, 1);

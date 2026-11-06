@@ -4,6 +4,7 @@ import { test } from 'node:test';
 import { runInNewContext } from 'node:vm';
 import {
   CAPTURE_LAYOUTS,
+  CAPTURE_QUIET_MS,
   CAPTURE_THEMES,
   type CaptureWindow,
   captureJourney,
@@ -171,11 +172,21 @@ const settleScript = async () => {
   return scripts.find((code) => code.includes('data-layout')) ?? '';
 };
 
+const STEADY_SCROLL = { scrollTop: 0, scrollHeight: 0 };
+const QUIET_PAGE = {
+  MutationObserver: class {
+    observe() {}
+    disconnect() {}
+  },
+  clearTimeout: () => {},
+};
+
 test('rpg-42a.34 capture waits until focus stays on one element across two animation frames', async () => {
   const focusMoves = ['body', 'body', 'heading', 'input', 'input', 'input'];
   let frame = 0;
   const document = {
     querySelector: () => ({}),
+    scrollingElement: STEADY_SCROLL,
     get activeElement() {
       return focusMoves[Math.min(frame, focusMoves.length - 1)];
     },
@@ -191,7 +202,7 @@ test('rpg-42a.34 capture waits until focus stays on one element across two anima
       }),
     Date,
   };
-  await runInNewContext(await settleScript(), page);
+  await runInNewContext(await settleScript(), { ...page, ...QUIET_PAGE });
   assert.equal(document.activeElement, 'input');
   assert.ok(frame >= focusMoves.indexOf('input') + 2);
 });
@@ -270,4 +281,114 @@ test('rpg-42a.131 the gmProposal journey opens the first campaign and shoots the
     JOURNEY.gmProposal.map(({ shot }) => shot),
     [undefined, 'gm-proposal'],
   );
+});
+
+const FRAME_MS = 16;
+const MUTATION_GAP_MS = 100;
+const SCROLL_STEP = 2;
+const SETTLED_SCROLL = 266;
+const SCROLL_SETTLED_AT_MS = (SETTLED_SCROLL / SCROLL_STEP) * FRAME_MS;
+const NEVER_QUIET = Number.POSITIVE_INFINITY;
+
+type Timer = { readonly at: number; readonly run: () => void };
+type Mutations = {
+  readonly at: readonly number[];
+  readonly repeatUntil: number;
+  readonly progressOnly?: boolean;
+};
+
+const NO_MUTATIONS: Mutations = { at: [], repeatUntil: 0 };
+
+const settleOnVirtualClock = async (script: string, mutations: Mutations) => {
+  let now = 0;
+  const timers: Timer[] = [];
+  const later = (run: () => void, delay: number) => {
+    const timer = { at: now + Math.max(delay, 0), run };
+    timers.push(timer);
+    return timer;
+  };
+  const scrollingElement = {
+    get scrollTop() {
+      return Math.min(Math.floor(now / FRAME_MS) * SCROLL_STEP, SETTLED_SCROLL);
+    },
+    scrollHeight: 1715,
+  };
+  const page = {
+    Date: { now: () => now },
+    document: {
+      querySelector: () => ({}),
+      activeElement: 'body',
+      scrollingElement,
+      get body() {
+        return mutations.progressOnly
+          ? { innerHTML: `<progress value="${now}" max="9"></progress><span>${now} of 310 MB</span>` }
+          : undefined;
+      },
+    },
+    matchMedia: () => ({ matches: true }),
+    setTimeout: later,
+    clearTimeout: (timer: Timer) => void timers.splice(timers.indexOf(timer), 1),
+    requestAnimationFrame: (run: () => void) => later(run, FRAME_MS),
+    MutationObserver: class {
+      readonly deliver: () => void;
+      constructor(deliver: () => void) {
+        this.deliver = deliver;
+      }
+      observe() {
+        for (const at of mutations.at) later(this.deliver, at - now);
+        const repeat = () => {
+          if (now >= mutations.repeatUntil) return;
+          this.deliver();
+          later(repeat, MUTATION_GAP_MS);
+        };
+        later(repeat, MUTATION_GAP_MS);
+      }
+      disconnect() {}
+    },
+  };
+  let finished = false;
+  const outcome = (runInNewContext(script, page) as Promise<unknown>).finally(() => {
+    finished = true;
+  });
+  outcome.catch(() => {});
+  while (!finished) {
+    await new Promise((resolve) => setImmediate(resolve));
+    const next = timers.sort((a, b) => a.at - b.at).shift();
+    if (next === undefined) continue;
+    now = Math.max(now, next.at);
+    next.run();
+  }
+  await outcome;
+  return { at: now, scrollTop: scrollingElement.scrollTop };
+};
+
+test('rpg-42a.141 capture waits for the page to stop changing before each screenshot', async () => {
+  const lastMutation = 350;
+  const { at } = await settleOnVirtualClock(await settleScript(), {
+    at: [100, 200, lastMutation],
+    repeatUntil: 0,
+  });
+  assert.ok(at >= lastMutation + CAPTURE_QUIET_MS, `settled at ${at}ms`);
+});
+
+test('rpg-42a.141 capture fails instead of shooting a page that never stops changing', async () => {
+  await assert.rejects(
+    settleOnVirtualClock(await settleScript(), { at: [], repeatUntil: NEVER_QUIET }),
+    /timed out waiting for/,
+  );
+});
+
+test('rpg-42a.141 capture waits until the scroll position holds across two animation frames', async () => {
+  const { scrollTop, at } = await settleOnVirtualClock(await settleScript(), NO_MUTATIONS);
+  assert.equal(scrollTop, SETTLED_SCROLL);
+  assert.ok(at >= SCROLL_SETTLED_AT_MS, `settled at ${at}ms`);
+});
+
+test('rpg-42a.141 capture ignores progress bar updates while it waits for the page to stop changing', async () => {
+  const { at } = await settleOnVirtualClock(await settleScript(), {
+    at: [],
+    repeatUntil: NEVER_QUIET,
+    progressOnly: true,
+  });
+  assert.ok(at < NEVER_QUIET);
 });

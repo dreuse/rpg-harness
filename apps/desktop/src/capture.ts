@@ -37,7 +37,8 @@ const PNG_EXTENSION = '.png';
 const HOME_PREFIX = 'home-';
 const PLAYING_PREFIX = '';
 const GM_SETTINGS_PREFIX = 'gm-settings-';
-const SETTLE_TIMEOUT_MS = 5000;
+const SETTLE_TIMEOUT_MS = 30000;
+export const CAPTURE_QUIET_MS = 250;
 const SETTLE_POLL_MS = 50;
 const CONTINUE_FIRST_CAMPAIGN = `new Promise((resolve) => {
   document.querySelector('[data-home="continue"]')?.click();
@@ -49,13 +50,38 @@ type MediaFeature = { readonly name: string; readonly value: string };
 const MEDIA_JOIN = ' and ';
 const mediaQuery = (features: readonly MediaFeature[]) =>
   features.map(({ name, value }) => `(${name}: ${value})`).join(MEDIA_JOIN);
+const PROGRESS_VALUES = '<progress[^>]*>|\\d+ of \\d+ MB';
+const PAGE_QUIET = `new Promise((resolve, reject) => {
+  const deadline = Date.now() + ${SETTLE_TIMEOUT_MS};
+  let timer;
+  const done = () => { observer.disconnect(); resolve(true); };
+  const progressValues = new RegExp(${JSON.stringify(PROGRESS_VALUES)}, 'g');
+  const signature = () => document.body?.innerHTML.replace(progressValues, '');
+  let last = signature();
+  const observer = new MutationObserver(() => {
+    const current = signature();
+    if (current !== undefined && current === last) return;
+    last = current;
+    if (Date.now() > deadline) {
+      observer.disconnect();
+      return reject(new Error('timed out waiting for the page to stop changing'));
+    }
+    clearTimeout(timer);
+    timer = setTimeout(done, ${CAPTURE_QUIET_MS});
+  });
+  observer.observe(document, { subtree: true, childList: true, attributes: true, characterData: true });
+  timer = setTimeout(done, ${CAPTURE_QUIET_MS});
+})`;
 const FOCUS_SETTLED = `new Promise((resolve, reject) => {
   const deadline = Date.now() + ${SETTLE_TIMEOUT_MS};
+  const scroller = document.scrollingElement;
+  const frame = () => [document.activeElement, scroller.scrollTop, scroller.scrollHeight];
   const check = () => {
-    const before = document.activeElement;
+    const before = frame();
     requestAnimationFrame(() => requestAnimationFrame(() => {
-      if (document.activeElement === before) return resolve(true);
-      if (Date.now() > deadline) return reject(new Error('timed out waiting for focus to settle'));
+      const after = frame();
+      if (after.every((value, index) => value === before[index])) return resolve(true);
+      if (Date.now() > deadline) return reject(new Error('timed out waiting for focus and scroll to settle'));
       check();
     }));
   };
@@ -64,7 +90,7 @@ const FOCUS_SETTLED = `new Promise((resolve, reject) => {
 const settleProbe = (layout: string, features: readonly MediaFeature[]) =>
   `(async () => { await ${until(
     `document.querySelector('main[data-layout="${layout}"]') && matchMedia(${JSON.stringify(mediaQuery(features))}).matches`,
-  )}; await ${FOCUS_SETTLED}; })()`;
+  )}; await ${PAGE_QUIET}; await ${FOCUS_SETTLED}; })()`;
 const FOCUS_EMULATION = 'Emulation.setFocusEmulationEnabled';
 const HIDDEN_CARET = '* { caret-color: transparent !important; }';
 const prepare = async ({ webContents }: CaptureWindow) => {
@@ -172,6 +198,8 @@ const chooseOption = (text: string, step: string) =>
   `await ${until(optionNamed(text))}; ${clickOption(text)} await ${until(`document.querySelector('[data-start-title="${step}"]')`)};`;
 const nextStep = (step: string) =>
   `${click('[data-start-control="next"]')} await ${until(`document.querySelector('[data-start-title="${step}"]')`)};`;
+const scrolledTo = (selector: string) =>
+  `await ${PAGE_QUIET}; document.querySelector(${JSON.stringify(selector)}).scrollIntoView({ block: 'start' });`;
 const steps = (...parts: readonly string[]) => `(async () => { ${parts.join(' ')} })()`;
 
 const JOURNEY_LISTENER = `window.${BRIDGE_KEY}.onLine((line) => { const message = JSON.parse(line); if (message.type === 'Snapshot') window.journeySnapshot = message.snapshot; });`;
@@ -194,29 +222,26 @@ const FINISH_VOICE_SETUP = steps(
   click('[data-voice-setup="finish"]'),
   `await ${until(`!document.querySelector('[data-voice-step]')`)};`,
   `document.querySelector('[data-settings]').open = true;`,
-  `document.querySelector('[data-voice-basic]').scrollIntoView({ block: 'start' });`,
+  scrolledTo('[data-voice-basic]'),
 );
 const OPEN_ADVANCED_VOICE = steps(
   `document.querySelector('[data-settings]').open = true;`,
-  `document.querySelector('[data-voice-npcs]').scrollIntoView({ block: 'start' });`,
+  scrolledTo('[data-voice-npcs]'),
 );
 const OPEN_SOUND = steps(
   `document.querySelector('[data-settings]').open = true;`,
   click('#sound-music'),
   `const volume = document.querySelector('#sound-music-volume'); volume.value = '0.25'; volume.dispatchEvent(new Event('change', { bubbles: true }));`,
   `if (!document.querySelector('#sound-music').checked || document.querySelector('#sound-music-volume').value !== '0.25') throw new Error('the sound toggle or volume did not persist');`,
-  `document.querySelector('[data-sound]').scrollIntoView({ block: 'start' });`,
+  scrolledTo('[data-sound]'),
 );
-const OPEN_GM_SETTINGS = steps(
-  `document.querySelector('[data-settings]').open = true;`,
-  `document.querySelector('[data-gm-form]').scrollIntoView({ block: 'start' });`,
-);
+const OPEN_GM_SETTINGS = steps(`document.querySelector('[data-settings]').open = true;`, scrolledTo('[data-gm-form]'));
 const CHOOSE_STORY_LANGUAGE = steps(
   `document.querySelector('[data-settings]').open = true;`,
   click('[data-story-language="es"]'),
   `await ${until(`document.querySelector('[data-story-language="es"][aria-pressed="true"]')`)};`,
   `document.querySelector('[data-settings]').open = true;`,
-  `document.querySelector('[data-language-control]').scrollIntoView({ block: 'start' });`,
+  scrolledTo('[data-language-control]'),
 );
 const SET_UP_VOICE = steps(
   `document.querySelector('[data-settings]').open = true;`,
