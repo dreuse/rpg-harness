@@ -312,7 +312,7 @@ const PHYSICAL_OFFER: GmProposal = {
 };
 const PHYSICAL_CHARACTER = 'A scout named Wren with might 3, agility 2, wits 2 and presence 1.';
 
-const seedPhysicalOffer = async (dataDir: string) => {
+const seedPhysicalOffer = async (dataDir: string, whoRolls: 'me' | 'app' = 'me') => {
   await createCampaignFrom(
     dataDir,
     {
@@ -320,7 +320,7 @@ const seedPhysicalOffer = async (dataDir: string) => {
       type: 'CreateCampaign',
       name: CAMPAIGN,
       choices: { ruleset: PHYSICAL_RULESET, character: PHYSICAL_CHARACTER, diceVisualization: true },
-      play: { whoRolls: 'me' },
+      play: { whoRolls },
     },
     DESKTOP_CLIENT,
   );
@@ -373,7 +373,7 @@ test('rpg-42a.87 desktop journey of a pending roll offer: the primary button in 
 }, async (t) => {
   const dataDir = mkdtempSync(join(tmpdir(), 'rpg-desktop-offer-'));
   t.after(() => rmSync(dataDir, { recursive: true, force: true }));
-  await seedPhysicalOffer(dataDir);
+  await seedPhysicalOffer(dataDir, 'app');
   const dir = process.env[CAPTURE_ENV] || mkdtempSync(join(tmpdir(), 'rpg-desktop-offer-screens-'));
   const files: string[] = [];
   for (const [phase, language] of [

@@ -700,13 +700,15 @@ const oocPanel = ({ ooc }: ViewModel, locale: string) =>
     ? ''
     : `<section id="${OOC_PANEL}" data-ooc-panel aria-labelledby="${OOC_PANEL}-heading"><h3 id="${OOC_PANEL}-heading">${escapeHtml(translate(locale, 'ooc.heading'))}</h3><p data-speaker="system">${escapeHtml(translate(locale, 'ooc.note'))}</p><ol aria-live="polite">${ooc.exchanges.map((exchange) => oocExchange(exchange, locale)).join('')}</ol>${ooc.undoable === undefined ? '' : `<button type="button" ${OOC_ATTRIBUTE}="undo">${escapeHtml(translate(locale, 'ooc.undo', { summary: ooc.undoable }))}</button>`}</section>`;
 
-const rollOfferButton = ({ rollOffer }: ViewModel, locale: string) =>
-  rollOffer === undefined
+const PLAYER_ROLLS: WhoRolls = 'me';
+
+const rollOfferButton = ({ rollOffer, gm }: ViewModel, locale: string) =>
+  rollOffer === undefined || (rollOffer.expression !== undefined && gm?.settings.whoRolls === PLAYER_ROLLS)
     ? ''
     : button(
         ROLL_OFFER_ATTRIBUTE,
         rollOffer.offerId,
-        `${translate(locale, 'roll.offer')}${LABEL_SEPARATOR}${rollOffer.label}${rollOffer.expression === undefined ? '' : ` (${rollOffer.expression})`}`,
+        `${translate(locale, 'roll.offer')}${LABEL_SEPARATOR}${rollOffer.label}`,
         false,
         true,
       );

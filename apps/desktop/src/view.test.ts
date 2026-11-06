@@ -1115,7 +1115,7 @@ test('rpg-42a.96: the GM form offers who rolls with a default, app, me and ask, 
   const html = renderView(viewModel({ ...state, snapshot: { ...snapshot, gm } }, WIDE_WIDTH), 'en');
   assert.match(
     html,
-    /<form data-gm-form>[\s\S]*?<label>Who rolls the dice <select name="whoRolls"><option value="">Default \(the app rolls\)<\/option><option value="app">The app rolls<\/option><option value="me" selected>I roll my own dice<\/option><option value="ask">Ask me each time<\/option><\/select><\/label>/,
+    /<form data-gm-form>[\s\S]*?<label>Who rolls the dice <select name="whoRolls"><option value="">Default<\/option><option value="app">The app rolls<\/option><option value="me" selected>I roll my own dice<\/option><option value="ask">Ask me each time<\/option><\/select><\/label>/,
   );
 });
 

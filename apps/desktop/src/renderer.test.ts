@@ -1109,6 +1109,39 @@ test('rpg-42a.96: reporting a physical roll sends the total as reportedRoll with
   });
 });
 
+const NO_USAGE = {
+  turns: 0,
+  inputTokens: 0,
+  cacheReadTokens: 0,
+  cacheWriteTokens: 0,
+  outputTokens: 0,
+  costUsd: 0,
+  pricedTurns: 0,
+};
+const gmRolling = (whoRolls: string) => ({
+  settings: { whoRolls },
+  campaignSettings: { whoRolls },
+  defaults: {},
+  session: NO_USAGE,
+  campaign: NO_USAGE,
+});
+
+test('rpg-42a.110: a physical offer hides the Roll button, an app offer and an ask offer keep it', () => {
+  const { wire, client } = connectedClient();
+  const show = (revision: number, rollOffer: object, whoRolls: string) => {
+    wire.receive({
+      type: 'Snapshot',
+      snapshot: { ...snapshotAt(revision, ['old']), rollOffer, gm: gmRolling(whoRolls) },
+    });
+    return renderView(viewModel(client.state(), WIDE_WIDTH), 'en');
+  };
+  assert.doesNotMatch(show(2, PHYSICAL_OFFER, 'me'), /data-roll-offer/);
+  assert.match(show(3, ROLL_OFFER, 'app'), /data-roll-offer="tam-attack"/);
+  const asked = show(4, PHYSICAL_OFFER, 'ask');
+  assert.match(asked, /data-roll-offer="tam-attack"/);
+  assert.match(asked, /data-roll-report-form/);
+});
+
 test('rpg-42a.96: the report field spans the whole expression and is absent for an app-rolled offer', () => {
   const { wire, client } = connectedClient();
   wire.receive({
