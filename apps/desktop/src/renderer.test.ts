@@ -459,7 +459,7 @@ test('rpg-42a.13 the home lists every campaign by last played, keeps unhealthy o
   );
   assert.deepEqual(
     [home.cards[0]?.characters, home.cards[0]?.rules, home.cards[0]?.scene, home.cards[0]?.narration],
-    ['Ash', 'narrative original, fantasy', 'Docks', 'The tide turns.'],
+    ['Ash', 'Story only: no dice, no sheet, Fantasy', 'Docks', 'The tide turns.'],
   );
   assert.deepEqual(
     home.archived.map(({ name }) => name),

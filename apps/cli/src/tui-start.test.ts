@@ -92,7 +92,7 @@ const playOneTurn = async (dataDir: string, name: string) => {
 test('rpg-42a.14 tui describe it path creates a playable campaign from one sentence', async (t) => {
   const dataDir = tempDataDir(t);
   const out = await answer(dataDir, [DESCRIBE, HORROR_INTENT, CONTINUE, CONTINUE, START]);
-  assert.match(out.at(-2) ?? '', /Genre: horror \(chosen\)/);
+  assert.match(out.at(-2) ?? '', /Genre: Horror \(chosen\)/);
   assert.match(out.at(-1) ?? '', /rpg play "My adventure"/);
   assert.equal(summaryOf(dataDir, DEFAULT_ADVENTURE_NAME)?.genre?.id, 'horror');
   assert.ok((await playOneTurn(dataDir, DEFAULT_ADVENTURE_NAME)).length > 1);

@@ -563,7 +563,7 @@ const homeButton = (
   `<button type="button" id="${id}" ${HOME_ATTRIBUTE}="${action}"${name === undefined ? '' : ` ${HOME_NAME}="${escapeHtml(name)}" aria-label="${escapeHtml(translate(locale, `home.${action}Label`, { name }))}"`}${primary ? PRIMARY : ''}>${escapeHtml(translate(locale, `home.${action}`))}</button>`;
 
 const cardFields = (card: HomeCardModel) =>
-  [card.characters, card.scene, card.when].filter((field) => field !== undefined && field !== '');
+  [card.characters, card.rules, card.scene, card.when].filter((field) => field !== undefined && field !== '');
 
 const cardDetails = (card: HomeCardModel, locale: string) =>
   card.health === 'ok'

@@ -125,7 +125,7 @@ const createThrough = async (t: TestContext, actions: readonly StartAction[]) =>
 
 test('rpg-42a.14 desktop describe it path creates a playable campaign', async (t) => {
   const { dataDir, desktop, summary } = await createThrough(t, DESCRIBE);
-  assert.ok(summary?.text.includes('Genre: horror (chosen)'));
+  assert.ok(summary?.text.includes('Genre: Horror (chosen)'));
   assert.ok(desktop.client.state().campaigns.some(({ name }) => name === DEFAULT_ADVENTURE_NAME));
   assert.equal(await playOneTurn(t, dataDir, DEFAULT_ADVENTURE_NAME), PLAYER_ACTION);
 });

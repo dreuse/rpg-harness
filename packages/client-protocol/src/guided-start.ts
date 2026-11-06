@@ -526,15 +526,22 @@ type Ruleset = StartOptions['rulesets'][number];
 const isBuiltIn = ({ id, edition }: Pick<Ruleset, 'id' | 'edition'>) =>
   edition === BUILT_IN_EDITION && BUILT_IN_RULESETS.includes(id);
 
-const rulesetName = (locale: string, ruleset: Ruleset) =>
+export const rulesetLabel = (locale: string, ruleset: Pick<Ruleset, 'id' | 'edition'>) =>
   isBuiltIn(ruleset) ? text(locale, `ruleset.${ruleset.id}`) : `${ruleset.id} ${ruleset.edition}`;
+
+const humanized = (id: string) => {
+  const words = id.replaceAll('-', ' ');
+  return words.charAt(0).toUpperCase() + words.slice(1);
+};
+
+export const genreLabel = (locale: string, id: string) => contentText(locale, 'genre', id, humanized(id));
 
 const rulesetDetail = (locale: string, ruleset: Ruleset) =>
   isBuiltIn(ruleset) ? text(locale, `ruleset.${ruleset.id}.detail`) : ruleset.blurb;
 
 const rulesetValue = (locale: string, value: string, { rulesets }: StartOptions) => {
   const ruleset = rulesets.find(({ id, edition }) => `${id} ${edition}` === value);
-  return ruleset === undefined ? value : rulesetName(locale, ruleset);
+  return ruleset === undefined ? value : rulesetLabel(locale, ruleset);
 };
 
 const characterPage = (draft: StartDraft, options: StartOptions, locale: string): Page => {
@@ -588,7 +595,7 @@ const VALUE_KEYS: Readonly<Record<string, string>> = {
 const shown = (locale: string, field: string, value: string, options: StartOptions) => {
   if (field === 'ruleset' && value === OWN_FILES_VALUE) return text(locale, 'value.ownFiles');
   if (field === 'ruleset') return rulesetValue(locale, value, options);
-  if (field === 'genre' && value !== 'none') return contentText(locale, 'genre', value, value);
+  if (field === 'genre' && value !== 'none') return genreLabel(locale, value);
   if (field === 'character') return contentText(locale, 'archetype', value, value);
   const key = VALUE_KEYS[value];
   return key === undefined ? value : text(locale, key);
@@ -717,7 +724,7 @@ const PAGES: Readonly<
           ...choose(
             'ruleset',
             { id: ruleset.id, edition: ruleset.edition },
-            rulesetName(locale, ruleset),
+            rulesetLabel(locale, ruleset),
             rulesetDetail(locale, ruleset),
             draft,
           ),

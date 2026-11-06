@@ -492,7 +492,7 @@ test('rpg-42a.13 the home shows one line and the guided start when there are no 
 test('rpg-42a.13 a home card shows where the adventure stopped and continues it', () => {
   const html = home({ campaigns: [HARBOR] });
   assert.match(html, /<article aria-labelledby="home-card-0"><h3 id="home-card-0">Harbor<\/h3>/);
-  assert.ok(html.includes('<p data-meta>Ash · Docks · 1 hour ago</p><p data-narration>The tide turns.</p>'));
+  assert.ok(html.includes('<p data-meta>Ash · Fantasy · Docks · 1 hour ago</p><p data-narration>The tide turns.</p>'));
   assert.doesNotMatch(html, / - /);
   assert.match(
     html,
@@ -1158,4 +1158,14 @@ test('rpg-42a.81 sliders use the theme accent and groups have a single border le
   assert.match(VIEW_CSS, /\[data-settings-section\] fieldset \{[^}]*border: 0/);
   assert.match(VIEW_CSS, /\[data-settings-section\] \{[^}]*align-self: start/);
   assert.match(VIEW_CSS, /\[data-settings-section\] legend,[^{]*\{[^}]*padding-block-end: var\(--space-1\)/);
+});
+
+test('rpg-42a.69 a home card shows the ruleset player name and a humanized genre, escaped', () => {
+  const ruleset = { id: 'd20-lite', edition: 'original', revision: 'r1', provenance: 'explicit' };
+  const html = home({
+    campaigns: [{ ...HARBOR, ruleset, genre: { id: 'investigative-mystery', version: '1', provenance: 'derived' } }],
+  });
+  assert.ok(html.includes('<p data-meta>Ash · Classic d20, Investigative mystery · Docks · 1 hour ago</p>'));
+  const hostile = home({ campaigns: [{ ...HARBOR, ruleset: { ...ruleset, id: HOSTILE } }] });
+  assert.ok(hostile.includes(ESCAPED));
 });

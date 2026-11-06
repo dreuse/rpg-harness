@@ -4,11 +4,13 @@ import {
   createCommand,
   DEFAULT_ADVENTURE_NAME,
   GUIDE_STEPS,
+  genreLabel,
   INITIAL_DRAFT,
   loadStartDraft,
   nextDraft,
   parseStartDraft,
   planCommand,
+  rulesetLabel,
   START_CATALOG,
   START_STEPS,
   type StartAction,
@@ -635,8 +637,15 @@ test('rpg-42a.53 plan values read in Brazilian Portuguese while the saved values
     'Mundo vivo: nenhum (padrão)',
   ]);
   assert.deepEqual(startScreen(skipAll, OPTIONS, plan).text.slice(0, 3), [
-    'Genre: fantasy (chosen)',
+    'Genre: Fantasy (chosen)',
     'Character: Hedge witch (chosen)',
     'Dice: as the ruleset decides (default)',
   ]);
+});
+
+test('rpg-42a.69 an unknown genre id reads as a humanized name and built-in rulesets keep their player name', () => {
+  assert.equal(genreLabel('en', 'investigative-mystery'), 'Investigative mystery');
+  assert.equal(genreLabel('pt-BR', 'fantasy'), 'Fantasia');
+  assert.equal(rulesetLabel('en', { id: 'd20-lite', edition: 'original' }), 'Classic d20');
+  assert.equal(rulesetLabel('en', { id: 'custom', edition: '5e' }), 'custom 5e');
 });

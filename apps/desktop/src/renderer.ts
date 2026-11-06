@@ -2,10 +2,12 @@ import type { GmFailure } from '../../../packages/client-protocol/src/gm-failure
 import {
   createCommand,
   DEFAULT_ADVENTURE_NAME,
+  genreLabel,
   INITIAL_DRAFT,
   nextDraft,
   OWN_RULES_FIELD,
   planCommand,
+  rulesetLabel,
   type StartAction,
   type StartDraft,
   type StartVoices,
@@ -240,13 +242,22 @@ export const initialState: DesktopState = {
 const statusLabel = ({ status, attempts }: Connection, locale: string) =>
   translate(locale, `status.${status}`, { attempts });
 
+const rulesLabel = ({ ruleset, genre }: CampaignSummary, locale: string) =>
+  [ruleset && rulesetLabel(locale, ruleset), genre && genreLabel(locale, genre.id)]
+    .filter((part): part is string => !!part)
+    .join(', ');
+
 const homeOf = ({ campaigns, archived, selected, home }: DesktopState, locale: string, now: number) => {
   const timed = (list: readonly CampaignSummary[], query?: string) =>
-    homeCards(list, query).map((card) => ({
-      ...card,
-      selected: list.find(({ name }) => name === card.name)?.id === selected,
-      when: relativeTime(card.lastPlayedAt, now, locale),
-    }));
+    homeCards(list, query).map((card) => {
+      const source = list.find(({ name }) => name === card.name);
+      return {
+        ...card,
+        rules: source === undefined ? '' : rulesLabel(source, locale),
+        selected: source?.id === selected,
+        when: relativeTime(card.lastPlayedAt, now, locale),
+      };
+    });
   return {
     cards: timed(campaigns, home.query),
     total: campaigns.length,
