@@ -52,7 +52,7 @@ const ATTACK: GmProposal = {
   section: SECTION,
 };
 const { section: _section, ...UNCITED_ATTACK } = ATTACK;
-const HIT: GmProposal = { kind: 'outcome', id: ATTACK.id, text: 'the sword strike' };
+const HIT: GmProposal = { kind: 'outcome', id: ATTACK.id, text: 'the sword strike', declared: 'hit' };
 
 type Reply = { readonly narration: string; readonly proposals?: readonly GmProposal[] };
 type Script = readonly (Reply | ((packet: ContextPacket) => Reply))[];

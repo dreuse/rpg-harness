@@ -46,7 +46,11 @@ import {
 } from '../../../packages/engine/src/turn.ts';
 import { setVoiceTraits } from '../../../packages/engine/src/voice-profile.ts';
 import { PENDING_KINDS, type PendingKind } from '../../../packages/memory/src/graph.ts';
-import type { NarrationClaim } from '../../../packages/narrative/src/consistency.ts';
+import {
+  type NarrationClaim,
+  OUTCOME_RESULTS,
+  type OutcomeResult,
+} from '../../../packages/narrative/src/consistency.ts';
 import type { Rng } from '../../../packages/rules/src/dice.ts';
 import {
   type ConditionDuration,
@@ -107,7 +111,7 @@ const PROPOSAL_KEYS = {
   ],
   [PENDING_PROPOSAL]: ['kind', 'id', 'pendingKind', 'text', 'entityIds', 'visibility'],
   [CHECK_PROPOSAL]: ['kind', 'id', 'ruleId', 'target', 'label', 'difficulty', 'modifiers', NEEDS_CHECK_FIELD],
-  [OUTCOME_PROPOSAL]: ['kind', 'id', 'text'],
+  [OUTCOME_PROPOSAL]: ['kind', 'id', 'text', 'declared'],
   [VOICE_TRAITS_PROPOSAL]: ['kind', 'id', 'entityId', VOICE_TRAITS_FIELD],
   [GM_ROLL_PROPOSAL]: ['kind', 'id', 'roller', 'reason', 'visibility', 'ruleId', 'expression', 'section', 'modifiers'],
   [CONDITION_PROPOSAL]: ['kind', 'id', 'conditionId', 'reason', 'label', 'duration', 'appliesTo', 'modifiers'],
@@ -161,6 +165,7 @@ export type OutcomeProposal = {
   readonly kind: typeof OUTCOME_PROPOSAL;
   readonly id: string;
   readonly text: string;
+  readonly declared: OutcomeResult;
 };
 
 export type GmRollProposal = {
@@ -345,8 +350,9 @@ export const PROPOSALS_SCHEMA = {
           kind: { const: OUTCOME_PROPOSAL },
           id: idSchema,
           text: { type: 'string', maxLength: MAX_OUTCOME_LENGTH },
+          declared: { type: 'string', enum: OUTCOME_RESULTS },
         },
-        required: ['kind', 'id', 'text'],
+        required: ['kind', 'id', 'text', 'declared'],
         additionalProperties: false,
       },
       {
@@ -570,7 +576,10 @@ const checkOf = (value: Record<string, unknown>): CheckProposal | undefined => {
 const outcomeOf = (value: Record<string, unknown>): OutcomeProposal | undefined => {
   const id = idOf(value.id);
   const text = textOf(value.text, MAX_OUTCOME_LENGTH);
-  return id === undefined || text === undefined ? undefined : { kind: OUTCOME_PROPOSAL, id, text };
+  const declared = OUTCOME_RESULTS.find((known) => known === value.declared);
+  return id === undefined || text === undefined || declared === undefined
+    ? undefined
+    : { kind: OUTCOME_PROPOSAL, id, text, declared };
 };
 
 const gmRollOf = (value: Record<string, unknown>): GmRollProposal | undefined => {
@@ -685,7 +694,9 @@ export const proposalsOf = (value: unknown): readonly GmProposal[] | undefined =
 
 export const outcomeClaimsOf = (proposals: readonly GmProposal[]): NarrationClaim[] =>
   proposals.flatMap((proposal) =>
-    proposal.kind === OUTCOME_PROPOSAL ? [{ kind: 'outcome' as const, ref: proposal.id }] : [],
+    proposal.kind === OUTCOME_PROPOSAL
+      ? [{ kind: 'outcome' as const, ref: proposal.id, declared: proposal.declared }]
+      : [],
   );
 
 export const claimDraftOf = ({ entityId, claimKind, key, value, visibility }: ClaimProposal): ClaimDraft => ({

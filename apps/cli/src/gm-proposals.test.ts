@@ -73,7 +73,7 @@ const SECRET_LISTEN = {
   visibility: 'secret',
   expression: '1d20+2',
 };
-const HIT_OUTCOME = { kind: 'outcome', id: 'tam-hit', text: 'a hit on Old Tam' };
+const HIT_OUTCOME = { kind: 'outcome', id: 'tam-hit', text: 'a hit on Old Tam', declared: 'hit' };
 
 const tempDataDir = (t: TestContext) => {
   const dataDir = mkdtempSync(join(tmpdir(), 'rpg-proposals-'));
@@ -252,6 +252,8 @@ describe('rpg-42a.43 GM proposals', () => {
     ['check without a target', [{ ...ATTACK_CHECK, target: ' ' }]],
     ['check with an unknown key', [{ ...ATTACK_CHECK, dc: 1 }]],
     ['outcome without text', [{ ...HIT_OUTCOME, text: '' }]],
+    ['outcome without a declared result', [{ ...HIT_OUTCOME, declared: undefined }]],
+    ['outcome with an unknown declared result', [{ ...HIT_OUTCOME, declared: 'crit' }]],
     ['outcome with an unknown key', [{ ...HIT_OUTCOME, damage: 5 }]],
     ['not a list', 'oops'],
     ['unknown kind', [{ ...STRANGER, kind: 'tool_call' }]],

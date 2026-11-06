@@ -53,7 +53,12 @@ const TAM_LISTENS: GmProposal = {
   visibility: 'secret',
   expression: '1d20+2',
 };
-const HIT_OUTCOME: GmProposal = { kind: 'outcome', id: TAM_SWING.id, text: 'the swing at the intruder' };
+const HIT_OUTCOME: GmProposal = {
+  kind: 'outcome',
+  id: TAM_SWING.id,
+  text: 'the swing at the intruder',
+  declared: 'hit',
+};
 const SECRET_NUMBER_MARKER = 'lock click';
 
 type Reply = { readonly narration: string; readonly proposals?: readonly GmProposal[] };

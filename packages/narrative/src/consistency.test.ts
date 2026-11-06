@@ -172,8 +172,9 @@ test('never echoes secret statement text in violations', () => {
   assert.equal(output.includes(RIVAL_STATEMENT), false);
 });
 
-const OUTCOME_CLAIM: NarrationClaim = { kind: 'outcome', ref: 'hit on the goblin' };
-const AS_WRITTEN_UNRESOLVED = { rulesStrictness: 'as-written', checkResolved: false } as const;
+const OUTCOME_CLAIM: NarrationClaim = { kind: 'outcome', ref: 'hit on the goblin', declared: 'hit' };
+const MISS_CLAIM: NarrationClaim = { kind: 'outcome', ref: 'miss on the goblin', declared: 'miss' };
+const AS_WRITTEN_UNRESOLVED = { rulesStrictness: 'as-written', resolvedOutcome: null } as const;
 
 test('rpg-42a.74: as-written rejects a declared outcome with no resolved check', () => {
   const report = checkConsistency(input([OUTCOME_CLAIM], AS_WRITTEN_UNRESOLVED));
@@ -183,11 +184,40 @@ test('rpg-42a.74: as-written rejects a declared outcome with no resolved check',
   );
 });
 
-test('rpg-42a.74: as-written accepts a declared outcome after a resolved check', () => {
+test('rpg-42a.74: as-written accepts a declared outcome that matches the resolved result', () => {
   assert.equal(
-    checkConsistency(input([OUTCOME_CLAIM], { rulesStrictness: 'as-written', checkResolved: true })).ok,
+    checkConsistency(input([OUTCOME_CLAIM], { rulesStrictness: 'as-written', resolvedOutcome: 'hit' })).ok,
     true,
   );
+  assert.equal(
+    checkConsistency(input([MISS_CLAIM], { rulesStrictness: 'as-written', resolvedOutcome: 'miss' })).ok,
+    true,
+  );
+});
+
+test('rpg-42a.86: as-written rejects a declared outcome that differs from the resolved result', () => {
+  const cases = [
+    [OUTCOME_CLAIM, 'miss'],
+    [MISS_CLAIM, 'hit'],
+  ] as const;
+  for (const [claim, resolvedOutcome] of cases) {
+    const report = checkConsistency(input([claim], { rulesStrictness: 'as-written', resolvedOutcome }));
+    assert.deepEqual(
+      report.violations.map(({ kind, ref }) => [kind, ref]),
+      [['outcome-mismatch', claim.ref]],
+    );
+    assert.equal(report.ok, false);
+  }
+});
+
+test('rpg-42a.86: a resolved check with no hit or miss result accepts any declared outcome', () => {
+  const resolved = { rulesStrictness: 'as-written', checkResolved: true, resolvedOutcome: null } as const;
+  assert.equal(checkConsistency(input([OUTCOME_CLAIM, MISS_CLAIM], resolved)).ok, true);
+});
+
+test('rpg-42a.86: relaxed and off skip the outcome comparison', () => {
+  for (const rulesStrictness of ['relaxed', 'off'] as const)
+    assert.equal(checkConsistency(input([OUTCOME_CLAIM], { rulesStrictness, resolvedOutcome: 'miss' })).ok, true);
 });
 
 test('rpg-42a.74: relaxed, off and an unset strictness skip the outcome check', () => {

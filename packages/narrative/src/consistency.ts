@@ -3,11 +3,14 @@ import type { EntityId } from '../../domain/src/entity.ts';
 import type { RulesStrictness } from '../../domain/src/rules-usage.ts';
 import { type Fact, type FactId, type Viewer, visibleTo } from '../../memory/src/knowledge.ts';
 
+export const OUTCOME_RESULTS = ['hit', 'miss'] as const;
+export type OutcomeResult = (typeof OUTCOME_RESULTS)[number];
+
 export type NarrationClaim =
   | { readonly kind: 'effect'; readonly ref: string; readonly eventId: EventId | null }
   | { readonly kind: 'equipment'; readonly ref: string; readonly actorId: EntityId; readonly itemId: EntityId }
   | { readonly kind: 'fact'; readonly ref: string; readonly factId: FactId }
-  | { readonly kind: 'outcome'; readonly ref: string };
+  | { readonly kind: 'outcome'; readonly ref: string; readonly declared: OutcomeResult };
 
 export const VIOLATION_KINDS = [
   'uncommitted-effect',
@@ -15,6 +18,7 @@ export const VIOLATION_KINDS = [
   'secret-leak',
   'unknown-fact',
   'unresolved-outcome',
+  'outcome-mismatch',
 ] as const;
 export type ViolationKind = (typeof VIOLATION_KINDS)[number];
 
@@ -36,6 +40,7 @@ export type ConsistencyInput = {
   readonly viewer: Viewer;
   readonly rulesStrictness?: RulesStrictness;
   readonly checkResolved?: boolean;
+  readonly resolvedOutcome?: OutcomeResult | null;
 };
 
 const NO_LENGTH = 0;
@@ -47,6 +52,7 @@ const REASONS: Readonly<Record<ViolationKind, string>> = {
   'secret-leak': 'narration reveals a fact the viewer may not see',
   'unknown-fact': 'claimed fact is not a known fact',
   'unresolved-outcome': 'narration claims a mechanical result the engine did not resolve',
+  'outcome-mismatch': 'narration declares a result that differs from the engine result',
 };
 
 const violation = (kind: ViolationKind, ref: string | null, sourceId: string | null): Violation => ({
@@ -91,17 +97,27 @@ const restatedSecrets = (input: ConsistencyInput, visible: ReadonlySet<FactId>):
     .map((fact) => violation('secret-leak', null, fact.id));
 };
 
-const unresolvedOutcomes = ({ claims, rulesStrictness, checkResolved }: ConsistencyInput): Violation[] =>
-  rulesStrictness === AS_WRITTEN && checkResolved !== true
-    ? claims.filter(({ kind }) => kind === 'outcome').map(({ ref }) => violation('unresolved-outcome', ref, null))
-    : [];
+const outcomeViolations = ({
+  claims,
+  rulesStrictness,
+  resolvedOutcome,
+  checkResolved,
+}: ConsistencyInput): Violation[] => {
+  if (rulesStrictness !== AS_WRITTEN) return [];
+  return claims.flatMap((claim) => {
+    if (claim.kind !== 'outcome') return [];
+    if (resolvedOutcome !== undefined && resolvedOutcome !== null)
+      return claim.declared === resolvedOutcome ? [] : [violation('outcome-mismatch', claim.ref, null)];
+    return checkResolved === true ? [] : [violation('unresolved-outcome', claim.ref, null)];
+  });
+};
 
 export const checkConsistency = (input: ConsistencyInput): ConsistencyReport => {
   const visible = new Set(visibleTo(input.facts, input.viewer).map((fact) => fact.id));
   const violations = [
     ...input.claims.flatMap((claim) => checkClaim(claim, input, visible)),
     ...restatedSecrets(input, visible),
-    ...unresolvedOutcomes(input),
+    ...outcomeViolations(input),
   ];
   return { ok: violations.length === 0, violations };
 };

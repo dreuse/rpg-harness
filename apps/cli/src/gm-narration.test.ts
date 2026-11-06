@@ -443,6 +443,12 @@ describe('rpg-cm63.3 game master segments on every route', () => {
   });
 });
 
+const MISS_RESULT = /"event":"(attack\.miss|check\.failure)"/;
+const declaredFor = (packet: ContextPacket): 'hit' | 'miss' =>
+  packet.sections.some(({ name, items }) => name === 'results' && items.some((item) => MISS_RESULT.test(item)))
+    ? 'miss'
+    : 'hit';
+
 describe('rpg-42a.27 narrated turn outcomes', () => {
   const committed = { turn: { id: 't1', campaignId: 'c1', narration: '' } } as unknown as CommittedTurn;
   const recordingStore = () => {
@@ -482,7 +488,12 @@ describe('rpg-42a.58 rules strictness in the GM path', () => {
     return dataDir;
   };
 
-  const OUTCOME: GmProposal = { kind: 'outcome', id: 'result', text: 'a mechanical result' };
+  const outcomeFor = (packet: ContextPacket): GmProposal => ({
+    kind: 'outcome',
+    id: 'result',
+    text: 'a mechanical result',
+    declared: declaredFor(packet),
+  });
   const CLAIMING = new Set([HIT, 'Sua lâmina acerta o goblin.']);
 
   const scriptedGm = (replies: readonly string[], packets: ContextPacket[]): GameMaster => ({
@@ -492,7 +503,7 @@ describe('rpg-42a.58 rules strictness in the GM path', () => {
       return {
         narration,
         segments: [{ text: narration }],
-        ...(CLAIMING.has(narration) ? { proposals: [OUTCOME] } : {}),
+        ...(CLAIMING.has(narration) ? { proposals: [outcomeFor(packet)] } : {}),
       };
     },
     summarizer: FAKE_GAME_MASTER.summarizer,
@@ -523,7 +534,7 @@ describe('rpg-42a.58 rules strictness in the GM path', () => {
   const usageGm = (replies: readonly (string | Error)[]): GameMaster => {
     let calls = 0;
     return {
-      request: async () => {
+      request: async (packet) => {
         const reply = replies[Math.min(calls, replies.length - 1)] ?? '';
         calls += 1;
         if (reply instanceof Error) throw reply;
@@ -531,7 +542,7 @@ describe('rpg-42a.58 rules strictness in the GM path', () => {
           narration: reply,
           segments: [{ text: reply }],
           usage: ATTEMPT_USAGE,
-          ...(CLAIMING.has(reply) ? { proposals: [OUTCOME] } : {}),
+          ...(CLAIMING.has(reply) ? { proposals: [outcomeFor(packet)] } : {}),
         };
       },
       summarizer: FAKE_GAME_MASTER.summarizer,

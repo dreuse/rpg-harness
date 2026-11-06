@@ -37,7 +37,12 @@ const ATTACK_OFFER: GmProposal = {
   target: 'Old Tam',
   label: 'Attack Old Tam with your sword',
 };
-const OUTCOME: GmProposal = { kind: 'outcome', id: 'tam-result', text: 'the attack on Old Tam' };
+const MISS_RESULT = /"event":"(attack\.miss|check\.failure)"/;
+const declaredFor = (packet: ContextPacket): 'hit' | 'miss' =>
+  packet.sections.some(({ name, items }) => name === 'results' && items.some((item) => MISS_RESULT.test(item)))
+    ? 'miss'
+    : 'hit';
+const OUTCOME: GmProposal = { kind: 'outcome', id: 'tam-result', text: 'the attack on Old Tam', declared: 'hit' };
 const NO_DICE = 0;
 
 type Script = readonly { readonly narration: string; readonly proposals?: readonly GmProposal[] }[];
@@ -65,7 +70,10 @@ const hollowLantern = async (
     request: async (packet) => {
       packets.push(packet);
       const reply = script[Math.min(packets.length, script.length) - 1] ?? { narration: FAKE_GM_REPLY };
-      return { ...reply, segments: [{ text: reply.narration }] };
+      const proposals = reply.proposals?.map((proposal) =>
+        proposal.kind === 'outcome' ? { ...proposal, declared: declaredFor(packet) } : proposal,
+      );
+      return { ...reply, ...(proposals === undefined ? {} : { proposals }), segments: [{ text: reply.narration }] };
     },
     summarizer: FAKE_GAME_MASTER.summarizer,
   };

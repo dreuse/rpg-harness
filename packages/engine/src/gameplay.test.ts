@@ -418,11 +418,16 @@ test('rpg-42a.28 an async narrator narrates a committed turn through the same co
 });
 
 const HIT_NARRATION = 'Your blade hits the goblin for 5 damage.';
-const HIT_REPLY: NarratedTurn = { narration: HIT_NARRATION, claims: [{ kind: 'outcome', ref: 'hit on the goblin' }] };
+const HIT_REPLY: NarratedTurn = {
+  narration: HIT_NARRATION,
+  claims: [{ kind: 'outcome', ref: 'hit on the goblin', declared: 'hit' }],
+};
 const MISS_FREE_NARRATION = 'The goblin snarls and waits for your move.';
 const MISS_FREE_REPLY: NarratedTurn = { narration: MISS_FREE_NARRATION, claims: [] };
 const AS_WRITTEN: NarrationContext = { ...CONTEXT, rulesStrictness: 'as-written' };
-const RESOLVED_CHECK = () => ({ rolls: [], events: [] });
+const resolvedAs = (event: string) => () => ({ rolls: [], events: [{ event }] });
+const RESOLVED_CHECK = resolvedAs('attack.hit');
+const SKIPPED_REASON = 'dice-off';
 
 const scripted = (...replies: NarratedTurn[]) => {
   const retries: (readonly string[] | undefined)[] = [];
@@ -473,6 +478,42 @@ test('rpg-42a.58: a resolved check lets the narration claim its result without a
   }
 });
 
+test('rpg-42a.86: a resolved miss rejects a narration that declares a hit and regenerates once', async () => {
+  const { store, close } = open();
+  try {
+    const committed = performAction(store, actionFor(store, 'swing'), resolvedAs('attack.miss'));
+    const { narrator, retries } = scripted(HIT_REPLY, MISS_FREE_REPLY);
+    assert.equal(narrated(await narrateTurn(store, narrator, committed, AS_WRITTEN)).narration, MISS_FREE_NARRATION);
+    assert.deepEqual(retries, [undefined, ['outcome-mismatch']]);
+  } finally {
+    close();
+  }
+});
+
+test('rpg-42a.86: a pool-style resolved check with no hit or miss event still accepts the outcome claim', async () => {
+  const { store, close } = open();
+  try {
+    const committed = performAction(store, actionFor(store, 'swing'), resolvedAs('success'));
+    const { narrator, retries } = scripted(HIT_REPLY);
+    assert.equal(narrated(await narrateTurn(store, narrator, committed, AS_WRITTEN)).narration, HIT_NARRATION);
+    assert.equal(retries.length, 1);
+  } finally {
+    close();
+  }
+});
+
+test('rpg-42a.86: a skipped check still accepts the outcome claim', async () => {
+  const { store, close } = open();
+  try {
+    const committed = performAction(store, actionFor(store, 'swing'), { noCheck: SKIPPED_REASON });
+    const { narrator, retries } = scripted(HIT_REPLY);
+    assert.equal(narrated(await narrateTurn(store, narrator, committed, AS_WRITTEN)).narration, HIT_NARRATION);
+    assert.equal(retries.length, 1);
+  } finally {
+    close();
+  }
+});
+
 test('rpg-42a.58: relaxed and off skip the check and never regenerate', async () => {
   for (const rulesStrictness of ['relaxed', 'off'] as const) {
     const { store, close } = open();
@@ -505,14 +546,17 @@ test('rpg-42a.89: a GM roll resolves only the outcome claim that names its roll 
   try {
     const committed = performAction(store, actionFor(store, 'swing'));
     rolledFor(store, 'swing', 'tam-swing');
-    const named = scripted({ narration: HIT_NARRATION, claims: [{ kind: 'outcome', ref: 'tam-swing' }] });
+    const named = scripted({
+      narration: HIT_NARRATION,
+      claims: [{ kind: 'outcome', ref: 'tam-swing', declared: 'hit' }],
+    });
     assert.equal(narrated(await narrateTurn(store, named.narrator, committed, AS_WRITTEN)).narration, HIT_NARRATION);
     const other = open();
     try {
       const unrelated = performAction(other.store, actionFor(other.store, 'swing'));
       rolledFor(other.store, 'swing', 'tam-swing');
       const { narrator, retries } = scripted(
-        { narration: HIT_NARRATION, claims: [{ kind: 'outcome', ref: 'player-attack' }] },
+        { narration: HIT_NARRATION, claims: [{ kind: 'outcome', ref: 'player-attack', declared: 'hit' }] },
         MISS_FREE_REPLY,
       );
       assert.equal(
@@ -534,7 +578,7 @@ test('rpg-42a.100: a GM roll proposed under another action does not resolve this
     const committed = performAction(store, actionFor(store, 'swing'));
     rolledFor(store, 'elsewhere', 'tam-swing');
     const { narrator, retries } = scripted(
-      { narration: HIT_NARRATION, claims: [{ kind: 'outcome', ref: 'tam-swing' }] },
+      { narration: HIT_NARRATION, claims: [{ kind: 'outcome', ref: 'tam-swing', declared: 'hit' }] },
       MISS_FREE_REPLY,
     );
     assert.equal(narrated(await narrateTurn(store, narrator, committed, AS_WRITTEN)).narration, MISS_FREE_NARRATION);

@@ -9,6 +9,7 @@ import {
   type ConsistencyInput,
   type ConsistencyReport,
   checkConsistency,
+  type OutcomeResult,
   type Violation,
 } from '../../narrative/src/consistency.ts';
 import { gmRollIdOf } from './gm-roll.ts';
@@ -19,7 +20,10 @@ export type NarratedTurn = Pick<ConsistencyInput, 'narration' | 'claims'> & {
   readonly segments?: readonly TurnSegment[];
 };
 
-export type NarrationContext = Omit<ConsistencyInput, 'narration' | 'claims' | 'events' | 'checkResolved'>;
+export type NarrationContext = Omit<
+  ConsistencyInput,
+  'narration' | 'claims' | 'events' | 'checkResolved' | 'resolvedOutcome'
+>;
 
 export type Narrator = { narrate(committed: CommittedTurn): NarratedTurn };
 
@@ -45,7 +49,29 @@ export class UncommittedTurnError extends Error {
 const PENDING_NARRATION = '';
 const PROPOSAL_INFIX = ':proposal:';
 
-const isUnresolvedOutcome = ({ kind }: Violation) => kind === 'unresolved-outcome';
+const OUTCOME_VIOLATIONS: readonly string[] = ['unresolved-outcome', 'outcome-mismatch'];
+
+const isOutcomeViolation = ({ kind }: Violation) => OUTCOME_VIOLATIONS.includes(kind);
+
+const HIT_EVENTS: readonly string[] = ['check.success', 'attack.hit'];
+const MISS_EVENTS: readonly string[] = ['check.failure', 'attack.miss'];
+
+const resolvedEventNames = ({ payload }: CommittedTurn['events'][number]): readonly string[] => {
+  const { resolution } = payload as { resolution?: { events?: readonly { event?: unknown }[] } };
+  return (resolution?.events ?? []).flatMap(({ event }) => (typeof event === 'string' ? [event] : []));
+};
+
+const outcomeOfEvent = (event: CommittedTurn['events'][number]): OutcomeResult | null => {
+  const names = resolvedEventNames(event);
+  if (names.some((name) => HIT_EVENTS.includes(name))) return 'hit';
+  return names.some((name) => MISS_EVENTS.includes(name)) ? 'miss' : null;
+};
+
+const resolvedOutcomeOf = ({ events }: CommittedTurn): OutcomeResult | null => {
+  const outcomes = events.filter(({ type }) => type === CHECK_RESOLVED).map(outcomeOfEvent);
+  const [first = null] = outcomes;
+  return outcomes.every((outcome) => outcome === first) ? first : null;
+};
 
 const gmRollIdsOf = (
   { events, turns }: Pick<CampaignState, 'events' | 'turns'>,
@@ -70,9 +96,10 @@ const recordChecked = (
   const state = loadState(store, committed.turn.campaignId);
   const { events } = state;
   const checkResolved = committed.events.some(({ type }) => type === CHECK_RESOLVED || type === CHECK_SKIPPED);
+  const resolvedOutcome = resolvedOutcomeOf(committed);
   const rolledIds = gmRollIdsOf(state, committed);
   const unrolled = claims.filter(({ kind, ref }) => kind !== 'outcome' || !rolledIds.has(ref));
-  const report = checkConsistency({ ...context, narration, claims: unrolled, events, checkResolved });
+  const report = checkConsistency({ ...context, narration, claims: unrolled, events, checkResolved, resolvedOutcome });
   if (!report.ok) return { committed, inconsistent: report };
   store.recordNarration(committed.turn.campaignId, committed.turn.id, narration, segments);
   return { committed, narration };
@@ -110,12 +137,12 @@ export const narrateTurn = async (
   if (committed.turn.narration !== PENDING_NARRATION) return { committed, narration: committed.turn.narration };
   try {
     const first = recordChecked(store, committed, context, await narrator.narrate(committed));
-    if (!('inconsistent' in first) || !first.inconsistent.violations.some(isUnresolvedOutcome)) return first;
+    if (!('inconsistent' in first) || !first.inconsistent.violations.some(isOutcomeViolation)) return first;
     return recordChecked(
       store,
       committed,
       context,
-      await narrator.narrate(committed, first.inconsistent.violations.filter(isUnresolvedOutcome)),
+      await narrator.narrate(committed, first.inconsistent.violations.filter(isOutcomeViolation)),
     );
   } catch (error) {
     return interruptedOr(committed, error);
