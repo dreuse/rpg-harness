@@ -79,7 +79,7 @@ import {
 import { budgetOf } from './gm-limits.ts';
 import { COMPARED_NARRATIONS, closingSentencesOf } from './gm-repetition.ts';
 import { ownRulesItems } from './own-rules.ts';
-import { describeConfig, rulesDocumentStyleLines, styleLinesOf } from './quickstart.ts';
+import { describeConfig, type Packs, rulesDocumentStyleLines, styleLinesOf } from './quickstart.ts';
 import {
   checkRulesFor,
   combatRulesOf,
@@ -215,6 +215,7 @@ export type PacketOptions = {
   readonly repeated?: readonly string[];
   readonly contradicted?: readonly string[];
   readonly gmRolls?: readonly string[];
+  readonly packs?: Packs;
 };
 
 const ownRulesInstructions = (state: CampaignState, defaults: GmSettings) => {
@@ -258,7 +259,7 @@ export const contextPacketOf = (
   viewer: Viewer = PLAYER_VIEWER,
   preset: ContextBudgetPreset = contextBudgetOf(state.changes),
   ratio = 1,
-  { defaults = {}, retry = false, repeated = [], contradicted = [], gmRolls = [] }: PacketOptions = {},
+  { defaults = {}, retry = false, repeated = [], contradicted = [], gmRolls = [], packs }: PacketOptions = {},
 ): ContextPacket => {
   const campaignId = state.campaign.id;
   const retconned = retconnedMemoryOf(database, state);
@@ -352,7 +353,7 @@ export const contextPacketOf = (
       ruleset: rulesetOf(state, config, committed.turn.input, turns.map(turnText)),
       setting: [state.currentScene?.title ?? state.campaign.name],
       style: [
-        ...(config === undefined ? [] : styleLinesOf(config)),
+        ...(config === undefined ? [] : styleLinesOf(config, packs)),
         ...tableNotes,
         ...rulesDocumentStyleLines(rulesDocumentsOf(state.events)),
       ],

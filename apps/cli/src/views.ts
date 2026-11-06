@@ -43,7 +43,7 @@ import {
 } from '../../../packages/rules/src/sheet-view.ts';
 import { audienceOf, visibleFoldsOf } from '../../../packages/timelines/src/live-folds.ts';
 import { say } from './messages.ts';
-import { creationRulesFor, usageFor } from './quickstart.ts';
+import { creationRulesFor, type Packs, usageFor } from './quickstart.ts';
 
 export const VIEW_NAMES = ['sheet', 'sheet-export', 'inventory', 'journal', 'quests', 'encounter', 'recap'] as const;
 export type ViewName = (typeof VIEW_NAMES)[number];
@@ -54,6 +54,7 @@ export type ViewSource = {
   readonly entities: readonly CampaignEntity[];
   readonly relationships: readonly Relationship[];
   readonly eventScopes: readonly (Scoped & { readonly id: EventId })[];
+  readonly packs?: Packs;
 };
 
 const ITEM_KIND: EntityKind = 'item';
@@ -153,9 +154,9 @@ const sheetInput = (source: ViewSource, hero: Character, viewer: SheetViewer): S
   };
 };
 
-const sheetless = ({ state }: ViewSource) => {
+const sheetless = ({ state, packs }: ViewSource) => {
   const saved = parseCampaignConfig(campaignConfigOf(state.events));
-  return saved.ok && !usesSheet(usageFor(saved.config.rulepack));
+  return saved.ok && !usesSheet(usageFor(saved.config.rulepack, packs));
 };
 
 const description = (hero: Character, source: ViewSource) => {

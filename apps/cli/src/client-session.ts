@@ -73,7 +73,7 @@ import { correctD20Roll, fakeOocReply, houseRuleOf } from './gm-ooc.ts';
 import type { OocReplier } from './gm-ooc-model.ts';
 import type { InstalledRuleset } from './installed-rulesets.ts';
 import { DEFAULT_LOCALE, errorText, LocalizedError, say } from './messages.ts';
-import { creationRulesFor, usageFor } from './quickstart.ts';
+import { creationRulesFor, packsWith, usageFor } from './quickstart.ts';
 import {
   checkForAction,
   emitVisualizations,
@@ -415,7 +415,14 @@ export const createClientSessions = (
         ...(language === undefined ? {} : { language }),
         ...(voice === undefined ? {} : { voice }),
         ...(gm === undefined ? {} : { gm }),
-        ...(config === undefined ? {} : { rules: usageFor(config.rulepack) }),
+        ...(config === undefined
+          ? {}
+          : {
+              rules: usageFor(
+                config.rulepack,
+                packsWith(() => installedRuleset?.(state.events)),
+              ),
+            }),
       }),
     );
   };
@@ -425,7 +432,12 @@ export const createClientSessions = (
     const state = engine.getState(campaignId);
     const known = viewScopes(state.events.map(({ id }) => id));
     const eventScopes = [...known].map(([id, scope]) => ({ id, ...scope }));
-    return { state, eventScopes, ...readWorld(campaignId, state.characters[0]?.id) };
+    return {
+      state,
+      eventScopes,
+      packs: packsWith(() => installedRuleset?.(state.events)),
+      ...readWorld(campaignId, state.characters[0]?.id),
+    };
   };
 
   const panels = (viewer: Viewer): CampaignPanels => {

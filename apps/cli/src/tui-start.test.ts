@@ -256,7 +256,7 @@ test('rpg-42a.122 tui guided start lists an installed ruleset and the campaign p
     CONTINUE,
     FIRST,
     INSTALLED_OPTION,
-    FIRST,
+    SKIP,
     CONTINUE,
     CONTINUE,
     GUIDED_NAME,

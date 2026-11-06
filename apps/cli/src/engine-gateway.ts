@@ -157,7 +157,9 @@ import {
   isPitch,
   type Opening,
   openingFor,
+  type Packs,
   packsIn,
+  packsWith,
   planCampaign,
   startingCharacter,
   titleOf,
@@ -271,11 +273,20 @@ const narratingEngine = (
   database: Session['database'],
   narrate: PacketNarrator,
   rng: Rng,
+  dataDir: string,
 ): Engine => {
   const narrator: Narrator = {
     narrate: (committed) => ({
       narration: narrate(
-        contextPacketOf(database, withoutRetconned(loadState(store, committed.turn.campaignId)), committed),
+        contextPacketOf(
+          database,
+          withoutRetconned(loadState(store, committed.turn.campaignId)),
+          committed,
+          undefined,
+          undefined,
+          undefined,
+          { packs: packsWith(() => installedRulesetIn(dataDir, loadState(store, committed.turn.campaignId).events)) },
+        ),
       ).narration,
       claims: [],
     }),
@@ -526,6 +537,7 @@ const narrateLatest = async (
           repeated,
           contradicted,
           gmRolls,
+          packs: packsWith(() => session.installedRuleset(state.events)),
         }),
       send: (packet) => {
         if (live) voice?.restart();
@@ -703,7 +715,8 @@ const openSession = (
     const row = database.prepare(SELECT_CAMPAIGN_ID).get();
     if (row === undefined) throw new LocalizedError('campaign.noState', { name });
     const close = () => connection.close();
-    const engine = 'narrator' in gm ? narratingEngine(store, database, gm.narrator, rng) : createEngine(store, rng);
+    const engine =
+      'narrator' in gm ? narratingEngine(store, database, gm.narrator, rng, dataDir) : createEngine(store, rng);
     const session = {
       engine,
       rng,
@@ -1249,8 +1262,9 @@ const recapText = (name: string, state: CampaignState, locale: string) =>
     sceneText(state.currentScene?.title ?? name, recap(state.characters, playTurns(state).at(-1))),
   ].join('\n');
 
-const viewSourceOf = (database: Session['database'], campaignId: CampaignId, state: CampaignState) => ({
+const viewSourceOf = (database: Session['database'], campaignId: CampaignId, state: CampaignState, packs?: Packs) => ({
   state,
+  ...(packs === undefined ? {} : { packs }),
   eventScopes: [...scopeLookupOf(database, campaignId)(state.events.map(({ id }) => id))].map(([id, scope]) => ({
     id,
     ...scope,
@@ -1262,10 +1276,20 @@ const readView = (dataDir: string, name: string, view: ViewName, locale: string)
   withSession(
     dataDir,
     name,
-    ({ engine, campaignId, database }) => {
+    ({ engine, campaignId, database, installedRuleset }) => {
       const state = engine.getState(campaignId);
       if (view === RECAP_VIEW) return recapText(name, state, locale);
-      return renderView(view, viewSourceOf(database, campaignId, state), undefined, locale);
+      return renderView(
+        view,
+        viewSourceOf(
+          database,
+          campaignId,
+          state,
+          packsWith(() => installedRuleset(state.events)),
+        ),
+        undefined,
+        locale,
+      );
     },
     true,
   );
@@ -1481,9 +1505,9 @@ export const campaignDatabases = (dataDir: string): CampaignFile[] => [
 
 const ADD_CLIENT_KEY = 'campaign.addClient';
 
-const newCampaignConfig = (intent: string | undefined, client: string | undefined) => {
+const newCampaignConfig = (intent: string | undefined, client: string | undefined, packs: Packs) => {
   try {
-    return planCampaign(intent, client === undefined ? {} : { client });
+    return planCampaign(intent, client === undefined ? {} : { client }, packs);
   } catch (error) {
     if (!(error instanceof ClientUnsupported)) throw error;
     throw new LocalizedError(ADD_CLIENT_KEY, {
@@ -1495,12 +1519,12 @@ const newCampaignConfig = (intent: string | undefined, client: string | undefine
 
 const isAddClient = (error: unknown) => error instanceof LocalizedError && error.key === ADD_CLIENT_KEY;
 
-const pitchConfig = (pitch: string | undefined, derived: boolean, client: string | undefined) => {
+const pitchConfig = (pitch: string | undefined, derived: boolean, client: string | undefined, packs: Packs) => {
   try {
-    return newCampaignConfig(pitch, client);
+    return newCampaignConfig(pitch, client, packs);
   } catch (error) {
     if (!derived || error instanceof UnknownEdition || isAddClient(error)) throw error;
-    return newCampaignConfig(undefined, client);
+    return newCampaignConfig(undefined, client, packs);
   }
 };
 
@@ -1609,7 +1633,7 @@ export const createEngineGateway = (
     const derived = intent === undefined && isPitch(name);
     const pitch = derived ? name : intent;
     const title = derived ? uniqueName(dataDir, titleOf(name)) : name;
-    const config = pitchConfig(pitch, derived, client);
+    const config = pitchConfig(pitch, derived, client, packsIn(dataDir));
     const scene = await createCampaign(
       dataDir,
       title,

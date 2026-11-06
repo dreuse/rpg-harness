@@ -59,7 +59,7 @@ import { NARRATIVE_CREATION } from '../../../packages/rules/src/narrative.ts';
 import { type RulePackManifest, rulesUsageOf } from '../../../packages/rules/src/rulepack.ts';
 import { describedBuild } from './character-creation.ts';
 import { BUILT_IN_PACKS } from './import-gateway.ts';
-import { installedRulesets } from './installed-rulesets.ts';
+import { baseIdOf, type InstalledRuleset, installedRulesets } from './installed-rulesets.ts';
 import { DEFAULT_LOCALE, errorText, ListParam, LocalizedError, say } from './messages.ts';
 
 export const CREATION_RULES = [D20_LITE_CREATION, DICE_POOL_LITE_CREATION, NARRATIVE_CREATION];
@@ -110,9 +110,18 @@ const CLIENT_UNSUPPORTED = 'client_unsupported';
 const NO_MECHANICS: CapabilityReport = { advertised: [], supported: [], unsupported: [...MECHANICAL_FIELDS] };
 
 type Choices = Readonly<Record<string, unknown>>;
-type Packs = readonly RulePackManifest[];
+export type Packs = readonly RulePackManifest[];
 
 export const packsIn = (dataDir: string): Packs => [...BUILT_IN_PACKS, ...installedRulesets(dataDir)];
+
+export const packsWith = (load?: () => InstalledRuleset | undefined): Packs => {
+  try {
+    const installed = load?.();
+    return installed === undefined ? BUILT_IN_PACKS : [...BUILT_IN_PACKS, installed.manifest];
+  } catch {
+    return BUILT_IN_PACKS;
+  }
+};
 
 export class UnknownEdition extends LocalizedError {}
 
@@ -266,11 +275,11 @@ export const rulesDocumentStyleLines = (documents: readonly RulesDocument[]): st
       : styleLine('rules-document', JSON.stringify(name), style),
   );
 
-export const styleLinesOf = ({ rulepack, genre }: CampaignConfig): string[] => [
+export const styleLinesOf = ({ rulepack, genre }: CampaignConfig, packs: Packs = BUILT_IN_PACKS): string[] => [
   ...styleLine(
     'rulepack',
     rulepack?.id ?? '',
-    BUILT_IN_PACKS.find(
+    packs.find(
       ({ id, edition, revision }) =>
         id === rulepack?.id && edition === rulepack.edition && revision === rulepack.revision,
     )?.style,
@@ -306,11 +315,8 @@ const featuresOf = ({ capabilities }: RulePackManifest) =>
     .filter(([, mode]) => mode === true)
     .map(([feature]) => feature);
 
-const sheetOf = ({ id, edition }: RulePackManifest) =>
-  (
-    CREATION_RULES.find(({ schema: { rulepack } }) => rulepack.id === id && rulepack.edition === edition)?.schema
-      .fields ?? []
-  )
+const sheetOf = (pack: RulePackManifest) =>
+  (creationRulesFor(pack)?.schema.fields ?? [])
     .filter(({ derived }) => derived === undefined)
     .map(({ id: field, label }) => label ?? field);
 
@@ -365,7 +371,10 @@ const planValue = ({ rulepack, genre, values }: CampaignConfig, field: (typeof P
 export const creationRulesFor = (rulepack: CampaignConfig['rulepack']) =>
   CREATION_RULES.find(
     ({ schema: { rulepack: pack } }) =>
-      pack.id === rulepack?.id && pack.edition === rulepack.edition && pack.revision === rulepack.revision,
+      rulepack !== null &&
+      pack.id === baseIdOf(rulepack.id) &&
+      pack.edition === rulepack.edition &&
+      pack.revision === rulepack.revision,
   );
 
 const BOUNDS_MESSAGE = /^must be between (.+) and (.+)$/;
