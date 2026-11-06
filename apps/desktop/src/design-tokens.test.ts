@@ -161,6 +161,10 @@ test('rpg-42a.11 tokens follow the OS theme, reduce motion and expose one accent
   assert.match(view, /\[data-animate="false"\][\s\S]*--duration-base: 0ms;/);
   assert.match(view, /:focus-visible \{[^}]*outline: var\(--focus-width\) solid var\(--focus\);/);
   assert.doesNotMatch(view, /outline:\s*(none|0)\b/);
+  assert.match(
+    view,
+    /:is\(h1, h2\)\[tabindex="-1"\]:focus-visible \{[^}]*outline-color: transparent;[^}]*box-shadow: inset var\(--marker-width\) 0 0 var\(--accent\);/,
+  );
   assert.doesNotMatch(view, /--accent:/);
 });
 

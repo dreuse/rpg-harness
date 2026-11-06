@@ -1283,3 +1283,8 @@ main[data-screen="home"] [data-region="start"] [data-actions] {
 [data-reported-badge] {
   font-size: 0.875rem;
 }
+
+:is(h1, h2)[tabindex="-1"]:focus-visible {
+  outline-color: transparent;
+  box-shadow: inset var(--marker-width) 0 0 var(--accent);
+}
