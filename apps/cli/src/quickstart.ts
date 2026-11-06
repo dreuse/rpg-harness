@@ -19,6 +19,7 @@ import {
 } from '../../../packages/content/src/packs.ts';
 import type { StoryKit } from '../../../packages/content/src/story.ts';
 import { DEFAULT_RULES_USAGE, usesDice } from '../../../packages/domain/src/rules-usage.ts';
+import type { RulesDocument } from '../../../packages/engine/src/own-rules.ts';
 import { type CampaignConfig, type ConfigIssue, generateCampaignConfig } from '../../../packages/intent/src/config.ts';
 import {
   CLIENT_CAPABILITIES,
@@ -256,6 +257,13 @@ export const openingFor = ({ genre }: CampaignConfig, fallback: Opening, locale 
 
 const styleLine = (source: string, id: string, style: unknown) =>
   style === undefined ? [] : [`${source} ${id} style: ${JSON.stringify(style)}`];
+
+export const rulesDocumentStyleLines = (documents: readonly RulesDocument[]): string[] =>
+  documents.flatMap(({ name, style }) =>
+    style === undefined || Object.keys(style).length === 0
+      ? []
+      : styleLine('rules-document', JSON.stringify(name), style),
+  );
 
 export const styleLinesOf = ({ rulepack, genre }: CampaignConfig): string[] => [
   ...styleLine(

@@ -4,6 +4,7 @@ import { type CampaignStore, type CommittedTurn, MAIN_BRANCH } from '../../../pa
 import { saveGmSettings } from '../../../packages/engine/src/gm-settings.ts';
 import { introduceEntity, openPending, saveContextBudget } from '../../../packages/engine/src/memory.ts';
 import { applyOocProposal } from '../../../packages/engine/src/ooc.ts';
+import type { RulesDocument } from '../../../packages/engine/src/own-rules.ts';
 import { proposeClaims } from '../../../packages/engine/src/story-memory.ts';
 import { openScene, type PlayerAction, performAction } from '../../../packages/engine/src/turn.ts';
 import { setVoiceTraits } from '../../../packages/engine/src/voice-profile.ts';
@@ -74,6 +75,7 @@ const SECRET = { visibility: 'gm' as const, actorId: null };
 const campaign = (
   payload: Readonly<Record<string, unknown>> = CREATED_EVENT.payload,
   config?: Readonly<Record<string, unknown>>,
+  rulesDocuments?: readonly RulesDocument[],
 ) => {
   const connection = openDatabase(IN_MEMORY);
   const { database } = connection;
@@ -85,6 +87,7 @@ const campaign = (
     sceneTitle: 'The Docks',
     narration: 'Gulls cry.',
     ...(config === undefined ? {} : { config }),
+    ...(rulesDocuments === undefined ? {} : { rulesDocuments }),
   });
   const entities = createEntityStore(database);
   const facts = createFactStore(database);
@@ -577,5 +580,56 @@ it('rpg-cm63.44 no voice-traits request without a present npc and the base promp
   const quiet = instructionsOf(fixture, play(fixture.store, 'quiet'));
   assert.ok(!quiet?.some((line) => line.includes('voice traits')));
   assert.match(SYSTEM_PROMPT, /voiceTraits/);
+  fixture.connection.close();
+});
+
+it('rpg-42a.73 carries the style of an imported rulebook as data in the stable style section', () => {
+  const document: RulesDocument = {
+    name: 'house.md',
+    format: 'markdown',
+    sourceHash: 'a'.repeat(64),
+    text: 'Rules text.',
+    style: { tone: ['wry'] },
+  };
+  const fixture = campaign(CREATED_EVENT.payload, undefined, [document]);
+  const packet = packetAt(fixture, play(fixture.store, 'turn-1'));
+  const items = packet.sections.find(({ name }) => name === 'style')?.items ?? [];
+  assert.ok(items.includes('rules-document "house.md" style: {"tone":["wry"]}'));
+  fixture.connection.close();
+});
+
+it('rpg-42a.73 a large imported style never pushes the table notes out of the style section', () => {
+  const long = Array.from({ length: 8 }, (_, index) => `${index}`.padEnd(200, 'x'));
+  const document: RulesDocument = {
+    name: 'big.md',
+    format: 'markdown',
+    sourceHash: 'b'.repeat(64),
+    text: 'Rules text.',
+    style: { tone: long, voice: long, vocabulary: long, pacing: long },
+  };
+  const fixture = campaign(CREATED_EVENT.payload, undefined, [document]);
+  applyOocProposal(fixture.store, {
+    campaignId: CAMPAIGN.id,
+    actionId: 'note',
+    expectedRevision: fixture.store.load(CAMPAIGN.id)?.revision ?? 0,
+    proposal: { kind: 'table_note', summary: 'Table note', note: 'NPCs speak modern English' },
+  });
+  const packet = packetAt(fixture, play(fixture.store, 'turn-1'));
+  const items = packet.sections.find(({ name }) => name === 'style')?.items ?? [];
+  assert.ok(items.some((item) => item.includes('NPCs speak modern English')));
+  fixture.connection.close();
+});
+
+it('rpg-42a.73 an imported style with no entries adds no style line', () => {
+  const document: RulesDocument = {
+    name: 'empty.md',
+    format: 'markdown',
+    sourceHash: 'c'.repeat(64),
+    text: 'Rules text.',
+    style: {},
+  };
+  const fixture = campaign(CREATED_EVENT.payload, undefined, [document]);
+  const packet = packetAt(fixture, play(fixture.store, 'turn-1'));
+  assert.deepEqual(packet.sections.find(({ name }) => name === 'style')?.items, []);
   fixture.connection.close();
 });

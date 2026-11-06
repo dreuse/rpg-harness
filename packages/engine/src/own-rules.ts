@@ -1,5 +1,6 @@
 import { type CampaignEvent, RULES_DOCUMENT_ADDED } from '../../domain/src/campaign.ts';
 import { MAX_RULES_DOCUMENTS, MAX_RULES_NAME_LENGTH } from '../../domain/src/rules-usage.ts';
+import { type Style, toStyle } from '../../domain/src/style.ts';
 
 export { MAX_RULES_DOCUMENTS };
 export const MAX_RULES_DOCUMENT_CHARS = 200_000;
@@ -10,11 +11,12 @@ export type RulesDocument = {
   readonly format: string;
   readonly sourceHash: string;
   readonly text: string;
+  readonly style?: Style;
 };
 
 export const isRulesDocument = (value: unknown): value is RulesDocument => {
   if (typeof value !== 'object' || value === null) return false;
-  const { name, format, sourceHash, text } = value as Record<string, unknown>;
+  const { name, format, sourceHash, text, style } = value as Record<string, unknown>;
   return (
     typeof name === 'string' &&
     name.trim() !== '' &&
@@ -24,7 +26,8 @@ export const isRulesDocument = (value: unknown): value is RulesDocument => {
     SHA256_HEX.test(sourceHash) &&
     typeof text === 'string' &&
     text.trim() !== '' &&
-    text.length <= MAX_RULES_DOCUMENT_CHARS
+    text.length <= MAX_RULES_DOCUMENT_CHARS &&
+    (style === undefined || toStyle(style) !== undefined)
   );
 };
 

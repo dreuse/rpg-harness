@@ -77,7 +77,7 @@ import {
 import { budgetOf } from './gm-limits.ts';
 import { COMPARED_NARRATIONS, closingSentencesOf } from './gm-repetition.ts';
 import { ownRulesItems } from './own-rules.ts';
-import { describeConfig, styleLinesOf } from './quickstart.ts';
+import { describeConfig, rulesDocumentStyleLines, styleLinesOf } from './quickstart.ts';
 import {
   checkRulesFor,
   enforcedStrictnessFor,
@@ -310,7 +310,11 @@ export const contextPacketOf = (
       ],
       ruleset: rulesetOf(state, config, committed.turn.input, turns.map(turnText)),
       setting: [state.currentScene?.title ?? state.campaign.name],
-      style: [...(config === undefined ? [] : styleLinesOf(config)), ...tableNotes],
+      style: [
+        ...(config === undefined ? [] : styleLinesOf(config)),
+        ...tableNotes,
+        ...rulesDocumentStyleLines(rulesDocumentsOf(state.events)),
+      ],
       campaignSummary: visibleSummaries(summaries, viewer, 'campaign'),
       chapterSummaries: visibleSummaries(summaries, viewer, 'chapter'),
       sceneSummaries: visibleSummaries(summaries, viewer, 'scene'),
