@@ -82,9 +82,11 @@ export const rollForGm = (
   const fromConditions =
     policy === undefined || section === undefined
       ? []
-      : conditionModifiersOf(state.events, roller === PLAYER_ROLLER ? input.actorId : roller, section).filter(
-          ({ effect }) => effect.kind === 'flat',
-        );
+      : roller === PLAYER_ROLLER
+        ? conditionModifiersOf(state.events, input.actorId, section).filter(({ effect }) =>
+            GM_ROLL_EFFECTS.includes(effect.kind),
+          )
+        : [];
   const applied = mergeModifiers(resolved.ok ? resolved.applied : [], fromConditions);
   const summary = summarizeModifiers(applied);
   requireValid(

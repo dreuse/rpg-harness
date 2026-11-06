@@ -213,6 +213,7 @@ test('rpg-42a.82: a player roll is never secret and a rule section has a length 
 
 const MELEE_SECTION = 'attack.melee';
 const DARKENED_FLAT = -2;
+const BASE_MODIFIER = 3;
 const relaxed = { vocabulary: D20_LITE_VOCABULARY, strictness: 'relaxed' } as const;
 
 test('rpg-42a.104: a roll takes the conditions of the rolling actor that apply to its section', () => {
@@ -246,7 +247,7 @@ test('rpg-42a.104: a roll takes the conditions of the rolling actor that apply t
     );
     const replayed = replayRoll(hit.rolls[0]);
     assert.ok(replayed.ok);
-    assert.equal(replayed.event.pool.modifier, 3 + DARKENED_FLAT);
+    assert.equal(replayed.event.pool.modifier, BASE_MODIFIER + DARKENED_FLAT);
     assert.equal(resolutionOf(roll('other', 'check.wits', relaxed).events).modifiers, undefined);
     assert.equal(resolutionOf(roll('no-policy', MELEE_SECTION).events).modifiers, undefined);
   } finally {

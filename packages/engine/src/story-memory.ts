@@ -34,7 +34,6 @@ import type { ContinuityLogRecord } from '../../narrative/src/continuity.ts';
 import { type CampaignChange, recordChange } from './memory.ts';
 import { withoutRetconned } from './ooc.ts';
 import {
-  commit,
   commitSystem,
   loadState,
   type PlayerAction,
@@ -168,7 +167,7 @@ export const proposeClaims = (store: CampaignStore, entities: EntityStore, input
   requireValid(actionId, claims.length > NONE, 'no claims proposed');
   const visibilityOf = visibilityIn(state, entities);
   for (const claim of claims) checkClaim(actionId, claim, visibilityOf);
-  return commit(
+  return commitSystem(
     store,
     input,
     claims.map((claim) => [CLAIM_RECORDED, { ...claim }, turnVisibility(claim.visibility)]),

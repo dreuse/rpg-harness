@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { type CampaignStore, MAIN_BRANCH } from '../../domain/src/campaign.ts';
+import { type CampaignStore, MAIN_BRANCH, SYSTEM_TURN } from '../../domain/src/campaign.ts';
 import { CLAIM_CORRECTED, CLAIM_RECORDED, currentEntries } from '../../memory/src/ledger.ts';
 import { createCampaignStore } from '../../persistence/src/campaign-store.ts';
 import { openDatabase } from '../../persistence/src/database.ts';
@@ -85,6 +85,7 @@ test('rpg-42a.42 a GM claim is validated, committed as an event and folded into 
   const { connection, store, entities } = seeded();
   const input = proposal(store, 'warden-dies', [{ entityId: WARDEN.id, kind: 'alive', value: 'dead', ...PUBLIC }]);
   const committed = proposeClaims(store, entities, input);
+  assert.equal(committed.turn.kind, SYSTEM_TURN);
   assert.ok(committed.events.some(({ type }) => type === CLAIM_RECORDED));
   const ledger = ledgerOf(store.load(CAMPAIGN.id)?.events ?? []);
   assert.deepEqual(
