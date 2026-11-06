@@ -82,7 +82,7 @@ exports[`rpg-42a.17 TUI journey: first run, guided start, roll, sheet edit, quit
       "Your adventures",
       "  1. My adventure - Wren - d20-lite original, fantasy - Fantasy - now",
       "     A bell tolls in a drowned chapel that has been silent for a hundred years.",
-      "Type a number to continue, n for a new adventure, a<number> to archive, d<number> to delete, x for archived adventures, q to quit.",
+      "Type a number to continue, n for a new adventure, a<number> to archive, r<number> to rename, d<number> to delete, x for archived adventures, q to quit.",
       ""
     ],
     "screens": [
@@ -197,7 +197,7 @@ exports[`rpg-42a.17 TUI journey: first run, guided start, roll, sheet edit, quit
       "Your adventures",
       "  1. My adventure - Wren - d20-lite original, fantasy - Fantasy - now",
       "     Wren: I try to climb the wall - The world shifts in answer.",
-      "Type a number to continue, n for a new adventure, a<number> to archive, d<number> to delete, x for archived adventures, q to quit.",
+      "Type a number to continue, n for a new adventure, a<number> to archive, r<number> to rename, d<number> to delete, x for archived adventures, q to quit.",
       ""
     ],
     "screens": [
@@ -342,7 +342,7 @@ exports[`rpg-42a.17 TUI journey: first run, guided start, roll, sheet edit, quit
       "Your adventures",
       "  1. My adventure - Wren - d20-lite original, fantasy - Fantasy - now",
       "     A bell tolls in a drowned chapel that has been silent for a hundred years.",
-      "Type a number to continue, n for a new adventure, a<number> to archive, d<number> to delete, x for archived adventures, q to quit.",
+      "Type a number to continue, n for a new adventure, a<number> to archive, r<number> to rename, d<number> to delete, x for archived adventures, q to quit.",
       ""
     ],
     "screens": [
@@ -521,7 +521,7 @@ exports[`rpg-42a.17 TUI journey: first run, guided start, roll, sheet edit, quit
       "Your adventures",
       "  1. My adventure - Wren - d20-lite original, fantasy - Fantasy - now",
       "     Wren: I try to climb the wall - The world shifts in answer.",
-      "Type a number to continue, n for a new adventure, a<number> to archive, d<number> to delete, x for archived adventures, q to quit.",
+      "Type a number to continue, n for a new adventure, a<number> to archive, r<number> to rename, d<number> to delete, x for archived adventures, q to quit.",
       ""
     ],
     "screens": [

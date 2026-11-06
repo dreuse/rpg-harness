@@ -4,7 +4,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it, type TestContext } from 'node:test';
 import { PROTOCOL_VERSION } from '../../../packages/client-protocol/src/protocol.ts';
+import { ledgerTotals } from '../../../packages/domain/src/gm.ts';
+import { campaignPitchOf } from '../../../packages/engine/src/turn.ts';
 import { CONTEXT_BUDGETS, type ContextPacket, packetParts } from '../../../packages/memory/src/packet.ts';
+import { createCampaignStore } from '../../../packages/persistence/src/campaign-store.ts';
 import { openDatabase } from '../../../packages/persistence/src/database.ts';
 import {
   createCampaignFrom,
@@ -14,6 +17,8 @@ import {
   readCampaignState,
 } from './engine-gateway.ts';
 import { SYSTEM_PROMPT } from './gm-api.ts';
+import { writeGmDefaults } from './gm-defaults.ts';
+import { titleOf } from './quickstart.ts';
 
 const PITCH = 'a short fantasy adventure in a drowned chapel';
 const FANTASY_PITCH = 'a fantasy adventure in a drowned chapel';
@@ -24,6 +29,8 @@ const PLAYER_NAME = 'Ashfall';
 const NO_CHARACTER = async () => undefined;
 const GENERIC_NOTICE = 'opening is generic';
 const MAX_NAME = 40;
+const MAX_FACT_LENGTH = 300;
+const SAVED_MODEL = 'claude-saved-model';
 
 const fileOf = (dataDir: string, name: string) => join(dataDir, `${encodeURIComponent(name)}.sqlite`);
 
@@ -52,6 +59,13 @@ const run = async (dataDir: string, gm: GameMaster, name: string, intent?: strin
   const out: string[] = [];
   for await (const text of createEngineGateway(dataDir, gm).create(name, intent, NO_CHARACTER)) out.push(text);
   return out.join('\n');
+};
+
+const loadState = (database: ReturnType<typeof openDatabase>['database']) => {
+  const store = createCampaignStore(database);
+  const state = store.load(String(database.prepare('SELECT id FROM campaign').get()?.id));
+  assert.ok(state);
+  return state;
 };
 
 const entityNames = (dataDir: string, name: string) => {
@@ -125,13 +139,49 @@ describe('rpg-42a.46 pitch opening', () => {
     assert.equal(currentScene?.moodTags, undefined);
   });
 
-  it('stores the full pitch as campaign data', async (t) => {
+  it('stores the full pitch uncapped as a campaign event, not a place entity', async (t) => {
     const dataDir = tempDataDir(t);
-    await run(dataDir, scriptedGm(), PITCH);
-    const connection = openDatabase(fileOf(dataDir, TITLE));
-    const facts = connection.database.prepare('SELECT statement FROM fact').all();
+    const longPitch = `${PITCH}. ${'The water is cold and the bells still ring. '.repeat(10)}`.trim();
+    assert.ok(longPitch.length > MAX_FACT_LENGTH);
+    await run(dataDir, scriptedGm(), longPitch);
+    const connection = openDatabase(fileOf(dataDir, titleOf(longPitch)));
+    const state = loadState(connection.database);
+    const pitch = campaignPitchOf(state.events);
+    const places = connection.database.prepare("SELECT id FROM entity WHERE id = 'campaign-pitch'").all();
     connection.close();
-    assert.ok(facts.some((row) => String(row.statement).includes(PITCH)));
+    assert.equal(pitch, longPitch);
+    assert.equal(places.length, 0);
+  });
+
+  it('commits the scene title as an entity even without a GM place', async (t) => {
+    const dataDir = tempDataDir(t);
+    const out = await run(dataDir, FAKE_GAME_MASTER, PLAYER_NAME, FANTASY_PITCH);
+    const { currentScene } = readCampaignState(dataDir, PLAYER_NAME);
+    assert.ok(currentScene?.title !== undefined && out.includes(currentScene.title));
+    assert.ok(entityNames(dataDir, PLAYER_NAME).includes(currentScene?.title ?? ''));
+  });
+
+  it('opens with the saved GM model and records the opening usage', async (t) => {
+    const dataDir = tempDataDir(t);
+    writeGmDefaults(dataDir, { model: SAVED_MODEL });
+    const models: (string | undefined)[] = [];
+    const metered: GameMaster = {
+      ...scriptedGm(),
+      request: async (packet, options) => {
+        models.push(options.model);
+        return {
+          narration: OPENING_NARRATION,
+          segments: [{ text: OPENING_NARRATION }],
+          usage: { model: SAVED_MODEL, inputTokens: 7, cacheReadTokens: 0, cacheWriteTokens: 0, outputTokens: 3 },
+        };
+      },
+    };
+    await run(dataDir, metered, PITCH);
+    assert.deepEqual(models, [SAVED_MODEL]);
+    const connection = openDatabase(fileOf(dataDir, TITLE));
+    const totals = ledgerTotals(loadState(connection.database).gmUsage);
+    connection.close();
+    assert.equal(totals.inputTokens, 7);
   });
 
   it('keeps an explicit name and uses the generic opening with the fake GM', async (t) => {

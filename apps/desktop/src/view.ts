@@ -534,7 +534,7 @@ const cardDetails = (card: HomeCardModel, locale: string) =>
     : `<p data-problem>${escapeHtml(`${translate(locale, `home.problem.${card.health}`)} ${translate(locale, 'home.restoreHint')}`)}</p>`;
 
 type CardActions = { readonly prefix: string; readonly primary: string; readonly menu: readonly string[] };
-const ACTIVE_CARD: CardActions = { prefix: 'home-card', primary: 'continue', menu: ['archive', 'delete'] };
+const ACTIVE_CARD: CardActions = { prefix: 'home-card', primary: 'continue', menu: ['rename', 'archive', 'delete'] };
 const ARCHIVED_CARD: CardActions = { prefix: 'home-archived', primary: 'unarchive', menu: ['delete'] };
 
 export const homeActionId = (action: string, index: number, archived: boolean) =>
@@ -554,6 +554,13 @@ const homeCard = (actions: CardActions, locale: string) => (card: HomeCardModel,
       : homeButton(actions.primary, locale, { id: `home-${actions.primary}-${index}`, name: card.name, primary: true })
   }${cardMenu(actions, card, index, locale)}</div></article></li>`;
 
+export const RENAME_INPUT_ID = 'home-rename-input';
+
+const renameField = (confirm: NonNullable<HomeModel['confirm']>, locale: string) =>
+  confirm.kind === 'rename'
+    ? `<label for="${RENAME_INPUT_ID}">${escapeHtml(translate(locale, 'home.renameLabel', { name: confirm.name }))}</label><input id="${RENAME_INPUT_ID}" type="text" value="${escapeHtml(confirm.name)}">`
+    : '';
+
 const homeNotices = ({ error, undo, confirm }: HomeModel, locale: string) =>
   [
     error === undefined ? '' : alert(error),
@@ -562,7 +569,7 @@ const homeNotices = ({ error, undo, confirm }: HomeModel, locale: string) =>
       : `<p role="status">${escapeHtml(translate(locale, 'home.archivedNotice', { name: undo }))} ${homeButton('undo', locale, { id: 'home-undo' })}</p>`,
     confirm === undefined
       ? ''
-      : `<div role="alertdialog" aria-labelledby="home-confirm-text"><p id="home-confirm-text">${escapeHtml(translate(locale, `home.ask.${confirm.kind}`, { name: confirm.name }))}</p><button type="button" id="home-confirm" ${HOME_ATTRIBUTE}="confirm">${escapeHtml(translate(locale, `home.${confirm.kind}`))}</button>${homeButton('cancel', locale, { id: 'home-cancel' })}</div>`,
+      : `<div role="alertdialog" aria-labelledby="home-confirm-text"><p id="home-confirm-text">${escapeHtml(translate(locale, `home.ask.${confirm.kind}`, { name: confirm.name }))}</p>${renameField(confirm, locale)}<button type="button" id="home-confirm" ${HOME_ATTRIBUTE}="confirm">${escapeHtml(translate(locale, `home.${confirm.kind}`))}</button>${homeButton('cancel', locale, { id: 'home-cancel' })}</div>`,
   ].join('');
 
 const homeList = (home: HomeModel, starting: boolean, locale: string) => {

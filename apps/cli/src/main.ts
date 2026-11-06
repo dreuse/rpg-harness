@@ -80,6 +80,7 @@ export type CampaignGateway = {
   ) => AsyncIterable<string>;
   list: () => string;
   archive: (campaign: string) => string;
+  rename: (campaign: string, newName: string, locale?: string) => string;
   remove: (campaign: string, lines: AsyncIterable<string>) => AsyncIterable<string>;
   open: (
     campaign: string,
@@ -124,6 +125,7 @@ const COMMANDS = [
   { name: 'resume', usage: 'resume <campaign>' },
   { name: 'list', usage: 'list' },
   { name: 'archive', usage: 'archive <campaign>' },
+  { name: 'rename', usage: 'rename <campaign> <new name>' },
   { name: 'delete', usage: 'delete <campaign>' },
   { name: 'import', usage: 'import <file...>' },
   {
@@ -336,6 +338,12 @@ export const main = async (argv: readonly string[], io: Io, gateway: CampaignGat
     if (name === undefined || name.trim() === '') return missingName(command);
     if (extra.length > 0) return unexpectedArgument(extra[0]);
     return run(io, () => (command === 'archive' ? [gateway.archive(name)] : gateway.remove(name, io.lines)));
+  }
+  if (command === 'rename') {
+    const [name, newName, ...extra] = rest;
+    if (name === undefined || name.trim() === '' || newName === undefined) return missingName(command);
+    if (extra.length > 0) return unexpectedArgument(extra[0]);
+    return run(io, () => [gateway.rename(name, newName, io.locale)]);
   }
   if (command === 'new' || command === 'play' || command === 'resume') {
     const [name, ...extra] = rest;

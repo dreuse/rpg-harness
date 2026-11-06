@@ -346,3 +346,13 @@ test('rpg-42a.40 pt-BR editions accept ª, º and a', () => {
   for (const edition of ['5ª edição', '5º edição', '5a edição'])
     assert.deepEqual(settingFor(proposalOf(`D&D ${edition}`).settings, 'ruleset')?.value, { id: 'D&D', edition });
 });
+
+test('rpg-42a.66 length words before the story noun are not part of the genre', () => {
+  const probes: [string, string][] = [
+    ['a short fantasy adventure in a drowned chapel', 'fantasy'],
+    ['a long noir detective story', 'noir detective'],
+    ['a quick horror one-shot', 'horror'],
+  ];
+  for (const [text, genre] of probes) assert.equal(settingFor(proposalOf(text).settings, 'genre')?.value, genre, text);
+  assert.equal(settingFor(proposalOf('a short adventure').settings, 'genre')?.value, null);
+});

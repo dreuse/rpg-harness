@@ -76,8 +76,9 @@ const ARCHIVE = { version: PROTOCOL_VERSION, type: 'ArchiveCampaign', name: 'Ash
 const DELETE = { version: PROTOCOL_VERSION, type: 'DeleteCampaign', name: 'Ashfall', confirm: 'Ashfall' } as const;
 const OPEN = { version: PROTOCOL_VERSION, type: 'OpenCampaign', name: 'Ashfall' } as const;
 const UNARCHIVE = { version: PROTOCOL_VERSION, type: 'UnarchiveCampaign', name: 'Ashfall' } as const;
+const RENAME = { version: PROTOCOL_VERSION, type: 'RenameCampaign', name: 'Ashfall', newName: 'Cinders' } as const;
 const PLAN = { version: PROTOCOL_VERSION, type: 'PlanCampaign' } as const;
-const CAMPAIGN_COMMANDS = [CREATE, ARCHIVE, DELETE, OPEN, UNARCHIVE];
+const CAMPAIGN_COMMANDS = [CREATE, ARCHIVE, DELETE, OPEN, UNARCHIVE, RENAME];
 const UNSCOPED_TYPES: readonly string[] = [
   LIST_CAMPAIGNS.type,
   PLAN.type,
@@ -106,6 +107,7 @@ const VALID_COMMANDS = [
   DELETE,
   OPEN,
   UNARCHIVE,
+  RENAME,
   PLAN,
   { ...PLAN, intent: 'D&D 1.9' },
   { ...PLAN, choices: { genre: 'fantasy' } },
@@ -235,6 +237,7 @@ test('UI01: clients cannot bypass the engine or trust unsolicited model state wr
     'DeleteCampaign',
     'OpenCampaign',
     'UnarchiveCampaign',
+    'RenameCampaign',
     'PlanCampaign',
     'GetCampaignSnapshot',
     'GetCampaignPanels',
@@ -318,6 +321,9 @@ test('rpg-42a.12: campaign lifecycle commands reject malformed or unexpected fie
   assert.equal(code(parseCommand({ ...PLAN, name: 'Ashfall' })), 'UnexpectedField');
   assert.equal(code(parseCommand({ ...PLAN, campaignId: CAMPAIGN_ID })), 'UnexpectedField');
   assert.equal(code(parseCommand({ ...ARCHIVE, confirm: 'Ashfall' })), 'UnexpectedField');
+  const { newName: _newName, ...unnamed } = RENAME;
+  assert.equal(code(parseCommand(unnamed)), 'MalformedCommand');
+  assert.equal(code(parseCommand({ ...RENAME, newName: '' })), 'MalformedCommand');
   const { confirm: _, ...unconfirmed } = DELETE;
   assert.equal(code(parseCommand(unconfirmed)), 'MalformedCommand');
   assert.equal(code(parseCommand({ ...DELETE, confirm: '' })), 'MalformedCommand');

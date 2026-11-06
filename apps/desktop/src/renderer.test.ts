@@ -521,6 +521,15 @@ test('rpg-42a.13 archive and delete wait for confirmation and archive can be und
   assert.deepEqual(wire.sent.at(-1), { ...unarchive, name: 'Spire' });
 });
 
+test('rpg-42a.66 rename sends RenameCampaign and refreshes the list', () => {
+  const { wire, client } = homeClient();
+  client.rename('Harbor', 'Beacon');
+  const rename = { version: PROTOCOL_VERSION, type: 'RenameCampaign', name: 'Harbor', newName: 'Beacon' };
+  assert.deepEqual(wire.sent.at(-1), rename);
+  wire.receive(changed(rename, OK));
+  assert.equal(wire.sent.at(-1)?.type, 'ListCampaigns');
+});
+
 test('rpg-42a.13 search shows only after more than five campaigns and filters the cards', () => {
   const wire = fakeTransport();
   const client = createDesktopClient({ transport: wire.transport, newActionId: ids() });

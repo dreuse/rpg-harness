@@ -43,6 +43,11 @@ const homeWith = (active: CampaignSummary[], archived: CampaignSummary[] = []) =
       calls.push(`archive ${name}`);
       move(active, archived, name);
     },
+    rename: (name, newName) => {
+      calls.push(`rename ${name} ${newName}`);
+      const index = active.findIndex((candidate) => candidate.name === name);
+      if (index >= 0) active[index] = summary(newName);
+    },
     unarchive: (name) => {
       calls.push(`unarchive ${name}`);
       move(archived, active, name);
@@ -151,4 +156,14 @@ test('rpg-42a.13 the TUI home searches only when there are many adventures', asy
   assert.match(output, /\/text to search/);
   assert.match(output, /^Matching "ash"$/m);
   assert.deepEqual(calls, ['play Ember']);
+});
+
+test('rpg-42a.66 the TUI home renames an adventure from the next line', async () => {
+  const { calls, ports } = homeWith([summary('Ember')]);
+  const output = await runWith(ports, ['r1', 'Cinders', 'r1', '', 'q']);
+  assert.match(output, /New name for Ember\?/);
+  assert.match(output, /Renamed Ember to Cinders\./);
+  assert.match(output, /1\. Cinders/);
+  assert.match(output, /Kept Cinders\./);
+  assert.deepEqual(calls, ['rename Ember Cinders']);
 });

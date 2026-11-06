@@ -7,13 +7,14 @@ export type HomePorts = {
   readonly list: () => readonly CampaignSummary[];
   readonly archived: () => readonly CampaignSummary[];
   readonly archive: (name: string) => void;
+  readonly rename: (name: string, newName: string) => void;
   readonly unarchive: (name: string) => void;
   readonly remove: (name: string, confirm: string, archived: boolean) => void;
   readonly play: (name: string, terminal: Terminal) => Promise<void>;
   readonly start: (lines: AsyncIterable<string>, locale?: string) => AsyncIterable<string>;
 };
 
-type Pending = { readonly kind: 'archive' | 'delete'; readonly name: string; readonly archived: boolean };
+type Pending = { readonly kind: 'archive' | 'delete' | 'rename'; readonly name: string; readonly archived: boolean };
 
 const FIRST_NUMBER = 1;
 const QUIT = 'q';
@@ -24,6 +25,8 @@ const YES = 'y';
 const SEARCH_PREFIX = '/';
 const ARCHIVE_PREFIX = 'a';
 const DELETE_PREFIX = 'd';
+const RENAME_PREFIX = 'r';
+const ASK_KEYS = { archive: 'home.askArchive', delete: 'home.askDelete', rename: 'home.askRename' } as const;
 const SEPARATOR = ' - ';
 
 const problem = (locale: string, health: Exclude<CampaignHealth, 'ok'>) =>
@@ -81,6 +84,10 @@ export const runHome = async (ports: HomePorts, terminal: Terminal, now = Date.n
       undo = name;
       return say(locale, 'home.archived', { name });
     }
+    if (kind === 'rename' && text !== '') {
+      ports.rename(name, text);
+      return say(locale, 'home.renamed', { name, newName: text });
+    }
     if (kind === 'delete' && text === name) {
       ports.remove(name, text, archived);
       return say(locale, 'home.deleted', { name });
@@ -89,7 +96,7 @@ export const runHome = async (ports: HomePorts, terminal: Terminal, now = Date.n
   };
   const ask = (kind: Pending['kind'], card: HomeCard) => {
     pending = { kind, name: card.name, archived: showArchived };
-    return say(locale, kind === 'archive' ? 'home.askArchive' : 'home.askDelete', { name: card.name });
+    return say(locale, ASK_KEYS[kind], { name: card.name });
   };
   write(screen());
   for (let next = await input.next(); next.done !== true; next = await input.next()) {
@@ -117,6 +124,9 @@ export const runHome = async (ports: HomePorts, terminal: Terminal, now = Date.n
         query = text.slice(SEARCH_PREFIX.length).trim();
       } else if (text.startsWith(ARCHIVE_PREFIX) && target !== undefined && !showArchived) {
         write(ask('archive', target));
+        continue;
+      } else if (text.startsWith(RENAME_PREFIX) && target !== undefined && !showArchived) {
+        write(ask('rename', target));
         continue;
       } else if (text.startsWith(DELETE_PREFIX) && target !== undefined) {
         write(ask('delete', target));

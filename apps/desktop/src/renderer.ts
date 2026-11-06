@@ -129,7 +129,11 @@ export type OocState = {
   readonly exchanges: readonly OocExchange[];
   readonly undoable?: string | undefined;
 };
-export type HomeConfirm = { readonly kind: 'archive' | 'delete'; readonly name: string; readonly archived?: boolean };
+export type HomeConfirm = {
+  readonly kind: 'rename' | 'archive' | 'delete';
+  readonly name: string;
+  readonly archived?: boolean;
+};
 export type HomeState = {
   readonly query: string;
   readonly confirm?: HomeConfirm | undefined;
@@ -649,6 +653,9 @@ export const createDesktopClient = ({
     send(LIST_CAMPAIGNS);
   };
 
+  const renameCampaign = (name: string, newName: string) =>
+    send({ version: PROTOCOL_VERSION, type: 'RenameCampaign', name, newName });
+
   const sendNamed = (type: 'OpenCampaign' | 'ArchiveCampaign' | 'UnarchiveCampaign', name: string) =>
     send({ version: PROTOCOL_VERSION, type, name });
 
@@ -984,6 +991,7 @@ export const createDesktopClient = ({
       const { confirm } = state.home;
       if (confirm === undefined) return;
       update({ home: { ...state.home, confirm: undefined } });
+      if (confirm.kind === 'rename') return;
       if (confirm.kind === 'archive') return sendNamed('ArchiveCampaign', confirm.name);
       send({
         version: PROTOCOL_VERSION,
@@ -1000,6 +1008,7 @@ export const createDesktopClient = ({
       sendNamed('UnarchiveCampaign', undo);
     },
     unarchive: (name: string) => sendNamed('UnarchiveCampaign', name),
+    rename: renameCampaign,
     search: (query: string) => update({ home: { ...state.home, query } }),
     acceptRoll: (): Result<SubmitPlayerAction> => {
       const offer = state.snapshot?.rollOffer;

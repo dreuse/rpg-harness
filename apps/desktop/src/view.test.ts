@@ -493,7 +493,7 @@ test('rpg-42a.13 a home card shows where the adventure stopped and continues it'
   assert.doesNotMatch(html, / - /);
   assert.match(
     html,
-    /<button type="button" id="home-continue-0" data-home="continue" data-name="Harbor" aria-label="Continue Harbor" data-primary>Continue<\/button><details data-menu><summary id="home-more-0" aria-label="More actions for Harbor">More<\/summary><div><button type="button" id="home-archive-0" data-home="archive"[^>]*>Archive<\/button><button type="button" id="home-delete-0" data-home="delete"[^>]*>Delete<\/button><\/div><\/details>/,
+    /<button type="button" id="home-continue-0" data-home="continue" data-name="Harbor" aria-label="Continue Harbor" data-primary>Continue<\/button><details data-menu><summary id="home-more-0" aria-label="More actions for Harbor">More<\/summary><div><button type="button" id="home-rename-0" data-home="rename"[^>]*>Rename<\/button><button type="button" id="home-archive-0" data-home="archive"[^>]*>Archive<\/button><button type="button" id="home-delete-0" data-home="delete"[^>]*>Delete<\/button><\/div><\/details>/,
   );
   assert.doesNotMatch(html, /home-search/);
 });

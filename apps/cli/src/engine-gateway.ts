@@ -133,7 +133,6 @@ import {
   ENTITY_PROPOSAL,
   type EntityProposal,
   type GmProposal,
-  MAX_FACT_LENGTH,
   outcomeClaimsOf,
 } from './gm-proposals.ts';
 import { repeatedLinesOf } from './gm-repetition.ts';
@@ -202,7 +201,7 @@ const DEFAULT_OPENING: Opening = {
   title: 'The Crossroads Inn',
   narration: 'Rain drums on the roof of the Crossroads Inn. A stranger by the fire looks up as you enter.',
 };
-const PITCH_ENTITY_ID = 'campaign-pitch';
+const OPENING_ENTITY_ID = 'opening-scene';
 const SETTING_KIND = 'location';
 export const GENERIC_OPENING_NOTICE =
   'This opening is generic: no AI game master is available to build one from your pitch.';
@@ -952,6 +951,8 @@ type Started = {
   readonly opening: Opening;
   readonly proposals: readonly GmProposal[];
   readonly generic: boolean;
+  readonly pitch?: string;
+  readonly usage?: GmUsage;
 };
 
 type Starter = (databasePath: string) => Promise<Started>;
@@ -996,7 +997,7 @@ const createCampaign = async (
     const engine = createEngine(store);
     const campaign = engine.createCampaign(name, language);
     savePlay(engine, campaign.id, play, language);
-    const { opening, proposals, generic } = await start(path);
+    const { opening, proposals, generic, pitch, usage } = await start(path);
     const committed = openScene(store, {
       campaignId: campaign.id,
       actorName: HERO_NAME,
@@ -1005,7 +1006,10 @@ const createCampaign = async (
       ...(opening.moodTags === undefined ? {} : { moodTags: opening.moodTags }),
       narration: opening.narration,
       config,
+      ...(pitch === undefined ? {} : { pitch }),
     });
+    if (usage !== undefined)
+      recordGmUsage(store, { campaignId: campaign.id, turnId: committed.turn.id, sessionId: randomUUID(), usage });
     commitProposals(store, createEntityStore(database), createFactStore(database), committed, proposals);
     connection.close();
     return generic
@@ -1018,31 +1022,33 @@ const createCampaign = async (
   }
 };
 
-const settingProposal = (name: string, pitch: string | undefined): readonly EntityProposal[] =>
-  pitch === undefined
-    ? []
-    : [
-        {
-          kind: ENTITY_PROPOSAL,
-          id: PITCH_ENTITY_ID,
-          entityKind: SETTING_KIND,
-          name,
-          facts: [pitch.slice(0, MAX_FACT_LENGTH)],
-          visibility: 'player',
-        },
-      ];
+const openingPlace = (opening: Opening): EntityProposal => ({
+  kind: ENTITY_PROPOSAL,
+  id: OPENING_ENTITY_ID,
+  entityKind: SETTING_KIND,
+  name: opening.title,
+  visibility: 'player',
+});
+
+const isPlace = (proposal: GmProposal): proposal is EntityProposal =>
+  proposal.kind === ENTITY_PROPOSAL && proposal.entityKind === SETTING_KIND;
 
 const starterFor =
-  (gm: GameMaster, { name, pitch, config, language }: StartRequest): Starter =>
+  (gm: GameMaster, { name, pitch, config, language, model }: StartRequest): Starter =>
   async (databasePath) => {
-    const setting = settingProposal(name, pitch);
-    const generic = { opening: openingFor(config, DEFAULT_OPENING), proposals: setting, generic: true };
+    const opening = openingFor(config, DEFAULT_OPENING);
+    const generic = {
+      opening,
+      proposals: pitch === undefined ? [] : [openingPlace(opening)],
+      generic: true,
+      ...(pitch === undefined ? {} : { pitch }),
+    };
     if (!('request' in gm)) return generic;
     let reply: GmTurnReply;
     try {
       reply = await gm.request(openingPacketOf(pitch ?? name, describeConfig(config), language), {
         databasePath,
-        model: undefined,
+        model,
       });
     } catch (error) {
       if (error instanceof ProviderError) return generic;
@@ -1050,19 +1056,19 @@ const starterFor =
     }
     if (reply.narration.trim() === '' || reply.narration.endsWith(FAKE_GM_REPLY)) return generic;
     const proposals = reply.proposals ?? [];
-    const place = proposals.find(
-      (proposal): proposal is EntityProposal =>
-        proposal.kind === ENTITY_PROPOSAL && proposal.entityKind === SETTING_KIND,
-    );
+    const place = proposals.find(isPlace);
+    const gmOpening = {
+      title: place?.name ?? name,
+      narration: reply.narration,
+      ...(place?.locationKind === undefined ? {} : { locationKind: place.locationKind }),
+      ...(place?.mood === undefined ? {} : { moodTags: place.mood }),
+    };
     return {
-      opening: {
-        title: place?.name ?? name,
-        narration: reply.narration,
-        ...(place?.locationKind === undefined ? {} : { locationKind: place.locationKind }),
-        ...(place?.mood === undefined ? {} : { moodTags: place.mood }),
-      },
-      proposals: [...setting, ...proposals],
+      opening: gmOpening,
+      proposals: place === undefined ? [openingPlace(gmOpening), ...proposals] : proposals,
       generic: false,
+      ...(pitch === undefined ? {} : { pitch }),
+      ...(reply.usage === undefined ? {} : { usage: reply.usage }),
     };
   };
 
@@ -1071,6 +1077,7 @@ type StartRequest = {
   readonly pitch: string | undefined;
   readonly config: CampaignConfig;
   readonly language?: string | undefined;
+  readonly model?: string | undefined;
 };
 
 const unfinishedText = (result: Exclude<BuildResult, { status: 'created' }>) =>
@@ -1278,6 +1285,31 @@ export const unarchiveCampaign = (dataDir: string, name: string) => {
   rmSync(from);
 };
 
+export const renameCampaign = (dataDir: string, name: string, newName: string) => {
+  const title = newName.trim();
+  if (title === '') throw new LocalizedError('campaign.blankName');
+  const from = databasePath(dataDir, name);
+  if (!existsSync(from)) throw missingCampaign(dataDir, name);
+  if (existsSync(databasePath(dataDir, title)) || existsSync(archivePath(dataDir, title)))
+    throw new LocalizedError('campaign.exists', { name: title });
+  const connection = openDatabase(from);
+  try {
+    const row = connection.database.prepare(SELECT_CAMPAIGN_ID).get();
+    if (row === undefined) throw new LocalizedError('campaign.noState', { name });
+    createEngine(createCampaignStore(connection.database)).renameCampaign(String(row.id), title);
+  } finally {
+    connection.close();
+  }
+  try {
+    linkSync(from, databasePath(dataDir, title));
+  } catch (error) {
+    if (isFileExists(error)) throw new LocalizedError('campaign.exists', { name: title });
+    throw error;
+  }
+  rmSync(from);
+  return title;
+};
+
 const deletionGuidance = (name: string, path: string, archived: boolean) =>
   [
     `Deleting campaign ${name} removes its saved state for good.`,
@@ -1326,7 +1358,7 @@ export const createCampaignFrom = async (
     dataDir,
     name,
     config,
-    starterFor(gm, { name, pitch: intent, config, language }),
+    starterFor(gm, { name, pitch: intent, config, language, model: readGmDefaults(dataDir).model }),
     language,
     play,
   );
@@ -1477,6 +1509,7 @@ export const createEngineGateway = (
         list: () => listCampaignSummaries(dataDir),
         archived: () => listArchivedSummaries(dataDir),
         archive: (name) => void archiveCampaign(dataDir, name),
+        rename: (name, newName) => void renameCampaign(dataDir, name, newName),
         unarchive: (name) => unarchiveCampaign(dataDir, name),
         remove: (name, confirm, archived) => deleteCampaign(dataDir, name, confirm, archived),
         play: (name, playing) => playTui(dataDir, name, playing, gm, rng, makeSpeech),
@@ -1492,6 +1525,8 @@ export const createEngineGateway = (
     ),
   list: () => list(dataDir),
   archive: (name) => archiveCampaign(dataDir, name),
+  rename: (name, newName, locale = DEFAULT_LOCALE) =>
+    say(locale, 'campaign.renamed', { name, newName: renameCampaign(dataDir, name, newName) }),
   remove: (name, lines) => remove(dataDir, name, lines),
   exportCampaign: (name, file, locale = DEFAULT_LOCALE) => exportCampaign(dataDir, name, file, locale),
   backup: (name, locale = DEFAULT_LOCALE) => backup(dataDir, name, locale),
@@ -1511,7 +1546,7 @@ export const createEngineGateway = (
       dataDir,
       title,
       config,
-      starterFor(gm, { name: title, pitch, config, language }),
+      starterFor(gm, { name: title, pitch, config, language, model: readGmDefaults(dataDir).model }),
       language,
     );
     yield `${derived ? `${say(shown, 'campaign.created', { title })}\n${say(shown, 'campaign.keepName')}\n` : ''}${say(shown, 'campaign.savedSettings')}\n${describeConfig(config, shown)}\n${scene}`;

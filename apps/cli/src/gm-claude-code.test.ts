@@ -564,7 +564,7 @@ describe('rpg-42a.33 Claude Code CLI game master', () => {
       ['sonnet', 'sonnet', 'opus', 'opus', 'sonnet', 'sonnet'].map((alias) => `--model=${alias}`),
     );
     const report = gateway.settings(CAMPAIGN, {});
-    assert.match(report, /This campaign: 6 GM turns, 1440 tokens .*\$0\.0738/);
+    assert.match(report, /This campaign: 7 GM turns, 1680 tokens .*\$0\.0861/);
     assert.match(report, /Session budget: 100 tokens/);
     assert.throws(() => gateway.settings(CAMPAIGN, { model: '--dangerously-skip-permissions' }), /model/);
     assert.throws(() => gateway.settings(CAMPAIGN, { sessionBudgetTokens: 'lots' }), /budget/);
@@ -585,7 +585,7 @@ describe('rpg-42a.33 Claude Code CLI game master', () => {
       for await (const _ of gateway.create(CAMPAIGN, undefined, NO_CHARACTER));
       for await (const _ of gateway.open(CAMPAIGN, 'play', toAsync([PLAYER_INPUT]), assert.ifError));
       assert.equal(readCampaignState(dataDir, CAMPAIGN).turns.at(-1)?.narration, NARRATION);
-      assert.match(gateway.settings(CAMPAIGN, {}), /This campaign: 1 GM turns/);
+      assert.match(gateway.settings(CAMPAIGN, {}), /This campaign: 2 GM turns/);
     }
   });
 

@@ -40,6 +40,7 @@ const PT_EDITION = String.raw`\d+[ªºa][ ][Ee]dição`;
 const EDITION = String.raw`\d+(?:st|nd|rd|th)[ ][Ee]dition|\d+e|${PT_EDITION}`;
 const VERSION = String.raw`\d+(?:\.\d+)+|\d+(?:st|nd|rd|th)?[ ]?(?:e|ed|[Ee]dition)\b|${PT_EDITION}`;
 const STORY_NOUNS = 'story|adventure|campaign|game|tale|mystery|saga|one-shot';
+const LENGTH_WORDS = /^(?:short|long|quick|brief|small|big|epic)(?:[ -]|$)/i;
 const PT_STORY_NOUNS = 'história|aventura|campanha|jogo|conto|saga|partida';
 const PT_GENRE_STOPS = 'com|sem|e|em|no|na|num|numa|usando|para|que|mas|onde';
 const PT_WORD = String.raw`(?!(?:${PT_GENRE_STOPS})(?!\p{L}))\p{L}+`;
@@ -150,7 +151,7 @@ const INTENT_CUES: Cue[] = [
     field: 'genre',
     pattern: new RegExp(String.raw`\ban?[ ]((?:[a-z]+[ -]){0,3}?[a-z]+)[ ](?:${STORY_NOUNS})\b`, 'gi'),
     confidence: CONFIDENCE.moderate,
-    read: (match) => match[1] ?? null,
+    read: (match) => match[1]?.replace(LENGTH_WORDS, '') || null,
   },
   {
     field: 'genre',

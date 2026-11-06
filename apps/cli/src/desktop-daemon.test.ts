@@ -65,6 +65,7 @@ const ELECTRON_VERSIONS = { electron: '43.7.7' };
 const ENABLED = '1';
 const CAMPAIGN = 'Ember';
 const SECOND_CAMPAIGN = 'Frost';
+const RENAMED = 'Cinders';
 const UNKNOWN_CAMPAIGN = 'Nowhere';
 const MISSING_DIR = 'missing';
 const EMPTY_FILE = 'Stray';
@@ -720,6 +721,25 @@ describe('serve client-protocol commands over the desktop engine daemon', () => 
     assert.equal(rejectionOf(await daemon.command(remove)), 'Rejected');
     assert.ok(existsSync(campaignFile(dataDir, SECOND_CAMPAIGN)));
     acceptedValue(await daemon.command(lifecycle('ArchiveCampaign', { name: CAMPAIGN })));
+  });
+
+  it('rpg-42a.66: renames a campaign it is not serving and refuses the served one', async (t) => {
+    const { env } = await campaignEnv(t);
+    const dataDir = String(env[DATA_DIR_ENV]);
+    const daemon = supervise(t, { env });
+    acceptedValue<CampaignSummary>(
+      await daemon.command(lifecycle('CreateCampaign', { name: SECOND_CAMPAIGN, intent: FANTASY_INTENT })),
+    );
+    assert.equal(
+      rejectionOf(await daemon.command(lifecycle('RenameCampaign', { name: SECOND_CAMPAIGN, newName: RENAMED }))),
+      'Rejected',
+    );
+    const renamed = acceptedValue<CampaignSummary>(
+      await daemon.command(lifecycle('RenameCampaign', { name: CAMPAIGN, newName: RENAMED })),
+    );
+    assert.equal(renamed.name, RENAMED);
+    assert.ok(existsSync(campaignFile(dataDir, RENAMED)));
+    assert.ok(!existsSync(campaignFile(dataDir, CAMPAIGN)));
   });
 
   it('rpg-42a.60: serves story memory and rejects a correction with nothing to correct', async (t) => {

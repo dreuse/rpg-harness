@@ -16,6 +16,7 @@ export const CAMPAIGN_LANGUAGE_CHANGED = 'CampaignLanguageChanged';
 export const SCENE_OPENED = 'SceneOpened';
 export const CHARACTER_CREATED = 'CharacterCreated';
 export const CAMPAIGN_CONFIGURED = 'CampaignConfigured';
+export const CAMPAIGN_PITCHED = 'CampaignPitched';
 export const PLAYER_ACTION_SUBMITTED = 'PlayerActionSubmitted';
 export const ACTION_VALIDATED = 'ActionValidated';
 export const CHECK_RESOLVED = 'CheckResolved';

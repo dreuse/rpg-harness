@@ -217,6 +217,15 @@ test('rpg-42a.13 daemon transport relays home lifecycle results, including rejec
   ]);
 });
 
+test('rpg-42a.66 daemon transport relays rename results', async () => {
+  const renamed = { version: PROTOCOL_VERSION, type: 'RenameCampaign', name: 'Harbor', newName: 'Beacon' };
+  const result = { ok: true, value: { id: CAMPAIGN } };
+  const { transport, lines } = collect(fakeDaemon({ RenameCampaign: result }));
+  transport.send(JSON.stringify(renamed));
+  await flush();
+  assert.deepEqual(lines, [{ type: 'Changed', command: renamed, result }]);
+});
+
 test('rpg-42a.7 daemon transport relays SubscribeEvents and keeps one subscription', async () => {
   const daemon = fakeDaemon();
   const { transport, lines, closes } = collect(daemon);

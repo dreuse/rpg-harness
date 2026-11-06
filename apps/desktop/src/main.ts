@@ -113,6 +113,7 @@ const HOME_CHANGES: ReadonlySet<string> = new Set([
   'OpenCampaign',
   'ArchiveCampaign',
   'UnarchiveCampaign',
+  'RenameCampaign',
   'DeleteCampaign',
 ]);
 

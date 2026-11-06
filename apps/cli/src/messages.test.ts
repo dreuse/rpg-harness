@@ -73,6 +73,7 @@ test('rpg-42a.39 the TUI home reads in Brazilian Portuguese', async () => {
     list: () => [],
     archived: () => [],
     archive: () => {},
+    rename: () => {},
     unarchive: () => {},
     remove: () => {},
     play: async () => {},

@@ -43,6 +43,7 @@ import {
   liveSpeech,
   openClientSession,
   playbackFor,
+  renameCampaign,
   summaryOf,
   unarchiveCampaign,
 } from './engine-gateway.ts';
@@ -210,6 +211,10 @@ const changeCampaign = async (
   const archived = command.type === 'DeleteCampaign' && command.archived === true;
   if (!archived && served !== undefined && isSameCampaignFile(dataDir, command.name, served))
     throw new Error(`Campaign ${command.name} is open in this engine.`);
+  if (command.type === 'RenameCampaign') {
+    renameCampaign(dataDir, command.name, command.newName);
+    return summaryOf(dataDir, command.newName.trim());
+  }
   if (command.type === 'ArchiveCampaign') archiveCampaign(dataDir, command.name);
   else if (command.type === 'UnarchiveCampaign') unarchiveCampaign(dataDir, command.name);
   else deleteCampaign(dataDir, command.name, command.confirm, archived);

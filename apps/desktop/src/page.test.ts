@@ -652,6 +652,26 @@ test('rpg-42a.55 opening settings moves focus into the panel and Escape returns 
 const MANY_CAMPAIGNS = 6;
 const HOME_SEARCH = '#home-search';
 
+test('rpg-42a.66 page renames a campaign from the typed name after confirmation', () => {
+  const page = fakePage();
+  mount(page);
+  page.receive(READY);
+  page.receive({ type: 'Campaigns', campaigns: [SNAPSHOT.campaign] });
+  page.click({ 'data-home': 'rename', 'data-name': HARBOR });
+  assert.match(page.root.innerHTML, /role="alertdialog"[\s\S]*<input id="home-rename-input"/);
+  assert.equal(page.focused.at(-1), '#home-rename-input');
+  page.fields['#home-rename-input'] = '  Lighthouse  ';
+  page.click({ 'data-home': 'confirm' });
+  const rename = sentOf(page, 'RenameCampaign').at(-1);
+  assert.ok(rename?.type === 'RenameCampaign' && rename.name === HARBOR && rename.newName === 'Lighthouse');
+  assert.doesNotMatch(page.root.innerHTML, /role="alertdialog"/);
+  page.click({ 'data-home': 'rename', 'data-name': HARBOR });
+  page.fields['#home-rename-input'] = '   ';
+  page.click({ 'data-home': 'confirm' });
+  assert.equal(sentOf(page, 'RenameCampaign').length, 1);
+  assert.deepEqual(sentOf(page, 'DeleteCampaign'), []);
+});
+
 test('rpg-42a.13 page archives after confirmation with focus on the choice, then undoes it', () => {
   const page = fakePage();
   mount(page);

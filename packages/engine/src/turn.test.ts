@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
   CAMPAIGN_CONFIGURED,
+  CAMPAIGN_PITCHED,
   CampaignNotFoundError,
   type CampaignStore,
   StaleRevisionError,
@@ -15,6 +16,7 @@ import {
   CHECK_RESOLVED,
   type Check,
   campaignConfigOf,
+  campaignPitchOf,
   InvalidActionError,
   openScene,
   type PlayerAction,
@@ -292,5 +294,24 @@ test('rpg-cm63.41 opening a scene without tags leaves them off the scene', () =>
   const { store, close } = openCreatedStore();
   openScene(store, OPENING);
   assert.deepEqual(Object.keys(store.load(CAMPAIGN.id)?.currentScene ?? {}).sort(), ['campaignId', 'id', 'title']);
+  close();
+});
+
+test('rpg-42a.66 opening a scene with a pitch records the full pitch in the same turn', () => {
+  const { store, close } = openCreatedStore();
+  const pitch = 'a drowned chapel '.repeat(60).trim();
+  const { events } = openScene(store, { ...OPENING, pitch });
+  assert.deepEqual(
+    events.map(({ type }) => type),
+    ['SceneOpened', CAMPAIGN_PITCHED],
+  );
+  assert.equal(campaignPitchOf(store.load(CAMPAIGN.id)?.events ?? []), pitch);
+  close();
+});
+
+test('rpg-42a.66 a campaign opened without a pitch has none', () => {
+  const { store, close } = openCreatedStore();
+  openScene(store, OPENING);
+  assert.equal(campaignPitchOf(store.load(CAMPAIGN.id)?.events ?? []), undefined);
   close();
 });

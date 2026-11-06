@@ -50,6 +50,7 @@ export const COMMAND_TYPES = [
   'DeleteCampaign',
   'OpenCampaign',
   'UnarchiveCampaign',
+  'RenameCampaign',
   'PlanCampaign',
   'GetCampaignSnapshot',
   'GetCampaignPanels',
@@ -112,6 +113,7 @@ export type DeleteCampaign = Header<'DeleteCampaign'> & {
 };
 export type OpenCampaign = Header<'OpenCampaign'> & { readonly name: string };
 export type UnarchiveCampaign = Header<'UnarchiveCampaign'> & { readonly name: string };
+export type RenameCampaign = Header<'RenameCampaign'> & { readonly name: string; readonly newName: string };
 export type PlanCampaign = Header<'PlanCampaign'> &
   Omit<CreateCampaign, keyof Header<'CreateCampaign'> | 'name' | 'language'>;
 export type CampaignCommand =
@@ -120,6 +122,7 @@ export type CampaignCommand =
   | DeleteCampaign
   | OpenCampaign
   | UnarchiveCampaign
+  | RenameCampaign
   | PlanCampaign;
 
 export type GetCampaignSnapshot = Envelope<'GetCampaignSnapshot'>;
@@ -417,6 +420,7 @@ const UNSCOPED: readonly CommandType[] = [
   'DeleteCampaign',
   'OpenCampaign',
   'UnarchiveCampaign',
+  'RenameCampaign',
   'PlanCampaign',
 ];
 const ID: FieldSpec = { kind: 'id' };
@@ -443,6 +447,7 @@ const COMMAND_FIELDS: Record<CommandType, Readonly<Record<string, FieldSpec>>> =
   DeleteCampaign: { name: NAME, confirm: ID, archived: { kind: 'flag', optional: true } },
   OpenCampaign: { name: NAME },
   UnarchiveCampaign: { name: NAME },
+  RenameCampaign: { name: NAME, newName: NAME },
   PlanCampaign: PLAN_SPECS,
   GetCampaignSnapshot: {},
   GetCampaignPanels: {},

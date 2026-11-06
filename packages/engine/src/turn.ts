@@ -3,6 +3,7 @@ import { isDeepStrictEqual } from 'node:util';
 import {
   ACTION_VALIDATED,
   CAMPAIGN_CONFIGURED,
+  CAMPAIGN_PITCHED,
   type CampaignEvent,
   type CampaignId,
   CampaignNotFoundError,
@@ -80,6 +81,7 @@ export type OpeningScene = {
   readonly moodTags?: readonly string[];
   readonly narration: string;
   readonly config?: Readonly<Record<string, unknown>>;
+  readonly pitch?: string;
 };
 
 const PENDING_NARRATION = '';
@@ -273,11 +275,19 @@ export const openScene = (store: CampaignStore, opening: OpeningScene): Committe
     actorId: character.id,
     actorName,
   });
-  const events =
-    opening.config === undefined
-      ? [opened]
-      : [opened, turnEvent(turn, opened.id, CAMPAIGN_CONFIGURED, { config: opening.config })];
+  const events = [
+    opened,
+    ...(opening.config === undefined
+      ? []
+      : [turnEvent(turn, opened.id, CAMPAIGN_CONFIGURED, { config: opening.config })]),
+    ...(opening.pitch === undefined ? [] : [turnEvent(turn, opened.id, CAMPAIGN_PITCHED, { pitch: opening.pitch })]),
+  ];
   return store.commitTurn({ expectedRevision: state.revision, turn, characters: [character], scenes: [scene], events });
+};
+
+export const campaignPitchOf = (events: readonly CampaignEvent[]): string | undefined => {
+  const pitch = events.findLast(({ type }) => type === CAMPAIGN_PITCHED)?.payload.pitch;
+  return typeof pitch === 'string' ? pitch : undefined;
 };
 
 export const campaignConfigOf = (events: readonly CampaignEvent[]): unknown =>

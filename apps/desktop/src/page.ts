@@ -49,6 +49,7 @@ import {
   PANE_ATTRIBUTE,
   queryPreferences,
   queryStart,
+  RENAME_INPUT_ID,
   REPLAY,
   RETRY_TURN_ATTRIBUTE,
   ROLL_OFFER_ATTRIBUTE,
@@ -195,6 +196,7 @@ const SOUND_DOWNLOAD_SELECTOR = '[data-sound-setup="download"]';
 const SOUND_STATUS_SELECTOR = '[data-sound] [role="status"]';
 const SOUND_IDLE = 'idle';
 const MENU_TOGGLE_SELECTOR = 'summary';
+const RENAME_SELECTOR = `#${RENAME_INPUT_ID}`;
 const SEARCH_SELECTOR = `#${HOME_SEARCH}`;
 const CANCEL_SELECTOR = '#home-cancel';
 const LOG_SELECTOR = '[data-region="conversation"] > ol';
@@ -595,9 +597,15 @@ export const mountPage = ({
     const next = playable[(playable.findIndex(({ id }) => id === selected) + 1) % playable.length];
     if (next !== undefined) continueCampaign(next.name);
   };
+  const renameFromInput = (name: string) => {
+    const newName = root.querySelector<HTMLInputElement>(RENAME_SELECTOR)?.value.trim() ?? '';
+    client.cancelHome();
+    if (newName !== '' && newName !== name) client.rename(name, newName);
+  };
   const confirmHome = () => {
     const { home, campaigns, archived: archivedCampaigns } = client.state();
     const { confirm } = home;
+    if (confirm?.kind === 'rename') return renameFromInput(confirm.name);
     client.confirmHome();
     if (confirm?.kind !== 'delete') return;
     const listed = confirm.archived === true ? archivedCampaigns : campaigns;
@@ -611,9 +619,9 @@ export const mountPage = ({
     if (name === null) return;
     if (action === 'continue') return continueCampaign(name);
     if (action === 'unarchive') return client.unarchive(name);
-    if (action !== 'archive' && action !== 'delete') return;
+    if (action !== 'rename' && action !== 'archive' && action !== 'delete') return;
     client.askHome(action, name, archived);
-    root.querySelector<HTMLElement>(CANCEL_SELECTOR)?.focus();
+    root.querySelector<HTMLElement>(action === 'rename' ? RENAME_SELECTOR : CANCEL_SELECTOR)?.focus();
   };
   const oocAction = (action: string | null, exchange: string | null, index: string | null) => {
     if (action === 'undo') return client.undoOoc();
