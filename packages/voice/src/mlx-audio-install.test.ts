@@ -34,8 +34,8 @@ const fakeRunner = (dir: string, fail?: (step: Step) => Error | undefined) => {
     const error = fail?.(step);
     if (error) throw error;
     if (args.at(-1) === 'download') {
-      const { python, weights } = mlxAudioPaths(dir);
-      for (const file of [python, weights]) {
+      const { python, weights, voices } = mlxAudioPaths(dir);
+      for (const file of [python, weights, ...voices]) {
         mkdirSync(dirname(file), { recursive: true });
         writeFileSync(file, '');
       }

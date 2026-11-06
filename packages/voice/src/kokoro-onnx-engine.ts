@@ -2,8 +2,13 @@ import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { encodeWav } from './delivery-shaping.ts';
-import { KOKORO_PT_BR_MODEL_FILES, KOKORO_WEIGHTS_PATH, kokoroModelRoot } from './kokoro-model.ts';
-import { type KokoroEngine, MLX_KOKORO_CAPABILITIES } from './kokoro-provider.ts';
+import {
+  KOKORO_PT_BR_MODEL_FILES,
+  KOKORO_PT_BR_VOICE_FILES,
+  KOKORO_WEIGHTS_PATH,
+  kokoroModelRoot,
+} from './kokoro-model.ts';
+import type { KokoroEngine, VoiceBlend } from './kokoro-provider.ts';
 
 export { KOKORO_ONNX_PROVIDER_ID } from './kokoro-provider.ts';
 
@@ -15,6 +20,8 @@ const ONNX_MODULE = 'onnxruntime-node';
 const ESPEAK_MODULE = '@echogarden/espeak-ng-emscripten';
 const ESPEAK_VOICE = 'pt-br';
 const TOKENIZER_PATH = 'tokenizer.json';
+const VOICE_DIR = 'voices';
+const VOICE_EXTENSION = '.bin';
 const ESPEAK_OK = 0;
 const PAD_ID = 0;
 const PAD_COUNT = 2;
@@ -119,20 +126,28 @@ export const defaultPorts = (load: () => Promise<EspeakModule> = loadEspeak): On
 
 export const createKokoroOnnxEngine = (dir: string, ports: OnnxPorts = defaultPorts()): KokoroEngine => {
   const root = kokoroModelRoot(dir);
-  const allowedVoices: readonly string[] = MLX_KOKORO_CAPABILITIES.voices;
   const voices = new Map<string, Uint8Array>();
   let loaded: { session: OnnxSession; runtime: OnnxRuntime; vocab: Record<string, number> } | undefined;
 
   const voiceBytes = async (voiceId: string): Promise<Uint8Array> => {
-    if (!allowedVoices.includes(voiceId)) throw new Error(`unknown voice: ${voiceId}`);
+    const path = `${VOICE_DIR}/${voiceId}${VOICE_EXTENSION}`;
+    if (!KOKORO_PT_BR_VOICE_FILES.some((file) => file.path === path)) throw new Error(`unknown voice: ${voiceId}`);
     const cached = voices.get(voiceId);
     if (cached) return cached;
-    const bytes = new Uint8Array(await readFile(join(root, 'voices', `${voiceId}.bin`)));
+    const bytes = new Uint8Array(await readFile(join(root, path)));
     voices.set(voiceId, bytes);
     return bytes;
   };
 
+  const styleOf = async (voiceId: string, tokenCount: number, blend: VoiceBlend | undefined): Promise<Float32Array> => {
+    const style = styleFor(await voiceBytes(voiceId), tokenCount);
+    if (blend === undefined) return style;
+    const partner = styleFor(await voiceBytes(blend.second), tokenCount);
+    return style.map((value, index) => (1 - blend.weight) * value + blend.weight * (partner[index] ?? value));
+  };
+
   return {
+    blends: true,
     ready: () => KOKORO_PT_BR_MODEL_FILES.every((file) => existsSync(join(root, file.path))),
     load: async () => {
       const runtime = await ports.loadRuntime();
@@ -144,14 +159,16 @@ export const createKokoroOnnxEngine = (dir: string, ports: OnnxPorts = defaultPo
       });
       loaded = { session, runtime, vocab: tokenizer.model.vocab };
     },
-    synthesize: async (sentence, voiceId, _signal, speed) => {
+    synthesize: async (sentence, voiceId, _signal, speed, blend) => {
       if (!loaded) throw new Error('kokoro model not loaded');
       const { session, runtime, vocab } = loaded;
-      const voice = await voiceBytes(voiceId);
       const ids = tokenize(await ports.phonemize(sentence), vocab);
       const output = await session.run({
         input_ids: new runtime.Tensor('int64', BigInt64Array.from(ids, BigInt), [MONO, ids.length]),
-        style: new runtime.Tensor('float32', styleFor(voice, ids.length - PAD_COUNT), [MONO, KOKORO_STYLE_DIMENSION]),
+        style: new runtime.Tensor('float32', await styleOf(voiceId, ids.length - PAD_COUNT, blend), [
+          MONO,
+          KOKORO_STYLE_DIMENSION,
+        ]),
         speed: new runtime.Tensor('float32', new Float32Array([speed]), [MONO]),
       });
       const waveform = output.waveform;

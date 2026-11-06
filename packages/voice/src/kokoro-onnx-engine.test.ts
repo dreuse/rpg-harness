@@ -18,6 +18,7 @@ import {
   styleFor,
   tokenize,
 } from './kokoro-onnx-engine.ts';
+import { PT_BR_BLEND_PARTNERS } from './pt-br-blends.ts';
 
 const VOCAB = { a: 1, b: 2, ' ': 3 };
 const VOICE = 'pf_dora';
@@ -165,4 +166,34 @@ test('unload releases the session and refuses further synthesis', async () => {
 test('phonemizeWithPunctuation keeps punctuation, drops separators and joins line breaks', () => {
   const ipa = (clause: string): string => `${clause.toUpperCase()}_x\ny`;
   assert.equal(phonemizeWithPunctuation('ola, mundo!', ipa), 'OLAx y, MUNDOx y!');
+});
+
+const PARTNER_OFFSET = 1000;
+const BLEND_WEIGHT = 0.25;
+
+test('rpg-cm63.45 mixes the style rows of two voices by the blend weight', async () => {
+  const dir = await installFake();
+  const partner = PT_BR_BLEND_PARTNERS[0] ?? '';
+  const rows = new Float32Array(KOKORO_MAX_TOKENS * KOKORO_STYLE_DIMENSION);
+  for (let row = 0; row < KOKORO_MAX_TOKENS; row++) {
+    rows.fill(PARTNER_OFFSET + row, row * KOKORO_STYLE_DIMENSION, (row + 1) * KOKORO_STYLE_DIMENSION);
+  }
+  await writeFile(join(kokoroModelRoot(dir), 'voices', `${partner}.bin`), new Uint8Array(rows.buffer));
+  const { ports, calls } = fakePorts();
+  const engine = createKokoroOnnxEngine(dir, ports);
+  assert.equal(engine.blends, true);
+  await engine.load();
+  await engine.synthesize('ab', VOICE, SIGNAL, 1, { first: VOICE, second: partner, weight: BLEND_WEIGHT });
+  const mixed = Number(calls[0]?.style?.data[0]);
+  assert.ok(Math.abs(mixed - (2 + BLEND_WEIGHT * PARTNER_OFFSET)) < 1e-3, String(mixed));
+});
+
+test('rpg-cm63.45 rejects a blend partner outside the allowlist', async () => {
+  const dir = await installFake();
+  const engine = createKokoroOnnxEngine(dir, fakePorts().ports);
+  await engine.load();
+  await assert.rejects(
+    engine.synthesize('a', VOICE, SIGNAL, 1, { first: VOICE, second: '../../etc/passwd', weight: BLEND_WEIGHT }),
+    /unknown voice/,
+  );
 });

@@ -13,6 +13,20 @@ VALID = {"first": VOICE, "second": PARTNER, "weight": 0.3}
 
 
 class ParseBlendTest(unittest.TestCase):
+    def test_partner_voice_from_another_accent_is_accepted(self):
+        for partner in ("af_bella", "af_sarah", "am_adam", "am_liam", "am_onyx", "bf_emma"):
+            with self.subTest(partner=partner):
+                self.assertEqual(
+                    service.parse_blend({**VALID, "second": partner}, VOICE), (VOICE, partner, 0.3)
+                )
+
+    def test_partner_voice_is_not_a_primary_voice(self):
+        self.assertIsNone(service.parse(b'{"text": "oi", "voice": "am_adam", "speed": 1}'))
+
+    def test_every_blend_partner_is_downloaded(self):
+        for partner in service.BLEND_PARTNERS:
+            self.assertIn(f"voices/{partner}.safetensors", service.MODEL_FILES)
+
     def test_absent_blend_is_none(self):
         self.assertIsNone(service.parse_blend(None, VOICE))
 

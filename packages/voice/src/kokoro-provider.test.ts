@@ -20,6 +20,7 @@ import {
   MLX_KOKORO_PROVIDER_ID,
   type VoiceBlend,
 } from './kokoro-provider.ts';
+import { PT_BR_BLENDS } from './pt-br-blends.ts';
 import { trailingSilenceMs } from './test-silence.ts';
 import type { SpeechChunk } from './tts.ts';
 import type { CommittedUtterance, VoiceProfile } from './voice.ts';
@@ -614,4 +615,65 @@ test('rpg-cm63.47 the utterance delivery reaches the engine so an expressive eng
   const delivery = { emotion: 'whisper', intensity: 0.5 };
   await speak(createKokoroProvider({ engine }), { ...UTTERANCE, text: 'Psiu, venha.', delivery });
   assert.deepEqual(deliveries, [delivery, delivery]);
+});
+
+const NAMED_BLEND = PT_BR_BLENDS[0];
+const NAMED_BLEND_PROFILE: VoiceProfile = { ...PROFILE, language: 'pt-BR' };
+
+const speakNamedBlend = async (
+  engine: KokoroEngine,
+  voiceId: string,
+  voiceBlend?: () => VoiceBlend,
+): Promise<SpeechChunk[]> => {
+  const provider = createKokoroProvider({
+    engine,
+    capabilities: MLX_KOKORO_CAPABILITIES,
+    ...(voiceBlend === undefined ? {} : { voiceBlend }),
+  });
+  const chunks: SpeechChunk[] = [];
+  const utterance = { ...UTTERANCE, text: 'Oi.', profile: NAMED_BLEND_PROFILE };
+  for await (const chunk of provider.synthesize(utterance, voiceId, new AbortController().signal)) chunks.push(chunk);
+  await provider.dispose();
+  return chunks;
+};
+
+const capturingEngine = (blends: boolean) => {
+  const seen: Array<{ voiceId: string; blend: VoiceBlend | undefined }> = [];
+  const engine = Object.assign(wavEngine(), { blends });
+  engine.synthesize = async (_sentence, voiceId, _signal, _speed, blend) => {
+    seen.push({ voiceId, blend });
+    return toneWav();
+  };
+  return { engine, seen };
+};
+
+test('rpg-cm63.45 a named blend asks the engine for the first voice with the fixed blend and reports its own id', async () => {
+  assert.ok(NAMED_BLEND);
+  const { engine, seen } = capturingEngine(true);
+  const chunks = await speakNamedBlend(engine, NAMED_BLEND.id);
+  assert.deepEqual(seen, [
+    {
+      voiceId: NAMED_BLEND.first,
+      blend: { first: NAMED_BLEND.first, second: NAMED_BLEND.second, weight: NAMED_BLEND.weight },
+    },
+  ]);
+  assert.equal(chunks[0]?.voiceId, NAMED_BLEND.id);
+});
+
+test('rpg-cm63.45 a named blend ignores the per-character blend', async () => {
+  assert.ok(NAMED_BLEND);
+  const { engine, seen } = capturingEngine(true);
+  await speakNamedBlend(engine, NAMED_BLEND.id, () => ({
+    first: NAMED_BLEND.first,
+    second: 'pm_santa',
+    weight: 0.2,
+  }));
+  assert.equal(seen[0]?.blend?.second, NAMED_BLEND.second);
+});
+
+test('rpg-cm63.45 an engine that cannot blend stays silent so the next provider speaks', async () => {
+  assert.ok(NAMED_BLEND);
+  const { engine, seen } = capturingEngine(false);
+  assert.deepEqual(await speakNamedBlend(engine, NAMED_BLEND.id), []);
+  assert.deepEqual(seen, []);
 });

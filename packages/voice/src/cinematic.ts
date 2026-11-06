@@ -1,5 +1,6 @@
 import type { VoiceBlend } from './kokoro-provider.ts';
 import { voicesFor } from './language-voices.ts';
+import { namedBlendOf } from './pt-br-blends.ts';
 import type { PtBrRoute } from './pt-br-route.ts';
 import { NARRATOR_SPEAKER } from './speaker-routing.ts';
 import { selectVoiceId } from './tts.ts';
@@ -48,8 +49,10 @@ const WEIGHT_HASH_SHIFT = 8;
 
 export const voiceBlendFor = (npcId: string, voiceId: string, voices: readonly string[]): VoiceBlend | undefined => {
   const family = voiceId.slice(0, VOICE_FAMILY_CHARS);
-  const partners = voices.filter((voice) => voice !== voiceId && voice.startsWith(family));
-  if (!voices.includes(voiceId) || partners.length === 0) return undefined;
+  const partners = voices.filter(
+    (voice) => voice !== voiceId && voice.startsWith(family) && namedBlendOf(voice) === undefined,
+  );
+  if (!voices.includes(voiceId) || namedBlendOf(voiceId) !== undefined || partners.length === 0) return undefined;
   const hash = hashOf(npcId);
   const second = partners[hash % partners.length];
   const weight = BLEND_WEIGHTS[(hash >>> WEIGHT_HASH_SHIFT) % BLEND_WEIGHTS.length];

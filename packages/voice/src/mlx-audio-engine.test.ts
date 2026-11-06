@@ -16,6 +16,7 @@ import {
   mlxAudioPaths,
   mlxAudioSupported,
 } from './mlx-audio-engine.ts';
+import { PT_BR_BASE_VOICES, PT_BR_BLEND_PARTNERS } from './pt-br-blends.ts';
 
 const PORT = 41234;
 const SENTENCE = 'Fala baixo.';
@@ -97,7 +98,7 @@ const withDir = async (run: (dir: string) => Promise<void>): Promise<void> => {
 
 const install = (dir: string): void => {
   const paths = mlxAudioPaths(dir);
-  for (const file of [paths.python, paths.weights]) {
+  for (const file of [paths.python, paths.weights, ...paths.voices]) {
     mkdirSync(dirname(file), { recursive: true });
     writeFileSync(file, '');
   }
@@ -122,10 +123,21 @@ test('is ready only on Apple Silicon with the venv and the pinned model installe
   });
 });
 
+test('rpg-cm63.45 is not ready while a blend partner voice file is missing', async () => {
+  await withDir(async (dir) => {
+    const engine = createMlxAudioEngine({ dir, platform: 'darwin', arch: 'arm64' });
+    install(dir);
+    const [missing] = mlxAudioPaths(dir).voices.slice(-1);
+    assert.ok(missing);
+    rmSync(missing);
+    assert.equal(engine.ready(), false);
+  });
+});
+
 test('the provider speaks Brazilian Portuguese with the Kokoro pt-BR voices', () => {
   assert.equal(MLX_KOKORO_PROVIDER_ID, 'kokoro-mlx');
   assert.deepEqual(MLX_KOKORO_CAPABILITIES.languages, ['pt-BR']);
-  assert.deepEqual(MLX_KOKORO_CAPABILITIES.voices, ['pf_dora', 'pm_alex', 'pm_santa']);
+  assert.deepEqual(MLX_KOKORO_CAPABILITIES.voices.slice(0, 3), ['pf_dora', 'pm_alex', 'pm_santa']);
   const provider = createMlxAudioProvider({ dir: tmpdir(), platform: 'linux', arch: 'x64' });
   assert.equal(provider.id, MLX_KOKORO_PROVIDER_ID);
   assert.equal(provider.locality, 'local');
@@ -239,8 +251,9 @@ test('unload stops the service and a crashed service restarts on the next senten
 
 test('the service script binds loopback, pins the model and allows only the provider voices', () => {
   const source = readFileSync(MLX_AUDIO_SERVICE_SOURCE, 'utf8');
-  const voices = MLX_KOKORO_CAPABILITIES.voices.map((voice) => `"${voice}"`).join(', ');
-  assert.ok(source.includes(`VOICES = {${voices}}`));
+  const quoted = (ids: readonly string[]) => ids.map((voice) => `"${voice}"`).join(', ');
+  assert.ok(source.includes(`VOICES = {${quoted(PT_BR_BASE_VOICES)}}`));
+  assert.ok(source.includes(`BLEND_PARTNERS = {${quoted(PT_BR_BLEND_PARTNERS)}}`));
   assert.ok(source.includes('HOST = "127.0.0.1"'));
   assert.ok(source.includes(`REVISION = "${MLX_AUDIO_MODEL_REVISION}"`));
 });

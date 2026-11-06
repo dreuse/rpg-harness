@@ -14,7 +14,12 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 MODEL = "mlx-community/Kokoro-82M-bf16"
 REVISION = "a71e4d38b236d968966a2002c4c895dbd12b1c3c"
 VOICES = {"pf_dora", "pm_alex", "pm_santa"}
-MODEL_FILES = ["config.json", "kokoro-v1_0.safetensors", *(f"voices/{voice}.safetensors" for voice in sorted(VOICES))]
+BLEND_PARTNERS = {"af_bella", "af_sarah", "am_adam", "am_liam", "am_onyx", "bf_emma"}
+MODEL_FILES = [
+    "config.json",
+    "kokoro-v1_0.safetensors",
+    *(f"voices/{voice}.safetensors" for voice in sorted(VOICES | BLEND_PARTNERS)),
+]
 WARMUP_VOICE = "pf_dora"
 WARMUP_TEXT = "Olá."
 HOST = "127.0.0.1"
@@ -106,7 +111,7 @@ def parse_blend(blend, voice):
     if not isinstance(blend, dict):
         raise ValueError("blend")
     first, second, weight = blend.get("first"), blend.get("second"), blend.get("weight")
-    if first != voice or second not in VOICES or second == first:
+    if first != voice or second not in VOICES | BLEND_PARTNERS or second == first:
         raise ValueError("blend")
     if isinstance(weight, bool) or not isinstance(weight, (int, float)) or not 0 < weight < 1:
         raise ValueError("blend")

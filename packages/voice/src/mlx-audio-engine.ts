@@ -14,6 +14,7 @@ import {
   SERVICE_START_TIMEOUT_MS,
   type ServiceSpawn,
 } from './local-service-engine.ts';
+import { PT_BR_BASE_VOICES, PT_BR_BLEND_PARTNERS } from './pt-br-blends.ts';
 
 export type { ServiceSpawn };
 export { inheritedEnv, MLX_KOKORO_CAPABILITIES, MLX_KOKORO_PROVIDER_ID };
@@ -28,30 +29,35 @@ const APPLE_PLATFORM = 'darwin';
 const APPLE_SILICON = 'arm64';
 const SERVICE_FILE = 'mlx-audio-service.py';
 const WEIGHTS_FILE = 'kokoro-v1_0.safetensors';
+const VOICE_DIR = 'voices';
+const VOICE_EXTENSION = '.safetensors';
 
 export const mlxAudioSupported = (platform: string = process.platform, arch: string = process.arch): boolean =>
   platform === APPLE_PLATFORM && arch === APPLE_SILICON;
 
 export const mlxAudioPaths = (dir: string) => {
   const hfHome = join(dir, 'hf');
+  const snapshot = join(
+    hfHome,
+    'hub',
+    `models--${MLX_AUDIO_MODEL_ID.replace('/', '--')}`,
+    'snapshots',
+    MLX_AUDIO_MODEL_REVISION,
+  );
   return {
     python: join(dir, 'venv', 'bin', 'python'),
     service: join(dir, SERVICE_FILE),
     hfHome,
-    weights: join(
-      hfHome,
-      'hub',
-      `models--${MLX_AUDIO_MODEL_ID.replace('/', '--')}`,
-      'snapshots',
-      MLX_AUDIO_MODEL_REVISION,
-      WEIGHTS_FILE,
+    weights: join(snapshot, WEIGHTS_FILE),
+    voices: [...PT_BR_BASE_VOICES, ...PT_BR_BLEND_PARTNERS].map((id) =>
+      join(snapshot, VOICE_DIR, `${id}${VOICE_EXTENSION}`),
     ),
   };
 };
 
 export const mlxAudioInstalled = (dir: string): boolean => {
-  const { python, weights } = mlxAudioPaths(dir);
-  return existsSync(python) && existsSync(weights);
+  const { python, weights, voices } = mlxAudioPaths(dir);
+  return [python, weights, ...voices].every((file) => existsSync(file));
 };
 
 export interface MlxAudioEngineOptions {

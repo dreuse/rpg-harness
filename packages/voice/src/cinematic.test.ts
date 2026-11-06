@@ -151,6 +151,8 @@ test('blends only inside the capabilities of the provider and gives no blend wit
   const male = voiceBlendFor('npc-captain', 'pm_alex', mlx);
   assert.equal(male?.second, 'pm_santa');
   assert.equal(voiceBlendFor('npc-captain', 'af_heart', mlx), undefined);
+  assert.equal(voiceBlendFor('npc-captain', 'pf_clara', mlx), undefined);
+  assert.ok(mlx.includes('pm_bruno') && male?.second === 'pm_santa');
   assert.equal(voiceBlendFor('npc-captain', 'af_heart', ['af_heart', 'af_bella'])?.second, 'af_bella');
 });
 

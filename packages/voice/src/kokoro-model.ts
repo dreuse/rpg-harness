@@ -71,6 +71,36 @@ export const KOKORO_PT_BR_VOICE_FILES: readonly ModelFile[] = Object.freeze([
     sha256: '8b012db3185778afe2e45a62cbad69db73021774fe68dda634bcc748a982eede',
     bytes: 522_240,
   },
+  {
+    path: 'voices/af_bella.bin',
+    sha256: 'f69d836209b78eb8c66e75e3cda491e26ea838a3674257e9d4e5703cbaf55c8b',
+    bytes: 522_240,
+  },
+  {
+    path: 'voices/af_sarah.bin',
+    sha256: '4409fbc125afabacc615d94db5398d847006a737b0247d6892b7a9a0007a2f0a',
+    bytes: 522_240,
+  },
+  {
+    path: 'voices/am_adam.bin',
+    sha256: '162b035ed91cfc48b6046982184c645f72edcdd1b82843347f605d7bf7b15716',
+    bytes: 522_240,
+  },
+  {
+    path: 'voices/am_liam.bin',
+    sha256: '52403be32fd047c6a44517cb0bcd6b134f2a18baa73e70ef41651e0eab921ade',
+    bytes: 522_240,
+  },
+  {
+    path: 'voices/am_onyx.bin',
+    sha256: 'da5d135b424164916d75a68ffb4c2abce3d7d5ccc82dd1ee6cf447ce286145e6',
+    bytes: 522_240,
+  },
+  {
+    path: 'voices/bf_emma.bin',
+    sha256: '669fe0647f9dd04fcab92f1439a40eeb4c8b4ab1f82e4996fe3d918ce4a63b73',
+    bytes: 522_240,
+  },
 ]);
 export const KOKORO_PT_BR_MODEL_FILES: readonly ModelFile[] = Object.freeze([
   ...KOKORO_MODEL_FILES,

@@ -1,3 +1,5 @@
+import { PT_BR_BLENDS } from './pt-br-blends.ts';
+
 export type CatalogGender = 'female' | 'male';
 export type CatalogAge = 'child' | 'young' | 'adult' | 'old';
 
@@ -5,6 +7,7 @@ export interface CatalogVoice {
   readonly gender: CatalogGender;
   readonly ages: readonly CatalogAge[];
   readonly timbre: readonly string[];
+  readonly licence?: string;
 }
 
 export interface MannerDelivery {
@@ -17,6 +20,10 @@ export const MIN_MANNER_PACE = 0.85;
 export const MAX_MANNER_PACE = 1.15;
 export const MAX_MANNER_PITCH_SEMITONES = 2;
 export const NEUTRAL_DELIVERY: MannerDelivery = Object.freeze({ pace: 1, pitch: 0 });
+
+const BLEND_VOICES = Object.fromEntries(
+  PT_BR_BLENDS.map(({ id, gender, ages, timbre, licence }) => [id, Object.freeze({ gender, ages, timbre, licence })]),
+);
 
 const GENDER_MARKER_INDEX = 1;
 const GENDER_BY_MARKER: Readonly<Record<string, CatalogGender>> = Object.freeze({ f: 'female', m: 'male' });
@@ -60,6 +67,7 @@ export const VOICE_CATALOG: Readonly<Record<string, CatalogVoice>> = Object.free
   'f5-pt-f2': voice('female', ['adult'], ['warm', 'smooth']),
   'f5-pt-m1': voice('male', ['adult'], ['deep', 'smooth']),
   'f5-pt-m2': voice('male', ['adult'], ['light', 'smooth']),
+  ...BLEND_VOICES,
 });
 
 export const MANNER_TIMBRE: Readonly<Record<string, readonly string[]>> = Object.freeze({

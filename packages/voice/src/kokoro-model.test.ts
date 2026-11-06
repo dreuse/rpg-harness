@@ -13,6 +13,7 @@ import {
   KOKORO_PT_BR_MODEL_OFFER,
   type ModelFile,
 } from './kokoro-model.ts';
+import { PT_BR_BLEND_PARTNERS } from './pt-br-blends.ts';
 
 const SOURCE = 'https://models.example/kokoro';
 const CONTENT = new TextEncoder().encode('weights');
@@ -115,13 +116,12 @@ test('remove deletes the installed model', async () => {
   assert.deepEqual(await manager.status(), { installed: false, bytes: 0 });
 });
 
-test('rpg-cm63.53 pins the three pt-BR voice files on top of the base model files', () => {
+test('rpg-cm63.53 pins the pt-BR voice files and the blend partner voices on top of the base model files', () => {
   const voices = KOKORO_PT_BR_MODEL_FILES.filter((file) => file.path.startsWith('voices/'));
-  assert.deepEqual(voices.map((file) => file.path).sort(), [
-    'voices/pf_dora.bin',
-    'voices/pm_alex.bin',
-    'voices/pm_santa.bin',
-  ]);
+  assert.deepEqual(
+    voices.map((file) => file.path).sort(),
+    [...['pf_dora', 'pm_alex', 'pm_santa', ...PT_BR_BLEND_PARTNERS].map((id) => `voices/${id}.bin`)].sort(),
+  );
   assert.ok(voices.every((file) => /^[0-9a-f]{64}$/.test(file.sha256) && file.bytes > 0));
   for (const file of KOKORO_MODEL_FILES) assert.ok(KOKORO_PT_BR_MODEL_FILES.includes(file));
   assert.equal(KOKORO_PT_BR_MODEL_OFFER.source, KOKORO_MODEL_OFFER.source);

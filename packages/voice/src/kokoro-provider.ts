@@ -1,5 +1,6 @@
 import { clamp, finiteOr, pitchRatio, shapeAudio, shapeSentences, shiftPitch } from './delivery-shaping.ts';
 import { MAX_RATE, MIN_RATE } from './prosody.ts';
+import { namedBlendOf, PT_BR_BASE_VOICES, PT_BR_BLENDS } from './pt-br-blends.ts';
 import type { SpeechChunk, TtsProvider } from './tts.ts';
 import type { CommittedUtterance, Delivery } from './voice.ts';
 import { mannerDelivery } from './voice-catalog.ts';
@@ -280,11 +281,14 @@ export const createKokoroProvider = ({
       const sentences = shapeSentences(utterance.text, utterance.delivery);
       const manner = mannerDelivery(utterance.profile.manner);
       const speed = kokoroSpeed(utterance.delivery, (utterance.profile.pace * manner.pace) / pitchRatio(manner.pitch));
-      const blend = engine.blends
-        ? usableBlend(capabilities, voiceId, voiceBlend?.(utterance.speakerId, voiceId))
-        : undefined;
+      const named = namedBlendOf(voiceId);
+      if (named && !engine.blends) return;
+      const engineVoice = named?.first ?? voiceId;
+      const blend =
+        named ??
+        (engine.blends ? usableBlend(capabilities, voiceId, voiceBlend?.(utterance.speakerId, voiceId)) : undefined);
       for (const [sequence, { sentence, pauseMs }] of sentences.entries()) {
-        const synthesized = await synthesizeSentence(sentence, voiceId, signal, speed, blend, utterance.delivery);
+        const synthesized = await synthesizeSentence(sentence, engineVoice, signal, speed, blend, utterance.delivery);
         if (!synthesized || signal.aborted) return;
         const audio = shiftPitch(synthesized, manner.pitch);
         yield {
@@ -302,7 +306,7 @@ export const createKokoroProvider = ({
 
 export const MLX_KOKORO_CAPABILITIES: KokoroCapabilities = Object.freeze({
   languages: Object.freeze(['pt-BR']),
-  voices: Object.freeze(['pf_dora', 'pm_alex', 'pm_santa']),
+  voices: Object.freeze([...PT_BR_BASE_VOICES, ...PT_BR_BLENDS.map(({ id }) => id)]),
   streaming: true,
   emotion: false,
 });
