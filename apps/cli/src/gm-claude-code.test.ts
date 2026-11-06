@@ -274,7 +274,7 @@ describe('rpg-42a.33 Claude Code CLI game master', () => {
     );
     assert.equal(reply.narration, NARRATION);
     assert.deepEqual(reply.usage, {
-      model: 'default',
+      model: 'sonnet',
       inputTokens: 120,
       cacheReadTokens: 80,
       cacheWriteTokens: 0,

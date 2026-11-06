@@ -31,6 +31,9 @@ export const CLAUDE_TIMEOUT_MS = 120_000;
 export const CLAUDE_MAX_RETRIES = 1;
 export const CHEAP_CLAUDE_MODEL = 'haiku';
 export const BALANCED_CLAUDE_MODEL = 'sonnet';
+
+const resolvedModelOf = (model: string | undefined) =>
+  model === undefined || model === PROVIDER_DEFAULT_MODEL ? BALANCED_CLAUDE_MODEL : model;
 export const BALANCED_EFFORT = 'medium';
 export const CHEAP_EFFORT = 'low';
 export const CHILD_ENV_KEYS: readonly string[] = [
@@ -165,7 +168,7 @@ export const claudeArgs = (
   READ_ONLY_GAME_TOOLS.join(TOOL_SEPARATOR),
   '--disallowedTools',
   WRITE_GAME_TOOLS.join(TOOL_SEPARATOR),
-  `--model=${model === undefined || model === PROVIDER_DEFAULT_MODEL ? BALANCED_CLAUDE_MODEL : model}`,
+  `--model=${resolvedModelOf(model)}`,
   '--effort',
   effort,
 ];
@@ -238,7 +241,7 @@ export const replyOf = ({ code, stdout, stderr = '' }: Exit, model: string | und
     narration: narrationOf(segments),
     segments,
     ...(proposals === undefined ? {} : { proposals }),
-    usage: usageOf(body.usage, model ?? PROVIDER_DEFAULT_MODEL, body.total_cost_usd),
+    usage: usageOf(body.usage, resolvedModelOf(model), body.total_cost_usd),
   };
 };
 

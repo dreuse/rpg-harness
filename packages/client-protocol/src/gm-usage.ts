@@ -19,7 +19,7 @@ export const GM_USAGE_CATALOG: Catalog = {
   en: {
     'hint.default': 'balanced (recommended): quality, creativity and speed',
     'hint.cheap': 'cheaper and faster',
-    'hint.balanced': 'balanced cost and detail',
+    'hint.balanced': 'Sonnet, picked by name',
     'hint.rich': 'richer narration, costs more',
     'hint.custom': 'a model id sent as is',
     'model.line': 'GM model: {model} ({hint}). Summary model: {summary}.',
@@ -38,7 +38,7 @@ export const GM_USAGE_CATALOG: Catalog = {
   'pt-BR': {
     'hint.default': 'equilibrado (recomendado): qualidade, criatividade e velocidade',
     'hint.cheap': 'mais barato e rápido',
-    'hint.balanced': 'custo e detalhe equilibrados',
+    'hint.balanced': 'Sonnet, escolhido pelo nome',
     'hint.rich': 'narração mais rica, custa mais',
     'hint.custom': 'um id de modelo enviado como está',
     'model.line': 'Modelo do mestre: {model} ({hint}). Modelo de resumo: {summary}.',
