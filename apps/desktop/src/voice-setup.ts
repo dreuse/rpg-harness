@@ -193,7 +193,7 @@ export const createVoiceSetup = ({
   };
   const speaking = () => status.providers.filter((provider) => speaksLanguage(provider, language()));
   const active = (): VoiceProviderStatus | undefined =>
-    speaking().find(({ id }) => id === speech.providerId) ?? speaking()[0];
+    speaking().find(({ id }) => id === speech.providerId) ?? speaking().find(({ optIn }) => optIn !== true);
   const narratorOf = (provider: VoiceProviderStatus) =>
     speech.narratorVoice !== undefined && provider.voices.includes(speech.narratorVoice)
       ? speech.narratorVoice

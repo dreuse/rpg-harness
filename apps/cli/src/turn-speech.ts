@@ -22,6 +22,7 @@ export interface TurnSpeechOptions {
   readonly turnId: string;
   readonly mode: SpokenOutputMode;
   readonly narrator: VoiceProfile;
+  readonly narratorFallback?: VoiceProfile;
   readonly utterancesOf: (segments: readonly GmSegment[]) => readonly CommittedUtterance[];
 }
 
@@ -63,17 +64,28 @@ const unheardOf = (segments: readonly GmSegment[], heardText: string): readonly 
   }
 };
 
-export const createTurnSpeech = ({ speech, turnId, mode, narrator, utterancesOf }: TurnSpeechOptions): TurnSpeech => {
+export const createTurnSpeech = ({
+  speech,
+  turnId,
+  mode,
+  narrator,
+  narratorFallback,
+  utterancesOf,
+}: TurnSpeechOptions): TurnSpeech => {
   const heard: string[] = [];
   const born = speech.generation();
   const stopped = () => speech.generation() !== born;
   const settings = { ...DEFAULT_VOICE_SETTINGS, spokenOutput: mode };
   const readByNarrator = (utterance: CommittedUtterance): CommittedUtterance =>
-    mode === 'narrator' ? { ...utterance, speakerId: NARRATOR_SPEAKER, profile: narrator } : utterance;
+    mode === 'narrator'
+      ? { ...utterance, speakerId: NARRATOR_SPEAKER, profile: narrator }
+      : utterance.speakerId === NARRATOR_SPEAKER
+        ? { ...utterance, profile: narrator }
+        : utterance;
   const holdSpoken = (segments: readonly GmSegment[]) => {
     for (const utterance of utterancesOf(segments).filter((item) => spokenIn(mode, item))) {
       const voiced = spokenUtterance(readByNarrator(utterance), settings);
-      speech.hold(turnId, voiced, voiced.speakerId === NARRATOR_SPEAKER ? undefined : narrator);
+      speech.hold(turnId, voiced, narratorFallback ?? (voiced.speakerId === NARRATOR_SPEAKER ? undefined : narrator));
     }
   };
 

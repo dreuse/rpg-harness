@@ -6,7 +6,22 @@ import {
   AUDIO_CACHE_DIR,
   createFileAudioCache,
 } from '../../../packages/voice/src/audio-cache-store.ts';
+import {
+  CHATTERBOX_CAPABILITIES,
+  CHATTERBOX_DIR_ENV,
+  CHATTERBOX_PROVIDER_ID,
+  createChatterboxProvider,
+} from '../../../packages/voice/src/chatterbox-engine.ts';
+import { type ChatterboxInstaller, createChatterboxInstaller } from '../../../packages/voice/src/chatterbox-install.ts';
 import { npcVoiceBlend } from '../../../packages/voice/src/cinematic.ts';
+import {
+  createF5Provider,
+  F5_ATTRIBUTIONS,
+  F5_CAPABILITIES,
+  F5_DIR_ENV,
+  F5_PROVIDER_ID,
+} from '../../../packages/voice/src/f5-tts-engine.ts';
+import { createF5Installer, type F5Installer } from '../../../packages/voice/src/f5-tts-install.ts';
 import { createKokoroJsEngine, KOKORO_MODEL_DIR_ENV } from '../../../packages/voice/src/kokoro-js-engine.ts';
 import {
   createKokoroModelManager,
@@ -42,6 +57,8 @@ export const VOICE_ROUTE_ENV = 'RPG_VOICE';
 export const FAKE_VOICE_ROUTE = 'fake';
 export const VOICE_MODELS_DIR = 'voice-models';
 export const MLX_AUDIO_SUBDIR = 'mlx-audio';
+export const CHATTERBOX_SUBDIR = 'chatterbox';
+export const F5_SUBDIR = 'f5-tts';
 export { AUDIO_CACHE_DIR };
 export const MAX_SPEECH_CHARS = 4000;
 export const MAX_STYLE_CHARS = 200;
@@ -59,6 +76,8 @@ export type HostedProvider = {
   readonly capabilities: KokoroCapabilities;
   readonly narrator: string;
   readonly model: ModelManager;
+  readonly attributions?: readonly string[];
+  readonly optIn?: boolean;
   readonly provider: Pick<KokoroProvider, 'synthesize' | 'dispose' | 'preload' | 'healthy'>;
 };
 
@@ -70,6 +89,8 @@ export type VoiceProviderStatus = {
   readonly installed: boolean;
   readonly bytes: number;
   readonly offer: ModelOffer;
+  readonly attributions?: readonly string[];
+  readonly optIn?: boolean;
 };
 
 export type VoiceHostStatus = { readonly providers: readonly VoiceProviderStatus[]; readonly cacheBytes: number };
@@ -209,13 +230,15 @@ export const createVoiceHost = ({
   return {
     check: async () => ({
       providers: await Promise.all(
-        providers.map(async ({ id, capabilities, narrator, model }) => ({
+        providers.map(async ({ id, capabilities, narrator, model, attributions, optIn }) => ({
           id,
           languages: capabilities.languages,
           voices: capabilities.voices,
           narrator,
           ...(await model.status()),
           offer: model.offer,
+          ...(attributions === undefined ? {} : { attributions }),
+          ...(optIn === true ? { optIn } : {}),
         })),
       ),
       cacheBytes: cache.bytes,
@@ -246,12 +269,31 @@ export const createVoiceHost = ({
       const cached = cache.get(key);
       if (cached !== undefined)
         return { chunks: cached.map(({ audio }) => audio), synthesisMs: now() - started, cacheHit: true };
-      const chunks: SpeechChunk[] = [];
-      for await (const chunk of hosted.provider.synthesize(utterance, voiceId, new AbortController().signal))
-        chunks.push(chunk);
-      const synthesisMs = now() - started;
-      cache.set(key, chunks);
-      return { chunks: chunks.map(({ audio }) => audio), synthesisMs, cacheHit: false };
+      const collect = async (target: HostedProvider, voice: string) => {
+        const collected: SpeechChunk[] = [];
+        for await (const chunk of target.provider.synthesize(utterance, voice, new AbortController().signal))
+          collected.push(chunk);
+        return collected;
+      };
+      try {
+        const chunks = await collect(hosted, voiceId);
+        const synthesisMs = now() - started;
+        cache.set(key, chunks);
+        return { chunks: chunks.map(({ audio }) => audio), synthesisMs, cacheHit: false };
+      } catch (cause) {
+        const fallback =
+          hosted.optIn === true
+            ? providers.find(
+                (candidate) =>
+                  candidate.optIn !== true &&
+                  candidate.provider.healthy() &&
+                  speaksLanguage(candidate.capabilities, utterance.profile.language),
+              )
+            : undefined;
+        if (fallback === undefined) throw cause;
+        const chunks = await collect(fallback, fallback.narrator);
+        return { chunks: chunks.map(({ audio }) => audio), synthesisMs: now() - started, cacheHit: false };
+      }
     },
     clearCache: () => {
       rmSync(cacheDir, { recursive: true, force: true });
@@ -277,6 +319,16 @@ export const createVoiceHost = ({
 
 const BRAZILIAN_NARRATOR = voicesFor('pt-BR', DESKTOP_PT_BR_ROUTE)?.narrator ?? '';
 
+const serviceModel = (installer: ChatterboxInstaller | F5Installer | MlxAudioInstaller): ModelManager => ({
+  offer: installer.offer,
+  status: async () => {
+    const { installed } = await installer.status();
+    return { installed, bytes: installed ? installer.offer.bytes : 0 };
+  },
+  download: (consent, signal) => installer.install(consent, signal),
+  remove: () => installer.remove(),
+});
+
 export const mlxAudioProviders = (
   dir: string,
   installer: MlxAudioInstaller = createMlxAudioInstaller({ dir }),
@@ -285,16 +337,34 @@ export const mlxAudioProviders = (
     id: MLX_KOKORO_PROVIDER_ID,
     capabilities: MLX_KOKORO_CAPABILITIES,
     narrator: BRAZILIAN_NARRATOR,
-    model: {
-      offer: installer.offer,
-      status: async () => {
-        const { installed } = await installer.status();
-        return { installed, bytes: installed ? installer.offer.bytes : 0 };
-      },
-      download: (consent, signal) => installer.install(consent, signal),
-      remove: () => installer.remove(),
-    },
+    model: serviceModel(installer),
     provider: createMlxAudioProvider({ dir, voiceBlend: npcVoiceBlend(MLX_KOKORO_CAPABILITIES.voices) }),
+  },
+];
+
+export const chatterboxProviders = (
+  dir: string,
+  installer: ChatterboxInstaller = createChatterboxInstaller({ dir }),
+): HostedProvider[] => [
+  {
+    id: CHATTERBOX_PROVIDER_ID,
+    capabilities: CHATTERBOX_CAPABILITIES,
+    narrator: CHATTERBOX_CAPABILITIES.voices[0] ?? '',
+    model: serviceModel(installer),
+    optIn: true,
+    provider: createChatterboxProvider({ dir }),
+  },
+];
+
+export const f5Providers = (dir: string, installer: F5Installer = createF5Installer({ dir })): HostedProvider[] => [
+  {
+    id: F5_PROVIDER_ID,
+    capabilities: F5_CAPABILITIES,
+    narrator: F5_CAPABILITIES.voices[0] ?? '',
+    model: serviceModel(installer),
+    attributions: F5_ATTRIBUTIONS,
+    optIn: true,
+    provider: createF5Provider({ dir }),
   },
 ];
 
@@ -393,6 +463,8 @@ export const voiceProviders = (
 ): HostedProvider[] => [
   ...kokoroProviders(env[KOKORO_MODEL_DIR_ENV] || join(dataDir, VOICE_MODELS_DIR)),
   ...(mlxSupported ? mlxAudioProviders(env[MLX_AUDIO_DIR_ENV] || join(dataDir, MLX_AUDIO_SUBDIR)) : []),
+  ...(mlxSupported ? chatterboxProviders(env[CHATTERBOX_DIR_ENV] || join(dataDir, CHATTERBOX_SUBDIR)) : []),
+  ...f5Providers(env[F5_DIR_ENV] || join(dataDir, F5_SUBDIR)),
 ];
 
 export const voiceHostFromEnv = (env: NodeJS.ProcessEnv, dataDir: string): VoiceHost =>

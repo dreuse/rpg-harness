@@ -2,6 +2,8 @@ import { KOKORO_PROVIDER_ID } from '../../../packages/voice/src/kokoro-provider.
 import { translate } from './accessibility.ts';
 
 export const BRAZILIAN_PROVIDER_ID = 'kokoro-mlx';
+const CHATTERBOX_ID = 'chatterbox';
+const F5_ID = 'f5-tts';
 
 type VoiceName = { readonly name?: string; readonly kind: string };
 
@@ -17,6 +19,8 @@ const FIRST_NUMBER = 1;
 export const VOICE_NAMES: Readonly<Record<string, VoiceName>> = Object.freeze({
   [KOKORO_PROVIDER_ID]: { kind: 'builtIn' },
   [BRAZILIAN_PROVIDER_ID]: { kind: 'brazilian' },
+  [CHATTERBOX_ID]: { kind: 'expressive' },
+  [F5_ID]: { kind: 'expressive' },
   af_heart: { name: 'Heart', kind: US_FEMALE },
   af_alloy: { name: 'Alloy', kind: US_FEMALE },
   af_aoede: { name: 'Aoede', kind: US_FEMALE },

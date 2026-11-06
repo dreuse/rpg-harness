@@ -407,3 +407,25 @@ test('rpg-cm63.22 the engine speech summary ignores malformed answers and failed
     assert.equal(controller.view().engine, undefined);
   }
 });
+
+const F5: VoiceProviderStatus = {
+  ...KOKORO,
+  id: 'f5-tts',
+  languages: ['pt-BR'],
+  voices: ['f5-pt-f1'],
+  narrator: 'f5-pt-f1',
+  optIn: true,
+};
+
+test('rpg-cm63.55 an opt-in voice is never the default and leaves pt-BR unavailable without kokoro-mlx', async () => {
+  const { controller } = setup({ providers: [F5] }, DEFAULT_SPEECH, 'pt-BR');
+  await controller.turnOn();
+  assert.equal(controller.view().provider, undefined);
+  assert.equal(controller.view().step, 'unavailable');
+});
+
+test('rpg-cm63.55 an opt-in voice is used once the saved preference names it', async () => {
+  const { controller } = setup({ providers: [F5] }, { ...DEFAULT_SPEECH, providerId: 'f5-tts' }, 'pt-BR');
+  await controller.turnOn();
+  assert.equal(controller.view().provider?.id, 'f5-tts');
+});

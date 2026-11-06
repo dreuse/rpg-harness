@@ -626,7 +626,7 @@ const openSession = (
           { createTurnSpeech, narratorProfileOf },
           { assignedNpcVoices, utterancesFor },
           { voiceLocaleFor },
-          { prepareVoice, takePreloadFailureNotice },
+          { optedInNarrator, prepareVoice, takePreloadFailureNotice, withOptedInNarrator },
           { installedVoices },
         ] = await Promise.all([
           import('./turn-speech.ts'),
@@ -643,6 +643,7 @@ const openSession = (
           route,
           settings.speed,
         );
+        const chosenNarrator = withOptedInNarrator(narrator, optedInNarrator(dataDir, narrator.language));
         const entities = createEntityStore(database);
         const npcVoices = assignedNpcVoices({ entities, campaignId, narrator, assigned: settings.npcVoices ?? {} });
         prepareVoice(runtime.providers, narrator.language, route);
@@ -652,7 +653,8 @@ const openSession = (
           speech: runtime.speech,
           turnId,
           mode: settings.spokenOutput,
-          narrator,
+          narrator: chosenNarrator,
+          narratorFallback: narrator,
           utterancesOf: (segments) =>
             utterancesFor({
               store,

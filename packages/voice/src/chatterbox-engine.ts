@@ -21,6 +21,11 @@ export const CHATTERBOX_MODEL_ID = 'ResembleAI/chatterbox';
 export const CHATTERBOX_MODEL_REVISION = '5bb1f6ee58e50c3b8d408bc82a6d3740c2db6e18';
 export const CHATTERBOX_SERVICE_SOURCE = join(import.meta.dirname, 'chatterbox-service.py');
 export const CHATTERBOX_VOICE = 'chatterbox-default';
+export const CHATTERBOX_MEASURED_FIRST_AUDIO_MS = 8247;
+export const CHATTERBOX_MEASURED_RTF = 3.1;
+export const CHATTERBOX_MEASURED_ON = 'Apple M3 Max';
+const MS_PER_SECOND = 1000;
+export const CHATTERBOX_WAIT_NOTE = `Slower, more expressive voice. Measured on an ${CHATTERBOX_MEASURED_ON}: about ${Math.round(CHATTERBOX_MEASURED_FIRST_AUDIO_MS / MS_PER_SECOND)} seconds before the first sentence, and about ${CHATTERBOX_MEASURED_RTF} times slower than real time. Slower computers wait longer.`;
 export const MIN_EXAGGERATION = 0.25;
 export const MAX_EXAGGERATION = 2;
 

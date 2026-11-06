@@ -353,3 +353,11 @@ test('rpg-42a.55 the voice status line appears once and the typed hint is locali
   assert.match(portuguese, />Armazenamento<\/h3>/);
   assert.match(portuguese, />Mestre<\/h3>/);
 });
+
+test('rpg-cm63.55 installed voices with attributions list their credits, escaped, in storage', () => {
+  const credited = { ...KOKORO, attributions: [`Voice by ${HOSTILE} (CC-BY-NC-4.0)`] };
+  const page = html({ ...ready, providers: [credited] });
+  assert.match(page, /<details data-voice-credits><summary>Voice credits<\/summary><ul><li>Voice by &lt;b&gt;/);
+  assert.ok(!page.includes(`Voice by ${HOSTILE}`));
+  assert.doesNotMatch(html(ready), /data-voice-credits/);
+});

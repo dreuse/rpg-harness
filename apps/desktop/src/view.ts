@@ -276,11 +276,16 @@ const voiceStorage = ({ providers, cacheBytes }: VoiceSetupView, locale: string)
     ({ id, name }) =>
       `<button type="button" ${VOICE_REMOVE}="${escapeHtml(id)}" aria-label="${escapeHtml(translate(locale, 'voice.removeLabel', { pack: name }))}">${escapeHtml(translate(locale, 'voice.remove'))}</button>`,
   );
+  const credits = providers.flatMap(({ installed, attributions = [] }) => (installed ? attributions : []));
+  const creditsList =
+    credits.length === 0
+      ? ''
+      : `<details data-voice-credits><summary>${escapeHtml(translate(locale, 'voice.credits'))}</summary><ul>${credits.map((line) => `<li>${escapeHtml(line)}</li>`).join('')}</ul></details>`;
   return `<h4>${escapeHtml(translate(locale, 'voice.models'))}</h4>${
     installed.length === 0
       ? `<p>${escapeHtml(translate(locale, 'voice.noModels'))}</p>`
       : `<ul>${installed.map(({ name }) => `<li>${escapeHtml(name)}</li>`).join('')}</ul>`
-  }<p>${escapeHtml(translate(locale, 'voice.cache', { size: Math.round(cacheBytes / BYTES_PER_KIB) }))}</p><div data-voice-actions>${removes.join('')}${button(VOICE_CLEAR, 'cache', translate(locale, 'voice.clear'))}</div>`;
+  }<p>${escapeHtml(translate(locale, 'voice.cache', { size: Math.round(cacheBytes / BYTES_PER_KIB) }))}</p><div data-voice-actions>${removes.join('')}${button(VOICE_CLEAR, 'cache', translate(locale, 'voice.clear'))}</div>${creditsList}`;
 };
 
 const failureList = (locale: string, errors: Readonly<Record<string, number | undefined>>) => {

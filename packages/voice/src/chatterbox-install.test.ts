@@ -4,7 +4,12 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
-import { CHATTERBOX_MODEL_FILES, CHATTERBOX_SERVICE_SOURCE, chatterboxPaths } from './chatterbox-engine.ts';
+import {
+  CHATTERBOX_MODEL_FILES,
+  CHATTERBOX_SERVICE_SOURCE,
+  CHATTERBOX_WAIT_NOTE,
+  chatterboxPaths,
+} from './chatterbox-engine.ts';
 import { CHATTERBOX_OFFER, CHATTERBOX_SPECS, createChatterboxInstaller } from './chatterbox-install.ts';
 import type { ModelConsent, ModelFile } from './kokoro-model.ts';
 import type { StepRunner } from './mlx-audio-install.ts';
@@ -147,4 +152,9 @@ test('remove deletes the venv and the model', async () => {
     assert.equal(existsSync(dir), false);
     assert.equal((await install.status()).installed, false);
   });
+});
+
+test('rpg-cm63.55 the consent text carries the measured wait', () => {
+  assert.ok(CHATTERBOX_OFFER.source.includes(CHATTERBOX_WAIT_NOTE));
+  assert.match(CHATTERBOX_WAIT_NOTE, /about 8 seconds.*3\.1 times slower/);
 });

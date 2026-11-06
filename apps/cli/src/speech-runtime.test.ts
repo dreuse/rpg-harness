@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -14,8 +14,11 @@ import {
   createLiveSpeechRuntime,
   createSpeechRuntime,
   liveProviders,
+  optedInNarrator,
+  PREFERENCES_FILE,
   prepareVoice,
   takePreloadFailureNotice,
+  withOptedInNarrator,
 } from './speech-runtime.ts';
 
 const SECRET = 'secret campaign words';
@@ -144,8 +147,8 @@ const withPreload = (id: string, preload: () => Promise<void>) => ({ ...provider
 
 test('rpg-cm63.53 live providers pick the pt-BR route: mlx where supported, ONNX elsewhere', () => {
   const ids = (route: 'mlx' | 'onnx') => liveProviders('/data', {}, route).map(({ id }) => id);
-  assert.deepEqual(ids('mlx'), ['kokoro', MLX_ID]);
-  assert.deepEqual(ids('onnx'), ['kokoro', 'kokoro-onnx']);
+  assert.deepEqual(ids('mlx'), ['kokoro', MLX_ID, 'chatterbox', 'f5-tts']);
+  assert.deepEqual(ids('onnx'), ['kokoro', 'kokoro-onnx', 'f5-tts']);
 });
 
 test('a pt-BR campaign preloads the mlx voice without waiting for it', () => {
@@ -297,4 +300,60 @@ test('rpg-cm63.54 a synthesis aborted midway is not cached', async () => {
   });
   assert.equal(cache.get(key), undefined);
   rmSync(dir, { recursive: true, force: true });
+});
+
+const F5_ID = 'f5-tts';
+const CHATTERBOX_ID = 'chatterbox';
+const PT_BR_LANGUAGE = 'pt-BR';
+const throwing = (id: string): TtsProvider => ({
+  ...provider(id),
+  synthesize: () => ({ [Symbol.asyncIterator]: () => ({ next: () => Promise.reject(new Error('service down')) }) }),
+});
+const preferences = (speech: object) => {
+  const dir = mkdtempSync(join(tmpdir(), 'rpg-prefs-'));
+  writeFileSync(join(dir, PREFERENCES_FILE), JSON.stringify({ speech }));
+  return dir;
+};
+const spokenWithChoice = async (providers: TtsProvider[], providerId: string) => {
+  const dir = preferences({ providerId, volume: 1, npcVoices: {} });
+  const base = { ...profileWith(KOKORO_PROVIDER_ID), language: PT_BR_LANGUAGE };
+  const chosen = withOptedInNarrator(base, optedInNarrator(dir, PT_BR_LANGUAGE));
+  rmSync(dir, { recursive: true });
+  const played: string[] = [];
+  const runtime = createSpeechRuntime({ providers, sink: sinkOf(played) });
+  runtime.speech.hold('t', { ...utterance(KOKORO_PROVIDER_ID), profile: chosen }, base);
+  runtime.speech.commit('t');
+  await runtime.speech.idle();
+  return { played, chosen };
+};
+
+test('rpg-cm63.55 a saved f5-tts choice puts it first and keeps kokoro behind it', async () => {
+  const { played, chosen } = await spokenWithChoice([provider(F5_ID), provider(KOKORO_PROVIDER_ID)], F5_ID);
+  assert.deepEqual(
+    chosen.fallbacks.map(({ providerId }) => providerId),
+    [F5_ID, KOKORO_PROVIDER_ID],
+  );
+  assert.deepEqual(played, ['f5-pt-f1']);
+});
+
+for (const [name, providers] of [
+  ['not installed', [provider(KOKORO_PROVIDER_ID)]],
+  ['unhealthy', [provider(F5_ID, false), provider(KOKORO_PROVIDER_ID)]],
+  ['failing', [throwing(F5_ID), provider(KOKORO_PROVIDER_ID)]],
+] as const) {
+  test(`rpg-cm63.55 a saved f5-tts choice that is ${name} still plays kokoro`, async () => {
+    const { played } = await spokenWithChoice([...providers], F5_ID);
+    assert.deepEqual(played, ['voice-1']);
+  });
+}
+
+test('rpg-cm63.55 only the opt-in providers that speak the language are chosen from the saved preferences', () => {
+  const choice = (speech: object, language = PT_BR_LANGUAGE) => optedInNarrator(preferences(speech), language);
+  assert.deepEqual(choice({ providerId: CHATTERBOX_ID }), { providerId: CHATTERBOX_ID, voiceId: 'chatterbox-default' });
+  assert.equal(choice({ providerId: F5_ID, narratorVoice: 'f5-pt-m2' })?.voiceId, 'f5-pt-m2');
+  assert.equal(choice({ providerId: F5_ID, narratorVoice: 'unknown' })?.voiceId, 'f5-pt-f1');
+  assert.equal(choice({ providerId: F5_ID }, 'en'), undefined);
+  assert.equal(choice({ providerId: KOKORO_PROVIDER_ID }), undefined);
+  assert.equal(choice({}), undefined);
+  assert.equal(optedInNarrator('/missing', PT_BR_LANGUAGE), undefined);
 });

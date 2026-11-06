@@ -69,7 +69,7 @@ The voices of this engine count toward the target of rpg-cm63.45 once the owner 
 **Decision.**
 
 - RTF below 0.5 with first audio below 1.5 s is not met on CPU, and only the first-audio half is met on Apple GPU. F5-TTS is therefore a "slower, more expressive" option, not a live-turn engine. The measured wait is `F5_MEASURED_FIRST_AUDIO_MS` and appears in the consent text through `F5_WAIT_NOTE`.
-- Provider id `f5-tts`. Off by default. It never replaces Kokoro as the default or the fallback. Intended behaviour once the provider is wired: a campaign that picks it falls back to Kokoro when it is not installed or not healthy. Nothing is wired yet, so this is not yet exercised. `voicesFor('pt-BR')` still returns Kokoro.
+- Provider id `f5-tts`. Off by default. It never replaces Kokoro as the default or the fallback. The desktop host and the CLI live runtime now register it, and the settings voice picker lists it. It is never the default voice: the saved speech preference must name it. Live narration then puts it first and keeps the Kokoro entry behind it, so a campaign that picks it falls back to Kokoro when it is not installed, not healthy or fails. The CLI reads the choice from `desktop-preferences.json` in the data directory. `voicesFor('pt-BR')` still returns Kokoro.
 - The default is 16 steps (`F5_NFE_STEP`), half of F5's own default. The WER did not change in the spike. The quality cost is unknown until someone listens. The 32-step samples are kept for comparison.
 - The PyTorch route is the shipped route on every platform. The service picks CUDA, then MPS, then CPU.
 - MLX is deferred. It needs a v1-based pt-BR fine-tune or a port of `pe_attn_head`.

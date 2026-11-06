@@ -69,14 +69,14 @@ const speakersHeldBy = (mode: Parameters<typeof createTurnSpeech>[0]['mode']) =>
   return held.map(({ text, speakerId, profile }) => [text, speakerId, profile.id]);
 };
 
-test('rpg-42a.98: narrator mode reads NPC lines in the narrator voice, full and cinematic keep NPC voices', () => {
+test('rpg-42a.98: narrator mode reads NPC lines in the narrator voice, full and cinematic keep NPC voices and give the narrator its own profile', () => {
   assert.deepEqual(speakersHeldBy('narrator'), [
     [FIRST, 'narrator', 'narrator'],
     [NPC_LINE.text, 'narrator', 'narrator'],
   ]);
   for (const mode of ['full', 'cinematic'] as const) {
     assert.deepEqual(speakersHeldBy(mode), [
-      [FIRST, 'narrator', 'old-tam'],
+      [FIRST, 'narrator', 'narrator'],
       [NPC_LINE.text, 'old-tam', 'old-tam'],
     ]);
   }
@@ -281,4 +281,49 @@ test('an utterance held for speech carries the saved speed as its profile pace i
     turn.heard({ text: FIRST });
     assert.equal(held[0]?.profile.pace, FAST, mode);
   }
+});
+
+test('rpg-cm63.55 a chosen narrator voice hands the plain narrator profile to the fallback of every line', () => {
+  const fallbacks: (VoiceProfile | undefined)[] = [];
+  const chosen: VoiceProfile = { ...PROFILE, fallbacks: [{ providerId: 'f5-tts', voiceId: 'f5-pt-f1' }] };
+  const turn = createTurnSpeech({
+    speech: {
+      hold: (_turn, _utterance, fallback) => void fallbacks.push(fallback),
+      commit: () => {},
+      reject: () => {},
+      finish: () => {},
+      generation: () => 0,
+    },
+    turnId: TURN,
+    mode: 'full',
+    narrator: chosen,
+    narratorFallback: PROFILE,
+    utterancesOf: (segments) => segments.map(({ text, speakerId }) => utteranceOf(text, speakerId)),
+  });
+  turn.heard({ text: FIRST });
+  turn.heard(NPC_LINE);
+  assert.deepEqual(fallbacks, [PROFILE, PROFILE]);
+});
+
+test('rpg-cm63.55 in full mode only the narrator line takes the chosen narrator profile', () => {
+  const held: CommittedUtterance[] = [];
+  const chosen: VoiceProfile = { ...PROFILE, fallbacks: [{ providerId: 'f5-tts', voiceId: 'f5-pt-f1' }] };
+  const turn = createTurnSpeech({
+    speech: {
+      hold: (_turn, utterance) => void held.push(utterance),
+      commit: () => {},
+      reject: () => {},
+      finish: () => {},
+      generation: () => 0,
+    },
+    turnId: TURN,
+    mode: 'full',
+    narrator: chosen,
+    narratorFallback: PROFILE,
+    utterancesOf: (segments) => segments.map(({ text, speakerId }) => utteranceOf(text, speakerId)),
+  });
+  turn.heard({ text: FIRST, speakerId: 'narrator' });
+  turn.heard(NPC_LINE);
+  assert.equal(held[0]?.profile.fallbacks[0]?.providerId, 'f5-tts');
+  assert.notEqual(held[1]?.profile.fallbacks[0]?.providerId, 'f5-tts');
 });

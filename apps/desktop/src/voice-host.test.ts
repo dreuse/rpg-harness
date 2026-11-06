@@ -15,7 +15,9 @@ import {
   MLX_KOKORO_PROVIDER_ID,
 } from '../../../packages/voice/src/kokoro-provider.ts';
 import {
+  chatterboxProviders,
   createVoiceHost,
+  f5Providers,
   fakeVoiceProviders,
   type HostedProvider,
   MAX_EMOTION_CHARS,
@@ -376,8 +378,30 @@ test('the mlx voice is offered with the pt-BR narrator and installs only through
 
 test('the host lists the mlx voice only where it is supported', () => {
   const ids = (supported: boolean) => voiceProviders({}, '/dir', supported).map(({ id }) => id);
-  assert.deepEqual(ids(true), [KOKORO_PROVIDER_ID, MLX_KOKORO_PROVIDER_ID]);
-  assert.deepEqual(ids(false), [KOKORO_PROVIDER_ID]);
+  assert.deepEqual(ids(true), [KOKORO_PROVIDER_ID, MLX_KOKORO_PROVIDER_ID, 'chatterbox', 'f5-tts']);
+  assert.deepEqual(ids(false), [KOKORO_PROVIDER_ID, 'f5-tts']);
+});
+
+test('rpg-cm63.55 chatterbox and f5 install only through consent and f5 reports its credits', async () => {
+  for (const [make, id] of [
+    [chatterboxProviders, 'chatterbox'],
+    [f5Providers, 'f5-tts'],
+  ] as const) {
+    const calls: string[] = [];
+    const [hosted] = make('/svc', fakeInstaller(calls));
+    assert.equal(hosted?.id, id);
+    assert.deepEqual(await hosted?.model.status(), { installed: false, bytes: 0 });
+    const host = createVoiceHost({ providers: hosted ? [hosted] : [], cacheDir });
+    await assert.rejects(
+      host.download(id, { accepted: false }, () => {}),
+      RangeError,
+    );
+    await host.download(id, { accepted: true, ...MLX_OFFER }, () => {});
+    await host.remove(id);
+    assert.deepEqual(calls, ['install:true', 'remove']);
+    const [status] = (await host.check()).providers;
+    assert.equal(status?.attributions !== undefined, id === 'f5-tts');
+  }
 });
 
 const MLX_LANGUAGE = 'pt-BR';
@@ -434,4 +458,34 @@ test('rpg-cm63.24 prepare remembers a failed preload and reports the voice unava
   assert.equal(host.prepare(MLX_LANGUAGE), undefined);
   await new Promise((resolve) => setImmediate(resolve));
   assert.match(host.prepare(MLX_LANGUAGE) ?? '', /not available on this computer/);
+});
+
+test('rpg-cm63.55 a failing opt-in voice previews with the default voice instead of going silent', async () => {
+  const kokoro = createKokoroProvider({
+    engine: { ready: () => true, load: async () => {}, synthesize: async () => AUDIO, unload: async () => {} },
+  });
+  const failing: HostedProvider = {
+    id: 'f5-tts',
+    capabilities: { ...KOKORO_CAPABILITIES, voices: ['f5-voice'] },
+    narrator: 'f5-voice',
+    model: fakeModel(true).model,
+    optIn: true,
+    provider: {
+      synthesize: () => ({ [Symbol.asyncIterator]: () => ({ next: () => Promise.reject(new Error('down')) }) }),
+      dispose: async () => {},
+      preload: async () => {},
+      healthy: () => true,
+    },
+  };
+  const fallback: HostedProvider = {
+    id: KOKORO_PROVIDER_ID,
+    capabilities: KOKORO_CAPABILITIES,
+    narrator: NARRATOR,
+    model: fakeModel(true).model,
+    provider: kokoro,
+  };
+  const host = createVoiceHost({ providers: [failing, fallback], cacheDir });
+  const { chunks } = await host.preview({ ...PREVIEW, providerId: 'f5-tts', voiceId: 'f5-voice' });
+  assert.ok(chunks.length > 0 && chunks.every((chunk) => chunk === AUDIO));
+  await assert.rejects(host.preview({ ...PREVIEW, providerId: 'f5-tts', voiceId: 'f5-voice', language: 'xx' }));
 });

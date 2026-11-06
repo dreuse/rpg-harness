@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AudioCache } from '../../../packages/voice/src/audio-budget.ts';
 import { audioCacheKey } from '../../../packages/voice/src/audio-budget.ts';
@@ -6,8 +7,22 @@ import {
   AUDIO_CACHE_DIR,
   createFileAudioCache,
 } from '../../../packages/voice/src/audio-cache-store.ts';
+import {
+  CHATTERBOX_CAPABILITIES,
+  CHATTERBOX_DIR_ENV,
+  CHATTERBOX_PROVIDER_ID,
+  createChatterboxProvider,
+} from '../../../packages/voice/src/chatterbox-engine.ts';
+import { CHATTERBOX_OFFER } from '../../../packages/voice/src/chatterbox-install.ts';
 import { npcVoiceBlend } from '../../../packages/voice/src/cinematic.ts';
 import { duckingSink } from '../../../packages/voice/src/ducking-sink.ts';
+import {
+  createF5Provider,
+  F5_CAPABILITIES,
+  F5_DIR_ENV,
+  F5_PROVIDER_ID,
+} from '../../../packages/voice/src/f5-tts-engine.ts';
+import { F5_OFFER } from '../../../packages/voice/src/f5-tts-install.ts';
 import { createKokoroJsEngine, KOKORO_MODEL_DIR_ENV } from '../../../packages/voice/src/kokoro-js-engine.ts';
 import { KOKORO_MODEL_SOURCE } from '../../../packages/voice/src/kokoro-model.ts';
 import { createKokoroOnnxEngine, KOKORO_ONNX_PROVIDER_ID } from '../../../packages/voice/src/kokoro-onnx-engine.ts';
@@ -15,7 +30,9 @@ import {
   createKokoroProvider,
   KOKORO_MIME_TYPE,
   KOKORO_PROVIDER_ID,
+  type KokoroCapabilities,
   type KokoroProvider,
+  speaksLanguage,
 } from '../../../packages/voice/src/kokoro-provider.ts';
 import { noVoiceNotice, voicesFor } from '../../../packages/voice/src/language-voices.ts';
 import {
@@ -30,7 +47,7 @@ import { createProcessSink } from '../../../packages/voice/src/process-sink.ts';
 import { choosePtBrRoute, type PtBrRoute } from '../../../packages/voice/src/pt-br-route.ts';
 import { createStreamingSpeech, type StreamingSpeech } from '../../../packages/voice/src/streaming-speech.ts';
 import type { SpeechChunk, TtsProvider } from '../../../packages/voice/src/tts.ts';
-import type { CommittedUtterance } from '../../../packages/voice/src/voice.ts';
+import type { CommittedUtterance, VoiceProfile } from '../../../packages/voice/src/voice.ts';
 import {
   createVoiceDiagnostics,
   streamingMetricsSink,
@@ -39,9 +56,18 @@ import {
 
 export const VOICE_MODELS_DIR = 'voice-models';
 export const MLX_AUDIO_SUBDIR = 'mlx-audio';
+export const PREFERENCES_FILE = 'desktop-preferences.json';
+const OPT_IN_CAPABILITIES: Readonly<Record<string, KokoroCapabilities>> = {
+  [CHATTERBOX_PROVIDER_ID]: CHATTERBOX_CAPABILITIES,
+  [F5_PROVIDER_ID]: F5_CAPABILITIES,
+};
+export const CHATTERBOX_SUBDIR = 'chatterbox';
+export const F5_SUBDIR = 'f5-tts';
 const MODEL_VERSIONS: Readonly<Record<string, string>> = {
   [KOKORO_PROVIDER_ID]: KOKORO_MODEL_SOURCE,
   [MLX_KOKORO_PROVIDER_ID]: MLX_AUDIO_OFFER.source,
+  [CHATTERBOX_PROVIDER_ID]: CHATTERBOX_OFFER.source,
+  [F5_PROVIDER_ID]: F5_OFFER.source,
 };
 export const SYNTHESIS_FAILURE_NOTICE = 'Part of the story could not be read aloud, so it stays in text.';
 
@@ -151,7 +177,26 @@ export const liveProviders = (
           engine: createKokoroOnnxEngine(env[KOKORO_MODEL_DIR_ENV] || join(dataDir, VOICE_MODELS_DIR)),
         }),
       ]),
+  ...(route === 'mlx'
+    ? [createChatterboxProvider({ dir: env[CHATTERBOX_DIR_ENV] || join(dataDir, CHATTERBOX_SUBDIR) })]
+    : []),
+  createF5Provider({ dir: env[F5_DIR_ENV] || join(dataDir, F5_SUBDIR) }),
 ];
+
+export const optedInNarrator = (dataDir: string, language: string): VoiceProfile['fallbacks'][number] | undefined => {
+  try {
+    const { providerId, narratorVoice } = JSON.parse(readFileSync(join(dataDir, PREFERENCES_FILE), 'utf8')).speech;
+    const capabilities = Object.hasOwn(OPT_IN_CAPABILITIES, providerId) ? OPT_IN_CAPABILITIES[providerId] : undefined;
+    if (capabilities === undefined || !speaksLanguage(capabilities, language)) return undefined;
+    const voiceId = capabilities.voices.includes(narratorVoice) ? narratorVoice : capabilities.voices[0];
+    return voiceId === undefined ? undefined : { providerId, voiceId };
+  } catch {
+    return undefined;
+  }
+};
+
+export const withOptedInNarrator = (narrator: VoiceProfile, choice: VoiceProfile['fallbacks'][number] | undefined) =>
+  choice === undefined ? narrator : { ...narrator, fallbacks: [choice, ...narrator.fallbacks] };
 
 const preloadable = (provider: TtsProvider | undefined): provider is KokoroProvider =>
   provider !== undefined && 'preload' in provider && provider.healthy?.() === true;

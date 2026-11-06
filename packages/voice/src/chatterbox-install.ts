@@ -4,6 +4,7 @@ import {
   CHATTERBOX_MODEL_ID,
   CHATTERBOX_MODEL_REVISION,
   CHATTERBOX_SERVICE_SOURCE,
+  CHATTERBOX_WAIT_NOTE,
   chatterboxInstalled,
   chatterboxPaths,
 } from './chatterbox-engine.ts';
@@ -27,7 +28,7 @@ const offerBytes = (files: readonly ModelFile[]): number =>
   MEASURED_INSTALL_MIB * BYTES_PER_MIB + files.reduce((sum, file) => sum + file.bytes, 0);
 
 export const CHATTERBOX_OFFER: ModelOffer = Object.freeze({
-  source: `${PUBLIC_PYPI} (${CHATTERBOX_SPECS.join(', ')}), Python ${PYTHON_VERSION} via uv, https://huggingface.co/${CHATTERBOX_MODEL_ID}@${CHATTERBOX_MODEL_REVISION}`,
+  source: `${PUBLIC_PYPI} (${CHATTERBOX_SPECS.join(', ')}), Python ${PYTHON_VERSION} via uv, https://huggingface.co/${CHATTERBOX_MODEL_ID}@${CHATTERBOX_MODEL_REVISION}. ${CHATTERBOX_WAIT_NOTE}`,
   bytes: offerBytes(CHATTERBOX_MODEL_FILES),
   sizeMiB: Math.round(offerBytes(CHATTERBOX_MODEL_FILES) / BYTES_PER_MIB),
 });
