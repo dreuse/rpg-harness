@@ -143,7 +143,7 @@ export const ledgerLines = ({ ledger, entityIds, directory, viewer, allowance }:
       room -= cost;
     }
   }
-  return [...lines, ...history.reverse(), ...condensed];
+  return [...condensed, ...history.reverse(), ...lines];
 };
 
 const groupOf = (entry: LedgerEntry, directory: Directory): StoryMemoryGroup => {

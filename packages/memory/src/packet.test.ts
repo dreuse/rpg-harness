@@ -127,16 +127,84 @@ test('rpg-42a.36 campaign data is framed as data that cannot close its own block
   assert.equal(frameData({ text: '<b>' }), '<campaign-data>{"text":"\\u003cb>"}</campaign-data>');
 });
 
-test('rpg-42a.42 ledger facts are never trimmed, even when the budget is already exceeded', () => {
-  const facts = Array.from({ length: 200 }, (_, index) => `Entity ${index} alive: dead since long ago`);
+const HUGE_TEXT = 'x'.repeat(400_000);
+const LEDGER_LINES = 400;
+const ledgerFacts = Array.from({ length: LEDGER_LINES }, (_, index) => `Entity ${index} alive: dead since long ago`);
+
+test('rpg-42a.121 ledger facts stay untrimmed in every preset while the packet fits', () => {
+  const facts = ledgerFacts.slice(0, 20);
   for (const preset of Object.keys(CONTEXT_BUDGETS) as ContextBudgetPreset[]) {
     const packet = buildContextPacket({ ...longCampaign(), ledger: facts }, CONTEXT_BUDGETS[preset]);
-    const kept = packet.sections.find(({ name }) => name === 'ledger')?.items ?? [];
-    assert.deepEqual(kept, facts, preset);
+    assert.deepEqual(packet.sections.find(({ name }) => name === 'ledger')?.items, facts, preset);
+    assert.equal(packet.requiredExceedsBudget, false, preset);
   }
-  const tiny = buildContextPacket({ ...longCampaign(), ledger: facts }, estimateTokens(INSTRUCTIONS));
+});
+
+test('rpg-42a.121 ledger facts are trimmed oldest-first only after every other section is capped', () => {
+  const packet = buildContextPacket({ ...longCampaign(), ledger: ledgerFacts }, CONTEXT_BUDGETS.compact);
+  const kept = itemsOf(packet, 'ledger');
+  assert.ok(kept.length > 0 && kept.length < ledgerFacts.length);
+  assert.deepEqual(kept, ledgerFacts.slice(ledgerFacts.length - kept.length));
+  assert.ok(packet.usedTokens <= CONTEXT_BUDGETS.compact);
+  assert.equal(packet.requiredExceedsBudget, false);
+  for (const name of OPTIONAL) assert.deepEqual(itemsOf(packet, name), [], name);
+  assert.ok(packet.truncated >= ledgerFacts.length - kept.length);
+  const tiny = buildContextPacket({ ...longCampaign(), ledger: ledgerFacts }, estimateTokens(INSTRUCTIONS));
   assert.equal(tiny.requiredExceedsBudget, true);
-  assert.equal(tiny.sections.find(({ name }) => name === 'ledger')?.items.length, facts.length);
+  assert.ok(itemsOf(tiny, 'ledger').length < ledgerFacts.length);
+});
+
+test('rpg-42a.121 instructions, results and player input are capped', () => {
+  const packet = buildContextPacket(
+    { ...emptyInput(), instructions: [HUGE_TEXT], results: [HUGE_TEXT], playerInput: [HUGE_TEXT] },
+    CONTEXT_BUDGETS.rich,
+  );
+  for (const name of ['instructions', 'results', 'playerInput'] as const) {
+    const cap = REQUIRED_SECTION_CAPS[name];
+    const items = itemsOf(packet, name);
+    assert.ok(items.length > 0, name);
+    for (const item of items) assert.ok(estimateTokens(JSON.stringify(item)) <= cap, name);
+  }
+  assert.ok(packet.truncated > 0);
+  assert.ok(packet.usedTokens < packet.budget);
+});
+
+const INSTRUCTION_CHARS = 3_000;
+const SCALED_COMPACT_BUDGET = 500;
+const RESULT_COUNT = 30;
+
+test('rpg-42a.121 instructions are never scaled by the budget, so a trailing retry instruction survives', () => {
+  const retry = 'Regenerate without the conflicting facts.';
+  const packet = buildContextPacket(
+    { ...emptyInput(), instructions: ['x'.repeat(INSTRUCTION_CHARS), retry] },
+    SCALED_COMPACT_BUDGET,
+  );
+  assert.ok(itemsOf(packet, 'instructions').includes(retry));
+});
+
+test('rpg-42a.121 a packet that fits keeps every results item and the full player input', () => {
+  const results = Array.from({ length: RESULT_COUNT }, (_, index) => `CheckResolved ${index} ${'detail '.repeat(30)}`);
+  const input = `I search the room ${'carefully '.repeat(100)}`;
+  const packet = buildContextPacket({ ...emptyInput(), results, playerInput: [input] }, CONTEXT_BUDGETS.standard);
+  assert.deepEqual(itemsOf(packet, 'results'), results);
+  assert.deepEqual(itemsOf(packet, 'playerInput'), [input]);
+  assert.ok(packet.usedTokens <= packet.budget);
+});
+
+test('rpg-42a.121 a smaller preset shrinks an oversized packet', () => {
+  const oversized = {
+    ...longCampaign(),
+    instructions: ['x'.repeat(INSTRUCTION_CHARS)],
+    results: [HUGE_TEXT],
+    playerInput: [HUGE_TEXT],
+    ledger: ledgerFacts,
+  };
+  const used = (['rich', 'standard', 'compact'] as const).map((preset) => {
+    const packet = buildContextPacket(oversized, CONTEXT_BUDGETS[preset]);
+    return estimateTokens(packetText(packet));
+  });
+  const [rich = 0, standard = 0, compact = 0] = used;
+  assert.ok(rich > standard && standard > compact, used.join());
 });
 
 const OPTIONAL = ['campaignSummary', 'chapterSummaries', 'sceneSummaries', 'context', 'recentTurns'] as const;
@@ -170,15 +238,19 @@ test('rpg-42a.44 pt-BR rulebook text stays under the cap even with escapes', () 
   assert.ok(estimateTokens(JSON.stringify(itemsOf(packet, 'ruleset'))) <= REQUIRED_SECTION_CAPS.ruleset);
 });
 
-test('rpg-42a.44 drop order: summaries and history go first, ledger facts are never dropped', () => {
+const MIN_LEDGER_BUDGET = 600;
+
+test('rpg-42a.44 drop order: summaries and history go first, ledger facts last', () => {
   const ledger = ['Mira owes 50 gold', 'The gate is locked'];
   const input = { ...longCampaign(), ledger };
   const optionalKept = (budget: number) => {
     const packet = buildContextPacket(input, budget);
-    assert.deepEqual(itemsOf(packet, 'ledger'), ledger, `ledger at ${budget}`);
+    if (budget >= MIN_LEDGER_BUDGET) assert.deepEqual(itemsOf(packet, 'ledger'), ledger, `ledger at ${budget}`);
     return OPTIONAL.reduce((sum, name) => sum + itemsOf(packet, name).length, 0);
   };
-  const kept = [CONTEXT_BUDGETS.rich, CONTEXT_BUDGETS.standard, CONTEXT_BUDGETS.compact, 600, 0].map(optionalKept);
+  const kept = [CONTEXT_BUDGETS.rich, CONTEXT_BUDGETS.standard, CONTEXT_BUDGETS.compact, MIN_LEDGER_BUDGET, 0].map(
+    optionalKept,
+  );
   assert.deepEqual(
     kept.slice(0, -1),
     [...kept.slice(0, -1)].sort((a, b) => b - a),

@@ -1,9 +1,13 @@
 import { CONTEXT_BUDGETS, type ContextBudgetPreset, type ContextPacket } from '../../../packages/memory/src/packet.ts';
 import { ProviderError } from './gm-api.ts';
 
-export const MODEL_CONTEXT_WINDOW_TOKENS = 200_000;
+export const DEFAULT_CONTEXT_WINDOW_TOKENS = 200_000;
+export const MODEL_CONTEXT_WINDOW_TOKENS: ReadonlyMap<string, number> = new Map([
+  ['sonnet[1m]', 1_000_000],
+  ['opus[1m]', 1_000_000],
+]);
 export const CONTEXT_SAFETY_MARGIN = 0.8;
-export const GM_CONTEXT_CEILING_TOKENS = MODEL_CONTEXT_WINDOW_TOKENS * CONTEXT_SAFETY_MARGIN;
+export const GM_CONTEXT_CEILING_TOKENS = DEFAULT_CONTEXT_WINDOW_TOKENS * CONTEXT_SAFETY_MARGIN;
 export const TOO_LONG_MESSAGE =
   'The story context is too long for the AI game master. Try the compact memory setting or shorter rules.';
 
@@ -12,19 +16,26 @@ const SMALLER_PRESET: Readonly<Partial<Record<ContextBudgetPreset, ContextBudget
   standard: 'compact',
 };
 
+export const contextWindowOf = (model: string | undefined): number =>
+  MODEL_CONTEXT_WINDOW_TOKENS.get(model ?? '') ?? DEFAULT_CONTEXT_WINDOW_TOKENS;
+
+export const contextCeilingOf = (model: string | undefined): number => contextWindowOf(model) * CONTEXT_SAFETY_MARGIN;
+
 type Fitting<Reply> = {
   readonly first: ContextBudgetPreset;
   readonly packetOf: (preset: ContextBudgetPreset) => ContextPacket;
   readonly send: (packet: ContextPacket) => Promise<Reply>;
   readonly ratio: number;
+  readonly model?: string | undefined;
 };
 
-export const requestFitting = async <Reply>({ first, packetOf, send, ratio }: Fitting<Reply>) => {
+export const requestFitting = async <Reply>({ first, packetOf, send, ratio, model }: Fitting<Reply>) => {
+  const ceiling = contextCeilingOf(model);
   let preset: ContextBudgetPreset | undefined = first;
   let rejected = false;
   while (preset !== undefined) {
     const packet = packetOf(preset);
-    if (packet.usedTokens * ratio <= GM_CONTEXT_CEILING_TOKENS) {
+    if (packet.usedTokens * ratio <= ceiling) {
       try {
         return { packet, reply: await send(packet) };
       } catch (error) {

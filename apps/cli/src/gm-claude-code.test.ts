@@ -668,6 +668,40 @@ describe('rpg-42a.101 Claude Code failures keep their real reason', () => {
     assert.equal(failure?.detail?.length, 80);
   });
 
+  it('marks a context-too-long error result as too long and does not retry it', async (t) => {
+    const { bin, calls } = fakeClaude(t, [
+      { stdout: resultOf({ is_error: true, result: 'Prompt is too long' }), code: FAILURE_EXIT },
+    ]);
+    const error = await failureOf(requestClaudeNarration(routeFor(bin), packet(), DATABASE));
+    assert.equal(error.tooLong, true);
+    assert.equal(calls().length, 1);
+    const stderrOnly = fakeClaude(t, [{ stderr: 'Error: input exceeds the context window', code: FAILURE_EXIT }]);
+    assert.equal((await failureOf(requestClaudeNarration(routeFor(stderrOnly.bin), packet(), DATABASE))).tooLong, true);
+  });
+
+  it('reads stderr for too long only when stdout does not parse', async (t) => {
+    const parsed = fakeClaude(t, [
+      {
+        stdout: resultOf({ is_error: true, result: 'Something broke' }),
+        stderr: 'prompt is too long',
+        code: FAILURE_EXIT,
+      },
+    ]);
+    assert.equal((await failureOf(requestClaudeNarration(routeFor(parsed.bin), packet(), DATABASE))).tooLong, false);
+    const unparsed = fakeClaude(t, [{ stdout: 'not json', stderr: 'prompt is too long', code: FAILURE_EXIT }]);
+    assert.equal((await failureOf(requestClaudeNarration(routeFor(unparsed.bin), packet(), DATABASE))).tooLong, true);
+  });
+
+  it('does not mark other errors, or a narration that says too long, as too long', async (t) => {
+    const { bin } = fakeClaude(t, [{ stdout: resultOf({ is_error: true, result: 'Something broke' }) }]);
+    assert.equal((await failureOf(requestClaudeNarration(routeFor(bin), packet(), DATABASE))).tooLong, false);
+    const fine = fakeClaude(t, [{ stdout: resultOf({ result: 'The road was too long.' }) }]);
+    assert.equal(
+      (await requestClaudeNarration(routeFor(fine.bin), packet(), DATABASE)).narration,
+      'The road was too long.',
+    );
+  });
+
   it('reads a usage limit without a reset time', async (t) => {
     const { failure } = await failureKind(t, {
       stdout: resultOf({ is_error: true, result: 'Claude usage limit reached.' }),

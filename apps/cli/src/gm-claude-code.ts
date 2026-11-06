@@ -18,6 +18,7 @@ import {
   ProviderError,
   SUMMARY_MODEL_ENV,
   summaryPrompt,
+  TOO_LONG_PATTERN,
   usageOf,
 } from './gm-api.ts';
 import { proposalsOf } from './gm-proposals.ts';
@@ -117,8 +118,8 @@ export const claudeCodeRouteOf = (bin: string, env: NodeJS.ProcessEnv): ClaudeCo
   workspace: workspaceOf(env),
 });
 
-export const claudeError = (failure: GmFailure, message = gmFailureText(DEFAULT_LOCALE, failure)) =>
-  new ProviderError(message, undefined, false, failure);
+export const claudeError = (failure: GmFailure, message = gmFailureText(DEFAULT_LOCALE, failure), tooLong = false) =>
+  new ProviderError(message, undefined, tooLong, failure);
 
 export const claudeFailureOf = (said: string): GmFailure | undefined => {
   if (LIMIT_PATTERN.test(said)) {
@@ -226,19 +227,22 @@ const parsed = (stdout: string): unknown => {
   }
 };
 
-const saidOf = (body: unknown, stderr: string) =>
-  [isRecord(body) && typeof body.result === 'string' ? body.result : '', stderr].join(PART_SEPARATOR);
+const resultOf = (body: Record<string, unknown>) => (typeof body.result === 'string' ? body.result : '');
+
+const saidOf = (body: unknown, stderr: string) => [isRecord(body) ? resultOf(body) : '', stderr].join(PART_SEPARATOR);
 
 export const replyOf = ({ code, stdout, stderr = '' }: Exit, model: string | undefined): GmReply => {
   const body = parsed(stdout);
-  const failure = claudeFailureOf(saidOf(body, stderr));
+  const said = saidOf(body, stderr);
+  const failure = claudeFailureOf(said);
+  const tooLong = TOO_LONG_PATTERN.test(isRecord(body) ? resultOf(body) : stderr);
   if (code !== 0)
     throw failure === undefined
-      ? claudeError({ kind: 'exit', detail: String(code) }, `Claude Code stopped with exit code ${code}.`)
+      ? claudeError({ kind: 'exit', detail: String(code) }, `Claude Code stopped with exit code ${code}.`, tooLong)
       : claudeError(failure);
   if (!isRecord(body)) throw claudeError({ kind: 'malformed' }, MALFORMED_REPLY);
   if (body.is_error !== false)
-    throw failure === undefined ? claudeError({ kind: 'reported' }, REPORTED_ERROR) : claudeError(failure);
+    throw failure === undefined ? claudeError({ kind: 'reported' }, REPORTED_ERROR, tooLong) : claudeError(failure);
   const text = typeof body.result === 'string' ? body.result.trim() : '';
   const segments = segmentsOf(body.structured_output) ?? segmentsOf({ segments: [{ text }] });
   if (segments === undefined) throw claudeError({ kind: 'malformed' }, MALFORMED_REPLY);
@@ -270,7 +274,7 @@ const request = async (route: ClaudeCodeRoute, system: string, input: string, da
     try {
       return await attempt(route, system, input, databasePath);
     } catch (error) {
-      if (!(error instanceof ProviderError) || tried === CLAUDE_MAX_RETRIES) throw error;
+      if (!(error instanceof ProviderError) || error.tooLong || tried === CLAUDE_MAX_RETRIES) throw error;
       if (error.failure !== undefined && FINAL_FAILURE_KINDS.has(error.failure.kind)) throw error;
     }
   }

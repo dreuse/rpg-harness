@@ -4,7 +4,14 @@ export const CONTEXT_BUDGETS = { compact: 2_000, standard: 6_000, rich: 16_000 }
 export type ContextBudgetPreset = keyof typeof CONTEXT_BUDGETS;
 export const DEFAULT_CONTEXT_BUDGET: ContextBudgetPreset = 'standard';
 export const RECENT_TURN_LIMIT = 6;
-export const REQUIRED_SECTION_CAPS = { ruleset: 1_200, setting: 800, style: 600 } as const;
+export const REQUIRED_SECTION_CAPS = {
+  instructions: 4_000,
+  ruleset: 1_200,
+  setting: 800,
+  style: 600,
+  results: 2_000,
+  playerInput: 1_500,
+} as const;
 
 export const STABLE_SECTIONS = [
   'instructions',
@@ -48,15 +55,8 @@ const INSTRUCTION_SEPARATOR = ' ';
 const ITEM_SEPARATOR = ',';
 const NO_TOKENS = 0;
 const INSTRUCTIONS: SectionName = 'instructions';
-const REQUIRED: readonly SectionName[] = [
-  'instructions',
-  'ruleset',
-  'setting',
-  'style',
-  'ledger',
-  'results',
-  'playerInput',
-];
+const REQUIRED: readonly SectionName[] = ['instructions', 'ruleset', 'setting', 'style', 'results', 'playerInput'];
+const LEDGER: SectionName = 'ledger';
 const STABLE_FILL: readonly SectionName[] = ['campaignSummary', 'chapterSummaries'];
 const VARIABLE_FILL: readonly SectionName[] = [
   'recentClosings',
@@ -66,13 +66,15 @@ const VARIABLE_FILL: readonly SectionName[] = [
   'context',
   'sceneSummaries',
 ];
+const BUDGET_CAP_SHARES = { results: 0.25, playerInput: 0.2 } as const;
+const MIN_SHARED_CAP = 400;
 const STABLE_SUMMARY_SHARE = 0.3;
 const NEWEST_FIRST: readonly SectionName[] = ['campaignSummary', 'recentTurns', 'sceneSummaries', 'chapterSummaries'];
 const STABLE: readonly SectionName[] = STABLE_SECTIONS;
 const CAP_SHRINK = 0.9;
 const SECTION_LIMITS: Partial<Record<SectionName, number>> = { campaignSummary: 1, recentTurns: RECENT_TURN_LIMIT };
 
-const encoded = (data: unknown) => JSON.stringify(data).replace(ANGLE_BRACKET, ESCAPED_ANGLE_BRACKET);
+export const encoded = (data: unknown) => JSON.stringify(data).replace(ANGLE_BRACKET, ESCAPED_ANGLE_BRACKET);
 
 export const frameData = (data: unknown): string => `${DATA_OPEN}${encoded(data)}${DATA_CLOSE}`;
 
@@ -151,14 +153,25 @@ const select = (name: SectionName, items: readonly string[], allowance: number) 
   return { kept, cost };
 };
 
+const sectionCost = (name: SectionName, items: readonly string[]) =>
+  items.reduce((sum, item) => sum + costOf(name, item), NO_TOKENS);
+
+const sharedCapOf = (name: keyof typeof BUDGET_CAP_SHARES, budget: number) =>
+  Math.min(REQUIRED_SECTION_CAPS[name], Math.max(MIN_SHARED_CAP, Math.floor(budget * BUDGET_CAP_SHARES[name])));
+
 export const buildContextPacket = (whole: PacketInput, budget: number): ContextPacket => {
+  if (!Number.isInteger(budget) || budget < NO_TOKENS) throw new RangeError(`invalid token budget ${budget}`);
   const input: { -readonly [Name in SectionName]: readonly string[] } = { ...whole };
   let capTruncated = NO_TOKENS;
-  for (const [name, cap] of Object.entries(REQUIRED_SECTION_CAPS) as [SectionName, number][]) {
-    input[name] = capped(name, whole[name], cap);
+  const cappedNames = Object.keys(REQUIRED_SECTION_CAPS) as (keyof typeof REQUIRED_SECTION_CAPS)[];
+  for (const name of cappedNames) input[name] = capped(name, whole[name], REQUIRED_SECTION_CAPS[name]);
+  const requiredCost = () =>
+    [...REQUIRED, LEDGER].reduce((sum, name) => sum + sectionCost(name, input[name]), OVERHEAD);
+  if (requiredCost() > budget)
+    for (const name of Object.keys(BUDGET_CAP_SHARES) as (keyof typeof BUDGET_CAP_SHARES)[])
+      input[name] = capped(name, input[name], sharedCapOf(name, budget));
+  for (const name of cappedNames)
     capTruncated += whole[name].length - input[name].length + Number(whole[name][0] !== input[name][0]);
-  }
-  if (!Number.isInteger(budget) || budget < NO_TOKENS) throw new RangeError(`invalid token budget ${budget}`);
   const kept = new Map<SectionName, Set<number>>(ORDER.map((name) => [name, new Set()]));
   let usedTokens = OVERHEAD;
   for (const name of REQUIRED) {
@@ -167,10 +180,20 @@ export const buildContextPacket = (whole: PacketInput, budget: number): ContextP
       usedTokens += costOf(name, item);
     });
   }
+  let ledgerStart = NO_TOKENS;
+  let ledgerCost = sectionCost(LEDGER, input[LEDGER]);
+  while (ledgerStart < input[LEDGER].length && usedTokens + ledgerCost > budget) {
+    ledgerCost -= costOf(LEDGER, input[LEDGER][ledgerStart] ?? '');
+    ledgerStart += 1;
+  }
+  input[LEDGER].forEach((_, index) => {
+    if (index >= ledgerStart) kept.get(LEDGER)?.add(index);
+  });
+  usedTokens += ledgerCost;
   const requiredExceedsBudget = usedTokens > budget;
   const room = () => Math.max(budget - usedTokens, NO_TOKENS);
   let stableRoom = Math.min(Math.floor(budget * STABLE_SUMMARY_SHARE), room());
-  let truncated = capTruncated;
+  let truncated = capTruncated + ledgerStart;
   const fill = (name: SectionName, allowance: number) => {
     const selected = select(name, input[name], allowance);
     kept.set(name, selected.kept);

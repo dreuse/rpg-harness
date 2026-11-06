@@ -1,4 +1,4 @@
-import { sliced } from './packet.ts';
+import { encoded, sliced } from './packet.ts';
 import { estimateTokens } from './retrieval.ts';
 
 export type RuleSection = { readonly title: string; readonly text: string };
@@ -12,6 +12,7 @@ const TITLE_CHARS = 60;
 const LEAD_CHARS = 240;
 const SECTION_MAX_CHARS = 1_000;
 const ITEM_SEPARATOR_TOKENS = 1;
+const INTRO_TITLE = 'Introduction';
 const SECTIONS_LABEL = 'Sections: ';
 const TITLE_SEPARATOR = '; ';
 const LINE_BREAK = '\n';
@@ -29,13 +30,18 @@ const wordsOf = (text: string) =>
   new Set([...(text.match(SHORT_CAPS) ?? []), ...(text.match(WORD) ?? [])].map((word) => word.toLowerCase()));
 
 const byHeading = (text: string): RuleSection[] => {
-  const sections: { title: string; lines: string[] }[] = [];
+  const intro = { title: INTRO_TITLE, lines: [] as string[] };
+  const sections = [intro];
   for (const line of text.split(LINE_BREAK)) {
     const heading = HEADING.exec(line.trim());
     if (heading !== null) sections.push({ title: (heading[1] ?? '').trim(), lines: [line] });
     else sections.at(-1)?.lines.push(line);
   }
-  return sections.map(({ title, lines }) => ({ title, text: lines.join(LINE_BREAK).trim() }));
+  const [, ...headings] = sections;
+  if (headings.length === FIRST) return [];
+  return sections
+    .filter((section) => section !== intro || intro.lines.join('').trim() !== '')
+    .map(({ title, lines }) => ({ title, text: lines.join(LINE_BREAK).trim() }));
 };
 
 const byParagraph = (text: string): RuleSection[] =>
@@ -53,10 +59,11 @@ export const condense = (text: string): CondensedRules => {
   }));
   const lead = clipped(text.trim().split(PARAGRAPH_BREAK)[FIRST] ?? '', LEAD_CHARS);
   const titles = sections.map(({ title }) => clipped(title, TITLE_CHARS)).join(TITLE_SEPARATOR);
-  return { summary: `${lead}${LINE_BREAK}${SECTIONS_LABEL}${titles}`.trim(), sections };
+  const summary = sections.length === FIRST ? '' : `${lead}${LINE_BREAK}${SECTIONS_LABEL}${titles}`.trim();
+  return { summary, sections };
 };
 
-const costOf = (text: string) => estimateTokens(JSON.stringify(text)) + ITEM_SEPARATOR_TOKENS;
+const costOf = (text: string) => estimateTokens(encoded(text)) + ITEM_SEPARATOR_TOKENS;
 
 const scoreOf = (section: RuleSection, input: ReadonlySet<string>, recent: ReadonlySet<string>) => {
   let score = NO_SCORE;

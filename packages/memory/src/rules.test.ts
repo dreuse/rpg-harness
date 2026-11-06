@@ -116,3 +116,28 @@ test('selects the section that mentions a short all-caps token from the player i
     ['Defense'],
   );
 });
+
+test('rpg-42a.121 condense of an empty text gives an empty summary and no sections', () => {
+  assert.deepEqual(condense(''), { summary: '', sections: [] });
+  assert.deepEqual(condense('  \n\n '), { summary: '', sections: [] });
+});
+
+test('rpg-42a.121 text before the first heading is kept as an introduction section', () => {
+  const { sections, summary } = condense('The table uses a d20 for every check.\n\n# Combat\nsword armor damage');
+  assert.deepEqual(
+    sections.map(({ title }) => title),
+    ['Introduction', 'Combat'],
+  );
+  assert.equal(sections[0]?.text, 'The table uses a d20 for every check.');
+  assert.ok(summary.includes('Introduction; Combat'));
+  assert.deepEqual(
+    selectSections(sections, 'I roll a d20 check', [], 1_000).map(({ title }) => title),
+    ['Introduction'],
+  );
+});
+
+test('rpg-42a.121 section cost counts the packet escaping of angle brackets', () => {
+  const section = { title: 'Combat', text: `sword ${'<'.repeat(400)}` };
+  assert.equal(selectSections([section], 'sword', [], 200).length, 0);
+  assert.equal(selectSections([section], 'sword', [], 2_000).length, 1);
+});

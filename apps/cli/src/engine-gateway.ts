@@ -492,12 +492,17 @@ const oldestPendingTurn = (state: CampaignState, failed: ReadonlySet<string> = N
     .map(({ actionId }) => storedTurn(state, actionId))
     .find((turn) => turn?.turn.narration === PENDING_NARRATION && !failed.has(turn.turn.id));
 
+type RoutedModel = {
+  readonly calibrates: boolean;
+  readonly model: string | undefined;
+};
+
 const narrateLatest = async (
   session: Session,
   request: (packet: ContextPacket, onSegment?: (segment: GmSegment) => void) => Promise<GmTurnReply>,
   sessionId: string,
   speak: SpeakTurn,
-  calibrates: boolean,
+  routed: RoutedModel,
   defaults: GmSettings,
   modelCheck: ModelContinuityCheck | undefined,
   listener?: StreamedSegment,
@@ -551,6 +556,7 @@ const narrateLatest = async (
         return request(packet, live ? forward : undefined);
       },
       ratio,
+      model: routed.model,
     }).catch((error: unknown) => {
       if (!(error instanceof ProviderError && error.message === TOO_LONG_MESSAGE)) {
         voice?.abandon();
@@ -660,11 +666,11 @@ const narrateLatest = async (
       events: state.changes,
       language,
       packet: sent,
-      reportedTokens: usage === undefined || !calibrates ? 0 : reportedInputOf(usage),
+      reportedTokens: usage === undefined || !routed.calibrates ? 0 : reportedInputOf(usage),
     });
   const morePending = oldestPendingTurn(engine.getState(campaignId), failedTurns);
   if (acceptMarkedCheck(session, committed, proposals, offeredNow, defaults) || morePending !== undefined)
-    return narrateLatest(session, request, sessionId, speak, calibrates, defaults, modelCheck, listener, failedTurns);
+    return narrateLatest(session, request, sessionId, speak, routed, defaults, modelCheck, listener, failedTurns);
   return 'inconsistent' in outcome ? withVoiceNotice(narratorSegments(FAKE_GM_REPLY)) : segments;
 };
 
@@ -801,7 +807,7 @@ const openSession = (
                 gm.request(packet, { databasePath: path, model, ...(onSegment === undefined ? {} : { onSegment }) }),
               sessionId,
               speakTurn,
-              gm.calibratesContext === true,
+              { calibrates: gm.calibratesContext === true, model },
               gmDefaults(),
               gm.continuityCheck,
               onSegment,

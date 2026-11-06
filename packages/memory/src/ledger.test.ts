@@ -129,6 +129,25 @@ test('rpg-42a.42 under pressure history is condensed but a current fact is never
   assert.ok(spent <= 60);
 });
 
+test('rpg-42a.121 ledger lines run oldest first, so the current fact comes last', () => {
+  const ledger = buildLedger([
+    claim('a', MAREN, 'description', 'old look'),
+    claim('b', MAREN, 'description', 'middle look'),
+    claim('c', MAREN, 'description', 'scarred'),
+  ]);
+  const lines = ledgerLines({
+    ledger,
+    entityIds: [MAREN],
+    directory: DIRECTORY,
+    viewer: PLAYER_VIEWER,
+    allowance: 1000,
+  });
+  assert.deepEqual(
+    lines.map((line) => ['old look', 'middle look', 'scarred'].findIndex((text) => line.includes(text))),
+    [0, 1, 2],
+  );
+});
+
 test('rpg-42a.42 secrets reach the GM view only', () => {
   const ledger = buildLedger([
     claim('e1', MAREN, 'secret', 'serves the cult', { key: 'loyalty', visibility: 'gm' }),

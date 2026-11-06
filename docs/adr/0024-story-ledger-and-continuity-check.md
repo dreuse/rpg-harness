@@ -40,3 +40,10 @@
 - The desktop daemon answers both commands with a rejection until a session port serves them (follow-up bead). No TUI or desktop panel exists yet (follow-up bead).
 - Real GM routes emit `claim` proposals (rpg-42a.62). The CLI commits each through `proposeClaims`. Once the ledger has entries, `narrateLatest` runs `enforceContinuity` before the narration is stored or shown, and it stops streaming for that turn. A retry prompt lists only player-visible conflict facts, so GM-only facts never reach the live GM. The API and Claude Code routes pass a cheap-model `ModelContinuityCheck` (`gm-continuity.ts`).
 - `scripts/eval-continuity.ts` runs N turns against the real `claude` CLI and prints the first-pass contradiction rate. It is not part of the gate.
+
+## Amendment: ledger trimming (rpg-42a.121)
+
+- Ledger facts stay untrimmed in every preset while the packet fits its budget. Only when the packet still exceeds the preset budget, after every other section is capped, does the packet drop ledger lines oldest first.
+- `ledgerLines` now returns lines oldest first: condensed history, then history, then current facts. The trim starts at the front, so current facts go last.
+- Why: a smaller preset retry (rich, standard, compact) must be able to shrink an oversized packet. The engine stays the source of truth. The ledger is a view, so nothing is deleted from storage, and `enforceContinuity` still checks against the full ledger.
+- `instructions`, `results` and `playerInput` have caps too, so they cannot make a packet that no preset can shrink.
