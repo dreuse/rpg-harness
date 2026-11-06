@@ -39,5 +39,5 @@ All tokens live in `apps/desktop/src/tokens.css`. View rules live in `apps/deskt
 ## Consequences
 
 - `serveAsset` also serves `.css` files, with the same CSP header.
-- Screenshots: `RPG_DESKTOP_CAPTURE_DIR=<dir>` with the smoke mode makes Electron save `home-<layout>-<theme>.png` and `<layout>-<theme>.png` for `compact`, `medium` and `wide` in `light`, `dark`, `high-contrast-light` and `high-contrast-dark` (CDP media emulation). `electron-smoke.test.ts` runs it when the Electron binary is installed.
+- Screenshots: `RPG_DESKTOP_CAPTURE_DIR=<dir>` with the smoke mode makes Electron save `home-<layout>-<theme>.png`, `<layout>-<theme>.png` and `gm-settings-<layout>-<theme>.png` for `compact`, `medium` and `wide` in `light`, `dark`, `high-contrast-light` and `high-contrast-dark` (CDP media emulation). `electron-smoke.test.ts` runs it when the Electron binary is installed.
 - Not done: a GenrePack field that sets `--accent`, and a matching TUI accent. Both need a content and protocol change.

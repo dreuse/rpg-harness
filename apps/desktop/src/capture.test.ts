@@ -36,7 +36,11 @@ const fakeWindow = () => {
       },
       executeJavaScript: async (code) =>
         calls.push(
-          code.includes('[data-home="continue"]') ? 'select' : `settle ${/data-layout="(\w+)"/.exec(code)?.[1]}`,
+          code.includes('[data-home="continue"]')
+            ? 'select'
+            : code.includes('[data-gm-form]')
+              ? 'open settings'
+              : `settle ${/data-layout="(\w+)"/.exec(code)?.[1]}`,
         ),
       insertCSS: async () => '',
     },
@@ -61,19 +65,20 @@ test('rpg-42a.11 captureScreens writes the home, then one screenshot per layout 
   const { window, calls } = fakeWindow();
   const written = new Map<string, Uint8Array>();
   const files = await captureScreens(window, DIR, (path, data) => written.set(path, data));
-  const expected = [...shots('home-'), ...shots('')];
+  const expected = [...shots('home-'), ...shots(''), ...shots('gm-settings-')];
   assert.deepEqual(files, expected);
   assert.deepEqual([...written.keys()], expected);
   assert.ok([...written.values()].every((data) => PNG.equals(data)));
   assert.equal(calls[0], 'attach');
   assert.equal(calls.filter((call) => call === 'select').length, 1);
+  assert.equal(calls.filter((call) => call === 'open settings').length, 1);
   const media = calls.filter((call) => call.startsWith('Emulation.setEmulatedMedia')).slice(CAPTURE_THEMES.length);
-  assert.equal(media.length, CAPTURE_THEMES.length);
+  assert.equal(media.length, CAPTURE_THEMES.length * 2);
   assert.match(media[3] ?? '', /"prefers-color-scheme","value":"dark".*"prefers-contrast","value":"more"/);
   assert.ok(media.every((call) => call.includes('"prefers-reduced-motion","value":"reduce"')));
   assert.deepEqual(
     calls.slice(calls.indexOf('select')).filter((call) => call.startsWith('settle')),
-    CAPTURE_THEMES.flatMap(() => CAPTURE_LAYOUTS.map(({ name }) => `settle ${name}`)),
+    [0, 1].flatMap(() => CAPTURE_THEMES.flatMap(() => CAPTURE_LAYOUTS.map(({ name }) => `settle ${name}`))),
   );
 });
 

@@ -36,6 +36,7 @@ const EMULATE_MEDIA = 'Emulation.setEmulatedMedia';
 const PNG_EXTENSION = '.png';
 const HOME_PREFIX = 'home-';
 const PLAYING_PREFIX = '';
+const GM_SETTINGS_PREFIX = 'gm-settings-';
 const SETTLE_TIMEOUT_MS = 5000;
 const SETTLE_POLL_MS = 50;
 const CONTINUE_FIRST_CAMPAIGN = `new Promise((resolve) => {
@@ -114,6 +115,8 @@ export const captureScreens = async (
   await shoot(HOME_PREFIX);
   await webContents.executeJavaScript(CONTINUE_FIRST_CAMPAIGN);
   await shoot(PLAYING_PREFIX);
+  await webContents.executeJavaScript(OPEN_GM_SETTINGS);
+  await shoot(GM_SETTINGS_PREFIX);
   return files;
 };
 
