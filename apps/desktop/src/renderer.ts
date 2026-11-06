@@ -148,6 +148,28 @@ export type HomeState = {
   readonly undo?: string | undefined;
   readonly error?: string | undefined;
 };
+const LOST_REPLY: GmFailure = { kind: 'lost' };
+
+const stalledTurnOf = (state: DesktopState): StalledTurn | undefined => {
+  if (state.stalled !== undefined) return state.stalled;
+  const { snapshot } = state;
+  const turn = snapshot?.turns.at(-1);
+  if (snapshot === undefined || turn === undefined || turn.narration !== '') return undefined;
+  if (state.outbox.some(({ campaignId }) => campaignId === state.selected)) return undefined;
+  if (state.streaming?.turnId === turn.id) return undefined;
+  const parsed = parseCommand({
+    version: PROTOCOL_VERSION,
+    type: 'SubmitPlayerAction',
+    campaignId: snapshot.campaignId,
+    actionId: turn.actionId,
+    expectedRevision: snapshot.revision,
+    sceneId: turn.sceneId,
+    actorId: turn.actorId,
+    input: turn.input,
+  });
+  return parsed.ok ? { action: parsed.value as SubmitPlayerAction, failure: LOST_REPLY } : undefined;
+};
+
 export type DesktopState = {
   readonly connection: Connection;
   readonly campaigns: readonly CampaignSummary[];
@@ -320,6 +342,7 @@ export const viewModel = (
   voices?: StartVoices,
 ) => {
   const committed = state.snapshot?.turns ?? [];
+  const stalled = stalledTurnOf(state);
   const motion = effectiveMotion(preferences.motion, preferences.reducedMotion);
   const rules = state.snapshot?.rules ?? DEFAULT_RULES_USAGE;
   const dice = usesDice(rules);
@@ -361,7 +384,7 @@ export const viewModel = (
         input,
         narration,
         pending: narration === '' && state.outbox.some((queued) => queued.actionId === actionId),
-        ...(state.stalled?.action.actionId === actionId ? { failure: state.stalled.failure } : {}),
+        ...(stalled?.action.actionId === actionId ? { failure: stalled.failure } : {}),
         ...(state.snapshot?.noRoll?.actionId === actionId ? { noRoll: state.snapshot.noRoll.reason } : {}),
       })),
       ...pending.map(({ actionId, input }) => ({ actionId, input, narration: '', pending: true })),
@@ -982,7 +1005,7 @@ export const createDesktopClient = ({
   };
 
   const retryNarration = () => {
-    const { stalled } = state;
+    const stalled = stalledTurnOf(state);
     if (stalled === undefined) return;
     update({ outbox: [...state.outbox, stalled.action], streaming: undefined, stalled: undefined });
     if (!resendOnSnapshot) send(stalled.action);

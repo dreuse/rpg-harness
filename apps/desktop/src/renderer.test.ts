@@ -1186,9 +1186,54 @@ test('rpg-42a.101 a new action drops the retry of the older failed one', () => {
   client.submit('wait');
   wire.receive({ type: 'NarrationFailed', actionId: 'a0', failure: LIMIT });
   wire.receive({ type: 'Accepted', actionId: 'a0' });
+  wire.receive({ type: 'Snapshot', snapshot: pendingTurnSnapshot(3, 'a0') });
   client.submit('look');
   assert.equal(client.state().stalled, undefined);
+  assert.doesNotMatch(renderView(viewModel(client.state(), WIDE_WIDTH), 'en'), /data-retry-turn/);
   const before = wire.sent.length;
   client.retryNarration();
   assert.equal(wire.sent.length, before);
+});
+
+test('rpg-42a.113 a fresh client shows a lost reply and retries the committed turn', () => {
+  const wire = fakeTransport();
+  const client = createDesktopClient({ transport: wire.transport, newActionId: ids() });
+  wire.receive(READY);
+  client.select(CAMPAIGN);
+  wire.receive({ type: 'Snapshot', snapshot: pendingTurnSnapshot(3, 'a0') });
+  const model = viewModel(client.state(), WIDE_WIDTH);
+  assert.deepEqual(model.conversation.at(-1)?.failure, { kind: 'lost' });
+  const html = renderView(model, 'en');
+  assert.match(html, /reply was not saved/);
+  assert.match(html, /data-retry-turn/);
+
+  const sentBefore = wire.sent.length;
+  client.retryNarration();
+  const [resent] = wire.sent.slice(sentBefore);
+  assert.ok(resent?.type === 'SubmitPlayerAction' && resent.actionId === 'a0' && resent.input === 'input a0');
+  assert.ok(resent.expectedRevision === 3 && resent.sceneId === 's1' && resent.actorId === 'hero');
+  assert.equal(client.state().outbox.length, 1);
+  assert.doesNotMatch(renderView(viewModel(client.state(), WIDE_WIDTH), 'en'), /data-retry-turn/);
+});
+
+test('rpg-42a.113 only the latest empty turn can be retried', () => {
+  const { wire, client } = connectedClient();
+  const snapshot = snapshotAt(3, ['a0', 'a1']);
+  const [first, second] = snapshot.turns;
+  assert.ok(first !== undefined && second !== undefined);
+  wire.receive({ type: 'Snapshot', snapshot: { ...snapshot, turns: [{ ...first, narration: '' }, second] } });
+  const model = viewModel(client.state(), WIDE_WIDTH);
+  assert.ok(model.conversation.every(({ failure }) => failure === undefined));
+  assert.doesNotMatch(renderView(model, 'en'), /data-retry-turn/);
+  const before = wire.sent.length;
+  client.retryNarration();
+  assert.equal(wire.sent.length, before);
+});
+
+test('rpg-42a.113 a turn still queued in the outbox shows no retry', () => {
+  const { wire, client } = connectedClient();
+  assert.ok(client.submit('wait').ok);
+  wire.receive({ type: 'Snapshot', snapshot: pendingTurnSnapshot(3, 'a0') });
+  assert.equal(client.state().outbox.length, 1);
+  assert.doesNotMatch(renderView(viewModel(client.state(), WIDE_WIDTH), 'en'), /data-retry-turn/);
 });

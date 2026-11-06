@@ -1,6 +1,6 @@
 import { type Catalog, createTranslator } from './locale.ts';
 
-export const GM_FAILURE_KINDS = ['limit', 'auth', 'notInstalled', 'timeout', 'exit', 'other'] as const;
+export const GM_FAILURE_KINDS = ['limit', 'auth', 'notInstalled', 'timeout', 'exit', 'lost', 'other'] as const;
 export type GmFailureKind = (typeof GM_FAILURE_KINDS)[number];
 export type GmFailure = { readonly kind: GmFailureKind; readonly detail?: string };
 
@@ -15,6 +15,7 @@ export const GM_FAILURE_CATALOG: Catalog = {
       'The AI game master is unavailable: Claude Code is not installed or could not be started.',
     'gmFailure.timeout': 'The AI game master is unavailable: it took too long to answer.',
     'gmFailure.exit': 'The AI game master is unavailable: Claude Code stopped with exit code {detail}.',
+    'gmFailure.lost': 'The AI game master is unavailable: the reply was not saved.',
     'gmFailure.other': 'The AI game master is unavailable: {detail}',
     'gmFailure.kept': 'Your action is kept. Retry when the game master is back.',
     'gmFailure.retryHint': 'Type /retry to try again.',
@@ -28,6 +29,7 @@ export const GM_FAILURE_CATALOG: Catalog = {
     'gmFailure.notInstalled': 'El GM de IA no está disponible: Claude Code no está instalado o no se pudo iniciar.',
     'gmFailure.timeout': 'El GM de IA no está disponible: tardó demasiado en responder.',
     'gmFailure.exit': 'El GM de IA no está disponible: Claude Code terminó con el código de salida {detail}.',
+    'gmFailure.lost': 'El GM de IA no está disponible: la respuesta no se guardó.',
     'gmFailure.other': 'El GM de IA no está disponible: {detail}',
     'gmFailure.kept': 'Tu acción se conserva. Reintenta cuando el GM vuelva.',
     'gmFailure.retryHint': 'Escribe /reintentar para intentarlo de nuevo.',
@@ -42,6 +44,7 @@ export const GM_FAILURE_CATALOG: Catalog = {
       'O GM de IA não está disponível: o Claude Code não está instalado ou não pôde ser iniciado.',
     'gmFailure.timeout': 'O GM de IA não está disponível: ele demorou demais para responder.',
     'gmFailure.exit': 'O GM de IA não está disponível: o Claude Code parou com o código de saída {detail}.',
+    'gmFailure.lost': 'O GM de IA não está disponível: a resposta não foi salva.',
     'gmFailure.other': 'O GM de IA não está disponível: {detail}',
     'gmFailure.kept': 'Sua ação foi mantida. Tente de novo quando o GM voltar.',
     'gmFailure.retryHint': 'Digite /repetir para tentar de novo.',
