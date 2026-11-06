@@ -361,15 +361,17 @@ export const mountPage = ({
       syncSpeaking();
     },
   };
+  const storyLanguage = () => {
+    const { open, draft } = client.state().start;
+    const draftLanguage = draft.choices.language;
+    if (open && typeof draftLanguage === 'string') return draftLanguage;
+    return client.state().snapshot?.language ?? voice.view().preferences.locale;
+  };
   const setup = createVoiceSetup({
     ...(bridge.voice === undefined ? {} : { bridge: bridge.voice }),
     audio: speechAudio,
     speech: saved.speech,
-    language: () => {
-      const { open, draft } = client.state().start;
-      const story = draft.choices.language;
-      return open && typeof story === 'string' ? story : voice.view().preferences.locale;
-    },
+    language: storyLanguage,
     campaign: () => client.state().snapshot?.campaignId,
     speakers: () => client.state().snapshot?.speakers?.map(({ name }) => name) ?? [],
     speed: () => voice.view().preferences.speed,
@@ -392,7 +394,7 @@ export const mountPage = ({
     audio: speechAudio,
     provider: () => setup.view().provider?.id,
     voiceOf: setup.voiceOf,
-    language: () => voice.view().preferences.locale,
+    language: storyLanguage,
     speed: () => voice.view().preferences.speed,
     volume: () => setup.view().speech.volume,
     wait: (ms) => new Promise((resolve) => schedule(resolve, ms)),

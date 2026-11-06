@@ -1860,19 +1860,47 @@ const REPLAY_TURN = {
 };
 const REPLAY_BUTTON = { 'data-replay': 'r1' };
 
-const replayPage = async (spoken: boolean, turn: object = REPLAY_TURN, speakers: readonly object[] = []) => {
+const replayPage = async (
+  spoken: boolean,
+  turn: object = REPLAY_TURN,
+  speakers: readonly object[] = [],
+  language?: string,
+) => {
   const page = fakePage();
   const voice = fakeVoiceBridge();
   const stops: string[] = [];
   const timers: (() => void)[] = [];
   mount(page, {}, deniedMicrophone, undefined, WIDE_WIDTH, {
-    bridge: { ...page.bridge, voice: voice.bridge },
+    bridge: {
+      ...page.bridge,
+      voice: {
+        ...voice.bridge,
+        check: async () => {
+          const { providers, cacheBytes } = await voice.bridge.check();
+          return {
+            providers: providers.map((provider) => ({
+              ...provider,
+              languages: [...provider.languages, ...(language === undefined ? [] : [language])],
+            })),
+            cacheBytes,
+          };
+        },
+      },
+    },
     audio: { play: async () => ({ decodeMs: 1, durationMs: 10 }), stop: () => stops.push('stop') },
     schedule: (run) => timers.push(run),
   });
   page.receive(READY);
   continueHarbor(page);
-  page.receive({ type: 'Snapshot', snapshot: { ...SNAPSHOT, speakers, turns: [turn] } });
+  page.receive({
+    type: 'Snapshot',
+    snapshot: {
+      ...SNAPSHOT,
+      speakers,
+      turns: [turn],
+      ...(language === undefined ? {} : { language, voice: { ...DEFAULT_PREFERENCES.voice, locale: 'en' } }),
+    },
+  });
   await settle();
   if (spoken) {
     page.click({ 'data-voice-setup': 'on' });
@@ -1915,6 +1943,13 @@ test('rpg-cm63.46 page replays a narration turn through the voice bridge and sto
   for (const run of timers.splice(0)) run();
   await settle();
   assert.equal(replays().length, 2);
+});
+
+test('rpg-42a.111 page replays in the campaign story language when it differs from the voice locale', async () => {
+  const { page, replays } = await replayPage(true, REPLAY_TURN, [], 'pt-BR');
+  page.click(REPLAY_BUTTON);
+  await settle();
+  assert.equal((replays()[0] as { language: string }).language, 'pt-BR');
 });
 
 test('rpg-cm63.50 page replays narration longer than the speech limit as several requests', async () => {
