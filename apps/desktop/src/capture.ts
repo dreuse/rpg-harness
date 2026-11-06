@@ -295,6 +295,7 @@ const NPC_ROLL_TURN = steps(
   `document.querySelector('#action-form').requestSubmit();`,
   `await ${until(`document.querySelector('[data-rolls] [data-roll]') && ${GM_REPLIED} && ${SETTLED}`)};`,
 );
+const GM_PROPOSAL_TURN = steps(`await ${until(`${GM_REPLIED} && ${SETTLED}`)};`);
 
 const COLLAPSED_ROLL = steps(`await ${until(`document.querySelector('[data-roll-badge]') && ${SETTLED}`)};`);
 
@@ -411,11 +412,13 @@ export const JOURNEY: Readonly<
     | 'rollOfferPortuguese'
     | 'slashMenu'
     | 'slashMenuPortuguese'
-    | 'npcRoll',
+    | 'npcRoll'
+    | 'gmProposal',
     readonly JourneyStep[]
   >
 > = {
   npcRoll: [{ script: OPEN_FIRST_CAMPAIGN }, { script: NPC_ROLL_TURN, shot: 'npc-roll' }],
+  gmProposal: [{ script: OPEN_FIRST_CAMPAIGN }, { script: GM_PROPOSAL_TURN, shot: 'gm-proposal' }],
   rollOffer: [{ script: OPEN_ROLL_OFFER, shot: 'roll-offer' }],
   rollOfferPortuguese: [{ script: OPEN_ROLL_OFFER, shot: 'pt-BR-roll-offer' }],
   slashMenu: [

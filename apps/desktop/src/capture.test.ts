@@ -259,3 +259,10 @@ test('rpg-42a.109 the slash menu journeys shoot the open menu and check its plac
   assert.equal(checks, CAPTURE_THEMES.length * CAPTURE_LAYOUTS.length);
   assert.ok(calls.length > 0);
 });
+
+test('rpg-42a.131 the gmProposal journey opens the first campaign and shoots the turn', () => {
+  assert.deepEqual(
+    JOURNEY.gmProposal.map(({ shot }) => shot),
+    [undefined, 'gm-proposal'],
+  );
+});
