@@ -10,16 +10,22 @@ import {
   type SubscribeEvents,
 } from '../../../packages/client-protocol/src/protocol.ts';
 import { VISUALIZATION_EVENT, type VisualizationEvent } from '../../../packages/client-protocol/src/visualization.ts';
-import { CHECK_RESOLVED, PLAYER_ACTION_SUBMITTED } from '../../../packages/domain/src/campaign.ts';
+import type { CampaignState } from '../../../packages/domain/src/campaign.ts';
+import { CAMPAIGN_CONFIGURED, CHECK_RESOLVED, PLAYER_ACTION_SUBMITTED } from '../../../packages/domain/src/campaign.ts';
 import { type OocProposal, ROLL_CORRECTED } from '../../../packages/domain/src/ooc.ts';
 import type { StoryMemoryEntry } from '../../../packages/domain/src/story-memory.ts';
 import { oocStateOf } from '../../../packages/engine/src/ooc.ts';
 import { proposeClaims } from '../../../packages/engine/src/story-memory.ts';
+import { generateCampaignConfig } from '../../../packages/intent/src/config.ts';
+import { createCampaignIntent } from '../../../packages/intent/src/intent.ts';
 import type { ContextPacket } from '../../../packages/memory/src/packet.ts';
 import { createCampaignStore } from '../../../packages/persistence/src/campaign-store.ts';
 import { openDatabase } from '../../../packages/persistence/src/database.ts';
 import { createEntityStore } from '../../../packages/persistence/src/entity-store.ts';
+import { compileRule } from '../../../packages/rules/src/compile.ts';
+import { D20_LITE_MANIFEST } from '../../../packages/rules/src/d20-lite.ts';
 import { createRoller } from '../../../packages/rules/src/dice.ts';
+import type { RuleDsl } from '../../../packages/rules/src/dsl.ts';
 import { createScriptedRng } from '../../../packages/testkit/src/fixtures.ts';
 import {
   createEngineGateway,
@@ -30,8 +36,9 @@ import {
   readCampaignState,
 } from './engine-gateway.ts';
 import { TABLE_NOTES_PROMPT } from './gm-context.ts';
-import { correctD20Roll, fakeOocReply } from './gm-ooc.ts';
+import { correctD20Roll, fakeOocReply, houseRuleOf } from './gm-ooc.ts';
 import type { OocReplier } from './gm-ooc-model.ts';
+import { BUILT_IN_PACKS } from './import-gateway.ts';
 import { say } from './messages.ts';
 
 const CAMPAIGN = 'hollow-lantern';
@@ -527,5 +534,35 @@ describe('rpg-42a.91 out-of-character channel', () => {
     });
     assert.equal(result.ok, false);
     assert.equal(state().revision, before);
+  });
+});
+
+describe('rpg-42a.123: house rules on an installed ruleset', () => {
+  const manifest = { ...D20_LITE_MANIFEST, id: `${D20_LITE_MANIFEST.id}-import-0123456789ab` };
+  const stored = compileRule({
+    rule: HOUSE_RULE.rule.rule as RuleDsl,
+    rulePack: manifest,
+    sourceRefs: ['sha256-imported'],
+  });
+  const state = () => {
+    const intent = createCampaignIntent({
+      ruleset: { value: { id: manifest.id, edition: manifest.edition }, provenance: 'explicit' },
+    });
+    const generated = generateCampaignConfig(intent, { rulepacks: [...BUILT_IN_PACKS, manifest], genres: [] });
+    assert.ok(generated.ok);
+    return {
+      events: [{ type: CAMPAIGN_CONFIGURED, payload: { config: generated.config } }],
+      changes: [],
+    } as unknown as CampaignState;
+  };
+
+  it('layers the house rule over the stored rules', () => {
+    assert.ok(stored.ok);
+    const input = houseRuleOf(state(), HOUSE_RULE, 'en', { manifest, rules: [stored.rule] });
+    assert.equal(input.id, 'noisy-strikes');
+  });
+
+  it('does not treat the installed ruleset as its base pack when the stored rules are not given', () => {
+    assert.throws(() => houseRuleOf(state(), HOUSE_RULE, 'en'), { message: say('en', 'ooc.noRulebook') });
   });
 });

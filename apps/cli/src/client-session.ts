@@ -32,6 +32,7 @@ import {
 import { parseViewDescriptor, SHEET_VIEW } from '../../../packages/client-protocol/src/view-registry.ts';
 import { VISUALIZATION_EVENT, type ViewerScope } from '../../../packages/client-protocol/src/visualization.ts';
 import {
+  type CampaignEvent,
   type CampaignId,
   type CampaignState,
   CHARACTER_CREATED,
@@ -70,6 +71,7 @@ import { type EventQuery, listScopedEvents } from '../../../packages/persistence
 import { rangeIssue } from '../../../packages/rules/src/character-builder.ts';
 import { correctD20Roll, fakeOocReply, houseRuleOf } from './gm-ooc.ts';
 import type { OocReplier } from './gm-ooc-model.ts';
+import type { InstalledRuleset } from './installed-rulesets.ts';
 import { DEFAULT_LOCALE, errorText, LocalizedError, say } from './messages.ts';
 import { creationRulesFor, usageFor } from './quickstart.ts';
 import {
@@ -251,6 +253,7 @@ export type GmSessionContext = {
   readonly logWindow?: number;
   readonly story?: StoryPort;
   readonly oocReply?: OocReplier | undefined;
+  readonly installedRuleset?: (events: readonly CampaignEvent[]) => InstalledRuleset | undefined;
 };
 
 export const gmSnapshotOf = (
@@ -315,7 +318,14 @@ export const createClientSessions = (
   readEvents: EventSource,
   readWorld: WorldSource = NO_WORLD,
   sheets?: SheetPort,
-  { sessionId, defaults = () => ({}), logWindow = EVENT_LOG_WINDOW, story, oocReply }: GmSessionContext = {},
+  {
+    sessionId,
+    defaults = () => ({}),
+    logWindow = EVENT_LOG_WINDOW,
+    story,
+    oocReply,
+    installedRuleset,
+  }: GmSessionContext = {},
 ) => {
   const log = createEventLog({ campaignId, branchId: MAIN_BRANCH }, logWindow);
   const scopes = new Map<EventId, Scoped & { readonly seq: number }>();
@@ -527,6 +537,7 @@ export const createClientSessions = (
                   reportedRoll,
                   whoRolls: whoRollsFor(state, defaults()),
                   houseRules: oocStateOf(state.changes).houseRules,
+                  installed: installedRuleset?.(state.events),
                 },
                 actorId,
                 readWorld(campaignId, actorId).entities,
@@ -659,7 +670,9 @@ export const createClientSessions = (
           const state = engine.getState(campaignId);
           const locale = campaignLanguageOf(state.changes) ?? DEFAULT_LOCALE;
           const prepared =
-            proposal.kind === 'house_rule' ? { ...proposal, rule: houseRuleOf(state, proposal, locale) } : proposal;
+            proposal.kind === 'house_rule'
+              ? { ...proposal, rule: houseRuleOf(state, proposal, locale, installedRuleset?.(state.events)) }
+              : proposal;
           const applied = engine.applyOoc({
             campaignId,
             actionId,

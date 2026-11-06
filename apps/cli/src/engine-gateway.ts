@@ -15,6 +15,7 @@ import {
 } from '../../../packages/client-protocol/src/protocol.ts';
 import type { GmRoute } from '../../../packages/client-protocol/src/wire.ts';
 import {
+  type CampaignEvent,
   type CampaignId,
   type CampaignState,
   type CampaignStore,
@@ -143,6 +144,7 @@ import { type GmSegment, narratorSegments, turnSegmentsOf } from './gm-segments.
 export { FAKE_GM_REPLY } from './gm-api.ts';
 
 import { importRules } from './import-gateway.ts';
+import { type InstalledRuleset, installedRulesetIn } from './installed-rulesets.ts';
 import type { CampaignGateway } from './main.ts';
 import { DEFAULT_LOCALE, LocalizedError, say } from './messages.ts';
 import { loadOwnRules } from './own-rules-files.ts';
@@ -402,6 +404,7 @@ type Session = {
   store: ReturnType<typeof createCampaignStore>;
   campaignId: string;
   database: ReturnType<typeof openDatabase>['database'];
+  installedRuleset: (events: readonly CampaignEvent[]) => InstalledRuleset | undefined;
 };
 
 type SpokenTurn = { readonly voice?: TurnSpeech; readonly notice?: string };
@@ -418,7 +421,7 @@ const streamOf = (voice: TurnSpeech | undefined, listener: StreamedSegment | und
 };
 
 const acceptMarkedCheck = (
-  { engine, campaignId, database }: Session,
+  { engine, campaignId, database, installedRuleset }: Session,
   committed: CommittedTurn,
   proposals: readonly GmProposal[],
   offeredNow: readonly CommittedTurn[],
@@ -447,7 +450,13 @@ const acceptMarkedCheck = (
     },
     checkForAction(
       state.events,
-      { input: offer.label, rollOfferId: offer.offerId, whoRolls, houseRules: oocStateOf(state.changes).houseRules },
+      {
+        input: offer.label,
+        rollOfferId: offer.offerId,
+        whoRolls,
+        houseRules: oocStateOf(state.changes).houseRules,
+        installed: installedRuleset(state.events),
+      },
       actorId,
       worldOf(database)(campaignId, actorId).entities,
       rulesStrictnessFor(state, defaults),
@@ -681,7 +690,14 @@ const openSession = (
     if (row === undefined) throw new LocalizedError('campaign.noState', { name });
     const close = () => connection.close();
     const engine = 'narrator' in gm ? narratingEngine(store, database, gm.narrator, rng) : createEngine(store, rng);
-    const session = { engine, rng, store, campaignId: String(row.id), database };
+    const session = {
+      engine,
+      rng,
+      store,
+      campaignId: String(row.id),
+      database,
+      installedRuleset: (events: readonly CampaignEvent[]) => installedRulesetIn(dataDir, events),
+    };
     const gmDefaults = () => readGmDefaults(dataDir);
     let summarized: Promise<void> = Promise.resolve();
     const speakTurn: SpeakTurn = async (turnId) => {
@@ -824,7 +840,13 @@ export const openClientSession = (
       scopedEventsOf(database),
       readWorld,
       sheetsOf(opened, readWorld),
-      { sessionId, defaults: gmDefaults, story: storyOf(opened, database), oocReply: gm.oocReply },
+      {
+        sessionId,
+        defaults: gmDefaults,
+        story: storyOf(opened, database),
+        oocReply: gm.oocReply,
+        installedRuleset: opened.installedRuleset,
+      },
     );
     const voiceLocale = () => {
       const settings = voiceSettingsOf(engine.getState(campaignId).changes);
@@ -1171,6 +1193,7 @@ const act = async (
           input,
           whoRolls: whoRollsFor(state, session.gmDefaults()),
           houseRules: oocStateOf(state.changes).houseRules,
+          installed: session.installedRuleset(state.events),
         },
         actor.id,
         worldOf(database)(campaignId, actor.id).entities,

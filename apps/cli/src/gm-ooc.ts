@@ -20,6 +20,7 @@ import { replayRoll } from '../../../packages/rules/src/dice.ts';
 import { DICE_POOL_LITE_MANIFEST } from '../../../packages/rules/src/dice-pool-lite.ts';
 import type { CompiledRule } from '../../../packages/rules/src/dsl.ts';
 import { isRecord, type RulePackManifest } from '../../../packages/rules/src/rulepack.ts';
+import type { InstalledRuleset } from './installed-rulesets.ts';
 import { say } from './messages.ts';
 
 const ROLL_FIX_WORDS =
@@ -166,14 +167,14 @@ export const fakeOocReply = (text: string, locale: string, facts: readonly Story
 
 const PACKS: readonly RulePackManifest[] = [D20_LITE_MANIFEST, DICE_POOL_LITE_MANIFEST];
 
-const effectiveRulesOf = (state: CampaignState): EffectiveResult | undefined => {
+const effectiveRulesOf = (state: CampaignState, installed?: InstalledRuleset): EffectiveResult | undefined => {
   const saved = parseCampaignConfig(campaignConfigOf(state.events));
   const ref = saved.ok ? saved.config.rulepack : null;
-  const pack = PACKS.find(
+  const pack = [...PACKS, ...(installed === undefined ? [] : [installed.manifest])].find(
     ({ id, edition, revision }) => id === ref?.id && edition === ref.edition && revision === ref.revision,
   );
   if (pack === undefined) return undefined;
-  return baseEffectiveRules(pack, NO_BASE_RULES);
+  return baseEffectiveRules(pack, installed?.manifest === pack ? installed.rules : NO_BASE_RULES);
 };
 
 const resultFailure = (result: Extract<EffectiveResult, { ok: false }>) => {
@@ -182,14 +183,19 @@ const resultFailure = (result: Extract<EffectiveResult, { ok: false }>) => {
   return new Error(issues.map(({ message }) => message).join(ISSUE_SEPARATOR) || String(error.code));
 };
 
-export const houseRuleOf = (state: CampaignState, proposal: Readonly<Record<string, unknown>>, locale: string) => {
+export const houseRuleOf = (
+  state: CampaignState,
+  proposal: Readonly<Record<string, unknown>>,
+  locale: string,
+  installed?: InstalledRuleset,
+) => {
   const rule = isRecord(proposal.rule) ? proposal.rule : {};
   const input = {
     id: rule.id,
     source: { kind: HOUSE_RULE_SOURCE, author: HOUSE_RULE_AUTHOR, note: oneLine(String(proposal.summary ?? '')) },
     rule: rule.rule,
   };
-  let effective: EffectiveResult | undefined = effectiveRulesOf(state);
+  let effective: EffectiveResult | undefined = effectiveRulesOf(state, installed);
   if (effective === undefined) throw new Error(say(locale, 'ooc.noRulebook'));
   for (const earlier of [...oocStateOf(state.changes).houseRules, input]) {
     if (!effective.ok) break;

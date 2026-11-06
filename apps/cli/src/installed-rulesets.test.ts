@@ -3,10 +3,22 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSyn
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
+import type { CampaignEvent } from '../../../packages/domain/src/campaign.ts';
+import { CAMPAIGN_CONFIGURED } from '../../../packages/domain/src/campaign.ts';
+import { generateCampaignConfig } from '../../../packages/intent/src/config.ts';
+import { createCampaignIntent } from '../../../packages/intent/src/intent.ts';
 import { compileRule } from '../../../packages/rules/src/compile.ts';
 import { D20_LITE_MANIFEST } from '../../../packages/rules/src/d20-lite.ts';
 import { RULE_DSL_VERSION, type RuleDsl } from '../../../packages/rules/src/dsl.ts';
-import { INSTALLED_DIR, installedRulesets, installRuleset, loadInstalledRuleset } from './installed-rulesets.ts';
+import type { RulePackManifest } from '../../../packages/rules/src/rulepack.ts';
+import { BUILT_IN_PACKS } from './import-gateway.ts';
+import {
+  INSTALLED_DIR,
+  installedRulesetIn,
+  installedRulesets,
+  installRuleset,
+  loadInstalledRuleset,
+} from './installed-rulesets.ts';
 
 const SOURCE_HASH = 'sha256-house-rules';
 const RULE: RuleDsl = { dslVersion: RULE_DSL_VERSION, id: 'house-rule', effects: [] };
@@ -105,4 +117,47 @@ test('rpg-42a.122 too many rules are refused at install time', () =>
     const rules = Array.from({ length: OVERSIZED_RULE_COUNT }, () => compiled());
     assert.throws(() => installRuleset(dataDir, D20_LITE_MANIFEST, rules), /rejected/);
     assert.deepEqual(installedRulesets(dataDir), []);
+  }));
+
+const campaignOn = (rulepacks: readonly RulePackManifest[], id: string): CampaignEvent[] => {
+  const intent = createCampaignIntent({
+    ruleset: { value: { id, edition: D20_LITE_MANIFEST.edition }, provenance: 'explicit' },
+  });
+  const generated = generateCampaignConfig(intent, { rulepacks, genres: [] });
+  assert.ok(generated.ok, JSON.stringify(generated));
+  return [{ type: CAMPAIGN_CONFIGURED, payload: { config: generated.config } }] as unknown as CampaignEvent[];
+};
+
+test('rpg-42a.123 a campaign pinned to an installed ruleset resolves its stored rules and base-pack campaigns do not', () =>
+  withDataDir((dataDir) => {
+    const manifest = installRuleset(dataDir, D20_LITE_MANIFEST, [compiled()]);
+    const packs = [...BUILT_IN_PACKS, manifest];
+    const resolved = installedRulesetIn(dataDir, campaignOn(packs, manifest.id));
+    assert.deepEqual(resolved?.manifest, manifest);
+    assert.equal(resolved?.rules[0]?.rule.id, RULE.id);
+    assert.equal(installedRulesetIn(dataDir, campaignOn(packs, D20_LITE_MANIFEST.id)), undefined);
+    assert.equal(installedRulesetIn(dataDir, []), undefined);
+  }));
+
+test('rpg-42a.123 a missing or corrupt stored ruleset is a clear error, never the base pack', () =>
+  withDataDir((dataDir) => {
+    const manifest = installRuleset(dataDir, D20_LITE_MANIFEST, [compiled()]);
+    const events = campaignOn([...BUILT_IN_PACKS, manifest], manifest.id);
+    writeFileSync(fileOf(dataDir, manifest.id), '{not json');
+    assert.throws(() => installedRulesetIn(dataDir, events), /rejected: the file is not valid JSON/);
+    rmSync(fileOf(dataDir, manifest.id));
+    assert.throws(() => installedRulesetIn(dataDir, events), /rejected: the file is missing/);
+    assert.throws(() => loadInstalledRuleset(dataDir, manifest.id), /rejected: the file is missing/);
+  }));
+
+test('rpg-42a.123 a stored file whose edition or revision differs from the campaign pin is refused', () =>
+  withDataDir((dataDir) => {
+    const manifest = installRuleset(dataDir, D20_LITE_MANIFEST, [compiled()]);
+    const events = campaignOn([...BUILT_IN_PACKS, manifest], manifest.id);
+    const original = readFileSync(fileOf(dataDir, manifest.id), 'utf8');
+    for (const change of [{ edition: 'other-edition' }, { revision: 'other-revision' }]) {
+      const stored = JSON.parse(original);
+      writeFileSync(fileOf(dataDir, manifest.id), JSON.stringify({ ...stored, manifest: { ...manifest, ...change } }));
+      assert.throws(() => installedRulesetIn(dataDir, events), /rejected: its edition or revision differs/);
+    }
   }));

@@ -16,6 +16,7 @@ import { GM_SETTINGS_SAVED } from '../../../packages/engine/src/gm-settings.ts';
 import type { ReportedRoll } from '../../../packages/engine/src/turn.ts';
 import { generateCampaignConfig } from '../../../packages/intent/src/config.ts';
 import { createCampaignIntent } from '../../../packages/intent/src/intent.ts';
+import { compileRule } from '../../../packages/rules/src/compile.ts';
 import {
   attemptCheck,
   checkBonus,
@@ -26,7 +27,8 @@ import {
   PROFICIENCY_BASE,
 } from '../../../packages/rules/src/d20-lite.ts';
 import { createSeededRng } from '../../../packages/rules/src/dice.ts';
-import { DEFAULT_POOL_CONFIG, rollPool } from '../../../packages/rules/src/dice-pool-lite.ts';
+import { DEFAULT_POOL_CONFIG, DICE_POOL_LITE_MANIFEST, rollPool } from '../../../packages/rules/src/dice-pool-lite.ts';
+import type { RuleDsl } from '../../../packages/rules/src/dsl.ts';
 import { BUILT_IN_PACKS } from './import-gateway.ts';
 import {
   checkForAction as checkForActionOrReason,
@@ -713,4 +715,96 @@ test('rpg-42a.108: checkForAction reads the house rules from the action', () => 
     HERO,
   )?.('climb', drawing([NEAR_MISS_FACE, D20_SIDES]));
   assert.equal(rolled?.events[0]?.event, 'check.success');
+});
+
+const installedGenerous = () => {
+  const manifest = { ...D20_LITE_MANIFEST, id: `${D20_LITE_MANIFEST.id}-import-0123456789ab` };
+  const compiled = compileRule({ rule: generous.rule as RuleDsl, rulePack: manifest, sourceRefs: ['sha256-imported'] });
+  assert.ok(compiled.ok);
+  const intent = createCampaignIntent({
+    ruleset: explicit({ id: manifest.id, edition: manifest.edition }),
+    dice: explicit('rulepack'),
+  });
+  const generated = generateCampaignConfig(intent, { rulepacks: [...BUILT_IN_PACKS, manifest], genres: [] });
+  assert.ok(generated.ok, JSON.stringify(generated));
+  return { manifest, rules: [compiled.rule], events: configured(generated.config) };
+};
+
+test('rpg-42a.123: a campaign pinned to an installed ruleset rolls with its stored rules and pins that ruleset', () => {
+  const { manifest, rules, events } = installedGenerous();
+  const campaign = [...events, heroCreated(ATTRIBUTES)];
+  const rolled = checkFor(campaign, TRY_CLIMB, HERO, undefined, undefined, undefined, { manifest, rules })?.(
+    'climb',
+    drawing([NEAR_MISS_FACE, D20_SIDES]),
+  );
+  assert.equal(rolled?.events[0]?.event, 'check.success');
+  assert.deepEqual(rolled?.version?.base, {
+    id: manifest.id,
+    edition: manifest.edition,
+    revision: manifest.revision,
+  });
+  assert.equal(rolled?.version?.depth, 0);
+  const offered = offeredCheckFor(campaign, { ...OFFER, ruleId: 'check.might' }, HERO, undefined, undefined, {
+    manifest,
+    rules,
+  })?.('climb', drawing([NEAR_MISS_FACE, D20_SIDES]));
+  assert.equal(offered?.events[0]?.event, 'check.success');
+});
+
+test('rpg-42a.123: a house rule stacks on the installed rules and a base-pack campaign ignores them', () => {
+  const { manifest, rules, events } = installedGenerous();
+  const campaign = [...events, heroCreated(ATTRIBUTES)];
+  const stricter = houseRule('stricter', 'check.success', 'check.failure');
+  const rolled = checkFor(campaign, TRY_CLIMB, HERO, undefined, undefined, [stricter], { manifest, rules })?.(
+    'climb',
+    drawing([NEAR_MISS_FACE, D20_SIDES]),
+  );
+  assert.equal(rolled?.events[0]?.event, 'check.failure');
+  assert.equal(rolled?.version?.depth, 1);
+  const base = [...configured(builtInConfig('d20-lite')), heroCreated(ATTRIBUTES)];
+  const plain = checkFor(base, TRY_CLIMB, HERO)?.('climb', drawing([NEAR_MISS_FACE, D20_SIDES]));
+  assert.equal(plain?.events[0]?.event, 'check.failure');
+  assert.equal(plain?.version, undefined);
+});
+
+test('rpg-42a.123: an installed ruleset whose stored rules are not loaded is not played as its base pack', () => {
+  const { events } = installedGenerous();
+  const campaign = [...events, heroCreated(ATTRIBUTES)];
+  assert.deepEqual(checkForOrReason(campaign, TRY_CLIMB, HERO), { noCheck: 'unsupported-rulebook' });
+});
+
+test('rpg-42a.123: an installed dice-pool pin is refused, not rolled as the built-in pool', () => {
+  const manifest = { ...DICE_POOL_LITE_MANIFEST, id: `${DICE_POOL_LITE_MANIFEST.id}-import-0123456789ab` };
+  const intent = createCampaignIntent({
+    ruleset: explicit({ id: manifest.id, edition: manifest.edition }),
+    dice: explicit('rulepack'),
+  });
+  const generated = generateCampaignConfig(intent, { rulepacks: [...BUILT_IN_PACKS, manifest], genres: [] });
+  assert.ok(generated.ok, JSON.stringify(generated));
+  const campaign = [...configured(generated.config), heroCreated(ATTRIBUTES)];
+  assert.deepEqual(
+    checkForOrReason(campaign, TRY_CLIMB, HERO, undefined, undefined, undefined, { manifest, rules: [] }),
+    { noCheck: 'unsupported-rulebook' },
+  );
+});
+
+test('rpg-42a.123: an installed ruleset with no stored rules still pins itself', () => {
+  const { manifest, events } = installedGenerous();
+  const campaign = [...events, heroCreated(ATTRIBUTES)];
+  const rolled = checkFor(campaign, TRY_CLIMB, HERO, undefined, undefined, undefined, { manifest, rules: [] })?.(
+    'climb',
+    drawing([NEAR_MISS_FACE, D20_SIDES]),
+  );
+  assert.equal(rolled?.version?.base.id, manifest.id);
+});
+
+test('rpg-42a.123: stored rules pinned to another ruleset make the roll fail instead of using the built-in table', () => {
+  const { manifest, events } = installedGenerous();
+  const foreign = compileRule({ rule: generous.rule as RuleDsl, rulePack: D20_LITE_MANIFEST, sourceRefs: ['x'] });
+  assert.ok(foreign.ok);
+  const campaign = [...events, heroCreated(ATTRIBUTES)];
+  assert.throws(
+    () => checkFor(campaign, TRY_CLIMB, HERO, undefined, undefined, undefined, { manifest, rules: [foreign.rule] }),
+    /cannot build its roll table/,
+  );
 });

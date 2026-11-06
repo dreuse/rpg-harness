@@ -1,6 +1,9 @@
 import { createHash } from 'node:crypto';
 import { mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import type { CampaignEvent } from '../../../packages/domain/src/campaign.ts';
+import { campaignConfigOf } from '../../../packages/engine/src/turn.ts';
+import { parseCampaignConfig } from '../../../packages/intent/src/config.ts';
 import { compileRule } from '../../../packages/rules/src/compile.ts';
 import { type CompiledRule, parseRuleDsl } from '../../../packages/rules/src/dsl.ts';
 import { isRecord, type RulePackManifest, validateManifest } from '../../../packages/rules/src/rulepack.ts';
@@ -13,10 +16,13 @@ const FILE_EXTENSION = '.json';
 const TEXT = 'utf8';
 const HASH_ALGORITHM = 'sha256';
 const HASH_LENGTH = 12;
+const IMPORT_SEPARATOR = '-import-';
 const ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,127}$/;
 const TEMP_SUFFIX = '.tmp';
 
 type Stored = { manifest: RulePackManifest; rules: readonly CompiledRule[] };
+
+export type InstalledRuleset = { manifest: RulePackManifest; rules: readonly CompiledRule[] };
 
 const rejected = (id: string, reason: string) => new Error(`Installed ruleset ${id} rejected: ${reason}.`);
 
@@ -52,7 +58,7 @@ const recompile = (id: string, manifest: RulePackManifest, entry: unknown): Comp
 
 export const installRuleset = (dataDir: string, base: RulePackManifest, rules: readonly CompiledRule[]) => {
   if (rules.length > MAX_INSTALLED_RULES) throw rejected(base.id, `more than ${MAX_INSTALLED_RULES} rules`);
-  const id = `${base.id}-import-${contentHash(base, rules)}`;
+  const id = `${base.id}${IMPORT_SEPARATOR}${contentHash(base, rules)}`;
   const path = pathOf(dataDir, id);
   const manifest: RulePackManifest = {
     ...base,
@@ -66,9 +72,15 @@ export const installRuleset = (dataDir: string, base: RulePackManifest, rules: r
   return manifest;
 };
 
-export const loadInstalledRuleset = (dataDir: string, id: string) => {
+export const loadInstalledRuleset = (dataDir: string, id: string): InstalledRuleset => {
   const path = pathOf(dataDir, id);
-  if (statSync(path).size > MAX_INSTALLED_BYTES) throw rejected(id, 'the file is too large');
+  let size: number;
+  try {
+    size = statSync(path).size;
+  } catch {
+    throw rejected(id, 'the file is missing');
+  }
+  if (size > MAX_INSTALLED_BYTES) throw rejected(id, 'the file is too large');
   let stored: unknown;
   try {
     stored = JSON.parse(readFileSync(path, TEXT));
@@ -102,4 +114,20 @@ export const installedRulesets = (dataDir: string): RulePackManifest[] => {
         return [];
       }
     });
+};
+
+export const baseIdOf = (id: string) => {
+  const at = id.lastIndexOf(IMPORT_SEPARATOR);
+  return at < 0 ? id : id.slice(0, at);
+};
+
+export const installedRulesetIn = (dataDir: string, events: readonly CampaignEvent[]): InstalledRuleset | undefined => {
+  const saved = parseCampaignConfig(campaignConfigOf(events));
+  const pinned = saved.ok ? saved.config.rulepack : null;
+  if (pinned === null || baseIdOf(pinned.id) === pinned.id) return undefined;
+  const installed = loadInstalledRuleset(dataDir, pinned.id);
+  const { edition, revision } = installed.manifest;
+  if (edition !== pinned.edition || revision !== pinned.revision)
+    throw rejected(pinned.id, 'its edition or revision differs from the campaign pin');
+  return installed;
 };

@@ -89,8 +89,8 @@ import {
 import type { ActionResolution } from '../../../packages/rules/src/resolve.ts';
 import { isRecord, type ManifestIssue, type RulePackManifest } from '../../../packages/rules/src/rulepack.ts';
 import type { TraitSheet } from '../../../packages/rules/src/traits.ts';
-
 import { NO_HOUSE_RULES, type RollTable, rollTableOf, type StoredHouseRules } from './house-roll.ts';
+import { baseIdOf, type InstalledRuleset } from './installed-rulesets.ts';
 import { LocalizedError } from './messages.ts';
 import { citesOwnRulesSection } from './own-rules.ts';
 
@@ -216,6 +216,7 @@ type CheckSource = (
   ruleId?: string,
   offered?: OfferedRoll,
   houseRules?: StoredHouseRules,
+  installed?: InstalledRuleset,
 ) => Check | NoCheck | undefined;
 
 const POOL_RULE = 'check.pool';
@@ -301,7 +302,16 @@ const strike = ({
 
 const unavailable = (noCheck: NoCheckReason): NoCheck => ({ noCheck });
 
-const d20Check: CheckSource = (events, actorId, input, worldProfile, ruleId, offered, houseRules = NO_HOUSE_RULES) => {
+const d20Check: CheckSource = (
+  events,
+  actorId,
+  input,
+  worldProfile,
+  ruleId,
+  offered,
+  houseRules = NO_HOUSE_RULES,
+  installed,
+) => {
   const parsed = parseCharacterProfile(profileOf(events, actorId, worldProfile));
   const scores = new Map(parsed.ok ? parsed.profile.traits.map(({ id, value }) => [id, value]) : []);
   const written = ATTRIBUTES.some((id) => scores.has(id));
@@ -324,10 +334,15 @@ const d20Check: CheckSource = (events, actorId, input, worldProfile, ruleId, off
   const dc = D20_LITE_VOCABULARY.difficulties[offered?.difficulty ?? ''] ?? DEFAULT_CHECK_DC;
   if (defender !== undefined) {
     const baseTable = attackTable(steppedSides(D20_LITE_COMBAT.damageSides, step ?? NO_STEP));
-    const rolls = rollTableOf(D20_LITE_MANIFEST, baseTable, houseRules);
+    const rolls = rollTableOf(installed?.manifest ?? D20_LITE_MANIFEST, baseTable, houseRules, installed?.rules);
     return (actionId, rng) => strike({ actionId, rng, sheet, attribute, flat, keep, step, modifiers, defender, rolls });
   }
-  const rolls = rollTableOf(D20_LITE_MANIFEST, checkTable(attribute), houseRules);
+  const rolls = rollTableOf(
+    installed?.manifest ?? D20_LITE_MANIFEST,
+    checkTable(attribute),
+    houseRules,
+    installed?.rules,
+  );
   return (actionId, rng) => {
     const check = attemptCheck({
       actionId,
@@ -401,13 +416,16 @@ export const enforcedStrictnessFor = (
   return strictness === 'as-written' && rolls ? strictness : undefined;
 };
 
-const checkEntryOf = (events: readonly CampaignEvent[], strictness: RulesStrictness) => {
+const checkEntryOf = (events: readonly CampaignEvent[], strictness: RulesStrictness, installed?: InstalledRuleset) => {
   const saved = parseCampaignConfig(campaignConfigOf(events));
   if (!saved.ok || strictness === 'off' || !rollsDice(saved.config)) return undefined;
   const { rulepack } = saved.config;
-  return CHECKS.find(
-    ([pack]) => pack.id === rulepack?.id && pack.edition === rulepack.edition && pack.revision === rulepack.revision,
+  const isInstalled = rulepack !== null && installed?.manifest.id === rulepack.id;
+  const packId = isInstalled ? baseIdOf(rulepack.id) : rulepack?.id;
+  const entry = CHECKS.find(
+    ([pack]) => pack.id === packId && pack.edition === rulepack?.edition && pack.revision === rulepack.revision,
   );
+  return isInstalled && entry?.[0] !== D20_LITE_MANIFEST ? undefined : entry;
 };
 
 export type GmRollSpec = {
@@ -482,11 +500,11 @@ const hasRulebook = (events: readonly CampaignEvent[]) => {
   return saved.ok && saved.config.rulepack !== null;
 };
 
-const setupOf = (events: readonly CampaignEvent[], strictness: RulesStrictness) => {
+const setupOf = (events: readonly CampaignEvent[], strictness: RulesStrictness, installed?: InstalledRuleset) => {
   const saved = parseCampaignConfig(campaignConfigOf(events));
   if (!saved.ok || saved.config.rulepack === null) return unavailable('no-rulebook');
   if (!rollsDice(saved.config)) return unavailable('dice-off');
-  return checkEntryOf(events, strictness) ?? unavailable('unsupported-rulebook');
+  return checkEntryOf(events, strictness, installed) ?? unavailable('unsupported-rulebook');
 };
 
 export const checkFor = (
@@ -496,13 +514,14 @@ export const checkFor = (
   entities = NO_ENTITIES,
   strictness: RulesStrictness = DEFAULT_RULES_STRICTNESS,
   houseRules: StoredHouseRules = NO_HOUSE_RULES,
+  installed?: InstalledRuleset,
 ): Check | NoCheck | undefined => {
   if (usesOwnRules(events)) return undefined;
   if (!callsForCheck(input, hasRulebook(events) ? strictness : AS_WRITTEN)) return undefined;
-  const setup = setupOf(events, strictness);
+  const setup = setupOf(events, strictness, installed);
   return 'noCheck' in setup
     ? setup
-    : setup[1](events, actorId, input, worldProfileOf(entities, actorId), undefined, undefined, houseRules);
+    : setup[1](events, actorId, input, worldProfileOf(entities, actorId), undefined, undefined, houseRules, installed);
 };
 
 const combatRulesFor = (pack: RulePackManifest): CombatRules => ({
@@ -532,9 +551,10 @@ export const offeredCheckFor = (
   actorId: CharacterId,
   entities = NO_ENTITIES,
   houseRules: StoredHouseRules = NO_HOUSE_RULES,
+  installed?: InstalledRuleset,
 ): Check | undefined => {
   const { ruleId, label, target } = offer;
-  const entry = checkEntryOf(events, AS_WRITTEN);
+  const entry = checkEntryOf(events, AS_WRITTEN, installed);
   const defender = entry === undefined ? undefined : defenderOf(events, entities, target, entry[0]);
   const offered = entry?.[2].includes(ruleId)
     ? entry[1](
@@ -545,6 +565,7 @@ export const offeredCheckFor = (
         ruleId,
         { ...offer, ...(defender === undefined ? {} : { defender }) },
         houseRules,
+        installed,
       )
     : undefined;
   return typeof offered === 'function' ? offered : undefined;
@@ -582,11 +603,12 @@ export type ActionRoll = {
   readonly reportedRoll?: readonly number[] | undefined;
   readonly whoRolls?: WhoRolls | undefined;
   readonly houseRules?: StoredHouseRules | undefined;
+  readonly installed?: InstalledRuleset | undefined;
 };
 
 const appCheckFor = (
   events: readonly CampaignEvent[],
-  { input, rollOfferId, whoRolls = DEFAULT_WHO_ROLLS, houseRules = NO_HOUSE_RULES }: ActionRoll,
+  { input, rollOfferId, whoRolls = DEFAULT_WHO_ROLLS, houseRules = NO_HOUSE_RULES, installed }: ActionRoll,
   actorId: CharacterId,
   entities: readonly CampaignEntity[],
   strictness: RulesStrictness,
@@ -594,13 +616,14 @@ const appCheckFor = (
   const offer = pendingCheckOffer(events);
   if (rollOfferId !== undefined && offer?.offerId !== rollOfferId) throw new RangeError(CLOSED_OFFER);
   if (offer !== undefined && rollOfferId !== undefined) {
-    const offered = offeredCheckFor(events, offer, actorId, entities, houseRules);
+    const offered = offeredCheckFor(events, offer, actorId, entities, houseRules, installed);
     if (offered === undefined) throw new RangeError(CLOSED_OFFER);
     return offered;
   }
   const textAccepts = offer !== undefined && acceptsOffer(input) && !offerFollowsPlayerAction(events);
-  const own = () => checkFor(events, input, actorId, entities, strictness, houseRules);
-  const offered = () => (textAccepts ? offeredCheckFor(events, offer, actorId, entities, houseRules) : undefined);
+  const own = () => checkFor(events, input, actorId, entities, strictness, houseRules, installed);
+  const offered = () =>
+    textAccepts ? offeredCheckFor(events, offer, actorId, entities, houseRules, installed) : undefined;
   const embedsReport =
     whoRolls !== DEFAULT_WHO_ROLLS && typedReportOf(input) !== undefined && !BARE_REPORT.test(input.trim());
   return embedsReport ? (own() ?? offered()) : (offered() ?? own());
@@ -629,7 +652,7 @@ export const checkForAction = (
   const offered =
     offer !== undefined &&
     (action.reportedRoll !== undefined || (offerOpen && (bareReport || typeof base !== 'function')))
-      ? offeredCheckFor(events, offer, actorId, entities, action.houseRules)
+      ? offeredCheckFor(events, offer, actorId, entities, action.houseRules, action.installed)
       : undefined;
   const check = offered ?? (typeof base === 'function' ? base : undefined);
   return check === undefined ? reportedRoll(reported) : reportedCheck(check, reported);
