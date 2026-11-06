@@ -192,6 +192,17 @@ describe('rpg-42a.91 out-of-character channel', () => {
       );
   });
 
+  it('rpg-42a.108: refuses to correct a roll resolved under a house rule', () => {
+    const version = {
+      base: { id: 'd20-lite', edition: 'original', revision: '1' },
+      depth: 1,
+      overlayHash: 'a'.repeat(64),
+    };
+    const fix = { value: 2, reason: 'high ground' };
+    assert.equal(correctD20Roll({ ...resolutionAt(12), version }, fix), undefined);
+    assert.notEqual(correctD20Roll(resolutionAt(12), fix), undefined);
+  });
+
   it('turns "/gm you forgot my +2 for high ground" into a roll-fix proposal', () => {
     const reply = fakeOocReply(ROLL_FIX_TEXT.slice('/gm '.length), 'en');
     assert.deepEqual(
@@ -440,12 +451,47 @@ describe('rpg-42a.91 out-of-character channel', () => {
     assert.equal(game.confirm(HOUSE_RULE).ok, false);
     const before = state().revision;
     assert.equal(game.confirm({ ...HOUSE_RULE, rule: { id: 'broken', rule: { nonsense: true } } }).ok, false);
-    const emitting = { dslVersion: 1, id: 'check.loud', effects: [{ kind: 'emitEvent', event: 'noise' }] };
-    const refused = game.confirm({ ...HOUSE_RULE, rule: { id: 'loud', rule: emitting } });
+    const costly = {
+      dslVersion: 1,
+      id: 'check.costly',
+      costs: [{ kind: 'cost', resource: 'stamina', amount: { kind: 'const', value: 1 } }],
+      effects: [],
+    };
+    const refused = game.confirm({ ...HOUSE_RULE, rule: { id: 'costly', rule: costly } });
     assert.equal(refused.ok ? '' : refused.error.message, 'is disabled in rule pack d20-lite');
     assert.equal(state().revision, before);
     assert.ok(game.undo().ok);
     assert.deepEqual(oocStateOf(state().changes).houseRules, []);
+  });
+
+  it('rpg-42a.108: an applied house rule changes the next live roll and the roll record pins the version', async (t) => {
+    const { open, state } = await campaign(t);
+    const game = open();
+    const always = {
+      kind: 'compare',
+      op: 'gte',
+      left: { kind: 'ref', id: 'd20' },
+      right: { kind: 'const', value: 1 },
+    };
+    const strict = {
+      id: 'easy-wins',
+      rule: {
+        dslVersion: 1,
+        id: 'check.success',
+        when: always,
+        effects: [{ kind: 'emitEvent', event: 'check.success' }],
+      },
+    };
+    assert.ok(game.confirm({ ...HOUSE_RULE, rule: strict }).ok);
+    await game.say(ACTION);
+    const resolution = state().events.find(({ type }) => type === CHECK_RESOLVED)?.payload.resolution as {
+      events: { event: string }[];
+      version: { depth: number; overlayHash: string; base: { id: string } };
+    };
+    assert.equal(resolution.events[0]?.event, 'check.success');
+    assert.equal(resolution.version.depth, 1);
+    assert.equal(resolution.version.base.id, 'd20-lite');
+    assert.match(resolution.version.overlayHash, /^[0-9a-f]{64}$/);
   });
 
   it('answers from the model route and keeps its proposals unapplied until confirmed', async (t) => {

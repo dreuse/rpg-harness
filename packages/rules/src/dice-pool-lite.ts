@@ -24,7 +24,7 @@ export const DICE_POOL_LITE_MANIFEST: RulePackManifest = {
   id: 'dice-pool-lite',
   edition: 'original',
   revision: '1',
-  capabilities: { checks: true, dice: true },
+  capabilities: { checks: true, dice: true, effects: true },
   resolution: 'dice',
   sheet: 'full',
   sourceRefs: [],

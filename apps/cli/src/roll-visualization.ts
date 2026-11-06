@@ -51,8 +51,10 @@ import {
   ATTRIBUTES,
   type Attribute,
   attack,
+  attackTable,
   attemptCheck,
   checkBonus,
+  checkTable,
   combatantSheet,
   createSheet,
   D20_LITE_CHECK_RULES,
@@ -64,6 +66,7 @@ import {
   DEFAULT_CHECK_DC,
   keptFace,
   proficiencyOf,
+  steppedSides,
 } from '../../../packages/rules/src/d20-lite.ts';
 import { type Rng, type RollEvent, replayRoll } from '../../../packages/rules/src/dice.ts';
 import {
@@ -87,6 +90,7 @@ import type { ActionResolution } from '../../../packages/rules/src/resolve.ts';
 import { isRecord, type ManifestIssue, type RulePackManifest } from '../../../packages/rules/src/rulepack.ts';
 import type { TraitSheet } from '../../../packages/rules/src/traits.ts';
 
+import { NO_HOUSE_RULES, type RollTable, rollTableOf, type StoredHouseRules } from './house-roll.ts';
 import { LocalizedError } from './messages.ts';
 import { citesOwnRulesSection } from './own-rules.ts';
 
@@ -207,6 +211,7 @@ type CheckSource = (
   worldProfile: unknown,
   ruleId?: string,
   offered?: OfferedRoll,
+  houseRules?: StoredHouseRules,
 ) => Check | NoCheck | undefined;
 
 const POOL_RULE = 'check.pool';
@@ -229,6 +234,7 @@ const ATTACK_RULES: readonly string[] = D20_LITE_COMBAT.rules;
 const PROFICIENCY_ID = 'proficiency';
 const PROFICIENCY_REASON = 'Proficiency';
 const NO_DAMAGE = 0;
+const NO_STEP = 0;
 
 type Strike = {
   readonly actionId: string;
@@ -240,6 +246,7 @@ type Strike = {
   readonly step: number | undefined;
   readonly modifiers: readonly AppliedModifier[];
   readonly defender: Combatant;
+  readonly rolls: RollTable;
 };
 
 const strike = ({
@@ -252,6 +259,7 @@ const strike = ({
   step,
   modifiers,
   defender,
+  rolls,
 }: Strike): CheckResolution => {
   const { npcId, defense, current, max } = defender;
   const struck = attack({
@@ -262,6 +270,7 @@ const strike = ({
     damageSides: D20_LITE_COMBAT.damageSides,
     rng,
     edge: flat,
+    table: rolls.table,
     ...(keep === undefined ? {} : { keep }),
     ...(step === undefined ? {} : { step }),
   });
@@ -281,13 +290,14 @@ const strike = ({
       { id: PROFICIENCY_ID, reason: PROFICIENCY_REASON, effect: { kind: 'flat', value: proficiency } },
     ],
     ...(keep === undefined ? {} : { keep }),
+    ...(rolls.version === undefined ? {} : { version: rolls.version }),
     damage: { targetId: npcId, amount, defeated: current - amount <= NO_DAMAGE },
   };
 };
 
 const unavailable = (noCheck: NoCheckReason): NoCheck => ({ noCheck });
 
-const d20Check: CheckSource = (events, actorId, input, worldProfile, ruleId, offered) => {
+const d20Check: CheckSource = (events, actorId, input, worldProfile, ruleId, offered, houseRules = NO_HOUSE_RULES) => {
   const parsed = parseCharacterProfile(profileOf(events, actorId, worldProfile));
   const scores = new Map(parsed.ok ? parsed.profile.traits.map(({ id, value }) => [id, value]) : []);
   const written = ATTRIBUTES.some((id) => scores.has(id));
@@ -308,8 +318,12 @@ const d20Check: CheckSource = (events, actorId, input, worldProfile, ruleId, off
   );
   const { flat, keep, step } = summarizeModifiers(modifiers);
   const dc = D20_LITE_VOCABULARY.difficulties[offered?.difficulty ?? ''] ?? DEFAULT_CHECK_DC;
-  if (defender !== undefined)
-    return (actionId, rng) => strike({ actionId, rng, sheet, attribute, flat, keep, step, modifiers, defender });
+  if (defender !== undefined) {
+    const baseTable = attackTable(steppedSides(D20_LITE_COMBAT.damageSides, step ?? NO_STEP));
+    const rolls = rollTableOf(D20_LITE_MANIFEST, baseTable, houseRules);
+    return (actionId, rng) => strike({ actionId, rng, sheet, attribute, flat, keep, step, modifiers, defender, rolls });
+  }
+  const rolls = rollTableOf(D20_LITE_MANIFEST, checkTable(attribute), houseRules);
   return (actionId, rng) => {
     const check = attemptCheck({
       actionId,
@@ -318,6 +332,7 @@ const d20Check: CheckSource = (events, actorId, input, worldProfile, ruleId, off
       dc,
       rng,
       edge: flat,
+      table: rolls.table,
       ...(keep === undefined ? {} : { keep }),
     });
     if (!check.ok) throw new RangeError(check.error.issues.map(({ message }) => message).join(ISSUE_SEPARATOR));
@@ -330,6 +345,7 @@ const d20Check: CheckSource = (events, actorId, input, worldProfile, ruleId, off
       target: dc,
       ...(modifiers.length === 0 ? {} : { modifiers }),
       ...(keep === undefined ? {} : { keep }),
+      ...(rolls.version === undefined ? {} : { version: rolls.version }),
     };
   };
 };
@@ -475,11 +491,14 @@ export const checkFor = (
   actorId: CharacterId,
   entities = NO_ENTITIES,
   strictness: RulesStrictness = DEFAULT_RULES_STRICTNESS,
+  houseRules: StoredHouseRules = NO_HOUSE_RULES,
 ): Check | NoCheck | undefined => {
   if (usesOwnRules(events)) return undefined;
   if (!callsForCheck(input, hasRulebook(events) ? strictness : AS_WRITTEN)) return undefined;
   const setup = setupOf(events, strictness);
-  return 'noCheck' in setup ? setup : setup[1](events, actorId, input, worldProfileOf(entities, actorId));
+  return 'noCheck' in setup
+    ? setup
+    : setup[1](events, actorId, input, worldProfileOf(entities, actorId), undefined, undefined, houseRules);
 };
 
 const defenderOf = (
@@ -502,15 +521,21 @@ export const offeredCheckFor = (
   offer: Pick<CheckOffer, 'ruleId' | 'label' | 'modifiers' | 'difficulty'> & Partial<Pick<CheckOffer, 'target'>>,
   actorId: CharacterId,
   entities = NO_ENTITIES,
+  houseRules: StoredHouseRules = NO_HOUSE_RULES,
 ): Check | undefined => {
   const { ruleId, label, target } = offer;
   const entry = checkEntryOf(events, AS_WRITTEN);
   const defender = entry === undefined ? undefined : defenderOf(events, entities, target, entry[0]);
   const offered = entry?.[2].includes(ruleId)
-    ? entry[1](events, actorId, label, worldProfileOf(entities, actorId), ruleId, {
-        ...offer,
-        ...(defender === undefined ? {} : { defender }),
-      })
+    ? entry[1](
+        events,
+        actorId,
+        label,
+        worldProfileOf(entities, actorId),
+        ruleId,
+        { ...offer, ...(defender === undefined ? {} : { defender }) },
+        houseRules,
+      )
     : undefined;
   return typeof offered === 'function' ? offered : undefined;
 };
@@ -546,11 +571,12 @@ export type ActionRoll = {
   readonly rollOfferId?: string | undefined;
   readonly reportedRoll?: readonly number[] | undefined;
   readonly whoRolls?: WhoRolls | undefined;
+  readonly houseRules?: StoredHouseRules | undefined;
 };
 
 const appCheckFor = (
   events: readonly CampaignEvent[],
-  { input, rollOfferId, whoRolls = DEFAULT_WHO_ROLLS }: ActionRoll,
+  { input, rollOfferId, whoRolls = DEFAULT_WHO_ROLLS, houseRules = NO_HOUSE_RULES }: ActionRoll,
   actorId: CharacterId,
   entities: readonly CampaignEntity[],
   strictness: RulesStrictness,
@@ -558,13 +584,13 @@ const appCheckFor = (
   const offer = pendingCheckOffer(events);
   if (rollOfferId !== undefined && offer?.offerId !== rollOfferId) throw new RangeError(CLOSED_OFFER);
   if (offer !== undefined && rollOfferId !== undefined) {
-    const offered = offeredCheckFor(events, offer, actorId, entities);
+    const offered = offeredCheckFor(events, offer, actorId, entities, houseRules);
     if (offered === undefined) throw new RangeError(CLOSED_OFFER);
     return offered;
   }
   const textAccepts = offer !== undefined && acceptsOffer(input) && !offerFollowsPlayerAction(events);
-  const own = () => checkFor(events, input, actorId, entities, strictness);
-  const offered = () => (textAccepts ? offeredCheckFor(events, offer, actorId, entities) : undefined);
+  const own = () => checkFor(events, input, actorId, entities, strictness, houseRules);
+  const offered = () => (textAccepts ? offeredCheckFor(events, offer, actorId, entities, houseRules) : undefined);
   const embedsReport =
     whoRolls !== DEFAULT_WHO_ROLLS && typedReportOf(input) !== undefined && !BARE_REPORT.test(input.trim());
   return embedsReport ? (own() ?? offered()) : (offered() ?? own());
@@ -593,7 +619,7 @@ export const checkForAction = (
   const offered =
     offer !== undefined &&
     (action.reportedRoll !== undefined || (offerOpen && (bareReport || typeof base !== 'function')))
-      ? offeredCheckFor(events, offer, actorId, entities)
+      ? offeredCheckFor(events, offer, actorId, entities, action.houseRules)
       : undefined;
   const check = offered ?? (typeof base === 'function' ? base : undefined);
   return check === undefined ? reportedRoll(reported) : reportedCheck(check, reported);

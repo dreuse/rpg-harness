@@ -41,7 +41,7 @@ import {
   recordGmUsage,
 } from '../../../packages/engine/src/gm-settings.ts';
 import { contextBudgetOf } from '../../../packages/engine/src/memory.ts';
-import { withoutRetconned } from '../../../packages/engine/src/ooc.ts';
+import { oocStateOf, withoutRetconned } from '../../../packages/engine/src/ooc.ts';
 import type { RulesDocument } from '../../../packages/engine/src/own-rules.ts';
 import {
   correctStoryFact,
@@ -446,7 +446,7 @@ const acceptMarkedCheck = (
     },
     checkForAction(
       state.events,
-      { input: offer.label, rollOfferId: offer.offerId, whoRolls },
+      { input: offer.label, rollOfferId: offer.offerId, whoRolls, houseRules: oocStateOf(state.changes).houseRules },
       actorId,
       worldOf(database)(campaignId, actorId).entities,
       rulesStrictnessFor(state, defaults),
@@ -1157,7 +1157,11 @@ const act = async (
       },
       checkForAction(
         state.events,
-        { input, whoRolls: whoRollsFor(state, session.gmDefaults()) },
+        {
+          input,
+          whoRolls: whoRollsFor(state, session.gmDefaults()),
+          houseRules: oocStateOf(state.changes).houseRules,
+        },
         actor.id,
         worldOf(database)(campaignId, actor.id).entities,
         rulesStrictnessFor(state, session.gmDefaults()),

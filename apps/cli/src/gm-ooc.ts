@@ -52,9 +52,10 @@ const isAttack = (events: unknown) =>
   );
 
 export const correctD20Roll: RollCorrector = (resolution, { value, reason }) => {
-  const { rolls, bonus, target, modifiers, keep, events } = isRecord(resolution)
+  const { rolls, bonus, target, modifiers, keep, events, version } = isRecord(resolution)
     ? resolution
     : ({} as Record<string, unknown>);
+  if (version !== undefined) return undefined;
   const first = Array.isArray(rolls) ? replayRoll(rolls[0]) : undefined;
   if (first?.ok !== true || !Number.isFinite(bonus) || !Number.isFinite(target) || isAttack(events)) return undefined;
   const faces = first.event.draws.flat();

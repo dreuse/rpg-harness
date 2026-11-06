@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { buildCharacter } from './character-builder.ts';
+import { compileRule } from './compile.ts';
 import { createSeededRng, MAX_DICE_PER_TERM, type Rng, verifyRollClaim } from './dice.ts';
 import {
   DEFAULT_POOL_CONFIG,
@@ -12,6 +13,7 @@ import {
   rollPool,
   validatePoolConfig,
 } from './dice-pool-lite.ts';
+import { RULE_DSL_VERSION, type RuleDsl } from './dsl.ts';
 import { capabilityState, validateManifest } from './rulepack.ts';
 
 const HALF = 0.5;
@@ -40,6 +42,16 @@ test('manifest is valid, original and declares deterministic checks', () => {
   assert.equal(DICE_POOL_LITE_MANIFEST.edition, 'original');
   assert.equal(capabilityState(DICE_POOL_LITE_MANIFEST, 'checks'), 'deterministic');
   assert.equal(capabilityState(DICE_POOL_LITE_MANIFEST, 'dice'), 'deterministic');
+});
+
+test('the manifest allows house rule effects', () => {
+  assert.equal(capabilityState(DICE_POOL_LITE_MANIFEST, 'effects'), 'deterministic');
+  const loud: RuleDsl = {
+    dslVersion: RULE_DSL_VERSION,
+    id: 'check.loud',
+    effects: [{ kind: 'emitEvent', event: 'noise' }],
+  };
+  assert.ok(compileRule({ rule: loud, rulePack: DICE_POOL_LITE_MANIFEST, sourceRefs: [] }).ok);
 });
 
 test('support pool rolls, success counting, complications and configurable thresholds', () => {

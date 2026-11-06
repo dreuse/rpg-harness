@@ -1,13 +1,16 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { buildCharacter } from './character-builder.ts';
+import { compileRule } from './compile.ts';
 import {
   ATTRIBUTE_MAX,
   ATTRIBUTES,
   advanceTurn,
   attack,
+  attackTable,
   attemptCheck,
   attributeModifier,
+  checkTable,
   combatantSheet,
   createSheet,
   D20_LITE_COMBAT,
@@ -23,7 +26,7 @@ import {
   XP_PER_LEVEL,
 } from './d20-lite.ts';
 import { createSeededRng, type Rng, verifyRollClaim } from './dice.ts';
-import { RULE_DSL_VERSION } from './dsl.ts';
+import { RULE_DSL_VERSION, type RuleDsl } from './dsl.ts';
 import { resolveAction } from './resolve.ts';
 import { capabilityState, validateManifest } from './rulepack.ts';
 import { validateSheetSchema } from './sheet-schema.ts';
@@ -82,6 +85,32 @@ test('manifest is valid, original and declares baseline capabilities', () => {
   for (const capability of ['checks', 'combat', 'resources', 'progression', 'dice']) {
     assert.equal(capabilityState(D20_LITE_MANIFEST, capability), 'deterministic');
   }
+});
+
+test('the manifest declares the primitives its own rules and house rule effects need', () => {
+  const rules = [...checkTable('might'), ...attackTable(DAMAGE_SIDES), D20_LITE_RULES.recover];
+  for (const rule of rules) {
+    const compiled = compileRule({ rule, rulePack: D20_LITE_MANIFEST, sourceRefs: [] });
+    assert.ok(compiled.ok, rule.id);
+    assert.equal(compiled.rule.deterministic, true, rule.id);
+  }
+  const loud: RuleDsl = {
+    dslVersion: RULE_DSL_VERSION,
+    id: 'check.loud',
+    effects: [{ kind: 'emitEvent', event: 'noise' }],
+  };
+  assert.ok(compileRule({ rule: loud, rulePack: D20_LITE_MANIFEST, sourceRefs: [] }).ok);
+  const costed = compileRule({ rule: D20_LITE_RULES.exert, rulePack: D20_LITE_MANIFEST, sourceRefs: [] });
+  assert.equal(costed.ok, false);
+});
+
+test('a check resolves against a supplied table instead of the built-in one', () => {
+  const sheet = hero();
+  const table: RuleDsl[] = [
+    { dslVersion: RULE_DSL_VERSION, id: 'check.always', effects: [{ kind: 'emitEvent', event: 'check.success' }] },
+  ];
+  const result = attemptCheck({ actionId: 'a', sheet, attribute: 'might', dc: 99, rng: createSeededRng(1), table });
+  assert.deepEqual(eventsOf(result), ['check.success']);
 });
 
 test('attribute modifiers are centered on the average score and may be negative', () => {

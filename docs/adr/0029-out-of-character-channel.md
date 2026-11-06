@@ -15,6 +15,6 @@
 
 **Consequences:**
 - The retcon hides turns in `Engine.getState` and in the GM packet and scene-summary reads (`summarizeCampaign`, the narrating engine). Since ADR 0033 the packet also drops summaries, facts, threads and links built from a retconned turn, and the visualization replay skips its rolls. Summaries keep their stored text, so undo restores them.
-- House rules are stored, validated and shown to the GM as notes. Live roll resolution does not read the overlay yet, and built-in RulePacks declare no primitives, so most rules are refused until a pack allows them.
+- House rules are stored, validated and shown to the GM as notes. Since ADR 0034 live d20-lite rolls read the overlay and built-in RulePacks declare the primitives it needs.
 - Retcon does not re-narrate. The confirm result carries the taken-back action text (ADR 0033) and the client sends it again as a new action.
 - The fake route maps text to proposals with fixed patterns. The `api` and `claude-code` routes ask the model for one JSON object `{ reply, proposals }` (`gm-ooc-model.ts`). The CLI parses it as untrusted text, validates each proposal with the engine's `validOocProposal`, drops invalid ones, and keeps at most 3. Unparseable output or a model error gives a reply-only answer. `SubmitOocMessage` is async for this reason.

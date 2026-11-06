@@ -521,7 +521,13 @@ export const createClientSessions = (
               { campaignId, actionId, expectedRevision, sceneId, actorId, input, intent: input },
               checkForAction(
                 state.events,
-                { input, rollOfferId, reportedRoll, whoRolls: whoRollsFor(state, defaults()) },
+                {
+                  input,
+                  rollOfferId,
+                  reportedRoll,
+                  whoRolls: whoRollsFor(state, defaults()),
+                  houseRules: oocStateOf(state.changes).houseRules,
+                },
                 actorId,
                 readWorld(campaignId, actorId).entities,
                 rulesStrictnessFor(state, defaults()),

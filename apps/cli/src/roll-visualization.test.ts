@@ -625,3 +625,92 @@ test('rpg-42a.103: a die-step modifier on a plain check is not applied or shown'
   const result = offeredCheckFor(strongHero(), offer, HERO, [tam(foeSheet())])?.('a', drawing([HIT_FACE, D20_SIDES]));
   assert.equal(result?.modifiers, undefined);
 });
+
+const NEAR_MISS_FACE = 9;
+const FAR_MISS_FACE = 6;
+const HOUSE_BONUS = 3;
+const ref = (id: string) => ({ kind: 'ref', id });
+const constant = (value: number) => ({ kind: 'const', value });
+const sum = (left: unknown, right: unknown) => ({ kind: 'arith', op: 'add', left, right });
+const reaches = (bonus: unknown, target: unknown) => ({ kind: 'compare', op: 'gte', left: bonus, right: target });
+const houseRule = (id: string, ruleId: string, event: string, when?: unknown) => ({
+  id,
+  source: { kind: 'house_rule', author: 'player', note: 'table rule' },
+  rule: { dslVersion: 1, id: ruleId, ...(when === undefined ? {} : { when }), effects: [{ kind: 'emitEvent', event }] },
+});
+const generous = houseRule(
+  'generous',
+  'check.success',
+  'check.success',
+  reaches(sum(sum(ref('d20'), ref('might.mod')), constant(1)), ref('dc')),
+);
+const TRY_CLIMB = 'I try to climb the wall';
+
+test('rpg-42a.108: a house rule that replaces a built-in rule changes the live check and pins the version', () => {
+  const campaign = [...configured(builtInConfig('d20-lite')), heroCreated(ATTRIBUTES)];
+  const roll = (houseRules: readonly Record<string, unknown>[]) =>
+    checkFor(
+      campaign,
+      TRY_CLIMB,
+      HERO,
+      undefined,
+      undefined,
+      houseRules,
+    )?.('climb', drawing([NEAR_MISS_FACE, D20_SIDES]));
+  const plain = roll([]);
+  assert.equal(plain?.events[0]?.event, 'check.failure');
+  assert.equal(plain?.version, undefined);
+  const house = roll([generous]);
+  assert.equal(house?.events[0]?.event, 'check.success');
+  assert.equal(house?.version?.depth, 1);
+  assert.deepEqual(house?.version?.base, {
+    id: D20_LITE_MANIFEST.id,
+    edition: D20_LITE_MANIFEST.edition,
+    revision: D20_LITE_MANIFEST.revision,
+  });
+  assert.match(house?.version?.overlayHash ?? '', /^[0-9a-f]{64}$/);
+  assert.equal(roll([generous])?.version?.overlayHash, house?.version?.overlayHash);
+});
+
+test('rpg-42a.108: a house rule for another rule id or an invalid stored rule leaves the outcome alone', () => {
+  const campaign = [...configured(builtInConfig('d20-lite')), heroCreated(ATTRIBUTES)];
+  const unrelated = houseRule('noise', 'check.noisy', 'noise');
+  const broken = { id: 'broken', source: { kind: 'house_rule', author: 'player', note: '' }, rule: { nonsense: true } };
+  const rolled = checkFor(campaign, TRY_CLIMB, HERO, undefined, undefined, [broken, unrelated])?.(
+    'climb',
+    drawing([NEAR_MISS_FACE, D20_SIDES]),
+  );
+  assert.equal(rolled?.events[0]?.event, 'check.failure');
+  assert.equal(rolled?.version?.depth, 1);
+});
+
+test('rpg-42a.108: a house rule changes the strike against a sheet the same way', () => {
+  const hit = houseRule(
+    'lucky-strikes',
+    'attack.hit',
+    'attack.hit',
+    reaches(sum(ref('d20'), sum(ref('attackBonus'), constant(HOUSE_BONUS))), ref('defense')),
+  );
+  const strikeWith = (houseRules: readonly Record<string, unknown>[]) =>
+    offeredCheckFor(
+      strongHero(),
+      OFFER,
+      HERO,
+      [tam(foeSheet())],
+      houseRules,
+    )?.('a', drawing([FAR_MISS_FACE, D20_SIDES]));
+  assert.equal(strikeWith([])?.events[0]?.event, 'attack.miss');
+  const lucky = strikeWith([hit]);
+  assert.equal(lucky?.events[0]?.event, 'attack.hit');
+  assert.equal(lucky?.version?.depth, 1);
+});
+
+test('rpg-42a.108: checkForAction reads the house rules from the action', () => {
+  const campaign = [...configured(builtInConfig('d20-lite')), heroCreated(ATTRIBUTES)];
+  const rolled = checkForAction(
+    campaign,
+    { input: TRY_CLIMB, houseRules: [generous] },
+    HERO,
+  )?.('climb', drawing([NEAR_MISS_FACE, D20_SIDES]));
+  assert.equal(rolled?.events[0]?.event, 'check.success');
+});

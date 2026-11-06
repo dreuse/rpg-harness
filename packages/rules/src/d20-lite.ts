@@ -69,7 +69,18 @@ export const D20_LITE_MANIFEST: RulePackManifest = {
   id: 'd20-lite',
   edition: 'original',
   revision: '1',
-  capabilities: { checks: true, combat: true, resources: true, progression: true, dice: true },
+  capabilities: {
+    checks: true,
+    combat: true,
+    resources: true,
+    progression: true,
+    dice: true,
+    random: true,
+    comparison: true,
+    arithmetic: true,
+    condition: true,
+    effects: true,
+  },
   resolution: 'dice',
   sheet: 'full',
   style: {
@@ -298,12 +309,13 @@ export type CheckInput = {
   rng: Rng;
   edge?: number;
   keep?: KeepMode;
+  table?: RuleDsl[];
 };
 
-export const attemptCheck = ({ actionId, sheet, attribute, dc, rng, edge = 0, keep }: CheckInput) =>
+export const attemptCheck = ({ actionId, sheet, attribute, dc, rng, edge = 0, keep, table }: CheckInput) =>
   resolveTable({
     actionId,
-    table: checkTable(attribute),
+    table: table ?? checkTable(attribute),
     sheet,
     rng,
     modifiers: { [DC]: dc, [EDGE]: edge },
@@ -325,6 +337,7 @@ export type AttackInput = {
   edge?: number;
   keep?: KeepMode;
   step?: number;
+  table?: RuleDsl[];
 };
 
 export const attack = ({
@@ -337,11 +350,12 @@ export const attack = ({
   edge = 0,
   keep,
   step = 0,
+  table,
 }: AttackInput) => {
   const modifier = numberOf(attacker, modId(attribute));
   return resolveTable({
     actionId,
-    table: attackTable(steppedSides(damageSides, step)),
+    table: table ?? attackTable(steppedSides(damageSides, step)),
     sheet: target,
     rng,
     modifiers: { [ATTACK_BONUS]: modifier + proficiencyOf(attacker) + edge, [DAMAGE_BONUS]: modifier },

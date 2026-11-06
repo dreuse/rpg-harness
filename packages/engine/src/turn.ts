@@ -29,6 +29,7 @@ import {
   type TurnKind,
   type TurnVisibility,
 } from '../../domain/src/campaign.ts';
+import type { RulePackPin } from '../../domain/src/rule-shapes.ts';
 import type { Rng, RollEvent } from '../../rules/src/dice.ts';
 import type { AppliedModifier, KeepMode } from '../../rules/src/modifiers.ts';
 import type { DamageDealt } from './damage.ts';
@@ -44,6 +45,12 @@ export type PlayerAction = {
   readonly intent: string;
 };
 
+export type EffectiveRulesVersion = {
+  readonly base: RulePackPin;
+  readonly depth: number;
+  readonly overlayHash: string;
+};
+
 export type CheckResolution = {
   readonly rolls: readonly RollEvent[];
   readonly events: readonly { readonly event: string }[];
@@ -55,6 +62,7 @@ export type CheckResolution = {
   readonly source?: typeof PLAYER_SOURCE;
   readonly reported?: readonly number[];
   readonly damage?: DamageDealt;
+  readonly version?: EffectiveRulesVersion;
 };
 export const PLAYER_SOURCE = 'player';
 export type Check = (actionId: string, rng: Rng) => CheckResolution;
