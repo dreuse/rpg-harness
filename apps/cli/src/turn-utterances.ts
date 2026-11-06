@@ -8,6 +8,7 @@ import { setVoiceProfile, voiceProfileOf } from '../../../packages/engine/src/vo
 import { importantNpcProfile } from '../../../packages/voice/src/cinematic.ts';
 import { createNpcVoices, type InstalledVoice } from '../../../packages/voice/src/npc-voice.ts';
 import { DEFAULT_PLAYBACK_SPEED } from '../../../packages/voice/src/playback.ts';
+import type { PtBrRoute } from '../../../packages/voice/src/pt-br-route.ts';
 import { outputSegmentsOf, routeSegments } from '../../../packages/voice/src/speaker-routing.ts';
 import type { CommittedUtterance, VoiceProfile } from '../../../packages/voice/src/voice.ts';
 import type { GmSegment } from './gm-segments.ts';
@@ -29,6 +30,7 @@ export interface TurnUtterances {
   readonly turnId: string;
   readonly segments: readonly GmSegment[];
   readonly narrator: VoiceProfile;
+  readonly route: PtBrRoute;
   readonly npcVoices: { readonly profileOf: (speakerId: string) => VoiceProfile | undefined };
   readonly important?: ReadonlySet<string> | undefined;
   readonly installed?: (() => readonly InstalledVoice[]) | undefined;
@@ -37,10 +39,13 @@ export interface TurnUtterances {
 const pacedBy = (profile: VoiceProfile | undefined, speed: number) =>
   profile === undefined ? undefined : { ...profile, pace: profile.pace * speed };
 
-const importantProfileOf = ({ store, entities, campaignId, turnId, narrator }: TurnUtterances, npcId: string) => {
+const importantProfileOf = (
+  { store, entities, campaignId, turnId, narrator, route }: TurnUtterances,
+  npcId: string,
+) => {
   const state = loadState(store, campaignId);
   const stored = voiceProfileOf(state.events, npcId);
-  const profile = importantNpcProfile(npcId, { ...narrator, pace: DEFAULT_PLAYBACK_SPEED }, stored);
+  const profile = importantNpcProfile(npcId, { ...narrator, pace: DEFAULT_PLAYBACK_SPEED }, route, stored);
   if (isDeepStrictEqual(profile, stored)) return pacedBy(stored, narrator.pace);
   const actionId = [VOICE_ACTION_PREFIX, turnId, npcId].join(VOICE_ACTION_SEPARATOR);
   try {

@@ -62,6 +62,7 @@ const setup = async (t: TestContext, providers: readonly TtsProvider[] = [kokoro
   const blocked = { current: false, release: () => {} };
   const runtime = createSpeechRuntime({
     providers,
+    route: 'mlx',
     sink: {
       play: async (chunk, _speed, signal) => {
         played.push(new TextDecoder().decode(chunk.audio));

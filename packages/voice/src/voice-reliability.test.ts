@@ -243,7 +243,7 @@ test('switching provider mid session changes only the voice used', async () => {
 
 const guardSession = () => {
   const kokoro = Object.assign(fakeTts(KOKORO_PROVIDER_ID), { capabilities: KOKORO_CAPABILITIES });
-  const narrator = voicesFor('en')?.narrator ?? KOKORO_CAPABILITIES.voices[0] ?? '';
+  const narrator = voicesFor('en', 'mlx')?.narrator ?? KOKORO_CAPABILITIES.voices[0] ?? '';
   const narratorProfile: VoiceProfile = {
     ...profileFor(KOKORO_PROVIDER_ID),
     fallbacks: [{ providerId: KOKORO_PROVIDER_ID, voiceId: narrator }],

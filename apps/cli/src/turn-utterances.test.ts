@@ -16,6 +16,7 @@ import { assignedNpcVoices, utterancesFor } from './turn-utterances.ts';
 
 const TEMP_PREFIX = 'rpg-turn-utterances-';
 const CAMPAIGN = 'QuietTavern';
+const ROUTE = 'mlx';
 const NO_CHARACTER = async () => undefined;
 const MONK_ID = 'npc-monk';
 const GUARD_ID = 'npc-guard';
@@ -80,6 +81,7 @@ const setup = async (t: TestContext, narrator: VoiceProfile = NARRATOR) => {
       turnId: lastTurnId(),
       segments,
       narrator,
+      route: ROUTE,
       npcVoices,
       important,
     });
@@ -245,6 +247,7 @@ test('rpg-cm63.18: an assigned character voice is used when that npc speaks', as
       { speakerId: MONK_ID, text: MONK_LINE },
     ],
     narrator: NARRATOR,
+    route: ROUTE,
     npcVoices,
   });
   assert.equal(spoken.find(({ text }) => text === GUARD_LINE)?.profile.fallbacks[0]?.voiceId, 'assigned');
@@ -269,6 +272,7 @@ const autoSpeech = async (t: TestContext, installed: readonly (typeof FEMALE_VOI
       turnId: lastTurnId(),
       segments,
       narrator: NARRATOR,
+      route: ROUTE,
       npcVoices: assignedNpcVoices({ entities, campaignId, narrator: NARRATOR, assigned }),
       installed: () => installed,
     });
@@ -347,6 +351,7 @@ test('rpg-cm63.27: the saved speed paces an automatic npc voice without being pe
     turnId: lastTurnId(),
     segments: [{ speakerId: GUARD_ID, text: GUARD_LINE }],
     narrator: { ...NARRATOR, pace: FAST },
+    route: ROUTE,
     npcVoices: assignedNpcVoices({ entities, campaignId, narrator: NARRATOR, assigned: {} }),
     installed: () => INSTALLED,
   });

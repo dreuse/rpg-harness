@@ -55,6 +55,28 @@ export const KOKORO_MODEL_FILES: readonly ModelFile[] = Object.freeze([
   },
 ]);
 
+export const KOKORO_PT_BR_VOICE_FILES: readonly ModelFile[] = Object.freeze([
+  {
+    path: 'voices/pf_dora.bin',
+    sha256: '3da7b5b2d91847ebf5646f57631af6ececae3c29a89cd300f06edf9aa6cfe9ee',
+    bytes: 522_240,
+  },
+  {
+    path: 'voices/pm_alex.bin',
+    sha256: '0175c753f59c54e7fd5a995bedef0c5ff2fb67e0043dd3dcb2ae74ec2acbeb2a',
+    bytes: 522_240,
+  },
+  {
+    path: 'voices/pm_santa.bin',
+    sha256: '8b012db3185778afe2e45a62cbad69db73021774fe68dda634bcc748a982eede',
+    bytes: 522_240,
+  },
+]);
+export const KOKORO_PT_BR_MODEL_FILES: readonly ModelFile[] = Object.freeze([
+  ...KOKORO_MODEL_FILES,
+  ...KOKORO_PT_BR_VOICE_FILES,
+]);
+
 const BYTES_PER_MIB = 1024 * 1024;
 const SHA256 = 'sha256';
 const HEX = 'hex';
@@ -67,6 +89,8 @@ const offerFor = (files: readonly ModelFile[], source: string): ModelOffer => {
 };
 
 export const KOKORO_MODEL_OFFER = offerFor(KOKORO_MODEL_FILES, KOKORO_MODEL_SOURCE);
+
+export const KOKORO_PT_BR_MODEL_OFFER = offerFor(KOKORO_PT_BR_MODEL_FILES, KOKORO_MODEL_SOURCE);
 
 export const kokoroModelRoot = (dir: string): string => join(dir, KOKORO_MODEL_ID);
 
@@ -96,6 +120,10 @@ export const createKokoroModelManager = ({
     received: (bytes: number) => void,
   ): Promise<void> => {
     const target = join(root, file.path);
+    if ((await sizeOf(target)) === file.bytes) {
+      received(file.bytes);
+      return;
+    }
     const partial = `${target}${PARTIAL_SUFFIX}`;
     await mkdir(dirname(target), { recursive: true });
     const response = await fetchFile(`${source}/${file.path}`, signal ? { signal } : {});

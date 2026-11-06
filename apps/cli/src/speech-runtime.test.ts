@@ -132,36 +132,37 @@ test('the live runtime builds without a model and keeps lines in text', async ()
 
 const MLX_ID = 'kokoro-mlx';
 const PT_BR = 'pt-BR';
+const ROUTE = 'mlx';
 const withPreload = (id: string, preload: () => Promise<void>) => ({ ...provider(id), preload });
 
-test('live providers add the mlx voice only where it is supported', () => {
-  const ids = (supported: boolean) => liveProviders('/data', {}, supported).map(({ id }) => id);
-  assert.deepEqual(ids(true), ['kokoro', MLX_ID]);
-  assert.deepEqual(ids(false), ['kokoro']);
+test('rpg-cm63.53 live providers pick the pt-BR route: mlx where supported, ONNX elsewhere', () => {
+  const ids = (route: 'mlx' | 'onnx') => liveProviders('/data', {}, route).map(({ id }) => id);
+  assert.deepEqual(ids('mlx'), ['kokoro', MLX_ID]);
+  assert.deepEqual(ids('onnx'), ['kokoro', 'kokoro-onnx']);
 });
 
 test('a pt-BR campaign preloads the mlx voice without waiting for it', () => {
   const calls: string[] = [];
   const never = withPreload(MLX_ID, () => new Promise<void>(() => calls.push('preload')));
-  assert.equal(prepareVoice([never], PT_BR), undefined);
+  assert.equal(prepareVoice([never], PT_BR, ROUTE), undefined);
   assert.deepEqual(calls, ['preload']);
 });
 
 test('a failing preload does not break play', async () => {
   const failing = withPreload(MLX_ID, () => Promise.reject(new Error('cold start failed')));
-  assert.equal(prepareVoice([failing], PT_BR), undefined);
+  assert.equal(prepareVoice([failing], PT_BR, ROUTE), undefined);
   await tick();
 });
 
 test('an English campaign does not preload the mlx voice', () => {
   const calls: string[] = [];
   const mlx = withPreload(MLX_ID, async () => void calls.push('preload'));
-  prepareVoice([mlx], 'en');
+  prepareVoice([mlx], 'en', ROUTE);
   assert.deepEqual(calls, []);
 });
 
 test('a pt-BR campaign without the mlx voice gets the player notice', () => {
-  assert.match(prepareVoice([provider('kokoro')], PT_BR) ?? '', /not available on this computer/);
+  assert.match(prepareVoice([provider('kokoro')], PT_BR, ROUTE) ?? '', /not available on this computer/);
 });
 
 test('dispose also disposes every provider', () => {
@@ -178,22 +179,22 @@ test('dispose also disposes every provider', () => {
 test('an unhealthy mlx voice is not preloaded', () => {
   const calls: string[] = [];
   const mlx = { ...withPreload(MLX_ID, async () => void calls.push('preload')), healthy: () => false };
-  prepareVoice([mlx], PT_BR);
+  prepareVoice([mlx], PT_BR, ROUTE);
   assert.deepEqual(calls, []);
 });
 
 test('a failed preload yields the voice notice once, on a later turn', async () => {
   const failing = withPreload(MLX_ID, () => Promise.reject(new Error('cold start failed')));
-  assert.equal(takePreloadFailureNotice([failing], PT_BR), undefined);
-  prepareVoice([failing], PT_BR);
+  assert.equal(takePreloadFailureNotice([failing], PT_BR, ROUTE), undefined);
+  prepareVoice([failing], PT_BR, ROUTE);
   await tick();
-  assert.match(takePreloadFailureNotice([failing], PT_BR) ?? '', /not available on this computer/);
-  assert.equal(takePreloadFailureNotice([failing], PT_BR), undefined);
+  assert.match(takePreloadFailureNotice([failing], PT_BR, ROUTE) ?? '', /not available on this computer/);
+  assert.equal(takePreloadFailureNotice([failing], PT_BR, ROUTE), undefined);
 });
 
 test('a healthy preload yields no failure notice', async () => {
   const mlx = withPreload(MLX_ID, async () => undefined);
-  prepareVoice([mlx], PT_BR);
+  prepareVoice([mlx], PT_BR, ROUTE);
   await tick();
-  assert.equal(takePreloadFailureNotice([mlx], PT_BR), undefined);
+  assert.equal(takePreloadFailureNotice([mlx], PT_BR, ROUTE), undefined);
 });

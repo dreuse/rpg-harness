@@ -212,8 +212,8 @@ test('the player is told once per speaker per session', () => {
 });
 
 test('narrator defaults resolve per language', () => {
-  assert.equal(narratorFallback('en')?.voiceId, 'af_heart');
-  assert.equal(narratorFallback('pt-BR')?.voiceId, 'pf_dora');
+  assert.equal(narratorFallback('en', 'mlx')?.voiceId, 'af_heart');
+  assert.equal(narratorFallback('pt-BR', 'mlx')?.voiceId, 'pf_dora');
 });
 
 const PORTUGUESE_VOICES = MLX_KOKORO_CAPABILITIES.voices.map(voice);

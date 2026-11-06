@@ -1,5 +1,6 @@
 import type { VoiceBlend } from './kokoro-provider.ts';
 import { voicesFor } from './language-voices.ts';
+import type { PtBrRoute } from './pt-br-route.ts';
 import { NARRATOR_SPEAKER } from './speaker-routing.ts';
 import { selectVoiceId } from './tts.ts';
 import type { VoiceProfile } from './voice.ts';
@@ -21,8 +22,13 @@ const voiceFor = (voices: readonly string[], npcId: string, avoided: string | un
   return picked === avoided ? (voices[(index + NEXT_VOICE) % voices.length] ?? picked) : picked;
 };
 
-export const importantNpcProfile = (npcId: string, base: VoiceProfile, stored?: VoiceProfile): VoiceProfile => {
-  const language = voicesFor(base.language);
+export const importantNpcProfile = (
+  npcId: string,
+  base: VoiceProfile,
+  route: PtBrRoute,
+  stored?: VoiceProfile,
+): VoiceProfile => {
+  const language = voicesFor(base.language, route);
   const source = stored ?? { ...base, id: npcId };
   if (!language) return source;
   const { providerId, capabilities } = language;

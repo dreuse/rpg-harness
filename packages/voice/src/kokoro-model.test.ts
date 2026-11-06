@@ -9,6 +9,8 @@ import {
   KOKORO_MODEL_FILES,
   KOKORO_MODEL_ID,
   KOKORO_MODEL_OFFER,
+  KOKORO_PT_BR_MODEL_FILES,
+  KOKORO_PT_BR_MODEL_OFFER,
   type ModelFile,
 } from './kokoro-model.ts';
 
@@ -111,4 +113,23 @@ test('remove deletes the installed model', async () => {
   await manager.remove();
   await assert.rejects(readdir(join(dir, KOKORO_MODEL_ID)), { code: 'ENOENT' });
   assert.deepEqual(await manager.status(), { installed: false, bytes: 0 });
+});
+
+test('rpg-cm63.53 pins the three pt-BR voice files on top of the base model files', () => {
+  const voices = KOKORO_PT_BR_MODEL_FILES.filter((file) => file.path.startsWith('voices/'));
+  assert.deepEqual(voices.map((file) => file.path).sort(), [
+    'voices/pf_dora.bin',
+    'voices/pm_alex.bin',
+    'voices/pm_santa.bin',
+  ]);
+  assert.ok(voices.every((file) => /^[0-9a-f]{64}$/.test(file.sha256) && file.bytes > 0));
+  for (const file of KOKORO_MODEL_FILES) assert.ok(KOKORO_PT_BR_MODEL_FILES.includes(file));
+  assert.equal(KOKORO_PT_BR_MODEL_OFFER.source, KOKORO_MODEL_OFFER.source);
+});
+
+test('rpg-cm63.53 skips files that are already installed with the pinned size', async () => {
+  const { network, manager, consent } = await setup();
+  await manager.download(consent);
+  await manager.download(consent);
+  assert.equal(network.urls.length, FILES.length);
 });

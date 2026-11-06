@@ -253,3 +253,50 @@ F5-TTS has a `speed` argument and no emotion argument. Each delivery emotion map
 - Listening quality, expression and voice similarity. WER only.
 - Peak memory for long passages beyond these four.
 - `num2words` for digits: the model card asks for numbers as words. The service lower-cases text and does not expand digits.
+
+## Kokoro pt-BR on ONNX, CPU only (rpg-cm63.53)
+
+Measured on 2026-11-06. Apple M3 Max (16 cores), macOS 26.6.2, Node v24.22.1. onnxruntime-node 1.21.0 with the `cpu` execution provider. MLX is not involved: nothing in this run imports mlx-audio or starts Python.
+
+### Route
+
+- Model: `onnx-community/Kokoro-82M-v1.0-ONNX`, `onnx/model.onnx` (fp32, 325532232 bytes), voices `pf_dora`, `pm_alex`, `pm_santa` from `voices/*.bin` (522240 bytes each). Every file is sha256-pinned in `packages/voice/src/kokoro-model.ts`.
+- Phonemes: `@echogarden/espeak-ng-emscripten` 0.3.5, voice `pt-br`. The `phonemizer` 1.2.1 package that kokoro-js bundles was tried first and rejects `pt-br` (its data holds English voices only).
+- Engine: `packages/voice/src/kokoro-onnx-engine.ts`. Text goes through espeak-ng per clause, punctuation is kept, phoneme separators are dropped, characters outside the model vocabulary are dropped, and the ids are padded with 0 at both ends (at most 510). The style row is `voice[tokenCount]`, where the token count excludes the two pad ids. Output is 24 kHz mono 16-bit WAV.
+- Measured by `/tmp` script that loads the real engine with the real model, `Olá.` warm-up first, `scripts/voice-spike/passages.ts` pt-BR passages, split at `.`, `!`, `?`. First audio is the time to the first sentence. RTF is total synthesis time over audio duration. The script is not in the repo.
+
+### Results
+
+| Metric | Value |
+|---|---|
+| Load ms (session create) | 357 |
+| espeak-ng WASM init ms | 36 |
+| Warm-up ms | 135 |
+| Peak RSS MiB (Node process, after all passages) | 1025 |
+| Median first audio ms, pf_dora, run 2 | 271 (range 157 to 626) |
+| Median RTF, pf_dora, run 2 | 0.125 |
+
+| pt-BR passage (pf_dora) | First audio ms (run 1 / 2) | Audio s | RTF (run 1 / 2) |
+|---|---|---|---|
+| narration | 726 / 626 | 16.42 | 0.135 / 0.126 |
+| npc-warning | 163 / 157 | 3.10 | 0.131 / 0.128 |
+| npc-innkeeper | 342 / 321 | 4.70 | 0.130 / 0.124 |
+| emotional | 248 / 221 | 4.75 | 0.140 / 0.123 |
+
+| Voice, npc-innkeeper | First audio ms | RTF |
+|---|---|---|
+| pm_alex | 328 | 0.123 |
+| pm_santa | 330 | 0.124 |
+
+### Against MLX on the same machine
+
+- MLX through the service (ADR 0019 Amendment 1): median first audio 63 ms, median RTF 0.036 in the spike. Through the provider and service: first audio 57 to 1029 ms, RTF 0.037 to 0.176.
+- ONNX CPU is about 3.5 times slower in RTF and 2.5 to 5 times slower to first audio than the spike figures, and about on par with the provider-and-service figures. Both are well under real time. So MLX stays the Apple Silicon fast path, and ONNX serves every other platform and anyone who turns MLX off.
+- ONNX needs no Python: 311 MiB of model and voice files against 1.5 GB for the mlx-audio venv plus model.
+
+### Not measured
+
+- Windows, Linux, Intel Macs and x86 CPUs. The numbers above are Apple M3 Max CPU cores. A mid-range x86 laptop will be slower; the RTF bar of 1 is likely still met, but nothing was run to show it.
+- Listening quality and pronunciation. Nobody listened to the output and no speech-to-text check ran. Only duration, sample rate and non-empty audio were checked. The espeak-ng pt-br output uses its own phoneme set, not the misaki one the model was trained on, so some sounds may be off.
+- The `kokoro-onnx-engine.integration.test.ts` test through the repo's own module resolution. This worktree had no `node_modules`, so the measurement injected the espeak and onnxruntime modules from a scratch install. The test skips unless `RPG_KOKORO_MODEL_DIR` holds the files.
+- Peak memory per process beyond the Node RSS above.

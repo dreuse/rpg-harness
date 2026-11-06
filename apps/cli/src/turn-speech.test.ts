@@ -6,6 +6,7 @@ import { createTurnSpeech, narratorProfileOf, spokenIn, type TurnSpeechOptions }
 
 const PROFILE: VoiceProfile = { id: 'narrator', language: 'en', pace: 1, style: '', pronunciations: {}, fallbacks: [] };
 const TURN = 'turn-1';
+const ROUTE = 'mlx';
 const FIRST = 'The door creaks open slowly.';
 const SECOND = 'Dust falls from the beams.';
 
@@ -214,11 +215,11 @@ test('dialogue mode never streams and only holds dialogue lines', () => {
 });
 
 test('the narrator profile uses the saved locale and its default voice', () => {
-  const profile = narratorProfileOf('en-GB');
+  const profile = narratorProfileOf('en-GB', ROUTE);
   assert.equal(profile.id, 'narrator');
   assert.equal(profile.language, 'en-GB');
   assert.equal(profile.fallbacks[0]?.providerId, 'kokoro');
-  assert.deepEqual(narratorProfileOf('xx-YY').fallbacks, []);
+  assert.deepEqual(narratorProfileOf('xx-YY', ROUTE).fallbacks, []);
 });
 
 test('a stop during the turn drops its remaining streamed and recorded speech', () => {
@@ -256,8 +257,8 @@ test('a failing utterance builder never breaks the turn and discards its audio',
 const FAST = 1.5;
 
 test('the narrator profile pace follows the saved speed and defaults to normal', () => {
-  assert.equal(narratorProfileOf('en', FAST).pace, FAST);
-  assert.equal(narratorProfileOf('en').pace, DEFAULT_PLAYBACK_SPEED);
+  assert.equal(narratorProfileOf('en', ROUTE, FAST).pace, FAST);
+  assert.equal(narratorProfileOf('en', ROUTE).pace, DEFAULT_PLAYBACK_SPEED);
 });
 
 test('an utterance held for speech carries the saved speed as its profile pace in every mode', () => {
@@ -273,9 +274,9 @@ test('an utterance held for speech carries the saved speed as its profile pace i
       },
       turnId: TURN,
       mode,
-      narrator: narratorProfileOf('en', FAST),
+      narrator: narratorProfileOf('en', ROUTE, FAST),
       utterancesOf: (segments) =>
-        segments.map(({ text }) => ({ ...utteranceOf(text), profile: narratorProfileOf('en', FAST) })),
+        segments.map(({ text }) => ({ ...utteranceOf(text), profile: narratorProfileOf('en', ROUTE, FAST) })),
     });
     turn.heard({ text: FIRST });
     assert.equal(held[0]?.profile.pace, FAST, mode);

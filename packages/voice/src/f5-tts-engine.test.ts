@@ -70,7 +70,7 @@ test('the provider is an optional local pt-BR provider with the named reference 
 });
 
 test('Kokoro stays the default pt-BR voice provider', () => {
-  assert.equal(voicesFor('pt-BR')?.providerId, MLX_KOKORO_PROVIDER_ID);
+  assert.equal(voicesFor('pt-BR', 'mlx')?.providerId, MLX_KOKORO_PROVIDER_ID);
 });
 
 test('there are at least two female and two male voices, each tagged and with a recorded licence and checksum', () => {

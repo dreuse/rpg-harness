@@ -145,6 +145,9 @@ importers:
 
   packages/voice:
     dependencies:
+      '@echogarden/espeak-ng-emscripten':
+        specifier: 0.3.5
+        version: 0.3.5
       '@huggingface/transformers':
         specifier: 3.8.1
         version: 3.8.1
@@ -154,6 +157,9 @@ importers:
       kokoro-js:
         specifier: 1.2.1
         version: 1.2.1
+      onnxruntime-node:
+        specifier: 1.21.0
+        version: 1.21.0
 
   packages/world:
     dependencies:
@@ -231,6 +237,9 @@ packages:
     engines: {node: '>=14.21.3'}
     cpu: [x64]
     os: [win32]
+
+  '@echogarden/espeak-ng-emscripten@0.3.5':
+    resolution: {integrity: sha512-Izbkm7NWccwb//RKgOp1/0k21StKN1DFIn+K7GU1XN7n6pmSi4bsk/0tYUsgQbysC4GVyrVompNmLInU/BFE+A==}
 
   '@electron-internal/extract-zip@1.0.8':
     resolution: {integrity: sha512-8iajeLFbzNwM0m3AsQZSZgYREWglAImyGvvFSWU34FgMW8sHlzdwj9QKvv9dgN7jMP591EFUF/sLOC3Jl9YIjQ==}
@@ -1136,6 +1145,8 @@ snapshots:
 
   '@biomejs/cli-win32-x64@2.6.5':
     optional: true
+
+  '@echogarden/espeak-ng-emscripten@0.3.5': {}
 
   '@electron-internal/extract-zip@1.0.8': {}
 

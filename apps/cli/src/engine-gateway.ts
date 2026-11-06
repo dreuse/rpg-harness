@@ -634,15 +634,18 @@ const openSession = (
           import('../../../packages/voice/src/npc-voice.ts'),
         ]);
         const campaignLanguage = campaignLanguageOf(changes);
+        const runtime = await speech();
+        const { route } = runtime;
         const narrator = narratorProfileOf(
           campaignLanguage === undefined ? settings.locale : voiceLocaleFor(campaignLanguage, settings.locale),
+          route,
           settings.speed,
         );
         const entities = createEntityStore(database);
         const npcVoices = assignedNpcVoices({ entities, campaignId, narrator, assigned: settings.npcVoices ?? {} });
-        const runtime = await speech();
-        prepareVoice(runtime.providers, narrator.language);
-        const notice = takePreloadFailureNotice(runtime.providers, narrator.language) ?? runtime.takeFailureNotice();
+        prepareVoice(runtime.providers, narrator.language, route);
+        const notice =
+          takePreloadFailureNotice(runtime.providers, narrator.language, route) ?? runtime.takeFailureNotice();
         const voice = createTurnSpeech({
           speech: runtime.speech,
           turnId,
@@ -656,6 +659,7 @@ const openSession = (
               turnId,
               segments,
               narrator,
+              route,
               npcVoices,
               installed: () => installedVoices(runtime.providers, narrator.language),
             }),
@@ -825,7 +829,7 @@ const NOTICE_JOIN = ' ';
 
 const speechNotice = async (speech: SpeechSource, locale: string) => {
   const [{ prepareVoice }, runtime] = await Promise.all([import('./speech-runtime.ts'), speech()]);
-  return prepareVoice(runtime.providers, locale);
+  return prepareVoice(runtime.providers, locale, runtime.route);
 };
 
 const playTui = async (

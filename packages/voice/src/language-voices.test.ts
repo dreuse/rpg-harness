@@ -1,9 +1,13 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { KOKORO_ONNX_PROVIDER_ID } from './kokoro-onnx-engine.ts';
 import { KOKORO_PROVIDER_ID } from './kokoro-provider.ts';
-import { narratorFallback, noVoiceNotice, voiceLocaleFor, voicesFor } from './language-voices.ts';
+import { languageVoicesFor, narratorFallback, noVoiceNotice, voiceLocaleFor, voicesFor } from './language-voices.ts';
 import { MLX_KOKORO_PROVIDER_ID } from './mlx-audio-engine.ts';
 import type { TtsProvider } from './tts.ts';
+
+const ROUTE = 'mlx';
+const PT_BR_PROVIDER_ID = MLX_KOKORO_PROVIDER_ID;
 
 const provider = (id: string, healthy: boolean): TtsProvider => ({
   id,
@@ -13,42 +17,49 @@ const provider = (id: string, healthy: boolean): TtsProvider => ({
   synthesize: async function* () {},
 });
 
-test('a Brazilian Portuguese campaign narrates with pf_dora on the mlx-audio provider', () => {
-  assert.deepEqual(narratorFallback('pt-BR'), { providerId: MLX_KOKORO_PROVIDER_ID, voiceId: 'pf_dora' });
-  assert.deepEqual(narratorFallback('pt'), { providerId: MLX_KOKORO_PROVIDER_ID, voiceId: 'pf_dora' });
-  assert.equal(voicesFor('pt-BR')?.providerId, MLX_KOKORO_PROVIDER_ID);
+test('a Brazilian Portuguese campaign narrates with pf_dora on the pt-BR provider of the platform', () => {
+  assert.deepEqual(narratorFallback('pt-BR', ROUTE), { providerId: PT_BR_PROVIDER_ID, voiceId: 'pf_dora' });
+  assert.deepEqual(narratorFallback('pt', ROUTE), { providerId: PT_BR_PROVIDER_ID, voiceId: 'pf_dora' });
+  assert.equal(voicesFor('pt-BR', ROUTE)?.providerId, PT_BR_PROVIDER_ID);
 });
 
 test('an English campaign keeps the af_heart narrator on the in-process provider', () => {
-  assert.deepEqual(narratorFallback('en-GB'), { providerId: KOKORO_PROVIDER_ID, voiceId: 'af_heart' });
+  assert.deepEqual(narratorFallback('en-GB', ROUTE), { providerId: KOKORO_PROVIDER_ID, voiceId: 'af_heart' });
 });
 
 test('a language without a Kokoro voice has no narrator voice', () => {
-  assert.equal(narratorFallback('pt-PT'), undefined);
-  assert.equal(narratorFallback('ja'), undefined);
-  assert.equal(voicesFor('not a tag'), undefined);
+  assert.equal(narratorFallback('pt-PT', ROUTE), undefined);
+  assert.equal(narratorFallback('ja', ROUTE), undefined);
+  assert.equal(voicesFor('not a tag', ROUTE), undefined);
 });
 
 test('tells the player plainly when their language has no voice', () => {
   assert.equal(
-    noVoiceNotice('pt-PT', [provider(MLX_KOKORO_PROVIDER_ID, true)]),
+    noVoiceNotice('pt-PT', [provider(PT_BR_PROVIDER_ID, true)], ROUTE),
     'No spoken voice exists for European Portuguese yet. The story stays in text.',
   );
 });
 
 test('tells the player when the voice for their language is not available on this computer', () => {
   const notice = 'Brazilian Portuguese voices are not available on this computer. The story stays in text.';
-  assert.equal(noVoiceNotice('pt-BR', []), notice);
-  assert.equal(noVoiceNotice('pt-BR', [provider(MLX_KOKORO_PROVIDER_ID, false)]), notice);
+  assert.equal(noVoiceNotice('pt-BR', [], ROUTE), notice);
+  assert.equal(noVoiceNotice('pt-BR', [provider(PT_BR_PROVIDER_ID, false)], ROUTE), notice);
 });
 
 test('says nothing when a voice for the language is ready', () => {
-  assert.equal(noVoiceNotice('pt-BR', [provider(MLX_KOKORO_PROVIDER_ID, true)]), undefined);
-  assert.equal(noVoiceNotice('en-US', [provider(KOKORO_PROVIDER_ID, true)]), undefined);
+  assert.equal(noVoiceNotice('pt-BR', [provider(PT_BR_PROVIDER_ID, true)], ROUTE), undefined);
+  assert.equal(noVoiceNotice('en-US', [provider(KOKORO_PROVIDER_ID, true)], ROUTE), undefined);
 });
 
 test('rpg-42a.40 the voice locale follows the campaign language when a provider speaks it', () => {
   assert.equal(voiceLocaleFor('pt-BR', 'en-US'), 'pt-BR');
   assert.equal(voiceLocaleFor('en', 'pt-BR'), 'en');
   assert.equal(voiceLocaleFor('ja', 'en-US'), 'en-US');
+});
+
+test('rpg-cm63.53 the ONNX route narrates pt-BR with pf_dora on the kokoro-onnx provider', () => {
+  const [, portuguese] = languageVoicesFor('onnx');
+  assert.equal(portuguese?.providerId, KOKORO_ONNX_PROVIDER_ID);
+  assert.equal(portuguese?.narrator, 'pf_dora');
+  assert.equal(languageVoicesFor('mlx')[1]?.providerId, MLX_KOKORO_PROVIDER_ID);
 });

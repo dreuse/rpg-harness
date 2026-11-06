@@ -61,7 +61,7 @@ test('the provider is an optional local pt-BR provider with one default voice an
 });
 
 test('Kokoro stays the default pt-BR voice provider', () => {
-  assert.equal(voicesFor('pt-BR')?.providerId, MLX_KOKORO_PROVIDER_ID);
+  assert.equal(voicesFor('pt-BR', 'mlx')?.providerId, MLX_KOKORO_PROVIDER_ID);
 });
 
 test('is ready only on Apple Silicon with the venv and every pinned model file at its exact size', async () => {

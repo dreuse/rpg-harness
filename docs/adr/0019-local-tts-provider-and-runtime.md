@@ -125,3 +125,37 @@ The first sentence after start is the slowest. The second run was slower overall
 - mlx-audio blends: the service accepts a `blend` field (`first`, `second`, `weight`), checks it against the voice allowlist, and mixes the two style vectors as `(1 - weight) * first + weight * second` before synthesis. It uses the private `_get_pipeline` of mlx-audio 0.6.4, so a version bump needs a recheck. A blended and a plain request were run against the installed service and both returned 24 kHz mono 16-bit WAV.
 - kokoro-js does not blend. Mixing voice embeddings needs a way around its fixed voice table, which is not simple, so it keeps the single voice.
 - Nothing calls `voiceBlend` yet. Wiring main NPC ids into it is left to the code that builds the providers.
+
+## Amendment 3 — Cross-platform pt-BR on Kokoro ONNX (rpg-cm63.53)
+
+**Status:** Accepted. **Decision:** pt-BR speech gets a second route that runs the Kokoro-82M ONNX model from Node on the CPU, provider id `kokoro-onnx`. It works on Windows, Linux, Intel Macs and Apple Silicon with MLX switched off. mlx-audio (`kokoro-mlx`) stays the Apple Silicon fast path. Amendment 1 said every other platform keeps text for pt-BR. That no longer holds once the ONNX files are installed.
+
+### Route choice
+
+- `choosePtBrRoute` in `packages/voice/src/pt-br-route.ts` returns `mlx` on Apple Silicon and `onnx` everywhere else. `RPG_PT_BR_ROUTE=onnx` turns MLX off on Apple Silicon. No value forces MLX where it cannot run.
+- Why MLX stays: measured on the same M3 Max, MLX is about 3.5 times faster in RTF (0.036 against 0.125) and has a lower first audio in the spike. See `docs/voice/spike-results.md`, section "Kokoro pt-BR on ONNX, CPU only".
+- `languageVoicesFor(route)` in `language-voices.ts` gives the pt-BR narrator (`pf_dora`) on the provider of the chosen route. The CLI registers `kokoro-onnx` when the route is `onnx`.
+- The desktop host and its page still list only `kokoro-mlx` as the Brazilian provider. Desktop pt-BR on other platforms needs a follow-up bead. Nothing else breaks there.
+
+### Design
+
+- `kokoro-onnx-engine.ts` implements the existing `KokoroEngine` interface. Ports for the phonemizer and for onnxruntime-node are injectable, so tests use fakes and the real modules load only in `load()`.
+- Voices are checked against the three pt-BR names before any file path is built.
+- Files live under the same model root as the English model. `KOKORO_PT_BR_MODEL_OFFER` in `kokoro-model.ts` defines the offer: the base files plus three sha256-pinned voice files (about 311 MiB). No CLI or desktop screen offers these files yet and nothing calls `ModelManager` for them. Until the follow-up bead "wire pt-BR ONNX download offer into CLI and desktop" lands, a person installs them by placing the pinned files in the model root by hand. `ready()` reports false until every file is there. Weights stay out of git. `.voice-spike/` is ignored for development copies.
+- New dependencies in `packages/voice`: `onnxruntime-node` 1.21.0 (already installed through `@huggingface/transformers`, now direct) and `@echogarden/espeak-ng-emscripten` 0.3.5. The second is new because the `phonemizer` package that kokoro-js bundles only holds English voices.
+
+### Licences
+
+| Part | Licence | Note |
+|---|---|---|
+| espeak-ng (WASM build `@echogarden/espeak-ng-emscripten`) | GPL-3.0 | Linked into the voice package. The project is non-commercial. A commercial or closed distribution needs a different phonemizer or a legal review first. |
+| Kokoro-82M ONNX model and voices (`onnx-community/Kokoro-82M-v1.0-ONNX`) | Apache-2.0 | From the model card. |
+| onnxruntime-node | MIT | |
+
+- Owner action: confirm that GPL-3.0 for the espeak-ng WASM package is acceptable for how the app is distributed.
+
+### Consequences
+
+- pt-BR speech works without Python on any platform onnxruntime-node supports, at about 311 MiB of disk.
+- Quality is not judged. The espeak-ng pt-br phonemes are not the ones the model was trained on, so a person must listen before this route is called good.
+- Only the CPU provider is used. GPU providers are not tried.

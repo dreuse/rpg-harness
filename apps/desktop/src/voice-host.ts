@@ -93,6 +93,7 @@ export type VoiceHost = {
   prepare(language: string): string | undefined;
 };
 
+const DESKTOP_PT_BR_ROUTE = 'mlx';
 const PREVIEW_EVENT = 'voice-preview';
 const PREVIEW_SPEAKER = 'narrator';
 const NO_STYLE = '';
@@ -249,7 +250,7 @@ export const createVoiceHost = ({
       cache = createFileAudioCache(cacheDir, cacheLimit);
     },
     prepare: (language) => {
-      const hosted = providers.find(({ id }) => id === voicesFor(language)?.providerId);
+      const hosted = providers.find(({ id }) => id === voicesFor(language, DESKTOP_PT_BR_ROUTE)?.providerId);
       if (hosted !== undefined && hosted.provider.healthy())
         hosted.provider
           .preload()
@@ -260,12 +261,13 @@ export const createVoiceHost = ({
         providers
           .filter(({ id }) => !failedPreloads.has(id))
           .map(({ id, provider }) => ({ id, healthy: () => provider.healthy() })),
+        DESKTOP_PT_BR_ROUTE,
       );
     },
   };
 };
 
-const BRAZILIAN_NARRATOR = voicesFor('pt-BR')?.narrator ?? '';
+const BRAZILIAN_NARRATOR = voicesFor('pt-BR', DESKTOP_PT_BR_ROUTE)?.narrator ?? '';
 
 export const mlxAudioProviders = (
   dir: string,
@@ -288,7 +290,7 @@ export const mlxAudioProviders = (
   },
 ];
 
-const kokoroNarrator = () => voicesFor('en')?.narrator ?? KOKORO_CAPABILITIES.voices[0] ?? '';
+const kokoroNarrator = () => voicesFor('en', DESKTOP_PT_BR_ROUTE)?.narrator ?? KOKORO_CAPABILITIES.voices[0] ?? '';
 
 export const kokoroProviders = (dir: string): HostedProvider[] => [
   {

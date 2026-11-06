@@ -18,6 +18,7 @@ const NARRATOR: VoiceProfile = {
 const HALF = 0.5;
 const SLOW_PACE = 0.8;
 const NPC_COUNT = 40;
+const ROUTE = 'mlx';
 
 test('maps emotion, intensity and pace to a Kokoro speed', () => {
   assert.equal(kokoroSpeed(undefined), KOKORO_DELIVERY_SPEED.neutral);
@@ -44,10 +45,10 @@ test('clamps the speed to the range Kokoro accepts', () => {
 
 test('important NPCs get a deterministic Kokoro voice distinct from the narrator', () => {
   const ids = Array.from({ length: NPC_COUNT }, (_, index) => `npc-${index}`);
-  const voices = ids.map((id) => importantNpcProfile(id, NARRATOR).fallbacks[0]?.voiceId);
+  const voices = ids.map((id) => importantNpcProfile(id, NARRATOR, ROUTE).fallbacks[0]?.voiceId);
   assert.deepEqual(
     voices,
-    ids.map((id) => importantNpcProfile(id, NARRATOR).fallbacks[0]?.voiceId),
+    ids.map((id) => importantNpcProfile(id, NARRATOR, ROUTE).fallbacks[0]?.voiceId),
   );
   for (const voice of voices) {
     assert.ok(voice !== undefined && KOKORO_CAPABILITIES.voices.includes(voice));
@@ -58,7 +59,7 @@ test('important NPCs get a deterministic Kokoro voice distinct from the narrator
 
 test('the important NPC profile keeps the base profile and puts Kokoro first', () => {
   const other = { providerId: 'cloud', voiceId: 'x' };
-  const profile = importantNpcProfile('npc-7', { ...NARRATOR, fallbacks: [other, ...NARRATOR.fallbacks] });
+  const profile = importantNpcProfile('npc-7', { ...NARRATOR, fallbacks: [other, ...NARRATOR.fallbacks] }, ROUTE);
   assert.equal(profile.id, 'npc-7');
   assert.equal(profile.language, NARRATOR.language);
   assert.equal(profile.fallbacks[0]?.providerId, KOKORO_PROVIDER_ID);
@@ -77,17 +78,17 @@ test('the picked voice depends only on the npc id unless it collides with the na
   const voices = KOKORO_CAPABILITIES.voices;
   const unrelated = voices.at(-1) ?? NARRATOR_VOICE;
   for (const id of ids) {
-    const picked = kokoroVoiceOf(importantNpcProfile(id, NARRATOR));
-    const elsewhere = kokoroVoiceOf(importantNpcProfile(id, withNarratorVoice(unrelated)));
+    const picked = kokoroVoiceOf(importantNpcProfile(id, NARRATOR, ROUTE));
+    const elsewhere = kokoroVoiceOf(importantNpcProfile(id, withNarratorVoice(unrelated), ROUTE));
     if (picked !== unrelated && elsewhere !== NARRATOR_VOICE) assert.equal(elsewhere, picked);
   }
 });
 
 test('a stored kokoro voice survives a narrator voice change', () => {
-  const stored = importantNpcProfile('npc-7', NARRATOR);
+  const stored = importantNpcProfile('npc-7', NARRATOR, ROUTE);
   const storedVoice = kokoroVoiceOf(stored);
   assert.ok(storedVoice !== undefined);
-  const recast = importantNpcProfile('npc-7', withNarratorVoice(storedVoice), stored);
+  const recast = importantNpcProfile('npc-7', withNarratorVoice(storedVoice), ROUTE, stored);
   assert.equal(recast, stored);
 });
 
@@ -100,7 +101,7 @@ const PORTUGUESE_NARRATOR: VoiceProfile = {
 test('important NPCs in a Brazilian Portuguese campaign get a pt-BR voice distinct from the narrator', () => {
   const ids = Array.from({ length: NPC_COUNT }, (_, index) => `npc-${index}`);
   const voices = ids.map((id) => {
-    const [fallback] = importantNpcProfile(id, PORTUGUESE_NARRATOR).fallbacks;
+    const [fallback] = importantNpcProfile(id, PORTUGUESE_NARRATOR, ROUTE).fallbacks;
     assert.equal(fallback?.providerId, MLX_KOKORO_PROVIDER_ID);
     return fallback?.voiceId;
   });
@@ -113,15 +114,15 @@ test('important NPCs in a Brazilian Portuguese campaign get a pt-BR voice distin
 
 test('important NPCs in a language without voices keep the base profile', () => {
   const base: VoiceProfile = { ...NARRATOR, language: 'pt-PT', fallbacks: [{ providerId: 'cloud', voiceId: 'x' }] };
-  assert.deepEqual(importantNpcProfile('npc-7', base), { ...base, id: 'npc-7' });
+  assert.deepEqual(importantNpcProfile('npc-7', base, ROUTE), { ...base, id: 'npc-7' });
 });
 
 test('a stored profile without a kokoro voice gets one added', () => {
   const stored: VoiceProfile = { ...NARRATOR, id: 'npc-7', fallbacks: [{ providerId: 'cloud', voiceId: 'x' }] };
-  const assigned = importantNpcProfile('npc-7', NARRATOR, stored);
+  const assigned = importantNpcProfile('npc-7', NARRATOR, ROUTE, stored);
   assert.equal(assigned.fallbacks[0]?.providerId, KOKORO_PROVIDER_ID);
   assert.deepEqual(assigned.fallbacks.slice(1), stored.fallbacks);
-  assert.deepEqual(importantNpcProfile('npc-7', NARRATOR, stored), assigned);
+  assert.deepEqual(importantNpcProfile('npc-7', NARRATOR, ROUTE, stored), assigned);
 });
 
 const VOICE_PREFIX_CHARS = 2;
