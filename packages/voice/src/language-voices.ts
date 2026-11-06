@@ -1,6 +1,6 @@
-import { KOKORO_ONNX_PROVIDER_ID } from './kokoro-onnx-engine.ts';
 import {
   KOKORO_CAPABILITIES,
+  KOKORO_ONNX_PROVIDER_ID,
   KOKORO_PROVIDER_ID,
   type KokoroCapabilities,
   MLX_KOKORO_CAPABILITIES,

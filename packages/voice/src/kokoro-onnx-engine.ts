@@ -5,10 +5,11 @@ import { encodeWav } from './delivery-shaping.ts';
 import { KOKORO_PT_BR_MODEL_FILES, KOKORO_WEIGHTS_PATH, kokoroModelRoot } from './kokoro-model.ts';
 import { type KokoroEngine, MLX_KOKORO_CAPABILITIES } from './kokoro-provider.ts';
 
+export { KOKORO_ONNX_PROVIDER_ID } from './kokoro-provider.ts';
+
 export const KOKORO_SAMPLE_RATE = 24_000;
 export const KOKORO_STYLE_DIMENSION = 256;
 export const KOKORO_MAX_TOKENS = 510;
-export const KOKORO_ONNX_PROVIDER_ID = 'kokoro-onnx';
 
 const ONNX_MODULE = 'onnxruntime-node';
 const ESPEAK_MODULE = '@echogarden/espeak-ng-emscripten';
