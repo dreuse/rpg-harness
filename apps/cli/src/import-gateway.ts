@@ -42,7 +42,7 @@ const interpretRuleData: Interpreter = async ({ text }) => {
     : { confidence: NO_CONFIDENCE, evidence: '' };
 };
 
-const readInside = (root: string, file: string) => {
+export const readInside = (root: string, file: string) => {
   const realRoot = realpathSync(root);
   const path = realpathSync(resolve(realRoot, file));
   const fromRoot = relative(realRoot, path);

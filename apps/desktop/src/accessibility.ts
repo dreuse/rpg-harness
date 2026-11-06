@@ -399,6 +399,7 @@ export const CATALOG: Catalog = {
     'start.start': 'Start',
     'start.close': 'Close',
     'start.import': 'Import a rulebook',
+    'start.importOwn': 'Add rules files',
     'start.importHint':
       'Not listed? Choose the closest rule pack above, then import your rulebook files. Text, Markdown, YAML and JSON are read.',
     'start.importNeedsPack': 'Choose the closest rule pack first. Your rulebook runs on it.',
@@ -591,6 +592,7 @@ export const CATALOG: Catalog = {
     'start.start': 'Empezar',
     'start.close': 'Cerrar',
     'start.import': 'Importar un libro de reglas',
+    'start.importOwn': 'Añadir archivos de reglas',
     'start.importHint':
       '¿No aparece? Elige arriba el paquete de reglas más cercano y luego importa los archivos de tu libro. Se leen texto, Markdown, YAML y JSON.',
     'start.importNeedsPack': 'Elige primero el paquete de reglas más cercano. Tu libro de reglas se ejecuta sobre él.',
@@ -884,6 +886,7 @@ export const CATALOG: Catalog = {
     'start.start': 'Começar',
     'start.close': 'Fechar',
     'start.import': 'Importar um livro de regras',
+    'start.importOwn': 'Adicionar arquivos de regras',
     'start.importHint':
       'Não está na lista? Escolha acima o pacote de regras mais próximo e importe os arquivos do seu livro. Texto, Markdown, YAML e JSON são lidos.',
     'start.importNeedsPack': 'Escolha primeiro o pacote de regras mais próximo. Seu livro de regras roda sobre ele.',

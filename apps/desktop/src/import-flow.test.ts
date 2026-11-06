@@ -143,3 +143,33 @@ test('rpg-42a.68 the import wording is available in Portuguese', async () => {
   );
   assert.match(html, /data-start-import="pick">Importar um livro de regras</);
 });
+
+const OWN_DRAFT: StartDraft = { ...UNPICKED, choices: { rulesSource: 'own' } };
+const OWN_FILES = ['two-dice.md'];
+
+test('rpg-42a.82 the rules step offers my own files and a button to add them', () => {
+  const { client } = harness([], OWN_DRAFT);
+  const html = htmlOf(client);
+  assert.match(html, /My own files/);
+  assert.match(html, /data-start-import="pickOwn"/);
+  assert.doesNotMatch(htmlOf(harness([], UNPICKED).client), /data-start-import="pickOwn"/);
+});
+
+test('rpg-42a.82 adding own files saves their names in the draft and the next plan', async () => {
+  const { client, requests } = harness(
+    [{ status: 'ownFiles', names: OWN_FILES, lines: ['Added rules files: two-dice.md'] }],
+    OWN_DRAFT,
+  );
+  await client.importOwnRules();
+  assert.deepEqual(requests, [{ kind: 'pickOwn' }]);
+  assert.deepEqual(client.state().start.draft.choices, { rulesSource: 'own', ownRules: OWN_FILES });
+  assert.match(htmlOf(client), /two-dice\.md/);
+});
+
+test('rpg-42a.82 a cancelled or failed pick leaves the draft files as they were', async () => {
+  const { client } = harness([{ status: 'cancelled' }, { status: 'failed', lines: ['bad file'] }], OWN_DRAFT);
+  await client.importOwnRules();
+  await client.importOwnRules();
+  assert.deepEqual(client.state().start.draft.choices, { rulesSource: 'own' });
+  assert.equal(client.state().start.import?.status, 'failed');
+});

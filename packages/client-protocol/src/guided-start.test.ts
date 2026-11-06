@@ -172,15 +172,19 @@ test('rpg-42a.14 rules step lists only installed rulesets and sends other system
   assert.equal(screen.step, 'rules');
   assert.deepEqual(
     screen.options.map(({ action }) => action),
-    [...OPTIONS.rulesets]
-      .reverse()
-      .map(({ id, edition }) => ({ kind: 'choose', field: 'ruleset', value: { id, edition } })),
+    [
+      ...[...OPTIONS.rulesets]
+        .reverse()
+        .map(({ id, edition }) => ({ kind: 'choose', field: 'ruleset', value: { id, edition } })),
+      { kind: 'choose', field: 'rulesSource', value: 'none' },
+    ],
   );
   assert.deepEqual(
     screen.options.map(({ label, badge }) => [label, badge]),
     [
       ['Story only: no dice, no sheet', 'Recommended'],
       ['Classic d20', undefined],
+      ['No rules: the GM decides', undefined],
     ],
   );
   assert.equal(screen.text.length, 1);

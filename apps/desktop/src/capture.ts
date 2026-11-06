@@ -319,8 +319,31 @@ const RETRY_FAILED_TURN = steps(
   `await ${until(`${GM_REPLIED} && !document.querySelector(${JSON.stringify(GM_FAILURE_NOTICE)}) && ${SETTLED}`)};`,
 );
 
+const OWN_FILES_OPTION = 'My own files';
+const OWN_FILE_NAME = 'two-dice.md';
+const CHOOSE_OWN_FILES = steps(
+  `${clickOption(OWN_FILES_OPTION)} await ${until(`document.querySelector('[data-start-import="pickOwn"]')`)};`,
+);
+const ADD_OWN_FILES = steps(
+  click('[data-start-import="pickOwn"]'),
+  `await ${until(`document.body.textContent.includes(${JSON.stringify(OWN_FILE_NAME)})`)};`,
+);
+const OWN_TO_SUMMARY = steps(
+  nextStep('character'),
+  `document.querySelector('#start-entry').value = ${JSON.stringify(JOURNEY_CHARACTER)};`,
+  `document.querySelector('[data-start-form]').requestSubmit();`,
+  `await ${until(`document.querySelector('[data-start-title="features"]')`)};`,
+  nextStep('begin'),
+  nextStep('summary'),
+  `await ${until(`document.querySelector('[data-start-control="start"]:not([disabled])')`)};`,
+);
+const OWN_CREATED = steps(
+  click('[data-start-control="start"]'),
+  `await ${until(`document.querySelector('#home-continue-0')`)};`,
+);
+
 export const JOURNEY: Readonly<
-  Record<'first' | 'reopen' | 'portuguese' | 'diceless' | 'physical' | 'failure', readonly JourneyStep[]>
+  Record<'first' | 'reopen' | 'portuguese' | 'diceless' | 'physical' | 'failure' | 'ownRules', readonly JourneyStep[]>
 > = {
   failure: [
     { script: OPEN_FIRST_CAMPAIGN },
@@ -396,6 +419,15 @@ export const JOURNEY: Readonly<
       ),
       shot: 'continue',
     },
+  ],
+  ownRules: [
+    { script: FIRST_HOME },
+    { script: OPEN_START },
+    { script: DICELESS_TO_RULES, shot: 'own-rules-step' },
+    { script: CHOOSE_OWN_FILES, shot: 'own-rules-chosen' },
+    { script: ADD_OWN_FILES, shot: 'own-rules-added' },
+    { script: OWN_TO_SUMMARY, shot: 'own-rules-summary' },
+    { script: OWN_CREATED, shot: 'own-rules-created' },
   ],
   diceless: [
     { script: FIRST_HOME },

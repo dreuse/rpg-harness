@@ -27,6 +27,7 @@ import {
   type GmRollVisibility,
   MAX_ROLL_EXPRESSION_LENGTH,
   MAX_ROLL_REASON_LENGTH,
+  MAX_ROLL_SECTION_LENGTH,
   rollForGm,
 } from '../../../packages/engine/src/gm-roll.ts';
 import { introduceEntity, openPending } from '../../../packages/engine/src/memory.ts';
@@ -100,7 +101,7 @@ const PROPOSAL_KEYS = {
   [CHECK_PROPOSAL]: ['kind', 'id', 'ruleId', 'target', 'label', 'difficulty', 'modifiers', NEEDS_CHECK_FIELD],
   [OUTCOME_PROPOSAL]: ['kind', 'id', 'text'],
   [VOICE_TRAITS_PROPOSAL]: ['kind', 'id', 'entityId', VOICE_TRAITS_FIELD],
-  [GM_ROLL_PROPOSAL]: ['kind', 'id', 'roller', 'reason', 'visibility', 'ruleId', 'expression', 'modifiers'],
+  [GM_ROLL_PROPOSAL]: ['kind', 'id', 'roller', 'reason', 'visibility', 'ruleId', 'expression', 'section', 'modifiers'],
   [CONDITION_PROPOSAL]: ['kind', 'id', 'conditionId', 'reason', 'label', 'duration', 'appliesTo', 'modifiers'],
   [CONDITION_END_PROPOSAL]: ['kind', 'id', 'conditionId'],
   [CLAIM_PROPOSAL]: ['kind', 'id', 'entityId', 'claimKind', 'key', 'value', 'visibility'],
@@ -154,6 +155,7 @@ export type GmRollProposal = {
   readonly visibility: GmRollVisibility;
   readonly ruleId?: string;
   readonly expression?: string;
+  readonly section?: string;
   readonly modifiers?: readonly ModifierRequest[];
 };
 
@@ -308,6 +310,7 @@ export const PROPOSALS_SCHEMA = {
           visibility: { type: 'string', enum: GM_ROLL_VISIBILITIES },
           ruleId: { type: 'string', maxLength: MAX_ID_LENGTH, pattern: RULE_ID_PATTERN },
           expression: { type: 'string', maxLength: MAX_ROLL_EXPRESSION_LENGTH },
+          section: { type: 'string', maxLength: MAX_ROLL_SECTION_LENGTH },
           modifiers: modifiersSchema,
         },
         required: ['kind', 'id', 'roller', 'reason', 'visibility'],
@@ -491,6 +494,8 @@ const gmRollOf = (value: Record<string, unknown>): GmRollProposal | undefined =>
   const visibility = GM_ROLL_VISIBILITIES.find((known) => known === value.visibility);
   const ruleId = typeof value.ruleId === 'string' && RULE_ID_REGEX.test(value.ruleId) ? value.ruleId : undefined;
   const expression = textOf(value.expression, MAX_ROLL_EXPRESSION_LENGTH);
+  const section = value.section === undefined ? undefined : textOf(value.section, MAX_ROLL_SECTION_LENGTH);
+  if (value.section !== undefined && section === undefined) return undefined;
   if (id === undefined || roller === undefined || reason === undefined || visibility === undefined) return undefined;
   const modifiers = modifiersOf(value.modifiers);
   if ((ruleId === undefined) === (expression === undefined) || modifiers === null) return undefined;
@@ -502,6 +507,7 @@ const gmRollOf = (value: Record<string, unknown>): GmRollProposal | undefined =>
     visibility,
     ...(ruleId === undefined ? {} : { ruleId }),
     ...(expression === undefined ? {} : { expression }),
+    ...(section === undefined ? {} : { section }),
     ...(modifiers === undefined ? {} : { modifiers }),
   };
 };
@@ -621,7 +627,7 @@ export const commitGmRolls = (
   entities: EntityStore,
   committed: CommittedTurn,
   proposals: readonly GmProposal[],
-  expressionOf: (spec: Pick<GmRollProposal, 'ruleId' | 'expression'>) => string | undefined,
+  expressionOf: (spec: Pick<GmRollProposal, 'ruleId' | 'expression' | 'roller' | 'section'>) => string | undefined,
   rng: Rng,
   policy?: ModifierPolicy,
 ): readonly CommittedTurn[] => {
@@ -629,7 +635,7 @@ export const commitGmRolls = (
   const results: CommittedTurn[] = [];
   for (const proposal of proposals) {
     if (proposal.kind !== GM_ROLL_PROPOSAL) continue;
-    const { roller, reason, visibility, modifiers } = proposal;
+    const { roller, reason, visibility, section, modifiers } = proposal;
     const expression = expressionOf(proposal);
     if (expression === undefined) continue;
     const action = actionFor(committed, proposal, loadState(store, campaignId).revision);
@@ -640,7 +646,14 @@ export const commitGmRolls = (
           entities,
           {
             ...action,
-            gmRoll: { roller, reason, visibility, expression, ...(modifiers === undefined ? {} : { modifiers }) },
+            gmRoll: {
+              roller,
+              reason,
+              visibility,
+              expression,
+              ...(section === undefined ? {} : { section }),
+              ...(modifiers === undefined ? {} : { modifiers }),
+            },
           },
           rng,
           policy,

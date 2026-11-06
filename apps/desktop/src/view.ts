@@ -5,7 +5,11 @@ import {
   gmUsageLines,
   modelHintOf,
 } from '../../../packages/client-protocol/src/gm-usage.ts';
-import { loadStartDraft, type StartScreen } from '../../../packages/client-protocol/src/guided-start.ts';
+import {
+  loadStartDraft,
+  RULES_SOURCE_FIELD,
+  type StartScreen,
+} from '../../../packages/client-protocol/src/guided-start.ts';
 import type { GmSnapshot, StoryMemoryEntry, StoryMemoryView } from '../../../packages/client-protocol/src/protocol.ts';
 import type { SlashOption } from '../../../packages/client-protocol/src/slash-commands.ts';
 import {
@@ -840,7 +844,7 @@ export const renderVoice = (
 
 export const START_OPEN = 'data-start-open';
 export const START_IMPORT = 'data-start-import';
-export const IMPORT_ACTIONS = ['pick', 'activate', 'decline'] as const;
+export const IMPORT_ACTIONS = ['pick', 'pickOwn', 'activate', 'decline'] as const;
 export type ImportAction = (typeof IMPORT_ACTIONS)[number];
 export const START_OPTION = 'data-start-option';
 export const START_PREVIEW = 'data-start-preview';
@@ -961,9 +965,20 @@ const importOutcome = ({ rulebookImport }: ViewModel, locale: string) => {
   return `<pre data-import-report tabindex="0" aria-label="${escapeHtml(translate(locale, 'start.importReport'))}">${importLines(lines)}</pre><div data-actions>${decide('activate')}${decide('decline')}</div>`;
 };
 
+const ownFilesChosen = ({ options }: StartScreen) =>
+  options.some(
+    ({ action, selected }) =>
+      selected && action.kind === 'set' && action.field === RULES_SOURCE_FIELD && action.value === 'own',
+  );
+
+const ownFilesButton = (start: StartScreen, locale: string) =>
+  ownFilesChosen(start)
+    ? `<button type="button" ${START_IMPORT}="pickOwn">${escapeHtml(translate(locale, 'start.importOwn'))}</button>`
+    : '';
+
 const startImport = (model: ViewModel, start: StartScreen, locale: string) =>
   start.step === 'rules'
-    ? `<div data-start-import-block><p>${escapeHtml(translate(locale, 'start.importHint'))}</p><button type="button" ${START_IMPORT}="pick">${escapeHtml(translate(locale, 'start.import'))}</button>${importOutcome(model, locale)}</div>`
+    ? `<div data-start-import-block><p>${escapeHtml(translate(locale, 'start.importHint'))}</p><button type="button" ${START_IMPORT}="pick">${escapeHtml(translate(locale, 'start.import'))}</button>${ownFilesButton(start, locale)}${importOutcome(model, locale)}</div>`
     : '';
 
 const startBody = (model: ViewModel, locale: string) => {

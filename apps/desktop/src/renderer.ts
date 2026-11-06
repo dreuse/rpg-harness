@@ -4,6 +4,7 @@ import {
   DEFAULT_ADVENTURE_NAME,
   INITIAL_DRAFT,
   nextDraft,
+  OWN_RULES_FIELD,
   planCommand,
   type StartAction,
   type StartDraft,
@@ -99,7 +100,7 @@ export type StalledTurn = { readonly action: SubmitPlayerAction; readonly failur
 export type StreamedNarration = { readonly turnId: string; readonly text: string };
 export type RejectedAction = { readonly actionId: string; readonly input: string; readonly message: string };
 export type ImportState = {
-  readonly status: 'needsPack' | 'preview' | 'installed' | 'declined' | 'failed';
+  readonly status: 'needsPack' | 'preview' | 'installed' | 'declined' | 'failed' | 'ownFiles';
   readonly lines: readonly string[];
 };
 export type StartState = {
@@ -389,7 +390,7 @@ export const viewModel = (
     gm: state.snapshot?.gm,
     storyLanguage: state.snapshot?.language,
     start: state.start.open
-      ? startScreen(state.start.draft, state.start.options, state.start.plan, preferences.locale, voices)
+      ? startScreen(state.start.draft, state.start.options, state.start.plan, preferences.locale, voices, true)
       : undefined,
     created: state.start.created,
     rulebookImport: state.start.import,
@@ -629,8 +630,33 @@ export const createDesktopClient = ({
       (error): ImportResult => ({ status: 'failed', lines: [error instanceof Error ? error.message : String(error)] }),
     );
     if (result.status === 'cancelled') return update({ start: { ...state.start, import: undefined } });
-    update({ start: { ...state.start, import: result } });
+    update({ start: { ...state.start, import: { status: result.status, lines: result.lines } } });
     if (result.status === 'installed') send(OPTIONS_REQUEST);
+    return result;
+  };
+
+  const startAction = (action: StartAction) => {
+    const { draft, plan } = state.start;
+    if (action.kind === 'start') {
+      if (plan?.ok) send(createCommand(draft, DESKTOP_CLIENT, locale()));
+      return;
+    }
+    const next = nextDraft(draft, action);
+    const replan =
+      plan?.ok !== true || !sameCommand(planCommand(next, DESKTOP_CLIENT), planCommand(draft, DESKTOP_CLIENT));
+    update({
+      start: {
+        ...state.start,
+        open: true,
+        draft: next,
+        plan: replan ? undefined : plan,
+        created: undefined,
+        import: undefined,
+      },
+    });
+    saveStart(next);
+    requestOptions();
+    if (replan) planSummary();
   };
 
   const onCreated = (result: Result<unknown>) => {
@@ -1070,7 +1096,7 @@ export const createDesktopClient = ({
         expectedRevision: snapshot.revision,
       });
     },
-    startScreen: () => startScreen(state.start.draft, state.start.options, state.start.plan, locale(), voices()),
+    startScreen: () => startScreen(state.start.draft, state.start.options, state.start.plan, locale(), voices(), true),
     openStart: () => {
       update({ start: { ...state.start, open: true, created: undefined } });
       requestOptions();
@@ -1082,30 +1108,12 @@ export const createDesktopClient = ({
       await importWith({ kind: 'pick', packId: ruleset.id });
     },
     decideImport: (decision: 'activate' | 'decline') => importWith({ kind: 'decide', decision }),
-    closeStart: () => update({ start: { ...state.start, open: false } }),
-    startAction: (action: StartAction) => {
-      const { draft, plan } = state.start;
-      if (action.kind === 'start') {
-        if (plan?.ok) send(createCommand(draft, DESKTOP_CLIENT, locale()));
-        return;
-      }
-      const next = nextDraft(draft, action);
-      const replan =
-        plan?.ok !== true || !sameCommand(planCommand(next, DESKTOP_CLIENT), planCommand(draft, DESKTOP_CLIENT));
-      update({
-        start: {
-          ...state.start,
-          open: true,
-          draft: next,
-          plan: replan ? undefined : plan,
-          created: undefined,
-          import: undefined,
-        },
-      });
-      saveStart(next);
-      requestOptions();
-      if (replan) planSummary();
+    importOwnRules: async () => {
+      const result = await importWith({ kind: 'pickOwn' });
+      if (result?.status === 'ownFiles') startAction({ kind: 'set', field: OWN_RULES_FIELD, value: result.names });
     },
+    closeStart: () => update({ start: { ...state.start, open: false } }),
+    startAction,
     editSheet,
     openSheetEdit: () => update({ sheetEditing: true }),
     cancelSheetEdit: () => update({ sheetEditing: false, sheetErrors: {} }),

@@ -1,6 +1,6 @@
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { delimiter, join } from 'node:path';
 import { app, BrowserWindow, dialog, ipcMain, protocol, shell, utilityProcess } from 'electron';
 import { DEFAULT_RELEASES_URL, RELEASE_PUBLIC_KEY, RELEASES_URL_ENV } from '../../../packages/updater/src/release.ts';
 import { startDaemon } from '../../cli/src/desktop-daemon.ts';
@@ -39,6 +39,7 @@ const STATUS_PROBE = `new Promise((resolve) => {
 
 const OPEN_PROPERTIES: ('openFile' | 'multiSelections')[] = ['openFile', 'multiSelections'];
 const OPEN_FILTERS = [{ name: 'Rulebook text', extensions: ['txt', 'md', 'markdown', 'yaml', 'yml', 'json'] }];
+const OPEN_FILES_ENV = 'RPG_DESKTOP_OPEN_FILES';
 const UPDATE_BUTTONS = ['Download', 'Later', 'Stop checking'];
 const LATER = 1;
 
@@ -137,7 +138,9 @@ app.whenReady().then(() => {
     startDaemon: (options) => startDaemon({ ...options, spawnEngine: utilityEngine(utilityProcess.fork) }),
     voice: voiceHostFromEnv(process.env, dataDirFromEnv()),
     showOpenDialog: async () =>
-      (await dialog.showOpenDialog({ properties: OPEN_PROPERTIES, filters: OPEN_FILTERS })).filePaths,
+      headless.hidden && process.env[OPEN_FILES_ENV]
+        ? process.env[OPEN_FILES_ENV].split(delimiter)
+        : (await dialog.showOpenDialog({ properties: OPEN_PROPERTIES, filters: OPEN_FILTERS })).filePaths,
     sound: createSoundHost({ dir: join(dataDirFromEnv(), SOUNDS_DIR) }),
   });
   if (app.isPackaged && !process.env[SMOKE_ENV]) offerUpdate(dataDirFromEnv()).catch(() => undefined);

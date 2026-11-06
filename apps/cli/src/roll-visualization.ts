@@ -30,8 +30,9 @@ import {
   pendingCheckOffer,
 } from '../../../packages/engine/src/check-offer.ts';
 import { conditionModifiersOf, type ModifierPolicy, mergeModifiers } from '../../../packages/engine/src/conditions.ts';
-import { GM_ROLLER } from '../../../packages/engine/src/gm-roll.ts';
+import { GM_ROLLER, PLAYER_ROLLER } from '../../../packages/engine/src/gm-roll.ts';
 import { gmSettingsOf } from '../../../packages/engine/src/gm-settings.ts';
+import { rulesDocumentsOf, usesOwnRules } from '../../../packages/engine/src/own-rules.ts';
 import { reportedCheck, reportedRoll, rollExpressionOf } from '../../../packages/engine/src/roll-report.ts';
 import {
   type Check,
@@ -78,6 +79,7 @@ import type { ActionResolution } from '../../../packages/rules/src/resolve.ts';
 import { isRecord, type ManifestIssue, type RulePackManifest } from '../../../packages/rules/src/rulepack.ts';
 
 import { LocalizedError } from './messages.ts';
+import { citesOwnRulesSection } from './own-rules.ts';
 
 export const DICE_MECHANIC = 'dice';
 export const POOL_MECHANIC = 'dice-pool';
@@ -285,7 +287,7 @@ type StrictnessState = Pick<CampaignState, 'events' | 'changes'>;
 export const rulesStrictnessFor = (state: StrictnessState, defaults: GmSettings = {}): RulesStrictness => {
   const saved = parseCampaignConfig(campaignConfigOf(state.events));
   const chosen = { ...defaults, ...gmSettingsOf(state.changes) }.rulesStrictness;
-  return rulesStrictnessOf(chosen, saved.ok && saved.config.rulepack !== null);
+  return rulesStrictnessOf(chosen, (saved.ok && saved.config.rulepack !== null) || usesOwnRules(state.events));
 };
 
 export const enforcedStrictnessFor = (
@@ -294,7 +296,8 @@ export const enforcedStrictnessFor = (
 ): RulesStrictness | undefined => {
   const saved = parseCampaignConfig(campaignConfigOf(state.events));
   const strictness = rulesStrictnessFor(state, defaults);
-  return strictness === 'as-written' && saved.ok && rollsDice(saved.config) ? strictness : undefined;
+  const rolls = saved.ok && (rollsDice(saved.config) || usesOwnRules(state.events));
+  return strictness === 'as-written' && rolls ? strictness : undefined;
 };
 
 const checkEntryOf = (events: readonly CampaignEvent[], strictness: RulesStrictness) => {
@@ -306,13 +309,31 @@ const checkEntryOf = (events: readonly CampaignEvent[], strictness: RulesStrictn
   );
 };
 
-export type GmRollSpec = { readonly ruleId?: string; readonly expression?: string };
+export type GmRollSpec = {
+  readonly ruleId?: string;
+  readonly expression?: string;
+  readonly roller?: string;
+  readonly section?: string;
+};
+
+const ownRulesExpression = (
+  events: readonly CampaignEvent[],
+  strictness: RulesStrictness,
+  { ruleId, expression, section }: GmRollSpec,
+) => {
+  if (strictness === 'off' || ruleId !== undefined) return undefined;
+  const cited = citesOwnRulesSection(rulesDocumentsOf(events), section);
+  return strictness === 'as-written' && !cited ? undefined : expression;
+};
 
 export const gmRollExpressionFor = (
   events: readonly CampaignEvent[],
   strictness: RulesStrictness,
-  { ruleId, expression }: GmRollSpec,
+  spec: GmRollSpec,
 ): string | undefined => {
+  if (usesOwnRules(events)) return ownRulesExpression(events, strictness, spec);
+  const { ruleId, expression, roller } = spec;
+  if (roller === PLAYER_ROLLER) return undefined;
   const saved = parseCampaignConfig(campaignConfigOf(events));
   if (!saved.ok || !rollsDice(saved.config)) return undefined;
   if (ruleId !== undefined) {
@@ -334,7 +355,9 @@ export const modifierPolicyOf = (
 const GM_ROLL_PROBE = `1d${D20_SIDES}`;
 
 export const gmRollsAllowed = (events: readonly CampaignEvent[], strictness: RulesStrictness): boolean =>
-  gmRollExpressionFor(events, strictness, { expression: GM_ROLL_PROBE }) !== undefined;
+  usesOwnRules(events)
+    ? strictness !== 'off'
+    : gmRollExpressionFor(events, strictness, { expression: GM_ROLL_PROBE }) !== undefined;
 
 export const checkRulesFor = (
   events: readonly CampaignEvent[],
@@ -363,6 +386,7 @@ export const checkFor = (
   entities = NO_ENTITIES,
   strictness: RulesStrictness = DEFAULT_RULES_STRICTNESS,
 ): Check | NoCheck | undefined => {
+  if (usesOwnRules(events)) return undefined;
   if (!callsForCheck(input, hasRulebook(events) ? strictness : AS_WRITTEN)) return undefined;
   const setup = setupOf(events, strictness);
   return 'noCheck' in setup ? setup : setup[1](events, actorId, input, worldProfileOf(entities, actorId));

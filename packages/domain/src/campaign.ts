@@ -17,6 +17,7 @@ export const SCENE_OPENED = 'SceneOpened';
 export const CHARACTER_CREATED = 'CharacterCreated';
 export const CAMPAIGN_CONFIGURED = 'CampaignConfigured';
 export const CAMPAIGN_PITCHED = 'CampaignPitched';
+export const RULES_DOCUMENT_ADDED = 'RulesDocumentAdded';
 export const PLAYER_ACTION_SUBMITTED = 'PlayerActionSubmitted';
 export const ACTION_VALIDATED = 'ActionValidated';
 export const CHECK_RESOLVED = 'CheckResolved';

@@ -90,3 +90,32 @@ test('rpg-42a.68 requests that are not well formed fail', () =>
       assert.equal((await host.run(request)).status, 'failed', JSON.stringify(request));
     }
   }));
+
+const PICK_OWN = { kind: 'pickOwn' } as const;
+const RULES_FILE = 'two-dice.md';
+const OWN_DIR = 'own-rules';
+
+test('rpg-42a.82 picking own rules files stages them and reports the names', () =>
+  withFolders(async (root, dataDir) => {
+    writeFileSync(join(root, RULES_FILE), '# Combat\nRoll 2d6.');
+    const result = await hostFor(dataDir, [join(root, RULES_FILE), join(root, PROSE_FILE)]).run(PICK_OWN);
+    assert.deepEqual(result, {
+      status: 'ownFiles',
+      names: [RULES_FILE, PROSE_FILE],
+      lines: [`Added rules files: ${RULES_FILE}, ${PROSE_FILE}`],
+    });
+    assert.equal(existsSync(join(dataDir, OWN_DIR, RULES_FILE)), true);
+  }));
+
+test('rpg-42a.82 a cancelled dialog, mixed folders and an unsupported file add no rules files', () =>
+  withFolders(async (root, dataDir) => {
+    assert.deepEqual(await hostFor(dataDir, []).run(PICK_OWN), { status: 'cancelled' });
+    assert.equal(
+      (await hostFor(dataDir, [join(root, PROSE_FILE), join(tmpdir(), PROSE_FILE)]).run(PICK_OWN)).status,
+      'failed',
+    );
+    writeFileSync(join(root, 'cover.png'), 'x');
+    const refused = await hostFor(dataDir, [join(root, 'cover.png')]).run(PICK_OWN);
+    assert.equal(refused.status, 'failed');
+    assert.equal(existsSync(join(dataDir, OWN_DIR)), false);
+  }));

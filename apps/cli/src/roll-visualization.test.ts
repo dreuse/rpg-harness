@@ -6,6 +6,7 @@ import {
   type CampaignEvent,
   CHECK_OFFERED,
   PLAYER_ACTION_SUBMITTED,
+  RULES_DOCUMENT_ADDED,
 } from '../../../packages/domain/src/campaign.ts';
 import { CHARACTER_CREATED, SHEET_FIELD_EDITED } from '../../../packages/engine/src/character.ts';
 import { GM_SETTINGS_SAVED } from '../../../packages/engine/src/gm-settings.ts';
@@ -468,6 +469,21 @@ test('rpg-42a.89: a GM roll resolves to a dice expression the RulePack allows', 
     undefined,
   );
   assert.equal(gmRollExpressionFor([], 'as-written', { expression: '1d6' }), undefined);
+  assert.equal(gmRollExpressionFor(d20, 'as-written', { expression: '1d6', roller: 'player' }), undefined);
+});
+
+test('rpg-42a.82: own rules refuse every roll when strictness is off and a ruleId always', () => {
+  const document = {
+    name: 'rules.md',
+    format: 'markdown',
+    sourceHash: 'a'.repeat(64),
+    text: '# Melee Attacks\nRoll 2d6.',
+  };
+  const events = [{ type: RULES_DOCUMENT_ADDED, payload: { document } }] as unknown as CampaignEvent[];
+  const roll = { expression: '2d6', roller: 'player', section: 'Melee Attacks' };
+  assert.equal(gmRollExpressionFor(events, 'off', roll), undefined);
+  assert.equal(gmRollExpressionFor(events, 'as-written', roll), '2d6');
+  assert.equal(gmRollExpressionFor(events, 'as-written', { ...roll, ruleId: 'attack.melee' }), undefined);
 });
 
 test('rpg-42a.89: a GM roll carries its roller label into the mechanic result', () => {

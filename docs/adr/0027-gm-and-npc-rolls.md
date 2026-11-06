@@ -16,6 +16,6 @@
 **Consequences:**
 - The first GM reply of a dice campaign is not streamed or spoken, because it may be replaced by the post-roll reply. When it holds no `gm-roll`, it is narrated as before.
 - Narration text is not scanned for secret numbers; the prompt forbids revealing them. This is the same trust boundary as ADR 0026.
-- A campaign with no RulePack has no dice capability today, so it cannot GM-roll. GM-only mode (rpg-42a.82) will enable expression rolls there.
+- A campaign with no RulePack has no dice capability today, so it cannot GM-roll. GM-only mode (ADR 0031) enables expression rolls there.
 - A rule roll has no modifier and no damage or defense resolution; the GM states a modifier by using an `expression`.
 - A refused proposal (unknown roller, unknown rule, dice off) is dropped silently and gives the GM no result line.

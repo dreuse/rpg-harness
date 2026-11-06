@@ -12,6 +12,8 @@ import type { ModifierPolicy } from './conditions.ts';
 import { commitSystem, loadState, type PlayerAction, recorded, replayOf, requireValid, validate } from './turn.ts';
 
 export const GM_ROLLER = 'gm';
+export const PLAYER_ROLLER = 'player';
+export const MAX_ROLL_SECTION_LENGTH = 120;
 export const MAX_ROLL_REASON_LENGTH = 120;
 export const MAX_ROLL_EXPRESSION_LENGTH = 40;
 export const GM_ROLL_ACTION_INFIX = ':proposal:gm-roll:';
@@ -23,6 +25,7 @@ export type GmRollRequest = {
   readonly reason: string;
   readonly visibility: GmRollVisibility;
   readonly expression: string;
+  readonly section?: string;
   readonly modifiers?: readonly ModifierRequest[];
 };
 
@@ -47,7 +50,7 @@ export const rollForGm = (
   policy?: ModifierPolicy,
 ): CommittedTurn => {
   const { campaignId, actionId, gmRoll } = input;
-  const { roller, reason, visibility, expression, modifiers = [] } = gmRoll;
+  const { roller, reason, visibility, expression, section, modifiers = [] } = gmRoll;
   const state = loadState(store, campaignId);
   const stored = replayOf(store, state, input, recorded(GM_ROLLED, { roller, reason, visibility, expression }));
   if (stored !== undefined) return stored;
@@ -55,8 +58,11 @@ export const rollForGm = (
   requireValid(actionId, reason.trim() !== '', 'roll reason is blank');
   requireValid(actionId, reason.length <= MAX_ROLL_REASON_LENGTH, 'roll reason is too long');
   requireValid(actionId, expression.length <= MAX_ROLL_EXPRESSION_LENGTH, 'dice expression is too long');
-  const npc = roller === GM_ROLLER ? undefined : entities.getEntity(campaignId, roller);
-  requireValid(actionId, roller === GM_ROLLER || npc?.kind === NPC_KIND, `roller ${roller} is not an npc`);
+  const unnamed = roller === GM_ROLLER || roller === PLAYER_ROLLER;
+  const npc = unnamed ? undefined : entities.getEntity(campaignId, roller);
+  requireValid(actionId, unnamed || npc?.kind === NPC_KIND, `roller ${roller} is not an npc`);
+  requireValid(actionId, roller !== PLAYER_ROLLER || visibility === 'shown', 'a player roll is always shown');
+  requireValid(actionId, (section?.length ?? 0) <= MAX_ROLL_SECTION_LENGTH, 'rule section is too long');
   requireValid(
     actionId,
     visibility === 'secret' || npc === undefined || PLAYER_KNOWN.includes(npc.visibility),
@@ -93,6 +99,7 @@ export const rollForGm = (
         reason,
         visibility,
         expression,
+        ...(section === undefined ? {} : { section }),
         resolution: {
           ok: true,
           rolls: [rolled.roll],

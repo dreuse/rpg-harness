@@ -32,10 +32,12 @@ export const CHANNELS = {
 
 export type ImportRequest =
   | { readonly kind: 'pick'; readonly packId: string }
-  | { readonly kind: 'decide'; readonly decision: 'activate' | 'decline' };
+  | { readonly kind: 'decide'; readonly decision: 'activate' | 'decline' }
+  | { readonly kind: 'pickOwn' };
 export type ImportResult =
   | { readonly status: 'cancelled' }
-  | { readonly status: 'preview' | 'installed' | 'declined' | 'failed'; readonly lines: readonly string[] };
+  | { readonly status: 'preview' | 'installed' | 'declined' | 'failed'; readonly lines: readonly string[] }
+  | { readonly status: 'ownFiles'; readonly names: readonly string[]; readonly lines: readonly string[] };
 
 export type Bridge = Transport & {
   savePreferences(preferences: UiPreferences): void;

@@ -12,6 +12,8 @@ import {
   type GmRollRequest,
   MAX_ROLL_EXPRESSION_LENGTH,
   MAX_ROLL_REASON_LENGTH,
+  MAX_ROLL_SECTION_LENGTH,
+  PLAYER_ROLLER,
   rollForGm,
 } from './gm-roll.ts';
 import { ActionIdConflictError, InvalidActionError, type PlayerAction } from './turn.ts';
@@ -184,6 +186,24 @@ test('rpg-42a.89: an unknown roller, a non-NPC roller and a bad expression are r
       store.load(CAMPAIGN.id)?.events.some(({ type }) => type === GM_ROLLED),
       false,
     );
+  } finally {
+    close();
+  }
+});
+
+test('rpg-42a.82: a player roll is never secret and a rule section has a length limit', () => {
+  const { store, entities, close } = seeded();
+  try {
+    const roll = (actionId: string, gmRoll: GmRollRequest) => () =>
+      rollForGm(store, entities, { ...actionFor(store, actionId), gmRoll }, createSeededRng(SEED));
+    const player = { ...ATTACK, roller: PLAYER_ROLLER, expression: '2d6' };
+    assert.throws(roll('secret-player', { ...player, visibility: 'secret' }), InvalidActionError);
+    assert.throws(
+      roll('long-section', { ...player, section: 'x'.repeat(MAX_ROLL_SECTION_LENGTH + 1) }),
+      InvalidActionError,
+    );
+    const { events } = roll('fine', { ...player, section: 'x'.repeat(MAX_ROLL_SECTION_LENGTH) })();
+    assert.equal(events.find(({ type }) => type === GM_ROLLED)?.payload.roller, PLAYER_ROLLER);
   } finally {
     close();
   }

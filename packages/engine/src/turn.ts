@@ -19,6 +19,7 @@ import {
   OPENING_ACTION_ID,
   PLAYER_ACTION_SUBMITTED,
   ROLL_REPORTED,
+  RULES_DOCUMENT_ADDED,
   SCENE_OPENED,
   type SceneId,
   StaleRevisionError,
@@ -29,6 +30,7 @@ import {
 } from '../../domain/src/campaign.ts';
 import type { Rng, RollEvent } from '../../rules/src/dice.ts';
 import type { AppliedModifier, KeepMode } from '../../rules/src/modifiers.ts';
+import { isRulesDocument, MAX_RULES_DOCUMENTS, type RulesDocument } from './own-rules.ts';
 
 export type PlayerAction = {
   readonly campaignId: CampaignId;
@@ -82,6 +84,7 @@ export type OpeningScene = {
   readonly narration: string;
   readonly config?: Readonly<Record<string, unknown>>;
   readonly pitch?: string;
+  readonly rulesDocuments?: readonly RulesDocument[];
 };
 
 const PENDING_NARRATION = '';
@@ -253,6 +256,9 @@ export const openScene = (store: CampaignStore, opening: OpeningScene): Committe
   requireValid(OPENING_ACTION_ID, actorName.trim() !== '', 'actor name is blank');
   requireValid(OPENING_ACTION_ID, sceneTitle.trim() !== '', 'scene title is blank');
   requireValid(OPENING_ACTION_ID, narration.trim() !== '', 'narration is blank');
+  const documents = opening.rulesDocuments ?? [];
+  requireValid(OPENING_ACTION_ID, documents.length <= MAX_RULES_DOCUMENTS, 'too many rules documents');
+  requireValid(OPENING_ACTION_ID, documents.every(isRulesDocument), 'a rules document is invalid');
   const character = { id: randomUUID(), campaignId, name: actorName };
   const tags = {
     ...(locationKind === undefined ? {} : { locationKind }),
@@ -281,6 +287,7 @@ export const openScene = (store: CampaignStore, opening: OpeningScene): Committe
       ? []
       : [turnEvent(turn, opened.id, CAMPAIGN_CONFIGURED, { config: opening.config })]),
     ...(opening.pitch === undefined ? [] : [turnEvent(turn, opened.id, CAMPAIGN_PITCHED, { pitch: opening.pitch })]),
+    ...documents.map((document) => turnEvent(turn, opened.id, RULES_DOCUMENT_ADDED, { document })),
   ];
   return store.commitTurn({ expectedRevision: state.revision, turn, characters: [character], scenes: [scene], events });
 };

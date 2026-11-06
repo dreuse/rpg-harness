@@ -549,7 +549,11 @@ export const mountPage = ({
     client.startAction({ kind: control });
   };
   const importRulebook = (action: ImportAction) =>
-    void (action === 'pick' ? client.importRulebook() : client.decideImport(action));
+    void (action === 'pick'
+      ? client.importRulebook()
+      : action === 'pickOwn'
+        ? client.importOwnRules()
+        : client.decideImport(action));
   const startEdit = (step: string) => {
     if (!STEP_INDEX.test(step)) return;
     keepName();

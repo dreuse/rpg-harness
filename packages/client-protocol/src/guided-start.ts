@@ -3,7 +3,10 @@ import {
   DEFAULT_RULES_STRICTNESS,
   DEFAULT_RULES_USAGE,
   isRulesStrictness,
+  MAX_RULES_DOCUMENTS,
+  MAX_RULES_NAME_LENGTH,
   RULES_STRICTNESSES,
+  type RulesUsage,
   usesDice,
   usesSheet,
 } from '../../domain/src/rules-usage.ts';
@@ -27,6 +30,13 @@ export const START_PATHS = ['describe', 'guide'] as const;
 export const GUIDE_STEPS = ['primer', 'genre', 'rules', 'character', 'features', 'begin', 'summary'] as const;
 export const START_STEPS = { describe: ['describe', 'begin', 'summary'], guide: GUIDE_STEPS } as const;
 const PLAY_FIELDS = ['language', 'narratorVoice', 'whoRolls', 'rulesStrictness'] as const;
+export const RULES_SOURCE_FIELD = 'rulesSource';
+export const OWN_RULES_FIELD = 'ownRules';
+export const RULES_SOURCES = ['own', 'none'] as const;
+const RULES_SOURCE_FIELDS = [RULES_SOURCE_FIELD, OWN_RULES_FIELD] as const;
+const OWN_RULES_USAGE: RulesUsage = { resolution: 'dice', sheet: 'none' };
+const NONE_RULES_USAGE: RulesUsage = { resolution: 'adjudicated', sheet: 'none' };
+const OWN_FILES_VALUE = 'my own files';
 export const FEATURES = ['diceVisualization', 'voiceOutput', 'simulation'] as const;
 
 export type StartPath = (typeof START_PATHS)[number];
@@ -141,6 +151,13 @@ export const START_CATALOG: Catalog = {
     'ruleset.d20-lite.detail': 'Roll a twenty-sided die against a target. Your character has a sheet.',
     'ruleset.dice-pool-lite': 'Dice pool',
     'ruleset.dice-pool-lite.detail': 'Roll a pool of dice for each action. Your character has a sheet.',
+    'rules.none': 'No rules: the GM decides',
+    'rules.none.detail': 'The GM decides everything from your story. Nothing is rolled.',
+    'rules.own': 'My own files',
+    'rules.own.detail': 'The GM runs the rules from your files. Add md or txt files.',
+    'rules.ownFiles': 'Rules files: {files}.',
+    'rules.ownNone': 'No rules files added yet.',
+    'value.ownFiles': 'my own files',
     'character.noSheet':
       'This game does not use a character sheet. Give your character a name and a short description.',
     'features.noDice': 'This game does not use dice.',
@@ -227,6 +244,13 @@ export const START_CATALOG: Catalog = {
     'ruleset.d20-lite.detail': 'Role um dado de vinte lados contra um alvo. Seu personagem tem ficha.',
     'ruleset.dice-pool-lite': 'Reserva de dados',
     'ruleset.dice-pool-lite.detail': 'Role uma reserva de dados a cada ação. Seu personagem tem ficha.',
+    'rules.none': 'Sem regras: o mestre decide',
+    'rules.none.detail': 'O mestre decide tudo a partir da sua história. Nada é rolado.',
+    'rules.own': 'Meus próprios arquivos',
+    'rules.own.detail': 'O mestre segue as regras dos seus arquivos. Adicione arquivos md ou txt.',
+    'rules.ownFiles': 'Arquivos de regras: {files}.',
+    'rules.ownNone': 'Nenhum arquivo de regras adicionado ainda.',
+    'value.ownFiles': 'meus próprios arquivos',
     'character.noSheet': 'Este jogo não usa ficha de personagem. Dê ao seu personagem um nome e uma descrição curta.',
     'features.noDice': 'Este jogo não usa dados.',
     'packs.english': 'Os gêneros e regras incluídos estão em inglês. O mestre ainda narra no seu idioma.',
@@ -282,7 +306,7 @@ const fieldLabel = (locale: string, field: string) => {
 };
 const STEP_FIELDS: Partial<Record<StartStep, readonly string[]>> = {
   genre: ['genre'],
-  rules: ['ruleset'],
+  rules: ['ruleset', ...RULES_SOURCE_FIELDS],
   character: ['character'],
   features: FEATURES,
   begin: PLAY_FIELDS,
@@ -312,6 +336,10 @@ const isEdition = (value: unknown) =>
   Object.keys(value).length === EDITION_KEYS.length &&
   isText(MAX_INPUT_LENGTH)(value.id) &&
   isText(MAX_INPUT_LENGTH)(value.edition);
+const isFileNames = (value: unknown) =>
+  Array.isArray(value) &&
+  value.length <= MAX_RULES_DOCUMENTS &&
+  value.every((name) => typeof name === 'string' && name !== '' && name.length <= MAX_RULES_NAME_LENGTH);
 const CHOICE_CHECKS: Readonly<Record<string, (value: unknown) => boolean>> = {
   language: isLocale,
   narratorVoice: (value: unknown) => isText(MAX_INPUT_LENGTH)(value) && value !== '',
@@ -320,6 +348,8 @@ const CHOICE_CHECKS: Readonly<Record<string, (value: unknown) => boolean>> = {
   genre: isText(MAX_INPUT_LENGTH),
   character: isText(MAX_INPUT_LENGTH),
   ruleset: isEdition,
+  [RULES_SOURCE_FIELD]: (value: unknown) => RULES_SOURCES.some((known) => known === value),
+  [OWN_RULES_FIELD]: isFileNames,
   ...Object.fromEntries(FEATURES.map((feature) => [feature, (value: unknown) => value === FEATURE_ON[feature]])),
 };
 
@@ -353,6 +383,12 @@ const editAt = (draft: StartDraft, step: number): StartDraft =>
     ? { ...draft, step }
     : draft;
 
+const replacing = ({ choices }: StartDraft, { field, value }: { field: string; value: unknown }) => {
+  if (field === 'ruleset') return without(choices, RULES_SOURCE_FIELDS);
+  if (field !== RULES_SOURCE_FIELD) return choices;
+  return without(choices, value === 'own' ? ['ruleset'] : ['ruleset', OWN_RULES_FIELD]);
+};
+
 export const nextDraft = (draft: StartDraft, action: StartAction): StartDraft => {
   if (action.kind === 'path') return { ...draft, path: action.path, step: 0 };
   if (action.kind === 'back')
@@ -366,12 +402,12 @@ export const nextDraft = (draft: StartDraft, action: StartAction): StartDraft =>
     return {
       ...draft,
       choices: {
-        ...(action.field === LANGUAGE_FIELD ? without(draft.choices, [NARRATOR_FIELD]) : draft.choices),
+        ...(action.field === LANGUAGE_FIELD ? without(draft.choices, [NARRATOR_FIELD]) : replacing(draft, action)),
         [action.field]: action.value,
       },
     };
   if (action.kind === 'choose')
-    return advance({ ...draft, choices: { ...draft.choices, [action.field]: action.value } });
+    return advance({ ...draft, choices: { ...replacing(draft, action), [action.field]: action.value } });
   if (action.kind === 'toggle') {
     if (action.on === Object.hasOwn(draft.choices, action.field)) return draft;
     const choices = without(draft.choices, [action.field]);
@@ -389,7 +425,10 @@ export const nextDraft = (draft: StartDraft, action: StartAction): StartDraft =>
 
 const planFields = ({ path, intent, choices }: StartDraft, client?: string) => {
   if (path === 'describe') return intent === '' ? {} : { intent };
-  const planned = without(choices, PLAY_FIELDS);
+  const planned = {
+    ...without(choices, [...PLAY_FIELDS, ...RULES_SOURCE_FIELDS]),
+    ...(choices[RULES_SOURCE_FIELD] === undefined ? {} : { ruleset: null }),
+  };
   return { choices: client === undefined ? planned : { ...planned, client } };
 };
 
@@ -412,6 +451,7 @@ export const planCommand = (draft: StartDraft, client?: string): PlanCampaign =>
 export const createCommand = (draft: StartDraft, client?: string, locale = DEFAULT_LOCALE): CreateCampaign => {
   const play = playOf(draft);
   const language = typeof draft.choices.language === 'string' ? draft.choices.language : safeLocale(locale);
+  const ownFiles = draft.choices[RULES_SOURCE_FIELD] === 'own' ? draft.choices[OWN_RULES_FIELD] : undefined;
   return {
     version: PROTOCOL_VERSION,
     type: 'CreateCampaign',
@@ -419,6 +459,7 @@ export const createCommand = (draft: StartDraft, client?: string, locale = DEFAU
     ...planFields(draft, client),
     language,
     ...(Object.keys(play).length === 0 ? {} : { play }),
+    ...(Array.isArray(ownFiles) && ownFiles.length > 0 ? { rulesDocuments: ownFiles as string[] } : {}),
   };
 };
 
@@ -461,11 +502,22 @@ const PACK_LANGUAGE = 'en';
 const packNotice = (locale: string) =>
   new Intl.Locale(safeLocale(locale)).language === PACK_LANGUAGE ? [] : [text(locale, 'packs.english')];
 
+const RULES_SOURCE_USAGE: Readonly<Record<string, RulesUsage>> = { own: OWN_RULES_USAGE, none: NONE_RULES_USAGE };
+
+const sourceUsageOf = ({ choices }: StartDraft) => {
+  const source = choices[RULES_SOURCE_FIELD];
+  return typeof source === 'string' && Object.hasOwn(RULES_SOURCE_USAGE, source)
+    ? RULES_SOURCE_USAGE[source]
+    : undefined;
+};
+
 const usageOf = (draft: StartDraft, options: StartOptions) =>
+  sourceUsageOf(draft) ??
   options.rulesets.find(
     ({ id, edition }) =>
       isEdition(draft.choices.ruleset) && JSON.stringify({ id, edition }) === JSON.stringify(draft.choices.ruleset),
-  )?.usage ?? DEFAULT_RULES_USAGE;
+  )?.usage ??
+  DEFAULT_RULES_USAGE;
 
 type Ruleset = StartOptions['rulesets'][number];
 
@@ -530,6 +582,7 @@ const VALUE_KEYS: Readonly<Record<string, string>> = {
 };
 
 const shown = (locale: string, field: string, value: string, options: StartOptions) => {
+  if (field === 'ruleset' && value === OWN_FILES_VALUE) return text(locale, 'value.ownFiles');
   if (field === 'ruleset') return rulesetValue(locale, value, options);
   if (field === 'genre' && value !== 'none') return contentText(locale, 'genre', value, value);
   if (field === 'character') return contentText(locale, 'archetype', value, value);
@@ -537,12 +590,17 @@ const shown = (locale: string, field: string, value: string, options: StartOptio
   return key === undefined ? value : text(locale, key);
 };
 
+const entriesOf = ({ choices }: StartDraft, entries: CampaignPlan['entries']) =>
+  choices[RULES_SOURCE_FIELD] === 'own'
+    ? entries.map((entry) => (entry.field === 'ruleset' ? { ...entry, value: OWN_FILES_VALUE } : entry))
+    : entries;
+
 const reviewOf = (
   draft: StartDraft,
   { entries, options }: CampaignPlan,
   locale: string,
 ): readonly StartReviewGroup[] => {
-  const items = entries.map(
+  const items = entriesOf(draft, entries).map(
     ({ field, value, provenance }): StartReviewItem => ({
       field,
       label: fieldLabel(locale, field),
@@ -561,7 +619,7 @@ const reviewOf = (
 const summaryPage = (draft: StartDraft, plan: Result<CampaignPlan> | undefined, locale: string): Page => ({
   title: text(locale, 'summary.title'),
   text: plan?.ok
-    ? plan.value.entries.map(({ field, value, provenance }) =>
+    ? entriesOf(draft, plan.value.entries).map(({ field, value, provenance }) =>
         text(locale, 'summary.line', {
           label: fieldLabel(locale, field),
           value: shown(locale, field, value, plan.value.options),
@@ -576,6 +634,31 @@ const summaryPage = (draft: StartDraft, plan: Result<CampaignPlan> | undefined, 
   canStart: plan?.ok === true,
 });
 
+const sourceOption = (
+  draft: StartDraft,
+  locale: string,
+  source: 'own' | 'none',
+  kind: 'set' | 'choose',
+): StartOption => ({
+  label: text(locale, `rules.${source}`),
+  detail: text(locale, `rules.${source}.detail`),
+  action: { kind, field: RULES_SOURCE_FIELD, value: source },
+  selected: draft.choices[RULES_SOURCE_FIELD] === source,
+});
+
+const hasOwnFiles = ({ choices }: StartDraft) =>
+  choices[RULES_SOURCE_FIELD] === 'own' &&
+  isFileNames(choices[OWN_RULES_FIELD]) &&
+  (choices[OWN_RULES_FIELD] as string[]).length > 0;
+
+const ownFilesNotice = ({ choices }: StartDraft, locale: string) => {
+  if (choices[RULES_SOURCE_FIELD] !== 'own') return [];
+  const files = isFileNames(choices[OWN_RULES_FIELD]) ? (choices[OWN_RULES_FIELD] as string[]) : [];
+  return [
+    files.length === 0 ? text(locale, 'rules.ownNone') : text(locale, 'rules.ownFiles', { files: files.join(', ') }),
+  ];
+};
+
 const PAGES: Readonly<
   Record<
     StartStep,
@@ -585,6 +668,7 @@ const PAGES: Readonly<
       plan: Result<CampaignPlan> | undefined,
       locale: string,
       voices: StartVoices | undefined,
+      canPickFiles: boolean,
     ) => Page
   >
 > = {
@@ -617,22 +701,27 @@ const PAGES: Readonly<
       choose('genre', id, contentText(locale, 'genre', id, name), contentText(locale, 'genre.blurb', id, blurb), draft),
     ),
   }),
-  rules: (draft, { rulesets }, _plan, locale) => ({
+  rules: (draft, { rulesets }, _plan, locale, _voices, canPickFiles) => ({
+    ...(hasOwnFiles(draft) ? { canNext: true } : {}),
     title: text(locale, 'rules.title'),
-    text: [text(locale, 'rules.text'), ...packNotice(locale)],
+    text: [text(locale, 'rules.text'), ...packNotice(locale), ...ownFilesNotice(draft, locale)],
     importHint: text(locale, 'import.hint', { rulebook: text(locale, 'import.rulebook') }),
-    options: [...rulesets]
-      .sort((first, second) => Number(second.recommended) - Number(first.recommended))
-      .map((ruleset) => ({
-        ...choose(
-          'ruleset',
-          { id: ruleset.id, edition: ruleset.edition },
-          rulesetName(locale, ruleset),
-          rulesetDetail(locale, ruleset),
-          draft,
-        ),
-        ...(ruleset.recommended ? { badge: text(locale, 'rules.badge') } : {}),
-      })),
+    options: [
+      ...[...rulesets]
+        .sort((first, second) => Number(second.recommended) - Number(first.recommended))
+        .map((ruleset) => ({
+          ...choose(
+            'ruleset',
+            { id: ruleset.id, edition: ruleset.edition },
+            rulesetName(locale, ruleset),
+            rulesetDetail(locale, ruleset),
+            draft,
+          ),
+          ...(ruleset.recommended ? { badge: text(locale, 'rules.badge') } : {}),
+        })),
+      ...(canPickFiles ? [sourceOption(draft, locale, 'own', 'set')] : []),
+      sourceOption(draft, locale, 'none', 'choose'),
+    ],
   }),
   character: (draft, options, _plan, locale) => characterPage(draft, options, locale),
   features: (draft, options, _plan, locale) => ({
@@ -758,10 +847,11 @@ export const startScreen = (
   plan: Result<CampaignPlan> | undefined,
   locale = DEFAULT_LOCALE,
   voices?: StartVoices,
+  canPickFiles = false,
 ): StartScreen => {
   const step = stepOf(draft);
   const steps = stepsOf(draft.path);
-  const page = PAGES[step](draft, options ?? NO_OPTIONS, plan, locale, voices);
+  const page = PAGES[step](draft, options ?? NO_OPTIONS, plan, locale, voices, canPickFiles);
   const ending = step === 'summary' || step === 'path';
   return {
     step,

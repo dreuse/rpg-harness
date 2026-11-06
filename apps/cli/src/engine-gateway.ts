@@ -42,6 +42,7 @@ import {
 } from '../../../packages/engine/src/gm-settings.ts';
 import { contextBudgetOf } from '../../../packages/engine/src/memory.ts';
 import { withoutRetconned } from '../../../packages/engine/src/ooc.ts';
+import type { RulesDocument } from '../../../packages/engine/src/own-rules.ts';
 import {
   correctStoryFact,
   directoryOf,
@@ -143,6 +144,7 @@ export { FAKE_GM_REPLY } from './gm-api.ts';
 import { importRules } from './import-gateway.ts';
 import type { CampaignGateway } from './main.ts';
 import { DEFAULT_LOCALE, LocalizedError, say } from './messages.ts';
+import { loadOwnRules } from './own-rules-files.ts';
 import {
   ClientUnsupported,
   commandConfig,
@@ -986,6 +988,7 @@ const createCampaign = async (
   start: Starter,
   language?: string,
   play: CampaignPlay = {},
+  rulesDocuments: readonly RulesDocument[] = [],
 ): Promise<string> => {
   mkdirSync(dataDir, { recursive: true });
   const path = databasePath(dataDir, name);
@@ -1007,6 +1010,7 @@ const createCampaign = async (
       ...(opening.moodTags === undefined ? {} : { moodTags: opening.moodTags }),
       narration: opening.narration,
       config,
+      rulesDocuments,
       ...(pitch === undefined ? {} : { pitch }),
     });
     if (usage !== undefined)
@@ -1352,8 +1356,9 @@ export const createCampaignFrom = async (
   client?: string,
   gm: GameMaster = FAKE_GAME_MASTER,
 ): Promise<CampaignSummary> => {
-  const { name, language, intent, play } = command;
+  const { name, language, intent, play, rulesDocuments = [] } = command;
   const config = commandConfig(command, client, packsIn(dataDir));
+  const documents = loadOwnRules(dataDir, rulesDocuments);
   const character = startingCharacter(config);
   await createCampaign(
     dataDir,
@@ -1362,6 +1367,7 @@ export const createCampaignFrom = async (
     starterFor(gm, { name, pitch: intent, config, language, model: readGmDefaults(dataDir).model }),
     language,
     play,
+    documents,
   );
   try {
     if (character !== undefined) addCharacter(dataDir, name, character);

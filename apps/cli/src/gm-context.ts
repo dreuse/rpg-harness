@@ -21,6 +21,7 @@ import {
   recordSummary,
 } from '../../../packages/engine/src/memory.ts';
 import { oocStateOf, withoutRetconned } from '../../../packages/engine/src/ooc.ts';
+import { rulesDocumentsOf } from '../../../packages/engine/src/own-rules.ts';
 import { directoryOf } from '../../../packages/engine/src/story-memory.ts';
 import { campaignConfigOf, loadState } from '../../../packages/engine/src/turn.ts';
 import { parseCampaignConfig } from '../../../packages/intent/src/config.ts';
@@ -49,9 +50,11 @@ import {
   type ContextPacket,
   type PacketInput,
   RECENT_TURN_LIMIT,
+  REQUIRED_SECTION_CAPS,
   STABLE_SECTIONS,
   VARIABLE_SECTIONS,
 } from '../../../packages/memory/src/packet.ts';
+import { estimateTokens } from '../../../packages/memory/src/retrieval.ts';
 import { createEntityStore, createFactStore } from '../../../packages/persistence/src/entity-store.ts';
 import { touchesOf, walkGraph } from '../../../packages/persistence/src/graph.ts';
 import { scopedEventsOf, scopeLookupOf, worldOf } from './client-session.ts';
@@ -63,6 +66,8 @@ import {
   modifiersPrompt,
   noCheckPrompt,
   OPENING_PROMPT,
+  OWN_RULES_PROMPT,
+  OWN_RULES_STRICTNESS_PROMPTS,
   RULES_RETRY_PROMPT,
   RULES_STRICTNESS_PROMPTS,
   repetitionRetryPrompt,
@@ -71,6 +76,7 @@ import {
 } from './gm-api.ts';
 import { budgetOf } from './gm-limits.ts';
 import { COMPARED_NARRATIONS, closingSentencesOf } from './gm-repetition.ts';
+import { ownRulesItems } from './own-rules.ts';
 import { describeConfig, styleLinesOf } from './quickstart.ts';
 import {
   checkRulesFor,
@@ -105,6 +111,7 @@ const REWRITTEN_LEVEL: SummaryLevel = 'campaign';
 const PLAYER_SUMMARY = { visibility: 'player', actorId: null } as const;
 const TEXT_SEPARATOR = ' ';
 const NONE = 0;
+const LINE_BREAK = '\n';
 
 export const fakeSummarizer: Summarizer = async (_level, texts) =>
   texts.join(TEXT_SEPARATOR).slice(NONE, FAKE_SUMMARY_LENGTH);
@@ -181,7 +188,13 @@ export type PacketOptions = {
   readonly gmRolls?: readonly string[];
 };
 
+const ownRulesInstructions = (state: CampaignState, defaults: GmSettings) => {
+  const strictness = rulesStrictnessFor(state, defaults);
+  return strictness === 'off' ? [] : [OWN_RULES_PROMPT, OWN_RULES_STRICTNESS_PROMPTS[strictness]];
+};
+
 const strictnessInstructions = (config: ReturnType<typeof configOf>, state: CampaignState, defaults: GmSettings) => {
+  if (rulesDocumentsOf(state.events).length > NONE) return ownRulesInstructions(state, defaults);
   if (config === undefined || config.rulepack === null) return [];
   const strictness = rulesStrictnessFor(state, defaults);
   const promptApplies = strictness !== 'as-written' || enforcedStrictnessFor(state, defaults) !== undefined;
@@ -194,6 +207,19 @@ const modifierInstructions = (state: CampaignState, defaults: GmSettings) => {
   const policy = modifierPolicyOf(state.events, rulesStrictnessFor(state, defaults));
   const empty = policy?.vocabulary.modifiers.length === NONE && policy.strictness === 'as-written';
   return policy === undefined || empty ? [] : [modifiersPrompt(policy)];
+};
+
+const rulesetOf = (
+  state: CampaignState,
+  config: ReturnType<typeof configOf>,
+  playerInput: string,
+  recentTurns: readonly string[],
+) => {
+  const described = config === undefined ? [] : [describeConfig(config)];
+  const documents = rulesDocumentsOf(state.events);
+  if (documents.length === NONE) return described;
+  const room = REQUIRED_SECTION_CAPS.ruleset - estimateTokens(described.join(LINE_BREAK));
+  return [...described, ...ownRulesItems(documents, playerInput, recentTurns, room)];
 };
 
 export const contextPacketOf = (
@@ -269,7 +295,10 @@ export const contextPacketOf = (
         ...(isStalled(state) ? [STALL_INSTRUCTION] : []),
         ...(language === undefined ? [] : [languageInstruction(language)]),
         ...strictnessInstructions(config, state, defaults),
-        ...(gmRollsAllowed(state.events, rulesStrictnessFor(state, defaults)) ? [GM_ROLL_PROMPT] : []),
+        ...(gmRollsAllowed(state.events, rulesStrictnessFor(state, defaults)) &&
+        rulesDocumentsOf(state.events).length === NONE
+          ? [GM_ROLL_PROMPT]
+          : []),
         ...modifierInstructions(state, defaults),
         ...committed.events
           .filter(({ type }) => type === CHECK_SKIPPED)
@@ -279,7 +308,7 @@ export const contextPacketOf = (
         ...(repeated.length === NONE ? [] : [repetitionRetryPrompt(repeated)]),
         ...(contradicted.length === NONE ? [] : [continuityRetryPrompt(contradicted)]),
       ],
-      ruleset: config === undefined ? [] : [describeConfig(config)],
+      ruleset: rulesetOf(state, config, committed.turn.input, turns.map(turnText)),
       setting: [state.currentScene?.title ?? state.campaign.name],
       style: [...(config === undefined ? [] : styleLinesOf(config)), ...tableNotes],
       campaignSummary: visibleSummaries(summaries, viewer, 'campaign'),

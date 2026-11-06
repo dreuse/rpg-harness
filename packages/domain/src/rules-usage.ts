@@ -21,3 +21,6 @@ export const isRulesStrictness = (value: unknown): value is RulesStrictness =>
 
 export const rulesStrictnessOf = (chosen: RulesStrictness | undefined, hasRulePack: boolean): RulesStrictness =>
   chosen ?? (hasRulePack ? DEFAULT_RULES_STRICTNESS : NO_RULEPACK_STRICTNESS);
+
+export const MAX_RULES_DOCUMENTS = 20;
+export const MAX_RULES_NAME_LENGTH = 200;

@@ -1,6 +1,7 @@
 import { basename, dirname } from 'node:path';
 import { REPLY_HINT } from '../../../packages/imports/src/workflow.ts';
 import { BUILT_IN_PACKS, importRules } from '../../cli/src/import-gateway.ts';
+import { stageOwnRules } from '../../cli/src/own-rules-files.ts';
 import type { ImportRequest, ImportResult } from './preload.ts';
 
 export const NO_PENDING_IMPORT = 'No import is waiting for a decision.';
@@ -10,6 +11,7 @@ const LINE_BREAK = '\n';
 const USE = 'use';
 const REFUSED = 'Activation refused';
 const DRY_RUN = 'decline';
+const ADDED_RULES_FILES = 'Added rules files: ';
 
 export type ImportHostOptions = {
   readonly dataDir: string;
@@ -26,6 +28,7 @@ const readRequest = (request: unknown): ImportRequest | undefined => {
   const { kind, packId, decision } = request as Record<string, unknown>;
   if (kind === 'pick' && typeof packId === 'string') return { kind, packId };
   if (kind === 'decide' && (decision === 'activate' || decision === 'decline')) return { kind, decision };
+  if (kind === 'pickOwn') return { kind };
   return undefined;
 };
 
@@ -62,6 +65,24 @@ export const createImportHost = ({ dataDir, showOpenDialog }: ImportHostOptions)
     return { status: 'preview', lines: reportOf(lines.at(-2)) };
   };
 
+  const pickOwn = async (): Promise<ImportResult> => {
+    const paths = await showOpenDialog();
+    const [first] = paths;
+    if (first === undefined) return { status: 'cancelled' };
+    const root = dirname(first);
+    if (paths.some((path) => dirname(path) !== root)) return failed(MIXED_FOLDERS);
+    try {
+      const { names } = stageOwnRules(
+        dataDir,
+        root,
+        paths.map((path) => basename(path)),
+      );
+      return { status: 'ownFiles', names, lines: [`${ADDED_RULES_FILES}${names.join(', ')}`] };
+    } catch (error) {
+      return failed(messageOf(error));
+    }
+  };
+
   const decide = async (decision: 'activate' | 'decline'): Promise<ImportResult> => {
     if (pending === undefined) return failed(NO_PENDING_IMPORT);
     const { error, lines } = await converse(pending, decision);
@@ -75,6 +96,7 @@ export const createImportHost = ({ dataDir, showOpenDialog }: ImportHostOptions)
     run: async (input: unknown): Promise<ImportResult> => {
       const request = readRequest(input);
       if (request === undefined) return failed(BAD_IMPORT_REQUEST);
+      if (request.kind === 'pickOwn') return pickOwn();
       return request.kind === 'pick' ? pick(request.packId) : decide(request.decision);
     },
   };

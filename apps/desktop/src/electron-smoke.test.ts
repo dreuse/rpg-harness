@@ -273,6 +273,26 @@ test('rpg-42a.39 desktop journey in Brazilian Portuguese: home, guided start and
   assert.equal(audit.lang, PORTUGUESE);
 });
 
+const OPEN_FILES_ENV = 'RPG_DESKTOP_OPEN_FILES';
+const OWN_RULES_FILE = 'two-dice.md';
+
+test('rpg-42a.82 desktop journey of own rules files: choice, added file and a created campaign', {
+  skip,
+}, async (t) => {
+  const rulesDir = mkdtempSync(join(tmpdir(), 'rpg-desktop-own-rules-'));
+  t.after(() => rmSync(rulesDir, { recursive: true, force: true }));
+  writeFileSync(join(rulesDir, OWN_RULES_FILE), '# Combat\nTo attack, roll 2d6 and add Might.');
+  const files = await captureJourneys(t, ['ownRules'], { [OPEN_FILES_ENV]: join(rulesDir, OWN_RULES_FILE) });
+  for (const file of files) {
+    const { audit } = JSON.parse(readFileSync(file.replace(/\.png$/, SHOT_DATA_EXTENSION), 'utf8'));
+    assert.deepEqual(
+      auditPage(audit).filter(({ impact }) => BLOCKING_IMPACTS.includes(impact)),
+      [],
+      basename(file),
+    );
+  }
+});
+
 test('rpg-42a.38 desktop journey of a diceless, sheetless campaign: rules, summary and play', { skip }, async (t) => {
   checkBaselines(t, await captureJourneys(t, ['diceless']));
 });
