@@ -424,3 +424,17 @@ test('rpg-42a.72 the opening scene title reads in the campaign language', () => 
   assert.equal(openingFor(config, fallback, 'es').title, 'Fantasía');
   assert.equal(openingFor(config, fallback).title, FANTASY_PACK.genre.name);
 });
+
+test('rpg-42a.125 the opening scene narration reads in the campaign language', () => {
+  const fallback = { title: 'x', narration: 'y' };
+  const narrationOf = (pack: { genre: { id: string } }, locale?: string) =>
+    openingFor({ genre: { id: pack.genre.id } } as Parameters<typeof openingFor>[0], fallback, locale).narration;
+  for (const pack of [FANTASY_PACK, HORROR_PACK]) {
+    const english = narrationOf(pack);
+    assert.equal(english, `${pack.story.openingScenes[0]}.`);
+    for (const locale of ['es', 'pt-BR'])
+      assert.notEqual(narrationOf(pack, locale), english, `${pack.genre.id}/${locale}`);
+    assert.equal(narrationOf(pack, 'fr'), english);
+  }
+  assert.match(narrationOf(FANTASY_PACK, 'pt-BR'), /capela/);
+});

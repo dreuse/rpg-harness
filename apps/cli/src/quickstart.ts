@@ -314,7 +314,10 @@ export const openingFor = ({ genre }: CampaignConfig, fallback: Opening, locale 
   const scene = pack?.story?.openingScenes[0];
   return pack === undefined || scene === undefined
     ? fallback
-    : { title: contentText(locale, 'genre', pack.genre.id, pack.genre.name), narration: `${scene}.` };
+    : {
+        title: contentText(locale, 'genre', pack.genre.id, pack.genre.name),
+        narration: `${contentText(locale, 'genre.opening', pack.genre.id, scene)}.`,
+      };
 };
 
 const styleLine = (source: string, id: string, style: unknown) =>

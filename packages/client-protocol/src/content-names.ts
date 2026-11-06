@@ -1,6 +1,6 @@
 import { DEFAULT_LOCALE, matchLocale } from './locale.ts';
 
-export type ContentKind = 'genre' | 'genre.blurb' | 'archetype' | 'archetype.summary' | 'stat';
+export type ContentKind = 'genre' | 'genre.blurb' | 'genre.opening' | 'archetype' | 'archetype.summary' | 'stat';
 
 const KEY_SEPARATOR = '.';
 
@@ -18,6 +18,14 @@ const PT_BR: Readonly<Record<string, string>> = {
   'genre.blurb.modern-adventure':
     'Seu celular vibra duas vezes: o endereço de uma entrega secreta e um voo que sai em quarenta minutos.',
   'genre.blurb.blank-world': 'Mundo em branco',
+  'genre.opening.fantasy': 'Um sino toca numa capela submersa que está muda há cem anos',
+  'genre.opening.science-fiction':
+    'Seu rebocador de mineração atraca num posto avançado onde toda a tripulação dorme e ninguém acorda',
+  'genre.opening.horror': 'Você herda uma casa cujos antigos donos deixaram a mesa posta e a porta da frente aberta',
+  'genre.opening.investigative-mystery':
+    'Um advogado convoca você a um escritório trancado onde o relógio parou às nove e quinze',
+  'genre.opening.modern-adventure': 'Um mensageiro põe um envelope lacrado na sua mão no aeroporto e some na multidão',
+  'genre.opening.blank-world': 'Nada foi decidido ainda, então descreva onde você está e o que acontece ao seu redor',
   'archetype.Hedge witch': 'Bruxa do campo',
   'archetype.Exiled knight': 'Cavaleiro exilado',
   'archetype.River smuggler': 'Contrabandista do rio',
@@ -64,6 +72,15 @@ const ES: Readonly<Record<string, string>> = {
   'genre.blurb.modern-adventure':
     'Tu celular vibra dos veces: la dirección de una entrega secreta y un vuelo que sale en cuarenta minutos.',
   'genre.blurb.blank-world': 'Mundo en blanco',
+  'genre.opening.fantasy': 'Una campana suena en una capilla sumergida que lleva cien años en silencio',
+  'genre.opening.science-fiction':
+    'Tu remolcador minero atraca en un puesto avanzado donde toda la tripulación duerme y nadie despierta',
+  'genre.opening.horror': 'Heredas una casa cuyos antiguos dueños dejaron la mesa puesta y la puerta abierta',
+  'genre.opening.investigative-mystery':
+    'Un abogado te cita en un despacho cerrado con llave donde el reloj se detuvo a las nueve y cuarto',
+  'genre.opening.modern-adventure':
+    'Un mensajero te pone un sobre sellado en la mano en el aeropuerto y desaparece entre la multitud',
+  'genre.opening.blank-world': 'Nada está decidido todavía, así que describe dónde estás y qué ocurre a tu alrededor',
   'archetype.Hedge witch': 'Bruja del campo',
   'archetype.Exiled knight': 'Caballero exiliado',
   'archetype.River smuggler': 'Contrabandista del río',
