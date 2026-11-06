@@ -287,6 +287,7 @@ export type GmReply = {
   readonly segments: readonly GmSegment[];
   readonly proposals?: readonly GmProposal[];
   readonly usage: GmUsage;
+  readonly multiTurn?: true;
 };
 
 const countOf = (value: unknown) => (Number.isSafeInteger(value) && Number(value) >= 0 ? Number(value) : 0);

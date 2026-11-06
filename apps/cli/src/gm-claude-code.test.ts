@@ -93,6 +93,7 @@ const USAGE = {
   server_tool_use: { web: 0 },
 };
 const COST_USD = 0.0123;
+const SINGLE_TURN = 1;
 const ASAR_ENTRY = '/app/Resources/app.asar/apps/mcp-server/src/main.ts';
 const HOSTED = { url: 'http://127.0.0.1:4242/mcp', token: 'per-launch-token' };
 const MCP_SERVER_ENTRY = join(import.meta.dirname, '../../mcp-server/src/main.ts');
@@ -119,6 +120,7 @@ const resultOf = (fields: Record<string, unknown> = {}) =>
     result: NARRATION,
     usage: USAGE,
     total_cost_usd: COST_USD,
+    num_turns: SINGLE_TURN,
     ...fields,
   });
 
@@ -388,6 +390,23 @@ describe('rpg-42a.33 Claude Code CLI game master', () => {
       calls().map(({ args }) => valueAfter(args, '--output-format')),
       ['stream-json', 'json'],
     );
+  });
+
+  it('rpg-42a.147: the Claude Code game master calibrates context on its own route', async (t) => {
+    const { bin } = fakeClaude(t, [{ stdout: resultOf() }]);
+    const gm = claudeCodeGameMaster(routeFor(bin));
+    assert.equal(gm.calibratesContext, true);
+    assert.equal(gm.contextRoute, 'claude-code');
+  });
+
+  it('rpg-42a.147: a single-turn run is calibratable and a multi-turn or unknown run is not', async (t) => {
+    const turnsOf = async (fields: Record<string, unknown>) => {
+      const { bin } = fakeClaude(t, [{ stdout: resultOf(fields) }]);
+      return (await requestClaudeNarration(routeFor(bin), packet({ playerInput: [PLAYER_INPUT] }), DATABASE)).multiTurn;
+    };
+    assert.equal(await turnsOf({ num_turns: SINGLE_TURN }), undefined);
+    assert.equal(await turnsOf({ num_turns: SINGLE_TURN + 2 }), true);
+    assert.equal(await turnsOf({ num_turns: undefined }), true);
   });
 
   it('rpg-cm63.3: the Claude Code game master returns segments joined to the narration', async (t) => {

@@ -77,6 +77,7 @@ const TOOL_SEPARATOR = ',';
 const NO_BUILT_IN_TOOLS = '';
 const EXIT_INTERRUPTED = 1;
 const MAX_STDERR_BYTES = 16_384;
+const SINGLE_TURN = 1;
 const LIMIT_PATTERN = /usage limit|hit your limit|limit reached/i;
 const RESET_PATTERN = /resets?\s+(?:at\s+)?([^\n·|]+)/i;
 const AUTH_PATTERN = /not logged in|\/login|invalid api key|unauthorized|authentication/i;
@@ -283,6 +284,7 @@ export const replyOf = ({ code, stdout, stderr = '' }: Exit, model: string | und
     segments,
     ...(proposals === undefined ? {} : { proposals }),
     usage: usageOf(body.usage, resolvedModelOf(model), body.total_cost_usd),
+    ...(body.num_turns === SINGLE_TURN ? {} : { multiTurn: true as const }),
   };
 };
 

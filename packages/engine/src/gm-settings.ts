@@ -21,6 +21,12 @@ export const NON_ENGLISH_RATIO = 1.5;
 export const MIN_RATIO = 1;
 export const MAX_RATIO = 4;
 export const REQUEST_OVERHEAD_TOKENS = 6000;
+export const CLAUDE_CODE_REQUEST_OVERHEAD_TOKENS = 60_000;
+export type ContextRoute = 'api' | 'claude-code';
+export const REQUEST_OVERHEAD_TOKENS_BY_ROUTE: Readonly<Record<ContextRoute, number>> = {
+  api: REQUEST_OVERHEAD_TOKENS,
+  'claude-code': CLAUDE_CODE_REQUEST_OVERHEAD_TOKENS,
+};
 const SMOOTHING_WEIGHT = 2;
 export const DROP_WINDOW_TURNS = 10;
 export const DROPPED_OFTEN_TURNS = 3;
@@ -106,6 +112,7 @@ export type ContextRecord = {
   readonly language: string | undefined;
   readonly packet: Pick<ContextPacket, 'usedTokens' | 'budget' | 'truncated' | 'requiredExceedsBudget'>;
   readonly reportedTokens: number;
+  readonly route?: ContextRoute;
 };
 
 const lastContextOf = (events: Events) => events.findLast(({ type }) => type === GM_CONTEXT_RECORDED)?.payload;
@@ -126,11 +133,11 @@ export const contextDroppedOften = (events: Events): boolean =>
 
 export const recordContextDiagnostics = (
   store: CampaignStore,
-  { campaignId, turnId, events, language, packet, reportedTokens }: ContextRecord,
+  { campaignId, turnId, events, language, packet, reportedTokens, route = 'api' }: ContextRecord,
 ): void => {
   const previous = lastContextOf(events);
   const current = contextRatioOf(events, language);
-  const promptTokens = reportedTokens - REQUEST_OVERHEAD_TOKENS;
+  const promptTokens = reportedTokens - REQUEST_OVERHEAD_TOKENS_BY_ROUTE[route];
   const measured = Math.min(Math.max(promptTokens / packet.usedTokens, MIN_RATIO), MAX_RATIO);
   const ratio =
     reportedTokens <= NONE || promptTokens <= NONE || packet.usedTokens <= NONE

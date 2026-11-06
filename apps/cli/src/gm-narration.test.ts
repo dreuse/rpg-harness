@@ -9,7 +9,11 @@ import { PROTOCOL_VERSION } from '../../../packages/client-protocol/src/protocol
 import type { CampaignStore, CommittedTurn } from '../../../packages/domain/src/campaign.ts';
 import { ledgerTotals } from '../../../packages/domain/src/gm.ts';
 import { GM_PROPOSAL_INPUT } from '../../../packages/engine/src/check-offer.ts';
-import { GM_CONTEXT_RECORDED } from '../../../packages/engine/src/gm-settings.ts';
+import {
+  CLAUDE_CODE_REQUEST_OVERHEAD_TOKENS,
+  GM_CONTEXT_RECORDED,
+  MAX_RATIO,
+} from '../../../packages/engine/src/gm-settings.ts';
 import { GameMasterInterruptedError } from '../../../packages/engine/src/scripted-session.ts';
 import { CHECK_RESOLVED } from '../../../packages/engine/src/turn.ts';
 import { CONTEXT_BUDGETS, type ContextPacket, packetParts } from '../../../packages/memory/src/packet.ts';
@@ -98,6 +102,9 @@ const play = async (dataDir: string, gm: GameMaster, actions: readonly string[])
     output.push(text);
   return output.slice(1);
 };
+
+const CALIBRATION_RATIO = 1.7;
+const RATIO_TOLERANCE = 0.2;
 
 const lastNarration = (dataDir: string) => readCampaignState(dataDir, CAMPAIGN).turns.at(-1)?.narration;
 
@@ -194,6 +201,36 @@ describe('rpg-42a.28 API game master wiring', () => {
     const recorded = readCampaignState(dataDir, CAMPAIGN).changes.find(({ type }) => type === GM_CONTEXT_RECORDED);
     assert.equal(recorded?.payload.budget, CONTEXT_BUDGETS.compact);
     assert.ok(!JSON.stringify(recorded).includes(ACTION));
+  });
+
+  it('rpg-42a.147: a single-turn Claude Code run calibrates the ratio by its own overhead, a multi-turn run does not', async (t) => {
+    const dataDir = await seededCampaign(t);
+    const claudeCodeGm = (ratio: number, multiTurn: boolean): GameMaster => ({
+      calibratesContext: true,
+      contextRoute: 'claude-code',
+      request: async (packet) => ({
+        narration: NARRATION,
+        segments: [{ text: NARRATION }],
+        usage: {
+          model: 'sonnet',
+          inputTokens: CLAUDE_CODE_REQUEST_OVERHEAD_TOKENS + ratio * packet.usedTokens,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          outputTokens: 1,
+        },
+        ...(multiTurn ? { multiTurn } : {}),
+      }),
+      summarizer: FAKE_GAME_MASTER.summarizer,
+    });
+    const ratios = () =>
+      readCampaignState(dataDir, CAMPAIGN)
+        .changes.filter(({ type }) => type === GM_CONTEXT_RECORDED)
+        .map(({ payload }) => Number(payload.ratio));
+    await play(dataDir, claudeCodeGm(CALIBRATION_RATIO, false), [ACTION]);
+    const [first] = ratios();
+    assert.ok(Math.abs((first ?? 0) - CALIBRATION_RATIO) < RATIO_TOLERANCE);
+    await play(dataDir, claudeCodeGm(MAX_RATIO, true), [SECOND_ACTION]);
+    assert.equal(ratios().at(-1), first);
   });
 
   it('rpg-42a.44 shows a plain error when the retry is rejected too and stops there', async (t) => {

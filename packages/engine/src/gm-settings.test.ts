@@ -19,6 +19,7 @@ import {
   gmUsageOf,
   NON_ENGLISH_RATIO,
   REQUEST_OVERHEAD_TOKENS,
+  REQUEST_OVERHEAD_TOKENS_BY_ROUTE,
   recordContextDiagnostics,
   recordGmUsage,
 } from './gm-settings.ts';
@@ -207,6 +208,20 @@ test('rpg-42a.44: fixed request overhead on a small packet never drives the rati
       reportedTokens: REQUEST_OVERHEAD_TOKENS - 1,
     });
     assert.equal(contextRatioOf(events(), 'en'), 1);
+  }));
+
+test('rpg-42a.147: each route subtracts its own request overhead', () =>
+  withStore(({ store, events }) => {
+    assert.equal(REQUEST_OVERHEAD_TOKENS_BY_ROUTE.api, REQUEST_OVERHEAD_TOKENS);
+    const claudeOverhead = REQUEST_OVERHEAD_TOKENS_BY_ROUTE['claude-code'];
+    assert.ok(claudeOverhead > REQUEST_OVERHEAD_TOKENS);
+    recordContextDiagnostics(store, {
+      ...diagnosticsFor(events, 0, 1300 + claudeOverhead),
+      route: 'claude-code',
+    });
+    assert.equal(contextRatioOf(events(), 'en'), 1.3);
+    recordContextDiagnostics(store, diagnosticsFor(events, 0, 1300 + claudeOverhead));
+    assert.ok(contextRatioOf(events(), 'en') > 1.3);
   }));
 
 test('rpg-42a.44: diagnostics hold counts only, never move the revision and flag frequent drops', () =>

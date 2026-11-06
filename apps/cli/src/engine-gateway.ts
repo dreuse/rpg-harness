@@ -36,6 +36,7 @@ import {
   playGameplayTurn,
 } from '../../../packages/engine/src/gameplay.ts';
 import {
+  type ContextRoute,
   contextRatioOf,
   gmSettingsOf,
   recordContextDiagnostics,
@@ -325,6 +326,7 @@ type GmTurnReply = {
   readonly segments: readonly GmSegment[];
   readonly proposals?: readonly GmProposal[];
   readonly usage?: GmUsage;
+  readonly multiTurn?: true;
 };
 type PacketRequest = (packet: ContextPacket, call: GmCall) => Promise<GmTurnReply>;
 type ModelSummarizer = (
@@ -335,6 +337,7 @@ export type GameMaster = ({ readonly narrator: PacketNarrator } | { readonly req
   readonly summarizer: ModelSummarizer;
   readonly notice?: string;
   readonly calibratesContext?: boolean;
+  readonly contextRoute?: ContextRoute;
   readonly continuityCheck?: ModelContinuityCheck;
   readonly oocReply?: OocReplier;
 };
@@ -378,6 +381,8 @@ export const apiGameMaster = (route: ApiRoute, summaryRoute: ApiRoute = route): 
 });
 
 export const claudeCodeGameMaster = (route: ClaudeCodeRoute): GameMaster => ({
+  calibratesContext: true,
+  contextRoute: 'claude-code',
   request: (packet, { databasePath, model, onSegment }) => {
     const routed = { ...route, model: chosen(model) ?? route.model };
     return onSegment === undefined
@@ -502,6 +507,7 @@ const oldestPendingTurn = (
 
 type RoutedModel = {
   readonly calibrates: boolean;
+  readonly contextRoute?: ContextRoute;
   readonly model: string | undefined;
 };
 
@@ -525,6 +531,7 @@ const narrateLatest = async (
   const ratio = contextRatioOf(state.changes, language);
   let sent: ContextPacket | undefined;
   let usage: GmUsage | undefined;
+  let multiTurn = false;
   let segments: readonly GmSegment[] = NO_SEGMENTS;
   let proposals: readonly GmProposal[] = [];
   const { voice, notice: voiceNotice } = await speak(committed.turn.id);
@@ -578,6 +585,7 @@ const narrateLatest = async (
     reply = fitted.reply;
     sent = fitted.packet;
     usage = reply.usage;
+    multiTurn = reply.multiTurn === true;
     if (usage !== undefined) recordGmUsage(store, { campaignId, turnId: committed.turn.id, sessionId, usage });
     return fitted.reply;
   };
@@ -676,7 +684,8 @@ const narrateLatest = async (
       events: state.changes,
       language,
       packet: sent,
-      reportedTokens: usage === undefined || !routed.calibrates ? 0 : reportedInputOf(usage),
+      reportedTokens: usage === undefined || !routed.calibrates || multiTurn ? 0 : reportedInputOf(usage),
+      ...(routed.contextRoute === undefined ? {} : { route: routed.contextRoute }),
     });
   const morePending = oldestPendingTurn(store, engine.getState(campaignId), failedTurns);
   if (acceptMarkedCheck(session, committed, proposals, offeredNow, defaults) || morePending !== undefined)
@@ -817,7 +826,11 @@ const openSession = (
                 gm.request(packet, { databasePath: path, model, ...(onSegment === undefined ? {} : { onSegment }) }),
               sessionId,
               speakTurn,
-              { calibrates: gm.calibratesContext === true, model },
+              {
+                calibrates: gm.calibratesContext === true,
+                ...(gm.contextRoute === undefined ? {} : { contextRoute: gm.contextRoute }),
+                model,
+              },
               gmDefaults(),
               gm.continuityCheck,
               onSegment,
