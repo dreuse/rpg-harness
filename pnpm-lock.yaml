@@ -73,6 +73,9 @@ importers:
       '@rpg/rules':
         specifier: workspace:*
         version: link:../rules
+      '@rpg/timelines':
+        specifier: workspace:*
+        version: link:../timelines
 
   packages/imports: {}
 

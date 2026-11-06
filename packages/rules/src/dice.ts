@@ -1,6 +1,7 @@
+import { type DicePool, type DieTerm, ROLL_EVENT_TYPE, type RollEvent } from '../../domain/src/rule-shapes.ts';
 import { isNonEmptyString, isRecord, type ManifestIssue, NON_EMPTY_STRING } from './rulepack.ts';
 
-export const ROLL_EVENT_TYPE = 'roll.resolved';
+export { type DicePool, type DieTerm, ROLL_EVENT_TYPE, type RollEvent };
 export const MAX_TERMS = 20;
 export const MAX_DICE_PER_TERM = 100;
 export const MIN_SIDES = 2;
@@ -14,15 +15,6 @@ const UINT32_RANGE = 2 ** 32;
 declare const TRUSTED: unique symbol;
 
 export type Rng = () => number;
-export type DieTerm = { readonly count: number; readonly sides: number };
-export type DicePool = { readonly dice: readonly DieTerm[]; readonly modifier: number };
-export type RollEvent = {
-  readonly type: typeof ROLL_EVENT_TYPE;
-  readonly rollId: string;
-  readonly pool: DicePool;
-  readonly draws: readonly (readonly number[])[];
-  readonly total: number;
-};
 export type TrustedRoll = RollEvent & { readonly [TRUSTED]: true };
 export type DicePoolResult = { ok: true; pool: DicePool } | { ok: false; issues: ManifestIssue[] };
 export type RollResult = { ok: true; roll: TrustedRoll } | { ok: false; issues: ManifestIssue[] };

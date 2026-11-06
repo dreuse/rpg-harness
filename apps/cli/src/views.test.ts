@@ -6,8 +6,10 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { PROTOCOL_VERSION } from '../../../packages/client-protocol/src/protocol.ts';
 import type { Visibility } from '../../../packages/domain/src/entity.ts';
+import { EMPTY_GM_USAGE_LEDGER } from '../../../packages/domain/src/gm.ts';
 import { CHARACTER_CREATED, commitCharacter } from '../../../packages/engine/src/character.ts';
 import { createEngine } from '../../../packages/engine/src/engine.ts';
+import { OOC_STATE_SAVED } from '../../../packages/engine/src/ooc.ts';
 import { CHECK_RESOLVED, openScene } from '../../../packages/engine/src/turn.ts';
 import { createCampaignStore } from '../../../packages/persistence/src/campaign-store.ts';
 import { createCharacterStore } from '../../../packages/persistence/src/character-store.ts';
@@ -25,9 +27,10 @@ import {
 import { NARRATIVE_CREATION } from '../../../packages/rules/src/narrative.ts';
 import { SHEET_SCHEMA_VERSION } from '../../../packages/rules/src/sheet-schema.ts';
 import { importSheet, SHEET_EXPORT_FORMAT } from '../../../packages/rules/src/sheet-view.ts';
+import { EMPTY_LIVE_FOLDS, foldLive } from '../../../packages/timelines/src/live-folds.ts';
 import { createEngineGateway, FAKE_GAME_MASTER, openClientSession, readCampaignState } from './engine-gateway.ts';
 import { main } from './main.ts';
-import { editableSheet, printable, renderView, sheetComponents } from './views.ts';
+import { editableSheet, panelsOf, printable, renderView, sheetComponents } from './views.ts';
 
 const CAMPAIGN = 'Ember';
 const HIGH_DRAW = 0.95;
@@ -725,3 +728,40 @@ test('rpg-42a.38 the sheet view of a sheetless ruleset serves the character name
       close();
     }
   }));
+
+test('panels read the projected quest log and fold the visible events once a turn is retconned', () => {
+  const quest = (id: string, turnId: string) => ({
+    id: `event-${id}`,
+    campaignId: CAMPAIGN,
+    turnId,
+    causationId: null,
+    type: 'QuestDefined',
+    payload: { questId: id, title: id, objectives: [], prerequisites: [] },
+  });
+  const events = [quest('kept', 'turn-1'), quest('undone', 'turn-2')];
+  const folds = events.reduce((all, event) => foldLive(all, event, PUBLIC, null), EMPTY_LIVE_FOLDS);
+  const state = {
+    campaign: { id: CAMPAIGN, name: CAMPAIGN },
+    revision: 2,
+    characters: [],
+    currentScene: undefined,
+    turns: [],
+    events,
+    changes: [] as { type: string; payload: Record<string, unknown> }[],
+    gmUsage: EMPTY_GM_USAGE_LEDGER,
+    folds,
+  };
+  const eventScopes = events.map(({ id }) => ({ id, visibility: PUBLIC, actorId: null }));
+  const titles = (source: typeof state) =>
+    panelsOf({ state: source, entities: [], relationships: [], eventScopes }, { scope: 'player' }).quests.map(
+      ({ title }) => title,
+    );
+  assert.deepEqual(titles(state), ['kept', 'undone']);
+  assert.deepEqual(titles({ ...state, events: [] }), ['kept', 'undone']);
+  const retconned = {
+    ...state,
+    events: events.slice(0, 1),
+    changes: [{ type: OOC_STATE_SAVED, payload: { state: { retconned: ['turn-2'] } } }],
+  };
+  assert.deepEqual(titles(retconned), ['kept']);
+});

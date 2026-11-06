@@ -16,7 +16,7 @@ An arrow means "may import". No other imports are allowed.
 | `intent` | Campaign intent and preference schema | `domain` |
 | `rules` | RulePack loading, dice, checks | `domain` |
 | `content` | Genre and setting packs | `domain` |
-| `engine` | Turn state machine, validation, commit, logical game time and clocks, NPC state persistence | `domain`, `rules`, `memory`, `narrative` |
+| `engine` | Turn state machine, validation, commit, logical game time and clocks, NPC state persistence | `domain`, `rules`, `memory`, `narrative`, `timelines` |
 | `persistence` | `CampaignStore` adapter (SQLite, later Dolt), game-DB snapshots of the live projection (ADR 0023) | `domain`, `timelines` |
 | `memory` | Retrieval, visibility filters | `domain` |
 | `narrative` | `GameMaster` adapter, Narrative Director | `domain`, `memory` |
@@ -26,7 +26,7 @@ An arrow means "may import". No other imports are allowed.
 | `voice` | STT/TTS adapters | `client-protocol` |
 | `mcp` | Typed campaign tools and read-only memory tools for the terminal harness | `domain`, `engine`, `memory` |
 | `testkit` | Deterministic test fixtures: scripted Rng, fixed clock, sequential IDs | `domain` |
-| `timelines` | Event replay, versioned snapshots, checkpoints, branches | `domain`, `rules` |
+| `timelines` | Event replay, versioned snapshots, checkpoints, branches, live projection with quest, encounter and clock folds | `domain`, `rules` |
 | `updater` | Release checks, signed downloads, staged install and rollback of app files (ADR 0016) | nothing |
 | `apps/*` | Wiring (composition root) | any package |
 

@@ -1,29 +1,29 @@
-import type { CampaignEvent, CampaignStore, CommittedTurn, EventId } from '../../domain/src/campaign.ts';
+import type { CampaignEvent, CampaignStore, CommittedTurn } from '../../domain/src/campaign.ts';
+import {
+  QUEST_ACTIVATED,
+  QUEST_COMPLETED,
+  QUEST_DEFINED,
+  QUEST_FAILED,
+  QUEST_OBJECTIVE_COMPLETED,
+  QUEST_STATUSES,
+  type Quest,
+  type QuestId,
+  type QuestObjective,
+  type QuestPrerequisite,
+  type QuestStatus,
+  TERMINAL_QUEST_STATUSES,
+  type TerminalQuestStatus,
+  visibleFoldsOf,
+} from '../../timelines/src/live-folds.ts';
 import { commit, loadState, type PlayerAction, recorded, replayOf, requireValid, validate } from './turn.ts';
 
-export const QUEST_STATUSES = ['pending', 'active', 'completed', 'failed'] as const;
-export const TERMINAL_QUEST_STATUSES = ['completed', 'failed'] as const;
-
-export type QuestId = string;
-export type QuestStatus = (typeof QUEST_STATUSES)[number];
-export type TerminalQuestStatus = (typeof TERMINAL_QUEST_STATUSES)[number];
-export type QuestObjective = { readonly id: string; readonly summary: string };
-export type QuestPrerequisite =
-  | { readonly kind: 'event'; readonly eventType: string; readonly eventId?: EventId | undefined }
-  | { readonly kind: 'quest'; readonly questId: QuestId; readonly status: TerminalQuestStatus };
+export type { Quest, QuestId, QuestObjective, QuestPrerequisite, QuestStatus, TerminalQuestStatus };
+export { QUEST_STATUSES, TERMINAL_QUEST_STATUSES };
 export type QuestDefinition = {
   readonly questId: QuestId;
   readonly title: string;
   readonly objectives: readonly QuestObjective[];
   readonly prerequisites: readonly QuestPrerequisite[];
-};
-export type Quest = {
-  readonly id: QuestId;
-  readonly title: string;
-  readonly status: QuestStatus;
-  readonly objectives: readonly (QuestObjective & { readonly done: boolean })[];
-  readonly prerequisites: readonly QuestPrerequisite[];
-  readonly outcome: string | undefined;
 };
 
 export type QuestTarget = PlayerAction & { readonly questId: QuestId };
@@ -31,44 +31,18 @@ export type ObjectiveCompletion = QuestTarget & { readonly objectiveId: string }
 export type QuestCompletion = QuestTarget & { readonly outcome: string };
 export type QuestFailure = QuestTarget & { readonly reason: string };
 
-const DEFINED = 'QuestDefined';
-const ACTIVATED = 'QuestActivated';
-const OBJECTIVE_COMPLETED = 'QuestObjectiveCompleted';
-const COMPLETED = 'QuestCompleted';
-const FAILED = 'QuestFailed';
 const PENDING: QuestStatus = 'pending';
 const ACTIVE: QuestStatus = 'active';
 const EVENT = 'event';
 const QUEST = 'quest';
 
-type Payload = Readonly<Record<string, unknown>>;
 type Quests = ReadonlyMap<QuestId, Quest>;
 
 const isFilled = (value: unknown): value is string => typeof value === 'string' && value.trim() !== '';
 
-const fold = (quests: Map<QuestId, Quest>, { type, payload }: CampaignEvent) => {
-  const data = payload as Payload;
-  const id = String(data.questId);
-  if (type === DEFINED) {
-    const objectives = (data.objectives as QuestObjective[]).map((objective) => ({ ...objective, done: false }));
-    const prerequisites = data.prerequisites as QuestPrerequisite[];
-    quests.set(id, { id, title: String(data.title), status: PENDING, objectives, prerequisites, outcome: undefined });
-  }
-  const quest = quests.get(id);
-  if (quest === undefined) return quests;
-  if (type === ACTIVATED) quests.set(id, { ...quest, status: ACTIVE });
-  if (type === OBJECTIVE_COMPLETED) {
-    const objectives = quest.objectives.map((o) => (o.id === data.objectiveId ? { ...o, done: true } : o));
-    quests.set(id, { ...quest, objectives });
-  }
-  if (type === COMPLETED) quests.set(id, { ...quest, status: 'completed', outcome: String(data.outcome) });
-  if (type === FAILED) quests.set(id, { ...quest, status: 'failed', outcome: String(data.reason) });
-  return quests;
-};
+const questMapOf = (quests: readonly Quest[]): Quests => new Map(quests.map((quest) => [quest.id, quest]));
 
-const projectQuests = (events: readonly CampaignEvent[]): Quests => events.reduce(fold, new Map<QuestId, Quest>());
-
-export const questLog = (events: readonly CampaignEvent[]): readonly Quest[] => [...projectQuests(events).values()];
+export const questLog = (events: readonly CampaignEvent[]): readonly Quest[] => visibleFoldsOf(events).quests;
 
 const isMet = (events: readonly CampaignEvent[], quests: Quests, prerequisite: QuestPrerequisite) =>
   prerequisite.kind === EVENT
@@ -85,7 +59,7 @@ export const unmetPrerequisites = (
   events: readonly CampaignEvent[],
   questId: QuestId,
 ): readonly QuestPrerequisite[] => {
-  const quests = projectQuests(events);
+  const quests = questMapOf(questLog(events));
   const quest = quests.get(questId);
   return quest === undefined ? [] : unmetOf(events, quests, quest);
 };
@@ -100,7 +74,7 @@ const run = (
   const stored = replayOf(store, state, action, recorded(type, fields));
   if (stored !== undefined) return stored;
   validate(state, action);
-  return commit(store, action, steps(state.events, projectQuests(state.events)));
+  return commit(store, action, steps(state.events, questMapOf(state.folds.gm.quests)));
 };
 
 const questIn = (quests: Quests, { actionId, questId }: QuestTarget, status: QuestStatus): Quest => {
@@ -130,7 +104,7 @@ const toPrerequisite = (
 };
 
 export const defineQuest = (store: CampaignStore, definition: PlayerAction & QuestDefinition): CommittedTurn =>
-  run(store, definition, [DEFINED, { questId: definition.questId, title: definition.title }], (_, quests) => {
+  run(store, definition, [QUEST_DEFINED, { questId: definition.questId, title: definition.title }], (_, quests) => {
     const { actionId, questId, title } = definition;
     requireValid(actionId, isFilled(questId), 'quest id is blank');
     requireValid(actionId, !quests.has(questId), `quest ${questId} is already defined`);
@@ -141,11 +115,11 @@ export const defineQuest = (store: CampaignStore, definition: PlayerAction & Que
     });
     requireValid(actionId, new Set(objectives.map(({ id }) => id)).size === objectives.length, 'objectives repeat');
     const prerequisites = definition.prerequisites.map((p) => toPrerequisite(actionId, questId, quests, p));
-    return [[DEFINED, { questId, title, objectives, prerequisites }]];
+    return [[QUEST_DEFINED, { questId, title, objectives, prerequisites }]];
   });
 
 export const activateQuest = (store: CampaignStore, target: QuestTarget): CommittedTurn =>
-  run(store, target, [ACTIVATED, { questId: target.questId }], (events, quests) => {
+  run(store, target, [QUEST_ACTIVATED, { questId: target.questId }], (events, quests) => {
     const quest = questIn(quests, target, PENDING);
     const unmet = unmetOf(events, quests, quest);
     requireValid(
@@ -153,41 +127,46 @@ export const activateQuest = (store: CampaignStore, target: QuestTarget): Commit
       unmet.length === 0,
       `quest ${quest.id} has unmet prerequisites ${JSON.stringify(unmet)}`,
     );
-    return [[ACTIVATED, { questId: quest.id }]];
+    return [[QUEST_ACTIVATED, { questId: quest.id }]];
   });
 
 export const completeObjective = (store: CampaignStore, completion: ObjectiveCompletion): CommittedTurn =>
   run(
     store,
     completion,
-    [OBJECTIVE_COMPLETED, { questId: completion.questId, objectiveId: completion.objectiveId }],
+    [QUEST_OBJECTIVE_COMPLETED, { questId: completion.questId, objectiveId: completion.objectiveId }],
     (_, quests) => {
       const { actionId, objectiveId } = completion;
       const quest = questIn(quests, completion, ACTIVE);
       const objective = quest.objectives.find(({ id }) => id === objectiveId);
       requireValid(actionId, objective !== undefined, `objective ${objectiveId} is not part of quest ${quest.id}`);
       requireValid(actionId, objective?.done === false, `objective ${objectiveId} is already complete`);
-      return [[OBJECTIVE_COMPLETED, { questId: quest.id, objectiveId }]];
+      return [[QUEST_OBJECTIVE_COMPLETED, { questId: quest.id, objectiveId }]];
     },
   );
 
 export const completeQuest = (store: CampaignStore, completion: QuestCompletion): CommittedTurn =>
-  run(store, completion, [COMPLETED, { questId: completion.questId, outcome: completion.outcome }], (_, quests) => {
-    const { actionId, outcome } = completion;
-    const quest = questIn(quests, completion, ACTIVE);
-    requireValid(
-      actionId,
-      quest.objectives.every(({ done }) => done),
-      `quest ${quest.id} has open objectives`,
-    );
-    requireValid(actionId, isFilled(outcome), 'outcome is blank');
-    return [[COMPLETED, { questId: quest.id, outcome }]];
-  });
+  run(
+    store,
+    completion,
+    [QUEST_COMPLETED, { questId: completion.questId, outcome: completion.outcome }],
+    (_, quests) => {
+      const { actionId, outcome } = completion;
+      const quest = questIn(quests, completion, ACTIVE);
+      requireValid(
+        actionId,
+        quest.objectives.every(({ done }) => done),
+        `quest ${quest.id} has open objectives`,
+      );
+      requireValid(actionId, isFilled(outcome), 'outcome is blank');
+      return [[QUEST_COMPLETED, { questId: quest.id, outcome }]];
+    },
+  );
 
 export const failQuest = (store: CampaignStore, failure: QuestFailure): CommittedTurn =>
-  run(store, failure, [FAILED, { questId: failure.questId, reason: failure.reason }], (_, quests) => {
+  run(store, failure, [QUEST_FAILED, { questId: failure.questId, reason: failure.reason }], (_, quests) => {
     const { actionId, reason } = failure;
     const quest = questIn(quests, failure, ACTIVE);
     requireValid(actionId, isFilled(reason), 'reason is blank');
-    return [[FAILED, { questId: quest.id, reason }]];
+    return [[QUEST_FAILED, { questId: quest.id, reason }]];
   });

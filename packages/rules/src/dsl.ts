@@ -1,6 +1,51 @@
-import { isRecord, type ManifestIssue, type Primitive, type RulePackManifest } from './rulepack.ts';
+import {
+  type AdjudicationReason,
+  ARITH_OPS,
+  type ArithOp,
+  type CapabilityDisabled,
+  COMPARE_OPS,
+  type CompareOp,
+  type CompiledRule,
+  type Condition,
+  type DiceKeep,
+  type EffectiveMechanic,
+  GM_ADJUDICATED,
+  INVALID_RULE_DSL,
+  type InvalidRuleDsl,
+  KEEP_WHICH,
+  type KeepWhich,
+  type MechanicSource,
+  type NumberExpr,
+  type ResourceCost,
+  RULE_DSL_VERSION,
+  type RuleDsl,
+  type RuleEffect,
+} from '../../domain/src/rule-shapes.ts';
+import { isRecord, type ManifestIssue, type RulePackManifest } from './rulepack.ts';
 
-export const RULE_DSL_VERSION = 1;
+export {
+  type AdjudicationReason,
+  ARITH_OPS,
+  type ArithOp,
+  type CapabilityDisabled,
+  COMPARE_OPS,
+  type CompareOp,
+  type CompiledRule,
+  type Condition,
+  type DiceKeep,
+  type EffectiveMechanic,
+  GM_ADJUDICATED,
+  type InvalidRuleDsl,
+  KEEP_WHICH,
+  type KeepWhich,
+  type MechanicSource,
+  type NumberExpr,
+  type ResourceCost,
+  RULE_DSL_VERSION,
+  type RuleDsl,
+  type RuleEffect,
+};
+
 export const MAX_DSL_DEPTH = 16;
 export const MAX_DSL_NODES = 256;
 export const MAX_DSL_VALUE = 1_000_000;
@@ -10,48 +55,9 @@ export const MAX_DICE_COUNT = 100;
 export const MIN_DICE_SIDES = 1;
 export const MAX_DICE_SIDES = 1000;
 
-export const ARITH_OPS = ['add', 'sub', 'mul', 'min', 'max'] as const;
-export const COMPARE_OPS = ['eq', 'ne', 'lt', 'lte', 'gt', 'gte'] as const;
-export const KEEP_WHICH = ['highest', 'lowest'] as const;
-
 const IDENTIFIER = /^[A-Za-z0-9_.:-]{1,64}$/;
-const INVALID_RULE_DSL = 'InvalidRuleDsl';
 const KIND = 'kind';
 
-export type ArithOp = (typeof ARITH_OPS)[number];
-export type CompareOp = (typeof COMPARE_OPS)[number];
-export type KeepWhich = (typeof KEEP_WHICH)[number];
-
-export type DiceKeep = { which: KeepWhich; count: number };
-
-export type NumberExpr =
-  | { kind: 'const'; value: number }
-  | { kind: 'dice'; count: number; sides: number; modifier: number; keep?: DiceKeep }
-  | { kind: 'ref'; id: string }
-  | { kind: 'arith'; op: ArithOp; left: NumberExpr; right: NumberExpr };
-
-export type Condition =
-  | { kind: 'compare'; op: CompareOp; left: NumberExpr; right: NumberExpr }
-  | { kind: 'and'; all: Condition[] }
-  | { kind: 'or'; any: Condition[] }
-  | { kind: 'not'; condition: Condition };
-
-export type ResourceCost = { kind: 'cost'; resource: string; amount: NumberExpr };
-
-export type RuleEffect =
-  | { kind: 'adjustResource'; resource: string; amount: NumberExpr }
-  | { kind: 'setTrait'; trait: string; value: string | boolean | NumberExpr }
-  | { kind: 'emitEvent'; event: string };
-
-export type RuleDsl = {
-  dslVersion: typeof RULE_DSL_VERSION;
-  id: string;
-  when?: Condition;
-  costs?: ResourceCost[];
-  effects: RuleEffect[];
-};
-
-export type InvalidRuleDsl = { code: typeof INVALID_RULE_DSL; issues: ManifestIssue[] };
 export type RuleDslResult = { ok: true; rule: RuleDsl } | { ok: false; error: InvalidRuleDsl };
 
 export type RuleCompileInput = {
@@ -59,33 +65,6 @@ export type RuleCompileInput = {
   rulePack: Pick<RulePackManifest, 'id' | 'edition' | 'revision' | 'capabilities'>;
   sourceRefs: string[];
 };
-export type CompiledRule = Readonly<{
-  rule: RuleDsl;
-  rulePack: Pick<RulePackManifest, 'id' | 'edition' | 'revision'>;
-  sourceRefs: readonly string[];
-  primitives: readonly Primitive[];
-  adjudicated: readonly Primitive[];
-  deterministic: boolean;
-}>;
-export type CapabilityDisabled = { code: 'CapabilityDisabled'; issues: ManifestIssue[] };
-export const GM_ADJUDICATED = 'gm-adjudicated';
-export type AdjudicationReason = 'AdjudicatedCapability' | CapabilityDisabled['code'] | InvalidRuleDsl['code'];
-export type MechanicSource = Readonly<{
-  kind: string;
-  sourceRef: string;
-  revision: string;
-  overlayHash?: string;
-  depth?: number;
-}>;
-export type EffectiveMechanic = Readonly<{
-  ruleId: string;
-  rulePack: CompiledRule['rulePack'];
-  source: MechanicSource;
-}> &
-  (
-    | Readonly<{ kind: 'deterministic'; rule: CompiledRule }>
-    | Readonly<{ kind: typeof GM_ADJUDICATED; reason: AdjudicationReason; issues: readonly ManifestIssue[] }>
-  );
 export type CompileRule = (
   input: RuleCompileInput,
 ) => { ok: true; rule: CompiledRule } | { ok: false; error: InvalidRuleDsl | CapabilityDisabled };

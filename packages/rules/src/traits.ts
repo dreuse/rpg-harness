@@ -1,21 +1,17 @@
 import type { CharacterId } from '../../domain/src/campaign.ts';
+import {
+  DERIVED_OPS,
+  type DerivedOp,
+  type Trait,
+  type TraitSheet,
+  type TraitValue,
+} from '../../domain/src/rule-shapes.ts';
 import { isNonEmptyString, isRecord, type ManifestIssue, NON_EMPTY_STRING } from './rulepack.ts';
 
 export const TRAIT_KINDS = ['trait', 'resource', 'tag', 'condition', 'derived'] as const;
-export const DERIVED_OPS = ['sum', 'min', 'max'] as const;
 
 export type TraitKind = (typeof TRAIT_KINDS)[number];
-export type DerivedOp = (typeof DERIVED_OPS)[number];
-export type TraitValue = string | number | boolean;
-
-export type Trait =
-  | { id: string; kind: 'trait'; value: TraitValue }
-  | { id: string; kind: 'resource'; current: number; max: number }
-  | { id: string; kind: 'tag' }
-  | { id: string; kind: 'condition'; stacks?: number; remaining?: number }
-  | { id: string; kind: 'derived'; op: DerivedOp; refs: string[]; offset: number };
-
-export type TraitSheet = { characterId: CharacterId; traits: Trait[] };
+export { DERIVED_OPS, type DerivedOp, type Trait, type TraitSheet, type TraitValue };
 export type TraitSheetResult = { ok: true; sheet: TraitSheet } | { ok: false; issues: ManifestIssue[] };
 
 const FINITE_NUMBER = 'must be a finite number';

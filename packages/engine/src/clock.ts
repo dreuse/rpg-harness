@@ -1,82 +1,53 @@
 import { isDeepStrictEqual } from 'node:util';
 import type { CampaignEvent, CampaignStore, CommittedTurn } from '../../domain/src/campaign.ts';
+import {
+  CLOCK_DEFINED,
+  CLOCK_TICKED,
+  type Clock,
+  type ClockDefinition,
+  type ClockId,
+  type DelayedEffect,
+  EFFECT_FIRED,
+  EFFECT_SCHEDULED,
+  type EffectDue,
+  type EffectId,
+  type EffectPayload,
+  TIME_ADVANCED,
+  type WorldTime,
+  worldOf,
+} from '../../timelines/src/live-folds.ts';
 import { commit, loadState, type PlayerAction, requireValid, storedTurnOf, validate } from './turn.ts';
 
 export const GAME_TIME_TRIGGERS = ['time-passage', 'clock-tick'] as const;
 export const EFFECT_DUE_KINDS = ['time', 'clock'] as const;
 
-export type ClockId = string;
-export type EffectId = string;
 export type GameTimeTriggerKind = (typeof GAME_TIME_TRIGGERS)[number];
 export type GameTimeTrigger =
   | { readonly kind: 'time-passage'; readonly units: number; readonly reason: string }
   | { readonly kind: 'clock-tick'; readonly clockId: ClockId; readonly segments: number; readonly reason: string };
-export type EffectDue =
-  | { readonly kind: 'time'; readonly at: number }
-  | { readonly kind: 'clock'; readonly clockId: ClockId };
-export type EffectPayload = Readonly<Record<string, unknown>> & { readonly summary: string };
-export type ClockDefinition = { readonly clockId: ClockId; readonly label: string; readonly segments: number };
-export type Clock = ClockDefinition & { readonly current: number };
-export type DelayedEffect = {
-  readonly effectId: EffectId;
-  readonly due: EffectDue;
-  readonly effect: EffectPayload;
-  readonly fired: boolean;
-};
-export type WorldTime = {
-  readonly now: number;
-  readonly clocks: readonly Clock[];
-  readonly effects: readonly DelayedEffect[];
-};
+export type { Clock, ClockDefinition, ClockId, DelayedEffect, EffectDue, EffectId, EffectPayload, WorldTime };
 
 export type ClockDefinitionAction = PlayerAction & ClockDefinition;
 export type EffectSchedule = PlayerAction & Omit<DelayedEffect, 'fired'>;
 export type GameTimeAdvance = PlayerAction & { readonly trigger: GameTimeTrigger };
 
-const CLOCK_DEFINED = 'ClockDefined';
-const EFFECT_SCHEDULED = 'DelayedEffectScheduled';
-const TIME_ADVANCED = 'GameTimeAdvanced';
-const CLOCK_TICKED = 'ClockTicked';
 const CLOCK_COMPLETED = 'ClockCompleted';
-const EFFECT_FIRED = 'DelayedEffectFired';
 const TIME_PASSAGE: GameTimeTriggerKind = 'time-passage';
 const TIME = 'time';
-const START_TIME = 0;
 
-type Payload = Readonly<Record<string, unknown>>;
 type State = { now: number; clocks: Map<ClockId, Clock>; effects: Map<EffectId, DelayedEffect> };
 type Step = readonly [string, Record<string, unknown>];
 
 const isFilled = (value: unknown): value is string => typeof value === 'string' && value.trim() !== '';
 const isCount = (value: unknown): value is number => Number.isSafeInteger(value) && (value as number) > 0;
 
-const fold = (state: State, { type, payload }: CampaignEvent) => {
-  const data = payload as Payload;
-  if (type === CLOCK_DEFINED) {
-    const clockId = String(data.clockId);
-    state.clocks.set(clockId, { clockId, label: String(data.label), segments: Number(data.segments), current: 0 });
-  }
-  if (type === EFFECT_SCHEDULED) {
-    const effectId = String(data.effectId);
-    const effect = { effectId, due: data.due as EffectDue, effect: data.effect as EffectPayload, fired: false };
-    state.effects.set(effectId, effect);
-  }
-  if (type === TIME_ADVANCED) state.now = Number(data.now);
-  const clock = state.clocks.get(String(data.clockId));
-  if (type === CLOCK_TICKED && clock !== undefined)
-    state.clocks.set(clock.clockId, { ...clock, current: Number(data.current) });
-  const effect = state.effects.get(String(data.effectId));
-  if (type === EFFECT_FIRED && effect !== undefined) state.effects.set(effect.effectId, { ...effect, fired: true });
-  return state;
-};
+const stateOf = ({ now, clocks, effects }: WorldTime): State => ({
+  now,
+  clocks: new Map(clocks.map((clock) => [clock.clockId, clock])),
+  effects: new Map(effects.map((effect) => [effect.effectId, effect])),
+});
 
-const project = (events: readonly CampaignEvent[]): State =>
-  events.reduce(fold, { now: START_TIME, clocks: new Map(), effects: new Map() });
-
-export const worldTime = (events: readonly CampaignEvent[]): WorldTime => {
-  const { now, clocks, effects } = project(events);
-  return { now, clocks: [...clocks.values()], effects: [...effects.values()] };
-};
+export const worldTime = (events: readonly CampaignEvent[]): WorldTime => worldOf(events);
 
 const isComplete = ({ current, segments }: Clock) => current >= segments;
 
@@ -85,7 +56,7 @@ const run = (store: CampaignStore, action: PlayerAction, steps: (state: State) =
   const stored = storedTurnOf(store, state, action.actionId);
   if (stored !== undefined) return stored;
   validate(state, action);
-  return commit(store, action, steps(project(state.events)));
+  return commit(store, action, steps(stateOf(state.folds.world)));
 };
 
 export const defineClock = (store: CampaignStore, definition: ClockDefinitionAction): CommittedTurn =>

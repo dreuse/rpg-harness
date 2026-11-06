@@ -1,5 +1,6 @@
 import type { EntityId, Visibility } from './entity.ts';
 import type { GmUsageLedger } from './gm.ts';
+import type { LiveFolds } from './live-folds.ts';
 
 export type CampaignId = string;
 export type CharacterId = string;
@@ -131,6 +132,7 @@ export type CampaignState = {
   readonly events: readonly CampaignEvent[];
   readonly changes: readonly Pick<CampaignEvent, 'type' | 'payload'>[];
   readonly gmUsage: GmUsageLedger;
+  readonly folds: LiveFolds;
 };
 
 export interface CampaignStore {

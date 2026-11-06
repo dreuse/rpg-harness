@@ -28,6 +28,17 @@ const HIGH_VOLUME_TYPES = [PLAYER_ACTION_SUBMITTED, ACTION_VALIDATED, CHECK_RESO
 const EVERY_TURN = 1;
 const SPARSE_RETENTION = 20;
 const RETAINED_TYPE = 'EncounterActionResolved';
+const QUEST_ID = 'scale-quest';
+const CLOCK_ID = 'scale-clock';
+const CLOCK_SEGMENTS = 1_000_000;
+const FOLD_EVENTS = [
+  ['QuestActivated', { questId: QUEST_ID }],
+  ['ClockTicked', { clockId: CLOCK_ID, current: 1 }],
+] as const;
+const FOLD_SETUP = [
+  ['QuestDefined', { questId: QUEST_ID, title: 'Scale', objectives: [], prerequisites: [] }],
+  ['ClockDefined', { clockId: CLOCK_ID, label: 'Scale', segments: CLOCK_SEGMENTS }],
+] as const;
 const LARGE_EVENTS = 100_000;
 const SMALL_EVENTS = 1_000;
 const MEASURED_ACTIONS = 30;
@@ -40,7 +51,16 @@ const INSERT_TURN =
 const INSERT_EVENT =
   'INSERT INTO event_log (id, campaign_id, branch_id, revision, action_id, turn_id, causation_id, type, payload, visibility) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
 
-const seedLog = (database: DatabaseSync, events: number, retainedEvery: number) => {
+type Retained = readonly (readonly [string, Record<string, unknown>])[];
+
+const OPAQUE_RETAINED: Retained = [[RETAINED_TYPE, {}]];
+
+const seedLog = (
+  database: DatabaseSync,
+  events: number,
+  retainedEvery: number,
+  retained: (turn: number) => Retained = () => OPAQUE_RETAINED,
+) => {
   database.exec('BEGIN');
   database.prepare('INSERT INTO campaign (id, name) VALUES (?, ?)').run(CAMPAIGN_ID, 'Scale');
   database.prepare('INSERT INTO character (id, campaign_id, name) VALUES (?, ?, ?)').run(HERO_ID, CAMPAIGN_ID, 'Hero');
@@ -64,8 +84,9 @@ const seedLog = (database: DatabaseSync, events: number, retainedEvery: number) 
     turns += 1;
     const turnId = `turn-${turns}`;
     addTurn.run(turnId, CAMPAIGN_ID, SCENE_ID, `seed-${turns}`, HERO_ID, `step ${turns}`, 'ok', turns);
-    const types = turns % retainedEvery === 0 ? [...HIGH_VOLUME_TYPES, RETAINED_TYPE] : HIGH_VOLUME_TYPES;
-    for (const [index, type] of types.entries()) {
+    const kept = turns % retainedEvery === 0 ? retained(turns) : [];
+    const rows: Retained = [...HIGH_VOLUME_TYPES.map((type) => [type, {}] as const), ...kept];
+    for (const [index, [type, payload]] of rows.entries()) {
       addEvent.run(
         `${turnId}-${index}`,
         CAMPAIGN_ID,
@@ -75,7 +96,7 @@ const seedLog = (database: DatabaseSync, events: number, retainedEvery: number) 
         turnId,
         null,
         type,
-        '{}',
+        JSON.stringify(payload),
         'gm',
       );
       written += 1;
@@ -141,10 +162,16 @@ const inTempDir = async (run: (dir: string) => Promise<void> | void) => {
   }
 };
 
-const seeded = (dir: string, name: string, events: number, retainedEvery = SPARSE_RETENTION) => {
+const seeded = (
+  dir: string,
+  name: string,
+  events: number,
+  retainedEvery = SPARSE_RETENTION,
+  retained?: (turn: number) => Retained,
+) => {
   const path = join(dir, name);
   const connection = openDatabase(path);
-  seedLog(connection.database, events, retainedEvery);
+  seedLog(connection.database, events, retainedEvery, retained);
   connection.close();
   return path;
 };
@@ -166,11 +193,26 @@ test('rpg-42a.41: a 100k-event campaign with retained events opens fast and acts
     warm.connection.close();
   }));
 
-test('rpg-42a.41: per-action time does not grow with the size of the log', () =>
+test('rpg-42a.41: per-action time stays within a bounded factor as the log grows', () =>
   inTempDir((dir) => {
     const smallMs = perActionMs(seeded(dir, 'small.sqlite', SMALL_EVENTS));
     const largeMs = perActionMs(seeded(dir, 'large.sqlite', LARGE_EVENTS));
     assert.ok(largeMs <= Math.max(smallMs * GROWTH_FACTOR, NOISE_FLOOR_MS), `${smallMs}ms grew to ${largeMs}ms`);
+  }));
+
+const foldRetained = (turn: number): Retained => (turn === EVERY_TURN ? [...FOLD_SETUP, ...FOLD_EVENTS] : FOLD_EVENTS);
+
+test('rpg-42a.57: smoke test, a 100k-event log with quest and clock events projects the quest and clock values', () =>
+  inTempDir((dir) => {
+    const smallMs = perActionMs(seeded(dir, 'folds-small.sqlite', SMALL_EVENTS, EVERY_TURN, foldRetained));
+    const largePath = seeded(dir, 'folds-large.sqlite', LARGE_EVENTS, EVERY_TURN, foldRetained);
+    const largeMs = perActionMs(largePath);
+    assert.ok(largeMs <= Math.max(smallMs * GROWTH_FACTOR, NOISE_FLOOR_MS), `${smallMs}ms grew to ${largeMs}ms`);
+    const opened = openSession(largePath);
+    const { folds } = opened.engine.getState(CAMPAIGN_ID);
+    assert.equal(folds.gm.quests[0]?.status, 'active');
+    assert.equal(folds.world.clocks[0]?.current, 1);
+    opened.connection.close();
   }));
 
 const COUNT_EVENTS = 'SELECT COUNT(*) AS total FROM event_log';

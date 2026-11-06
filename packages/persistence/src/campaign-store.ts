@@ -308,7 +308,7 @@ export const createCampaignStore = (
       const row = database.prepare(SELECT_CAMPAIGN).get(id);
       if (row === undefined) return undefined;
       const sceneRow = database.prepare(SELECT_CURRENT_SCENE).get(id);
-      const { events, changes, gmUsage } = live.read(id);
+      const { events, changes, gmUsage, folds } = live.read(id);
       return {
         campaign: { id: String(row.id), name: String(row.name) },
         revision: Number(row.revision),
@@ -318,6 +318,7 @@ export const createCampaignStore = (
         events,
         changes: Object.values(changes),
         gmUsage,
+        folds,
       };
     },
   };

@@ -1,5 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { type CampaignId, MAIN_BRANCH, SCENE_OPENED } from '../../domain/src/campaign.ts';
+import type { Visibility } from '../../domain/src/entity.ts';
 import {
   createLiveAccumulator,
   LIVE_PROJECTION_VERSION,
@@ -13,7 +14,7 @@ import { toEvent } from './event-store.ts';
 export const SNAPSHOTS_KEPT = 3;
 
 const ON_MAIN_BRANCH = `IFNULL(branch_id, '${MAIN_BRANCH}') = '${MAIN_BRANCH}'`;
-const SELECT_AFTER = `SELECT seq, id, campaign_id, branch_id, turn_id, actor_id, revision, causation_id, type, payload FROM event_log WHERE seq > ? AND +campaign_id = ? AND ${ON_MAIN_BRANCH} ORDER BY seq`;
+const SELECT_AFTER = `SELECT seq, visibility, id, campaign_id, branch_id, turn_id, actor_id, revision, causation_id, type, payload FROM event_log WHERE seq > ? AND +campaign_id = ? AND ${ON_MAIN_BRANCH} ORDER BY seq`;
 const SELECT_SNAPSHOTS =
   'SELECT version, event_count, last_event_id, state FROM campaign_snapshot WHERE campaign_id = ? AND branch_id = ? ORDER BY event_count DESC';
 const SELECT_SEQ = 'SELECT seq FROM event_log WHERE id = ? AND campaign_id = ?';
@@ -48,13 +49,17 @@ const stateOf = (entry: Entry): LiveState => {
   return entry.published;
 };
 
+const hasFolds = (folds: LiveState['folds'] | null | undefined) =>
+  typeof folds === 'object' && folds !== null && Array.isArray(folds.gm?.quests) && Array.isArray(folds.world?.clocks);
+
 const isLiveState = (value: unknown): value is LiveState =>
   typeof value === 'object' &&
   value !== null &&
   typeof (value as LiveState).count === 'number' &&
   Array.isArray((value as LiveState).events) &&
   typeof (value as LiveState).changes === 'object' &&
-  typeof (value as LiveState).gmUsage === 'object';
+  typeof (value as LiveState).gmUsage === 'object' &&
+  hasFolds((value as LiveState).folds);
 
 const parsed = (text: string): LiveState | undefined => {
   try {
@@ -100,7 +105,7 @@ export const createLiveStates = (database: DatabaseSync, snapshotEvery = SNAPSHO
     const before = entry.cursor;
     for (const row of database.prepare(SELECT_AFTER).iterate(entry.cursor, campaignId)) {
       const event = toEvent(row);
-      entry.accumulator.push(event);
+      entry.accumulator.push(event, String(row.visibility) as Visibility);
       entry.count += 1;
       entry.cursor = Number(row.seq);
       entry.sceneOpened ||= event.type === SCENE_OPENED;

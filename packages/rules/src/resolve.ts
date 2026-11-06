@@ -1,21 +1,16 @@
+import {
+  RESOLUTION_ERROR_CODES,
+  type ResolutionError,
+  type ResolutionErrorCode,
+  type RuleEvent,
+  type TraitChange,
+} from '../../domain/src/rule-shapes.ts';
 import { createRoller, type Rng, type TrustedRoll } from './dice.ts';
 import { type Condition, MAX_DSL_VALUE, type NumberExpr, parseRuleDsl, type RuleDsl, type RuleEffect } from './dsl.ts';
 import { isNonEmptyString, isRecord, type ManifestIssue, NON_EMPTY_STRING } from './rulepack.ts';
 import { resolveDerived, type Trait, type TraitSheet, type TraitValue, validateTraitSheet } from './traits.ts';
 
-export const RESOLUTION_ERROR_CODES = [
-  'InvalidAction',
-  'PreconditionFailed',
-  'InsufficientResource',
-  'UnknownReference',
-  'InvalidAmount',
-  'RollFailed',
-] as const;
-
-export type ResolutionErrorCode = (typeof RESOLUTION_ERROR_CODES)[number];
-export type ResolutionError = { code: ResolutionErrorCode; issues: ManifestIssue[] };
-export type TraitChange = { id: string; from: TraitValue; to: TraitValue };
-export type RuleEvent = { actionId: string; ruleId: string; event: string };
+export { RESOLUTION_ERROR_CODES, type ResolutionError, type ResolutionErrorCode, type RuleEvent, type TraitChange };
 export type ActionInput = {
   actionId: string;
   rule: unknown;

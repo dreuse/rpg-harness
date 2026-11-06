@@ -1,3 +1,4 @@
+import { type ManifestIssue, type Primitive, SUPPORTED_PRIMITIVES } from '../../domain/src/rule-shapes.ts';
 import {
   DEFAULT_RULES_USAGE,
   RESOLUTION_STYLES,
@@ -10,20 +11,7 @@ import { INVALID_STYLE, type Style, toStyle } from '../../domain/src/style.ts';
 
 export const RULEPACK_CONTRACT_VERSION = 1;
 
-export const SUPPORTED_PRIMITIVES = [
-  'random',
-  'comparison',
-  'arithmetic',
-  'modifier',
-  'resourceCost',
-  'condition',
-  'actionOrder',
-  'decision',
-  'transition',
-  'effects',
-] as const;
-
-export type Primitive = (typeof SUPPORTED_PRIMITIVES)[number];
+export { type ManifestIssue, type Primitive, SUPPORTED_PRIMITIVES };
 
 const ADJUDICATED = 'adjudicated';
 
@@ -43,7 +31,6 @@ export type RulePackManifest = {
   sourceRefs: string[];
 };
 
-export type ManifestIssue = { path: string; message: string };
 export type ManifestResult = { ok: true; manifest: RulePackManifest } | { ok: false; issues: ManifestIssue[] };
 
 const REQUIRED_STRINGS = ['id', 'edition', 'revision'] as const;

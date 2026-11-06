@@ -5,13 +5,16 @@ import {
   type DomainEvent,
   PLAYER_ACTION_SUBMITTED,
 } from '../../domain/src/campaign.ts';
+import type { Visibility } from '../../domain/src/entity.ts';
 import { EMPTY_GM_USAGE_LEDGER, GM_USAGE_RECORDED, type GmUsageLedger, recordInLedger } from '../../domain/src/gm.ts';
+import { EMPTY_LIVE_FOLDS, foldLive, type LiveFolds } from './live-folds.ts';
 import type { Projection } from './replay.ts';
 
-export const LIVE_PROJECTION_VERSION = 1;
+export const LIVE_PROJECTION_VERSION = 2;
 export const RECENT_TURN_WINDOW = 200;
 export const SNAPSHOT_EVERY_EVENTS = 1000;
 const PRUNE_EVERY_EVENTS = 1000;
+const DEFAULT_VISIBILITY: Visibility = 'gm';
 
 const HIGH_VOLUME_TYPES: ReadonlySet<string> = new Set([PLAYER_ACTION_SUBMITTED, ACTION_VALIDATED, CHECK_RESOLVED]);
 
@@ -22,6 +25,7 @@ export type LiveState = {
   readonly events: readonly CampaignEvent[];
   readonly changes: Readonly<Record<string, LiveChange>>;
   readonly gmUsage: GmUsageLedger;
+  readonly folds: LiveFolds;
 };
 
 const toTurnEvent = ({ id, campaignId, turnId, causationId, type, payload }: DomainEvent & { turnId: string }) => ({
@@ -49,14 +53,16 @@ const pruned = (events: readonly CampaignEvent[]) => {
 };
 
 export const createLiveAccumulator = (from: LiveState) => {
-  let { count, changes, gmUsage } = from;
+  let { count, changes, gmUsage, folds } = from;
   let events = [...from.events];
   let sincePrune = 0;
   return {
-    push: (event: DomainEvent) => {
+    push: (event: DomainEvent, visibility: Visibility = DEFAULT_VISIBILITY) => {
       count += 1;
       if (event.turnId !== null) {
-        events.push(toTurnEvent({ ...event, turnId: event.turnId }));
+        const turnEvent = toTurnEvent({ ...event, turnId: event.turnId });
+        events.push(turnEvent);
+        folds = foldLive(folds, turnEvent, visibility, event.actorId);
         sincePrune += 1;
         if (sincePrune >= PRUNE_EVERY_EVENTS) {
           events = [...pruned(events)];
@@ -65,13 +71,13 @@ export const createLiveAccumulator = (from: LiveState) => {
       } else if (event.type === GM_USAGE_RECORDED) gmUsage = recordInLedger(gmUsage, event.payload);
       else changes = { ...changes, [event.type]: { type: event.type, payload: event.payload } };
     },
-    state: (): LiveState => ({ count, events: [...pruned(events)], changes, gmUsage }),
+    state: (): LiveState => ({ count, events: [...pruned(events)], changes, gmUsage, folds }),
   };
 };
 
 export const liveProjection: Projection<LiveState> = {
   version: LIVE_PROJECTION_VERSION,
-  initial: { count: 0, events: [], changes: {}, gmUsage: EMPTY_GM_USAGE_LEDGER },
+  initial: { count: 0, events: [], changes: {}, gmUsage: EMPTY_GM_USAGE_LEDGER, folds: EMPTY_LIVE_FOLDS },
   apply: (state, event) => {
     const accumulator = createLiveAccumulator(state);
     accumulator.push(event);

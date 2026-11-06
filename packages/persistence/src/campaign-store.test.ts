@@ -17,6 +17,7 @@ import {
   type TurnCommit,
 } from '../../domain/src/campaign.ts';
 import { EMPTY_GM_USAGE_LEDGER } from '../../domain/src/gm.ts';
+import { EMPTY_LIVE_FOLDS } from '../../timelines/src/live-folds.ts';
 import { createCampaignStore } from './campaign-store.ts';
 import { MIGRATIONS, openDatabase } from './database.ts';
 import { createEventStore } from './event-store.ts';
@@ -69,6 +70,7 @@ const EXPECTED_STATE: CampaignState = {
   events: [ACTION_EVENT, NARRATION_EVENT],
   changes: [{ type: 'CampaignCreated', payload: { name: CAMPAIGN.name } }],
   gmUsage: EMPTY_GM_USAGE_LEDGER,
+  folds: EMPTY_LIVE_FOLDS,
 };
 
 const OTHER_CAMPAIGN = { id: 'campaign-2', name: 'Salt Roads' };
@@ -92,6 +94,7 @@ const emptyState = (campaign: Campaign): CampaignState => ({
   events: [],
   changes: [{ type: 'CampaignCreated', payload: { name: campaign.name } }],
   gmUsage: EMPTY_GM_USAGE_LEDGER,
+  folds: EMPTY_LIVE_FOLDS,
 });
 
 const change = (campaign: Campaign, id: string, type: string): CampaignChange => ({

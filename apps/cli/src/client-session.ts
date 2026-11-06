@@ -55,7 +55,6 @@ import {
 import { ROLL_CORRECTED } from '../../../packages/domain/src/ooc.ts';
 import { playTurns, SHEET_FIELD_EDITED } from '../../../packages/engine/src/character.ts';
 import { pendingCheckOffer } from '../../../packages/engine/src/check-offer.ts';
-import { currentEncounter } from '../../../packages/engine/src/encounter.ts';
 import { campaignLanguageOf, type Engine } from '../../../packages/engine/src/engine.ts';
 import { contextDroppedOften, gmSettingsOf } from '../../../packages/engine/src/gm-settings.ts';
 import { RollReportError } from '../../../packages/engine/src/roll-report.ts';
@@ -78,7 +77,7 @@ import {
   visualizationPreferenceOf,
   whoRollsFor,
 } from './roll-visualization.ts';
-import { panelsOf, printable, sheetFields, type ViewSource } from './views.ts';
+import { encounterOf, panelsOf, printable, sheetFields, type ViewSource } from './views.ts';
 
 export type ScopedEvent = DomainEvent & Scoped & { readonly seq: number };
 export type EventSource = (campaignId: CampaignId, query?: EventQuery) => readonly ScopedEvent[];
@@ -300,8 +299,9 @@ export const createClientSessions = (
   const viewScopes = createScopeLookup(readEvents, campaignId, (id) => scopes.get(id));
 
   const replayedRolls = (fromRevision: number) => {
-    const { events } = engine.getState(campaignId);
-    const acted = new Set(currentEncounter(events)?.actions.map(({ eventId }) => eventId));
+    const state = engine.getState(campaignId);
+    const { events } = state;
+    const acted = new Set(encounterOf(state)?.actions.map(({ eventId }) => eventId));
     const actedEvents = events.filter(({ id }) => acted.has(id));
     const actedScopes = scopesFor(actedEvents.map(({ id }) => id));
     const encounter = actedEvents.flatMap(({ id, payload }) =>

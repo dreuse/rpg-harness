@@ -6,41 +6,27 @@ import type {
   CampaignStore,
   CharacterId,
   CommittedTurn,
-  EventId,
 } from '../../domain/src/campaign.ts';
-import type { RulePackLink } from '../../domain/src/character.ts';
-import type { Rng, RollEvent } from '../../rules/src/dice.ts';
+import type { Rng } from '../../rules/src/dice.ts';
 import { type EffectiveMechanic, parseRuleDsl, type RuleDsl } from '../../rules/src/dsl.ts';
-import { type ResolutionError, type RuleEvent, resolveAction, type TraitChange } from '../../rules/src/resolve.ts';
-import { type Trait, type TraitSheet, type TraitValue, validateTraitSheet } from '../../rules/src/traits.ts';
+import { resolveAction } from '../../rules/src/resolve.ts';
+import { type TraitSheet, validateTraitSheet } from '../../rules/src/traits.ts';
+import {
+  ENCOUNTER_ACTION_RESOLVED,
+  ENCOUNTER_RESOLVED,
+  ENCOUNTER_STARTED,
+  ENCOUNTER_TURN_ADVANCED,
+  type Encounter,
+  type EncounterAction,
+  type EncounterId,
+  type EncounterResolution,
+  type EncounterRules,
+  type EncounterStatus,
+  visibleFoldsOf,
+} from '../../timelines/src/live-folds.ts';
 import { commit, loadState, type PlayerAction, recorded, replayOf, requireValid, validate } from './turn.ts';
 
-export type EncounterId = string;
-export type EncounterStatus = 'active' | 'resolved';
-export type EncounterResolution =
-  | { readonly ok: true; readonly changes: TraitChange[]; readonly events: RuleEvent[]; readonly rolls: RollEvent[] }
-  | { readonly ok: false; readonly error: ResolutionError; readonly rolls: RollEvent[] };
-export type EncounterAction = {
-  readonly eventId: EventId;
-  readonly actorId: CharacterId;
-  readonly round: number;
-  readonly ruleId: string;
-  readonly dslVersion: RuleDsl['dslVersion'];
-  readonly modifiers: Readonly<Record<string, number>>;
-  readonly resolution: EncounterResolution;
-};
-export type Encounter = {
-  readonly id: EncounterId;
-  readonly participants: readonly CharacterId[];
-  readonly status: EncounterStatus;
-  readonly round: number;
-  readonly actorId: CharacterId;
-  readonly outcome: string | undefined;
-  readonly actions: readonly EncounterAction[];
-  readonly rules: EncounterRules | undefined;
-  readonly sheets: Readonly<Record<CharacterId, TraitSheet>>;
-};
-export type EncounterRules = { readonly rulePack: RulePackLink; readonly mechanics: readonly EffectiveMechanic[] };
+export type { Encounter, EncounterAction, EncounterId, EncounterResolution, EncounterRules, EncounterStatus };
 
 export type EncounterStart = PlayerAction & {
   readonly participants: readonly CharacterId[];
@@ -54,87 +40,18 @@ export type EncounterMove = PlayerAction & {
 };
 export type EncounterEnd = PlayerAction & { readonly outcome: string };
 
-const STARTED = 'EncounterStarted';
-const ACTION_RESOLVED = 'EncounterActionResolved';
-const TURN_ADVANCED = 'EncounterTurnAdvanced';
-const RESOLVED = 'EncounterResolved';
 const ACTIVE: EncounterStatus = 'active';
-const FIRST_ROUND = 1;
 const FIRST_SEAT = 0;
 const NEXT = 1;
 const INVALID_ACTION = 'InvalidAction';
 const NO_MODIFIERS: Readonly<Record<string, number>> = {};
 const DETERMINISTIC = 'deterministic';
 
-const blankSheet = (characterId: CharacterId): TraitSheet => ({ characterId, traits: [] });
-
-const sheetsOf = (participants: readonly CharacterId[], sheets: readonly TraitSheet[]) =>
-  Object.fromEntries(
-    participants.map((id) => [id, sheets.find(({ characterId }) => characterId === id) ?? blankSheet(id)]),
-  );
-
-const changed = (trait: Trait, to: TraitValue): Trait => {
-  if (trait.kind === 'resource') return { ...trait, current: Number(to) };
-  if (trait.kind === 'trait') return { ...trait, value: to };
-  return trait;
-};
-
-const applyChanges = (sheet: TraitSheet, changes: readonly TraitChange[]): TraitSheet => {
-  const latest = new Map(changes.map(({ id, to }) => [id, to]));
-  return {
-    ...sheet,
-    traits: sheet.traits.map((trait) => {
-      const to = latest.get(trait.id);
-      return to === undefined ? trait : changed(trait, to);
-    }),
-  };
-};
-
-type Payload = Readonly<Record<string, unknown>>;
-
-const fold = (encounter: Encounter | undefined, { id, type, payload }: CampaignEvent): Encounter | undefined => {
-  const data = payload as Payload;
-  if (type === STARTED) {
-    const participants = data.participants as CharacterId[];
-    return {
-      id: String(data.encounterId),
-      participants,
-      status: ACTIVE,
-      round: FIRST_ROUND,
-      actorId: participants[FIRST_SEAT] as CharacterId,
-      outcome: undefined,
-      actions: [],
-      rules: data.rules as EncounterRules | undefined,
-      sheets: sheetsOf(participants, (data.sheets ?? []) as TraitSheet[]),
-    };
-  }
-  if (encounter === undefined || data.encounterId !== encounter.id) return encounter;
-  if (type === ACTION_RESOLVED) {
-    const action = {
-      eventId: id,
-      actorId: String(data.actorId),
-      round: Number(data.round),
-      ruleId: String(data.ruleId),
-      dslVersion: data.dslVersion as RuleDsl['dslVersion'],
-      modifiers: data.modifiers as Readonly<Record<string, number>>,
-      resolution: data.resolution as EncounterResolution,
-    };
-    const { resolution, actorId } = action;
-    const sheets = resolution.ok
-      ? { ...encounter.sheets, [actorId]: applyChanges(encounter.sheets[actorId] as TraitSheet, resolution.changes) }
-      : encounter.sheets;
-    return { ...encounter, actions: [...encounter.actions, action], sheets };
-  }
-  if (type === TURN_ADVANCED) return { ...encounter, round: Number(data.round), actorId: String(data.actorId) };
-  if (type === RESOLVED) return { ...encounter, status: 'resolved', outcome: String(data.outcome) };
-  return encounter;
-};
-
 export const currentEncounter = (events: readonly CampaignEvent[]): Encounter | undefined =>
-  events.reduce<Encounter | undefined>(fold, undefined);
+  visibleFoldsOf(events).encounter;
 
 const activeEncounter = (state: CampaignState, actionId: string): Encounter => {
-  const encounter = currentEncounter(state.events);
+  const { encounter } = state.folds.gm;
   requireValid(actionId, encounter?.status === ACTIVE, 'no encounter is active');
   return encounter as Encounter;
 };
@@ -172,10 +89,10 @@ const requireRules = (actionId: string, { rulePack, mechanics }: EncounterRules)
 export const startEncounter = (store: CampaignStore, start: EncounterStart): CommittedTurn => {
   const state = loadState(store, start.campaignId);
   const { actionId, participants, rules, sheets = [] } = start;
-  const stored = replayOf(store, state, start, recorded(STARTED, { participants, rules, sheets }));
+  const stored = replayOf(store, state, start, recorded(ENCOUNTER_STARTED, { participants, rules, sheets }));
   if (stored !== undefined) return stored;
   validate(state, start);
-  requireValid(actionId, currentEncounter(state.events)?.status !== ACTIVE, 'an encounter is already active');
+  requireValid(actionId, state.folds.gm.encounter?.status !== ACTIVE, 'an encounter is already active');
   requireValid(actionId, participants.length > 0, 'participants are empty');
   requireValid(actionId, new Set(participants).size === participants.length, 'participants repeat');
   const known = new Set(state.characters.map(({ id }) => id));
@@ -187,7 +104,7 @@ export const startEncounter = (store: CampaignStore, start: EncounterStart): Com
   requireSheets(actionId, participants, sheets);
   if (rules !== undefined) requireRules(actionId, rules);
   return commit(store, start, [
-    [STARTED, { encounterId: randomUUID(), participants: [...participants], rules, sheets: [...sheets] }],
+    [ENCOUNTER_STARTED, { encounterId: randomUUID(), participants: [...participants], rules, sheets: [...sheets] }],
   ]);
 };
 
@@ -211,7 +128,7 @@ export const actInEncounter = (store: CampaignStore, move: EncounterMove): Commi
   const { actionId, actorId, ruleId, rng, modifiers } = move;
   const state = loadState(store, move.campaignId);
   const applied = { ...(modifiers ?? NO_MODIFIERS) };
-  const stored = replayOf(store, state, move, recorded(ACTION_RESOLVED, { ruleId, modifiers: applied }));
+  const stored = replayOf(store, state, move, recorded(ENCOUNTER_ACTION_RESOLVED, { ruleId, modifiers: applied }));
   if (stored !== undefined) return stored;
   validate(state, move);
   const encounter = activeEncounter(state, actionId);
@@ -226,18 +143,18 @@ export const actInEncounter = (store: CampaignStore, move: EncounterMove): Commi
     : result;
   const { id: encounterId, round } = encounter;
   return commit(store, move, [
-    [ACTION_RESOLVED, { encounterId, actorId, round, ruleId, dslVersion, modifiers: applied, resolution }],
-    [TURN_ADVANCED, { encounterId, ...seatAfter(encounter) }],
+    [ENCOUNTER_ACTION_RESOLVED, { encounterId, actorId, round, ruleId, dslVersion, modifiers: applied, resolution }],
+    [ENCOUNTER_TURN_ADVANCED, { encounterId, ...seatAfter(encounter) }],
   ]);
 };
 
 export const resolveEncounter = (store: CampaignStore, end: EncounterEnd): CommittedTurn => {
   const state = loadState(store, end.campaignId);
-  const stored = replayOf(store, state, end, recorded(RESOLVED, { outcome: end.outcome }));
+  const stored = replayOf(store, state, end, recorded(ENCOUNTER_RESOLVED, { outcome: end.outcome }));
   if (stored !== undefined) return stored;
   validate(state, end);
   const { actionId, outcome } = end;
   const { id: encounterId } = activeEncounter(state, actionId);
   requireValid(actionId, outcome.trim() !== '', 'outcome is blank');
-  return commit(store, end, [[RESOLVED, { encounterId, outcome }]]);
+  return commit(store, end, [[ENCOUNTER_RESOLVED, { encounterId, outcome }]]);
 };

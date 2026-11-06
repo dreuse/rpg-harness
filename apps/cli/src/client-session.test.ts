@@ -27,6 +27,7 @@ import { openDatabase } from '../../../packages/persistence/src/database.ts';
 import { createEntityStore } from '../../../packages/persistence/src/entity-store.ts';
 import type { EventQuery } from '../../../packages/persistence/src/event-store.ts';
 import { createRoller, createSeededRng } from '../../../packages/rules/src/dice.ts';
+import { EMPTY_LIVE_FOLDS } from '../../../packages/timelines/src/live-folds.ts';
 import {
   campaignSummaryOf,
   createClientSessions,
@@ -299,6 +300,7 @@ test('rpg-42a.12: campaign summary strips control characters from the last narra
     events: [],
     changes: [],
     gmUsage: EMPTY_GM_USAGE_LEDGER,
+    folds: EMPTY_LIVE_FOLDS,
   };
   const source = { state, entities: [], relationships: [], eventScopes: [] };
   assert.equal(campaignSummaryOf(source, PLAYER_VIEWER, null).lastNarration, 'The [31mdoor opens.');
@@ -446,6 +448,7 @@ test('rpg-42a.23: campaign summary narrates the last play turn, not a sheet edit
     events,
     changes: [],
     gmUsage: EMPTY_GM_USAGE_LEDGER,
+    folds: EMPTY_LIVE_FOLDS,
   };
   const summary = campaignSummaryOf({ state, entities: [], relationships: [], eventScopes: [] }, PLAYER_VIEWER, null);
   assert.equal(summary.lastNarration, 'h1: look - Fog.');

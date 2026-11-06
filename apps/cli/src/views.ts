@@ -18,7 +18,7 @@ import type { CampaignEntity, EntityKind, Relationship } from '../../../packages
 import { usesSheet } from '../../../packages/domain/src/rules-usage.ts';
 import { CHARACTER_CREATED, playTurns, profileOf } from '../../../packages/engine/src/character.ts';
 import { currentEncounter, type EncounterAction } from '../../../packages/engine/src/encounter.ts';
-import { questLog } from '../../../packages/engine/src/quest.ts';
+import { oocStateOf } from '../../../packages/engine/src/ooc.ts';
 import { campaignConfigOf } from '../../../packages/engine/src/turn.ts';
 import { parseCampaignConfig } from '../../../packages/intent/src/config.ts';
 import { PLAYER_VIEWER, type Scoped, type Viewer, visibleTo } from '../../../packages/memory/src/knowledge.ts';
@@ -38,6 +38,7 @@ import {
   type SheetViewer,
   type SheetViewInput,
 } from '../../../packages/rules/src/sheet-view.ts';
+import { audienceOf, visibleFoldsOf } from '../../../packages/timelines/src/live-folds.ts';
 import { creationRulesFor, usageFor } from './quickstart.ts';
 
 export const VIEW_NAMES = ['sheet', 'sheet-export', 'inventory', 'journal', 'quests', 'encounter', 'recap'] as const;
@@ -280,10 +281,16 @@ const visibleEvents = ({ state, eventScopes }: ViewSource, viewer: Viewer) => {
   return state.events.filter(({ id }) => shown.has(id));
 };
 
-const playerEvents = (source: ViewSource) => visibleEvents(source, PLAYER_VIEWER);
+const isRetconned = ({ changes }: CampaignState) => oocStateOf(changes).retconned.length > 0;
+
+export const encounterOf = (state: CampaignState) =>
+  isRetconned(state) ? currentEncounter(state.events) : state.folds.gm.encounter;
+
+const foldsFor = (source: ViewSource, viewer: Viewer) =>
+  isRetconned(source.state) ? visibleFoldsOf(visibleEvents(source, viewer)) : audienceOf(source.state.folds, viewer);
 
 const quests = (source: ViewSource) => {
-  const rows = questLog(playerEvents(source)).flatMap((quest) => [
+  const rows = foldsFor(source, PLAYER_VIEWER).quests.flatMap((quest) => [
     `  - ${quest.title} (${quest.status})`,
     ...quest.objectives.map(({ done, summary }) => `    ${done ? DONE : OPEN} ${summary}`),
   ]);
@@ -312,7 +319,7 @@ const actionRows = (name: string, { ruleId, modifiers, resolution }: EncounterAc
 };
 
 const encounter = (source: ViewSource) => {
-  const current = currentEncounter(playerEvents(source));
+  const current = foldsFor(source, PLAYER_VIEWER).encounter;
   if (current === undefined) return NO_ENCOUNTER;
   const names = new Map(source.state.characters.map(({ id, name }) => [id, name]));
   const rows = current.actions.flatMap((action) => actionRows(names.get(action.actorId) ?? action.actorId, action));
@@ -356,7 +363,7 @@ export const panelsOf = (source: ViewSource, viewer: Viewer): Panels => {
   const last = playTurns(state).at(-1);
   return {
     inventory: hero === undefined ? [] : heldItems(hero, visible).map(({ id, name }) => ({ id, name })),
-    quests: questLog(events).map(({ id, title, status, objectives }) => ({
+    quests: foldsFor(source, viewer).quests.map(({ id, title, status, objectives }) => ({
       id,
       title,
       status,
