@@ -92,6 +92,7 @@ const DICE_KEYS: Record<CapabilityMode, string> = {
 };
 const CHOSEN: Provenance = 'explicit';
 const DEFAULT: Provenance = 'default';
+const FALLBACK = 'fallback';
 const SWITCH_LABELS = { true: 'on', false: 'off' } as const;
 const PLAN_FIELDS = [
   'ruleset',
@@ -225,17 +226,24 @@ const mechanicalRuleset = (registry: Registry, input: CampaignIntentInput): Camp
   return input;
 };
 
+const conflictLine = (candidates: readonly { value: unknown; evidence: { text: string } }[]) => {
+  const [first] = candidates;
+  const opposite = candidates.every(({ value }) => typeof value === 'boolean');
+  return opposite
+    ? new LocalizedError('quickstart.intentPolarity', { words: first?.evidence.text })
+    : new LocalizedError('quickstart.intentConflict', {
+        words: new ListParam([...new Set(candidates.map(({ evidence }) => evidence.text))], 'conjunction'),
+      });
+};
+
 const intentFrom = (registry: Registry, text: string, choices: Choices) => {
   const proposed = proposeCampaignIntent(text);
   if (!proposed.ok) throw new LocalizedError('quickstart.intentTooLong', { max: MAX_INTENT_TEXT_LENGTH });
   const { conflicts, input, settings } = proposed.proposal;
   const words: Words = Object.fromEntries(settings.map(({ field, evidence }) => [field, evidence.text]));
   if (conflicts.length > 0)
-    throw new LocalizedError('quickstart.intentConflict', {
-      words: new ListParam(
-        [...new Set(conflicts.flatMap(({ candidates }) => candidates.map(({ evidence }) => evidence.text)))],
-        'conjunction',
-      ),
+    throw new LocalizedError('quickstart.lines', {
+      lines: conflicts.map(({ candidates }) => conflictLine(candidates)),
     });
   const known =
     unmatchedGenre(registry, input) === undefined
@@ -525,7 +533,13 @@ export const planResult = (
   try {
     const plan = planStart(command, client, packs);
     const notes = pitchNotes(command.intent, locale, packs);
-    return { ok: true, value: notes.length === 0 ? plan : { ...plan, notes } };
+    if (notes.length === 0) return { ok: true, value: plan };
+    const entries = plan.entries.map((entry) =>
+      entry.field === 'genre' && entry.provenance === DERIVED && entry.value === BLANK_WORLD_ID
+        ? { ...entry, provenance: FALLBACK }
+        : entry,
+    );
+    return { ok: true, value: { ...plan, entries, notes } };
   } catch (error) {
     return failureOf(error, locale);
   }

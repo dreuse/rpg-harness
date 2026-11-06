@@ -106,6 +106,7 @@ export const START_CATALOG: Catalog = {
     'import.error': '{rulebook} {message}',
     'provenance.default': 'default',
     'provenance.chosen': 'chosen',
+    'provenance.fallback': 'fallback',
     'feature.diceVisualization': 'Dice animation',
     'feature.diceVisualization.detail': 'Show each dice roll on screen.',
     'feature.voiceOutput': 'Voice narration',
@@ -199,6 +200,7 @@ export const START_CATALOG: Catalog = {
     'import.error': '{rulebook} {message}',
     'provenance.default': 'padrão',
     'provenance.chosen': 'escolhido',
+    'provenance.fallback': 'alternativa',
     'feature.diceVisualization': 'Animação de dados',
     'feature.diceVisualization.detail': 'Mostra cada rolagem de dados na tela.',
     'feature.voiceOutput': 'Narração por voz',
@@ -288,6 +290,7 @@ const BUILT_IN_EDITION = 'original';
 const BUILT_IN_RULESETS = ['narrative', 'd20-lite', 'dice-pool-lite'];
 const DEFAULT_PROVENANCE = 'default';
 const CHOSEN = 'chosen';
+const PROVENANCE_LABELS = new Set([DEFAULT_PROVENANCE, 'fallback']);
 const LIST_STYLE = { type: 'unit', style: 'short' } as const;
 const FEATURE_ON: Readonly<Record<Feature, unknown>> = {
   diceVisualization: true,
@@ -650,7 +653,7 @@ const summaryPage = (draft: StartDraft, plan: Result<CampaignPlan> | undefined, 
         text(locale, 'summary.line', {
           label: fieldLabel(locale, field),
           value: shown(locale, field, value, plan.value.options),
-          provenance: text(locale, `provenance.${provenance === DEFAULT_PROVENANCE ? DEFAULT_PROVENANCE : CHOSEN}`),
+          provenance: text(locale, `provenance.${PROVENANCE_LABELS.has(provenance) ? provenance : CHOSEN}`),
         }),
       )
     : [],

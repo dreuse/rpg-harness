@@ -222,19 +222,73 @@ test('rpg-42a.142 a conflict names the pitch words instead of a field code', () 
   }
 });
 
-test('rpg-42a.142 a contradiction names the pitch words instead of field codes', () => {
+test('rpg-42a.142 a contradiction shows polarity and one line per conflicting field', () => {
   const cases = [
-    ['en', 'A fantasy story with voice narration and without voice narration', 'voice narration'],
-    ['pt-BR', 'Uma história de fantasia com animação de dados e sem animação de dados', 'animação de dados'],
-    ['en', 'A fantasy story that is also a horror story', 'horror'],
-    ['en', 'A fantasy story with relaxed pacing and fast pacing', 'relaxed pacing'],
+    [
+      'en',
+      'A fantasy story with voice narration and without voice narration',
+      'Your pitch asks for both with and without "voice narration". Keep only one of them.',
+    ],
+    [
+      'en',
+      'Voice narration fantasy, without voice narration',
+      'Your pitch asks for both with and without "Voice narration". Keep only one of them.',
+    ],
+    [
+      'en',
+      'A fantasy story with voice narration and without text-to-speech',
+      'Your pitch asks for both with and without "voice narration". Keep only one of them.',
+    ],
+    [
+      'en',
+      'A diceless fantasy story with dice',
+      'Your pitch asks for both diceless and with dice. Keep only one of them.',
+    ],
+    [
+      'en',
+      'Fantasy with spoken narration but not voiced narration',
+      'Your pitch asks for both with and without "spoken narration". Keep only one of them.',
+    ],
+    [
+      'pt-BR',
+      'Uma história de fantasia com animação de dados e sem animação de dados',
+      'Seu pedido pede ao mesmo tempo com e sem "animação de dados". Mantenha só uma das opções.',
+    ],
+    [
+      'es',
+      'A fantasy story with voice narration and without voice narration',
+      'Tu pedido pide a la vez con y sin "voice narration". Deja solo una de las opciones.',
+    ],
+    [
+      'en',
+      'A fantasy story that is also a horror story',
+      'Your pitch asks for both A fantasy story and a horror story. Keep only one of them.',
+    ],
+    [
+      'en',
+      'A fantasy story that is also a horror story with relaxed pacing and fast pacing',
+      'Your pitch asks for both A fantasy story and a horror story. Keep only one of them.\nYour pitch asks for both relaxed pacing and fast pacing. Keep only one of them.',
+    ],
   ] as const;
-  for (const [locale, pitch, words] of cases) {
+  for (const [locale, pitch, message] of cases) {
     const result = planResult({ version: PROTOCOL_VERSION, type: 'PlanCampaign', intent: pitch }, undefined, locale);
     assert.ok(!result.ok, pitch);
-    assert.ok(result.error.message.includes(words), result.error.message);
-    assert.doesNotMatch(result.error.message, /voiceOutput|diceVisualization|both (genre|pacing)\b|yes and no/);
+    assert.strictEqual(result.error.message, message);
   }
+});
+
+test('rpg-42a.142 a chosen genre keeps its provenance when the pitch has an unmatched genre phrase', () => {
+  const result = planResult({
+    version: PROTOCOL_VERSION,
+    type: 'PlanCampaign',
+    intent: 'A steampunk story',
+    choices: { genre: 'fantasy' },
+  });
+  assert.ok(result.ok);
+  assert.deepEqual(
+    result.value.entries.find(({ field }) => field === 'genre'),
+    { field: 'genre', value: 'fantasy', provenance: 'explicit' },
+  );
 });
 
 const PLAN = { version: PROTOCOL_VERSION, type: 'PlanCampaign' } as const;

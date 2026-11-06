@@ -236,6 +236,17 @@ test('rpg-42a.19 character step hides ready-made characters on rules without a s
   assert.equal(at('narrative').options.length, 1);
 });
 
+test('rpg-42a.142 summary labels a derived setting as the fallback, not as chosen', () => {
+  const derived: Result<CampaignPlan> = PLAN.ok
+    ? {
+        ok: true,
+        value: { ...PLAN.value, entries: [{ field: 'genre', value: 'blank-world', provenance: 'fallback' }] },
+      }
+    : PLAN;
+  assert.ok(startScreen(skipAll, OPTIONS, derived).text[0]?.endsWith('(fallback)'));
+  assert.ok(startScreen(skipAll, OPTIONS, derived, 'pt-BR').text[0]?.endsWith('(alternativa)'));
+});
+
 test('rpg-42a.14 summary shows chosen or default for each setting and an unknown edition asks for an import', () => {
   const summary = startScreen(skipAll, OPTIONS, PLAN);
   assert.equal(summary.canStart, true);

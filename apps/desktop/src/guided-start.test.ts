@@ -140,7 +140,7 @@ test('rpg-42a.142 desktop describe path with an unknown genre phrase starts on b
     { kind: 'next' },
   ]);
   assert.deepEqual(summary?.notes, [OPEN_WORLD_NOTE]);
-  assert.ok(summary?.text.includes('Genre: Blank world (chosen)'), summary?.text.join('\n'));
+  assert.ok(summary?.text.includes('Genre: Blank world (fallback)'), summary?.text.join('\n'));
 });
 
 test('rpg-42a.14 desktop guide me path creates a playable campaign with chosen settings', async (t) => {
