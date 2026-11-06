@@ -46,6 +46,7 @@ import type { OocProposal } from '../../../packages/domain/src/ooc.ts';
 import { DEFAULT_RULES_USAGE, usesDice, usesSheet } from '../../../packages/domain/src/rules-usage.ts';
 import { componentValue, DEFAULT_LOCALE, DEFAULT_PREFERENCES, translate, type UiPreferences } from './accessibility.ts';
 import { effectiveMotion, parseVisualization, ROLL_HISTORY, rollPlan } from './dice.ts';
+import type { ImportRequest, ImportResult } from './preload.ts';
 
 export const COMPACT_MAX_WIDTH = 720;
 export const MEDIUM_MAX_WIDTH = 1200;
@@ -80,6 +81,7 @@ const STORY_RESULT = 'StoryResult';
 const DESKTOP_CLIENT = 'desktop';
 const OPTIONS_REQUEST = planCommand(INITIAL_DRAFT);
 const NO_REVISION = -1;
+const IMPORT_UNAVAILABLE = { status: 'failed', lines: ['Importing is not available in this window.'] } as const;
 const VOICE_SAVE_INPUT = 'voice settings';
 const GM_SAVE_INPUT = 'GM settings';
 const STALE_REVISION = 'StaleRevision';
@@ -96,12 +98,17 @@ export type Connection = {
 export type StalledTurn = { readonly action: SubmitPlayerAction; readonly failure: GmFailure };
 export type StreamedNarration = { readonly turnId: string; readonly text: string };
 export type RejectedAction = { readonly actionId: string; readonly input: string; readonly message: string };
+export type ImportState = {
+  readonly status: 'needsPack' | 'preview' | 'installed' | 'declined' | 'failed';
+  readonly lines: readonly string[];
+};
 export type StartState = {
   readonly open: boolean;
   readonly draft: StartDraft;
   readonly options?: StartOptions | undefined;
   readonly plan?: Result<CampaignPlan> | undefined;
   readonly created?: string | undefined;
+  readonly import?: ImportState | undefined;
 };
 export type MemoryState = {
   readonly open: boolean;
@@ -385,6 +392,7 @@ export const viewModel = (
       ? startScreen(state.start.draft, state.start.options, state.start.plan, preferences.locale, voices)
       : undefined,
     created: state.start.created,
+    rulebookImport: state.start.import,
     ooc: state.ooc,
     memory: state.memory,
   };
@@ -451,6 +459,7 @@ export const createDesktopClient = ({
   saveStart = () => {},
   locale = () => DEFAULT_LOCALE,
   voices = () => undefined,
+  importRulebook: runImport,
 }: {
   readonly transport: Transport;
   readonly newActionId: () => string;
@@ -458,6 +467,7 @@ export const createDesktopClient = ({
   readonly saveStart?: ((draft: StartDraft) => void) | undefined;
   readonly locale?: (() => string) | undefined;
   readonly voices?: (() => StartVoices | undefined) | undefined;
+  readonly importRulebook?: ((request: ImportRequest) => Promise<ImportResult>) | undefined;
 }) => {
   let state: DesktopState = { ...initialState, start: { open: startDraft.path !== null, draft: startDraft } };
   let resendOnSnapshot = false;
@@ -612,6 +622,15 @@ export const createDesktopClient = ({
     const current =
       stepOf(state.start.draft) === 'summary' && sameCommand(command, planCommand(state.start.draft, DESKTOP_CLIENT));
     update({ start: { ...state.start, options, ...(current ? { plan: result as Result<CampaignPlan> } : {}) } });
+  };
+
+  const importWith = async (request: ImportRequest) => {
+    const result = await (runImport?.(request) ?? Promise.resolve<ImportResult>(IMPORT_UNAVAILABLE)).catch(
+      (error): ImportResult => ({ status: 'failed', lines: [error instanceof Error ? error.message : String(error)] }),
+    );
+    if (result.status === 'cancelled') return update({ start: { ...state.start, import: undefined } });
+    update({ start: { ...state.start, import: result } });
+    if (result.status === 'installed') send(OPTIONS_REQUEST);
   };
 
   const onCreated = (result: Result<unknown>) => {
@@ -1056,6 +1075,13 @@ export const createDesktopClient = ({
       update({ start: { ...state.start, open: true, created: undefined } });
       requestOptions();
     },
+    importRulebook: async () => {
+      const ruleset = state.start.draft.choices.ruleset;
+      if (!isRecord(ruleset) || typeof ruleset.id !== 'string')
+        return update({ start: { ...state.start, import: { status: 'needsPack', lines: [] } } });
+      await importWith({ kind: 'pick', packId: ruleset.id });
+    },
+    decideImport: (decision: 'activate' | 'decline') => importWith({ kind: 'decide', decision }),
     closeStart: () => update({ start: { ...state.start, open: false } }),
     startAction: (action: StartAction) => {
       const { draft, plan } = state.start;
@@ -1067,7 +1093,14 @@ export const createDesktopClient = ({
       const replan =
         plan?.ok !== true || !sameCommand(planCommand(next, DESKTOP_CLIENT), planCommand(draft, DESKTOP_CLIENT));
       update({
-        start: { ...state.start, open: true, draft: next, plan: replan ? undefined : plan, created: undefined },
+        start: {
+          ...state.start,
+          open: true,
+          draft: next,
+          plan: replan ? undefined : plan,
+          created: undefined,
+          import: undefined,
+        },
       });
       saveStart(next);
       requestOptions();

@@ -58,7 +58,7 @@ const ROOT_KEYS = new Set(['dslVersion', 'id']);
 const TABLE_CELL_SEPARATOR = ' | ';
 const BOOLEAN_TEXT = { true: true, false: false } as const;
 const INDENT = '  ';
-const REPLY_HINT = 'Reply: use <rule pack>, set <rule> <field>=<value>, show, activate, decline or help.';
+export const REPLY_HINT = 'Reply: use <rule pack>, set <rule> <field>=<value>, show, activate, decline or help.';
 const HELP_TEXT = [
   'use <rule pack> - choose the rule pack the imported rules run on.',
   'set <rule> <field>=<value> - change one value of a rule, for example set my-rule costs.0.amount.value=2.',

@@ -351,12 +351,14 @@ const start = (
   voice?: VoiceHost,
   locale: Readonly<Record<string, string>> = HERMETIC_LOCALE,
   sound?: SoundHost,
+  showOpenDialog?: () => Promise<readonly string[]>,
 ) => {
   const options: DaemonOptions[] = [];
   const main = startMain({
     ...electron,
     ...(voice === undefined ? {} : { voice }),
     ...(sound === undefined ? {} : { sound }),
+    ...(showOpenDialog === undefined ? {} : { showOpenDialog }),
     env: { [API_KEY_ENV]: API_KEY, CLAUDE_CODE_OAUTH_TOKEN: CONSUMER_TOKEN, ...locale },
     dataDir: DATA_DIR,
     preload: PRELOAD,
@@ -686,4 +688,26 @@ test('rpg-42a.63 main creates a hidden window only when asked', () => {
     startDaemon: () => fakeDaemon(),
   });
   assert.equal(showOption(hidden.windows), false);
+});
+
+test('rpg-42a.68 main serves the import channel to its own window only, through an injected dialog', async () => {
+  const electron = fakeElectron();
+  let dialogs = 0;
+  start(electron, fakeDaemon(), undefined, HERMETIC_LOCALE, undefined, async () => {
+    dialogs += 1;
+    return [];
+  });
+  assert.ok(electron.channels().includes(CHANNELS.importRulebook));
+  await assert.rejects(electron.invokeForeign(CHANNELS.importRulebook, { kind: 'pick', packId: 'd20-lite' }));
+  assert.equal(dialogs, 0);
+  assert.deepEqual(await electron.invoke(CHANNELS.importRulebook, { kind: 'pick', packId: 'd20-lite' }), {
+    status: 'cancelled',
+  });
+  assert.equal(dialogs, 1);
+});
+
+test('rpg-42a.68 main registers no import channel without a dialog', () => {
+  const electron = fakeElectron();
+  start(electron);
+  assert.equal(electron.channels().includes(CHANNELS.importRulebook), false);
 });

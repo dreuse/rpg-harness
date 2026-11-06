@@ -839,6 +839,9 @@ export const renderVoice = (
       );
 
 export const START_OPEN = 'data-start-open';
+export const START_IMPORT = 'data-start-import';
+export const IMPORT_ACTIONS = ['pick', 'activate', 'decline'] as const;
+export type ImportAction = (typeof IMPORT_ACTIONS)[number];
 export const START_OPTION = 'data-start-option';
 export const START_PREVIEW = 'data-start-preview';
 export const START_VOICE = 'data-start-voice';
@@ -945,18 +948,39 @@ const startActions = (screen: StartScreen, locale: string) => {
   return actions === '' ? '' : `<div data-actions>${actions}</div>`;
 };
 
-const startBody = ({ start, created, playing, home }: ViewModel, locale: string) =>
-  start === undefined
+const importLines = (lines: readonly string[]) => escapeHtml(lines.join('\n'));
+
+const importOutcome = ({ rulebookImport }: ViewModel, locale: string) => {
+  if (rulebookImport === undefined) return '';
+  const { status, lines } = rulebookImport;
+  if (status === 'needsPack') return alert(translate(locale, 'start.importNeedsPack'));
+  if (status === 'failed') return `<div role="alert"><pre>${importLines(lines)}</pre></div>`;
+  if (status !== 'preview') return `<div role="status"><pre>${importLines(lines)}</pre></div>`;
+  const decide = (action: 'activate' | 'decline') =>
+    `<button type="button" ${START_IMPORT}="${action}">${escapeHtml(translate(locale, action === 'activate' ? 'start.importAccept' : 'start.importDecline'))}</button>`;
+  return `<pre data-import-report tabindex="0" aria-label="${escapeHtml(translate(locale, 'start.importReport'))}">${importLines(lines)}</pre><div data-actions>${decide('activate')}${decide('decline')}</div>`;
+};
+
+const startImport = (model: ViewModel, start: StartScreen, locale: string) =>
+  start.step === 'rules'
+    ? `<div data-start-import-block><p>${escapeHtml(translate(locale, 'start.importHint'))}</p><button type="button" ${START_IMPORT}="pick">${escapeHtml(translate(locale, 'start.import'))}</button>${importOutcome(model, locale)}</div>`
+    : '';
+
+const startBody = (model: ViewModel, locale: string) => {
+  const { start, created, playing, home } = model;
+  return start === undefined
     ? `${playing || home.total === 0 ? '' : button(START_OPEN, 'open', translate(locale, 'start.open'), false, true)}${created === undefined || playing ? '' : `<p role="status">${escapeHtml(translate(locale, 'start.created', { name: created }))}</p>`}`
     : [
         `<div data-start-head><h2 tabindex="-1" ${START_TITLE}="${start.step}">${escapeHtml(startTitle(start, locale))}</h2>${startControl(start, locale)('close')}</div>`,
         ...(start.review === undefined ? start.text.map((line) => `<p>${escapeHtml(line)}</p>`) : []),
         startOptions(start, locale),
+        startImport(model, start, locale),
         start.review === undefined ? '' : startReview(start.review, locale),
         startEntry(start),
         start.error === undefined ? '' : alert(start.error),
         startActions(start, locale),
       ].join('');
+};
 
 const renderStart = (model: ViewModel, locale: string) => {
   const body = startBody(model, locale);

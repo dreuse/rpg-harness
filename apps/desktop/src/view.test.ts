@@ -967,7 +967,7 @@ const visibleText = (html: string) =>
     .replace(/&[a-z]+;/g, ' ')
     .replace(/\s+/g, ' ');
 
-test('rpg-42a.54 the rules and summary steps show player names, a Recommended badge first, and no import command', () => {
+test('rpg-42a.54 the rules and summary steps show player names, a Recommended badge first, and the desktop import button instead of a CLI command', () => {
   const options = { ...START_OPTIONS, rulesets: BUILT_IN_RULESETS };
   const choice = { id: 'narrative', edition: 'original' };
   const plan = {
@@ -987,7 +987,8 @@ test('rpg-42a.54 the rules and summary steps show player names, a Recommended ba
       'en',
     );
     assert.doesNotMatch(visibleText(html), INTERNAL_IDS);
-    assert.doesNotMatch(html, /rpg import|data-start-import/);
+    assert.doesNotMatch(html, /rpg import/);
+    assert.equal(html.includes('data-start-import="pick"'), draft.step === guideAt('rules').step);
   }
   const rules = renderView(
     viewModel(

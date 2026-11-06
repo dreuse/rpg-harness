@@ -18,6 +18,7 @@ import {
   startDaemon as startEngine,
 } from '../../cli/src/desktop-daemon.ts';
 import { loadPreferences, parsePreferences, persistedPreferences, SUPPORTED_LOCALES } from './accessibility.ts';
+import { createImportHost } from './import-host.ts';
 import { CHANNELS, PREFERENCES_QUERY, START_QUERY } from './preload.ts';
 import type { Transport } from './renderer.ts';
 import type { SoundHost } from './sound-host.ts';
@@ -73,6 +74,7 @@ export type MainOptions = {
   readonly startDaemon?: (options: DaemonOptions) => Daemon;
   readonly voice?: VoiceHost;
   readonly sound?: SoundHost;
+  readonly showOpenDialog?: () => Promise<readonly string[]>;
   readonly hidden?: boolean;
 };
 export const FOREIGN_SENDER = 'ipc sender is not the app window';
@@ -213,6 +215,7 @@ export const startMain = ({
   startDaemon = startEngine,
   voice,
   sound,
+  showOpenDialog,
   hidden = false,
 }: MainOptions) => {
   const preferencesPath = join(dataDir, PREFERENCES_FILE);
@@ -298,6 +301,10 @@ export const startMain = ({
     handle(CHANNELS.voiceRemove, (providerId) => voice.remove(providerId));
     handle(CHANNELS.voicePreview, (request) => voice.preview(request));
     handle(CHANNELS.voiceClear, () => voice.clearCache());
+  }
+  if (showOpenDialog !== undefined) {
+    const imports = createImportHost({ dataDir, showOpenDialog });
+    handle(CHANNELS.importRulebook, (request) => imports.run(request));
   }
   if (sound !== undefined) {
     handle(CHANNELS.soundStatus, () => sound.status());

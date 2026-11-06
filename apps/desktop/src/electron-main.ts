@@ -37,6 +37,8 @@ const STATUS_PROBE = `new Promise((resolve) => {
   poll();
 })`;
 
+const OPEN_PROPERTIES: ('openFile' | 'multiSelections')[] = ['openFile', 'multiSelections'];
+const OPEN_FILTERS = [{ name: 'Rulebook text', extensions: ['txt', 'md', 'markdown', 'yaml', 'yml', 'json'] }];
 const UPDATE_BUTTONS = ['Download', 'Later', 'Stop checking'];
 const LATER = 1;
 
@@ -134,6 +136,8 @@ app.whenReady().then(() => {
     page: PAGE_URL,
     startDaemon: (options) => startDaemon({ ...options, spawnEngine: utilityEngine(utilityProcess.fork) }),
     voice: voiceHostFromEnv(process.env, dataDirFromEnv()),
+    showOpenDialog: async () =>
+      (await dialog.showOpenDialog({ properties: OPEN_PROPERTIES, filters: OPEN_FILTERS })).filePaths,
     sound: createSoundHost({ dir: join(dataDirFromEnv(), SOUNDS_DIR) }),
   });
   if (app.isPackaged && !process.env[SMOKE_ENV]) offerUpdate(dataDirFromEnv()).catch(() => undefined);

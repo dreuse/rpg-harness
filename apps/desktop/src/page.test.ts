@@ -2031,3 +2031,46 @@ test('rpg-42a.61 page keeps a half-typed correction when the view updates', () =
   page.receive({ type: 'Snapshot', snapshot: SNAPSHOT });
   assert.equal(page.fields[MEMORY_INPUT], 'dea');
 });
+
+test('rpg-42a.68 page runs the import from the rules step buttons through the bridge', async () => {
+  const page = fakePage();
+  const requests: unknown[] = [];
+  const results = [
+    { status: 'preview', lines: ['Rule pack: d20-lite.'] },
+    { status: 'declined', lines: ['Import declined.'] },
+  ] as const;
+  const atRules: StartDraft = {
+    ...INITIAL_DRAFT,
+    path: 'guide',
+    step: GUIDE_STEPS.indexOf('rules'),
+    choices: { ruleset: { id: 'd20-lite', edition: 'original' } },
+  };
+  mountPage({
+    elements: page.elements,
+    bridge: {
+      ...page.bridge,
+      importRulebook: async (request) => {
+        requests.push(request);
+        return results[requests.length - 1] ?? { status: 'cancelled' };
+      },
+    },
+    search: `?${new URLSearchParams({
+      [PREFERENCES_QUERY]: JSON.stringify(DEFAULT_PREFERENCES),
+      [START_QUERY]: JSON.stringify(atRules),
+    })}`,
+    width: () => WIDE_WIDTH,
+    newActionId: () => 'a',
+    openMicrophone: deniedMicrophone,
+  });
+  page.receive(READY);
+  page.click({ 'data-start-import': 'pick' });
+  await settle();
+  assert.match(page.root.innerHTML, /data-import-report/);
+  page.click({ 'data-start-import': 'decline' });
+  await settle();
+  assert.deepEqual(requests, [
+    { kind: 'pick', packId: 'd20-lite' },
+    { kind: 'decide', decision: 'decline' },
+  ]);
+  assert.match(page.root.innerHTML, /Import declined\./);
+});

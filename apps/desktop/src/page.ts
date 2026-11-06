@@ -35,6 +35,8 @@ import {
   HOME_NAME,
   HOME_SEARCH,
   homeActionId,
+  IMPORT_ACTIONS,
+  type ImportAction,
   KEEP_DEFAULT,
   type KeyEventLike,
   type KeyTarget,
@@ -71,6 +73,7 @@ import {
   START_EDIT,
   START_ENTRY,
   START_FORM,
+  START_IMPORT,
   START_OPEN,
   START_OPTION,
   START_PREVIEW,
@@ -211,6 +214,7 @@ const FOCUS_ATTRIBUTES = [
   START_TITLE,
   START_OPTION,
   START_CONTROL,
+  START_IMPORT,
   START_OPEN,
   PANE_ATTRIBUTE,
   MOTION_ATTRIBUTE,
@@ -240,7 +244,8 @@ export type PageElements = {
 };
 export type PageOptions = {
   readonly elements: PageElements;
-  readonly bridge: Transport & Partial<Pick<Bridge, 'saveStart' | 'savePreferences' | 'voice' | 'sound'>>;
+  readonly bridge: Transport &
+    Partial<Pick<Bridge, 'saveStart' | 'savePreferences' | 'voice' | 'sound' | 'importRulebook'>>;
   readonly search: string;
   readonly width: () => number;
   readonly newActionId: () => string;
@@ -264,6 +269,9 @@ const selectorOf = (element: Focusable | null) => {
 };
 
 const isRegion = (value: string | null | undefined): value is Region => REGIONS.some((region) => region === value);
+
+const isImportAction = (value: string | null | undefined): value is ImportAction =>
+  IMPORT_ACTIONS.some((action) => action === value);
 
 const isStartControl = (value: string | null | undefined): value is StartControl =>
   START_CONTROLS.some((control) => control === value);
@@ -307,6 +315,7 @@ export const mountPage = ({
     saveStart: (draft) => bridge.saveStart?.(draft),
     locale: () => preferences.locale,
     voices: () => startVoices(),
+    importRulebook: bridge.importRulebook,
   });
   const { consent, ...voicePreferences } = preferences.voice;
   const voice = createDesktopVoice({
@@ -539,6 +548,8 @@ export const mountPage = ({
     keepName();
     client.startAction({ kind: control });
   };
+  const importRulebook = (action: ImportAction) =>
+    void (action === 'pick' ? client.importRulebook() : client.decideImport(action));
   const startEdit = (step: string) => {
     if (!STEP_INDEX.test(step)) return;
     keepName();
@@ -821,6 +832,8 @@ export const mountPage = ({
     if (answer === ALLOW) return void voice.allow().then(render);
     if (answer === DECLINE) return void voice.decline().then(render);
     if (target?.closest(`[${START_OPEN}]`)) return client.openStart();
+    const importAction = target?.closest(`[${START_IMPORT}]`)?.getAttribute(START_IMPORT);
+    if (isImportAction(importAction)) return importRulebook(importAction);
     const option = target?.closest(`[${START_OPTION}]`)?.getAttribute(START_OPTION);
     if (option !== undefined && option !== null) return startOption(option);
     const replayed = target?.closest(`[${REPLAY}]`)?.getAttribute(REPLAY);

@@ -14,6 +14,7 @@ export const CHANNELS = {
   close: 'rpg:close',
   preferences: 'rpg:preferences',
   start: 'rpg:start',
+  importRulebook: 'rpg:import',
   voiceCheck: 'rpg:voice:check',
   voiceDownload: 'rpg:voice:download',
   voiceProgress: 'rpg:voice:progress',
@@ -29,9 +30,17 @@ export const CHANNELS = {
   soundSpeaking: 'rpg:sound:speaking',
 } as const;
 
+export type ImportRequest =
+  | { readonly kind: 'pick'; readonly packId: string }
+  | { readonly kind: 'decide'; readonly decision: 'activate' | 'decline' };
+export type ImportResult =
+  | { readonly status: 'cancelled' }
+  | { readonly status: 'preview' | 'installed' | 'declined' | 'failed'; readonly lines: readonly string[] };
+
 export type Bridge = Transport & {
   savePreferences(preferences: UiPreferences): void;
   saveStart(draft: StartDraft): void;
+  importRulebook(request: ImportRequest): Promise<ImportResult>;
   voice: VoiceBridge;
   sound: SoundBridge;
 };
@@ -56,6 +65,7 @@ export const exposeBridge = ({
     onClose: (listener) => ipcRenderer.on(CHANNELS.close, (_event, error) => listener(String(error))),
     savePreferences: (preferences) => ipcRenderer.send(CHANNELS.preferences, preferences),
     saveStart: (draft) => ipcRenderer.send(CHANNELS.start, draft),
+    importRulebook: (request) => ipcRenderer.invoke(CHANNELS.importRulebook, request) as never,
     voice: {
       check: () => ipcRenderer.invoke(CHANNELS.voiceCheck) as never,
       download: (providerId, consent) => ipcRenderer.invoke(CHANNELS.voiceDownload, providerId, consent) as never,

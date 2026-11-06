@@ -48,6 +48,7 @@ test('UI08 preload exposes only the narrow transport bridge', () => {
   assert.deepEqual(keys, [BRIDGE_KEY]);
   assert.deepEqual(Object.keys(bridge).sort(), [
     'connect',
+    'importRulebook',
     'onClose',
     'onLine',
     'savePreferences',
@@ -152,4 +153,11 @@ test('rpg-cm63.40 preload sound bridge forwards only boolean engine playback eve
   emit(CHANNELS.soundSpeaking, undefined);
   emit(CHANNELS.soundSpeaking, false);
   assert.deepEqual(heard, [true, false]);
+});
+
+test('rpg-42a.68 preload invokes the import channel with the request', async () => {
+  const { bridge, invoked } = expose();
+  const request = { kind: 'pick', packId: 'd20-lite' } as const;
+  await bridge.importRulebook(request);
+  assert.deepEqual(invoked, [[CHANNELS.importRulebook, request]]);
 });
