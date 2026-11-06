@@ -113,7 +113,7 @@ const hollowLantern = async (t: TestContext, script: Script, seed = SEED, pitch 
     await narrate();
   };
   const eventsOfType = (type: string) => readCampaignState(dataDir, CAMPAIGN).events.filter((e) => e.type === type);
-  return { say, snapshot, packets, events, eventsOfType, session, envelope };
+  return { say, snapshot, packets, events, eventsOfType, session, envelope, narrate };
 };
 
 const screenOf = (snapshot: CampaignSnapshot, received: readonly unknown[]) => {
@@ -269,4 +269,32 @@ describe('rpg-42a.89 the engine rolls for the GM and NPCs', () => {
     await plain.say(SECOND_INPUT);
     assert.equal(plain.packets.length, 2);
   });
+});
+
+describe('rpg-42a.114 a narrate retry after a provider failure', () => {
+  const PROVIDER_DOWN = 'provider down';
+  const failsOnce = (): Reply => {
+    throw new Error(PROVIDER_DOWN);
+  };
+
+  for (const [name, retrySwing] of [
+    ['the same roll id', TAM_SWING],
+    ['a different roll id', { ...TAM_SWING, id: 'tam-swing-again' }],
+  ] as const) {
+    it(`commits each GM roll once when the retry proposes ${name}`, async (t) => {
+      const { say, narrate, packets, eventsOfType, snapshot } = await hollowLantern(t, [
+        { narration: INTRODUCTION, proposals: [TAM] },
+        { narration: 'Old Tam raises the cudgel.', proposals: [TAM_SWING] },
+        failsOnce,
+        (packet) => ({ ...narratedFromRoll(packet), proposals: [HIT_OUTCOME, retrySwing] }),
+      ]);
+      await say(FIRST_INPUT);
+      await assert.rejects(say(SECOND_INPUT), new RegExp(PROVIDER_DOWN));
+      assert.equal(eventsOfType(GM_ROLLED).length, 1);
+      await narrate();
+      assert.equal(eventsOfType(GM_ROLLED).length, 1);
+      assert.match(snapshot().turns.at(-1)?.narration ?? '', /the engine rolled/);
+      assert.equal(packets.length, 4);
+    });
+  }
 });

@@ -1,4 +1,9 @@
-import { type CampaignStore, type CommittedTurn, StaleRevisionError } from '../../../packages/domain/src/campaign.ts';
+import {
+  type CampaignStore,
+  type CommittedTurn,
+  GM_ROLLED,
+  StaleRevisionError,
+} from '../../../packages/domain/src/campaign.ts';
 import {
   ENTITY_KINDS,
   type EntityId,
@@ -702,6 +707,19 @@ const actionFor = (committed: CommittedTurn, { kind, id }: GmProposal, revision:
   input: `${GM_PROPOSAL_INPUT}${kind} ${id}`,
   intent: `The GM records ${kind} ${id}.`,
 });
+
+const PROPOSAL_ACTION_INFIX = ':proposal:';
+
+export const gmRollLinesOf = (store: CampaignStore, committed: CommittedTurn): readonly string[] => {
+  const { events, turns } = loadState(store, committed.turn.campaignId);
+  const proposalPrefix = `${committed.turn.actionId}${PROPOSAL_ACTION_INFIX}`;
+  const proposalTurns = new Set(
+    turns.filter(({ actionId }) => actionId.startsWith(proposalPrefix)).map(({ id }) => id),
+  );
+  return events
+    .filter(({ type, turnId }) => type === GM_ROLLED && proposalTurns.has(turnId))
+    .map(({ type, payload }) => `${type} ${JSON.stringify(payload)}`);
+};
 
 export const commitGmRolls = (
   store: CampaignStore,

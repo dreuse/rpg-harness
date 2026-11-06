@@ -136,6 +136,7 @@ import {
   ENTITY_PROPOSAL,
   type EntityProposal,
   type GmProposal,
+  gmRollLinesOf,
   outcomeClaimsOf,
 } from './gm-proposals.ts';
 import { repeatedLinesOf } from './gm-repetition.ts';
@@ -543,21 +544,26 @@ const narrateLatest = async (
   };
   const narrator = {
     narrate: async (_turn: CommittedTurn, retried?: readonly unknown[]) => {
-      const drafted = await generate(retried, [], NO_GM_ROLLS, !rolling);
-      const rolled = commitGmRolls(
-        store,
-        createEntityStore(database),
-        committed,
-        drafted.proposals ?? [],
-        (spec) => gmRollExpressionFor(state.events, strictness, spec),
-        rng,
-        modifierPolicyOf(state.events, strictness),
-      ).flatMap(({ events }) =>
-        events
-          .filter(({ type }) => type === GM_ROLLED)
-          .map(({ type, payload }) => `${type} ${JSON.stringify(payload)}`),
-      );
-      const first = rolled.length === NO_GM_ROLLS.length ? drafted : await generate(retried, [], rolled);
+      const earlier = gmRollLinesOf(store, committed);
+      const alreadyRolled = earlier.length > NO_GM_ROLLS.length;
+      const drafted = await generate(retried, [], earlier, !rolling && !alreadyRolled);
+      const rolled = alreadyRolled
+        ? earlier
+        : commitGmRolls(
+            store,
+            createEntityStore(database),
+            committed,
+            drafted.proposals ?? [],
+            (spec) => gmRollExpressionFor(state.events, strictness, spec),
+            rng,
+            modifierPolicyOf(state.events, strictness),
+          ).flatMap(({ events }) =>
+            events
+              .filter(({ type }) => type === GM_ROLLED)
+              .map(({ type, payload }) => `${type} ${JSON.stringify(payload)}`),
+          );
+      const first =
+        alreadyRolled || rolled.length === NO_GM_ROLLS.length ? drafted : await generate(retried, [], rolled);
       const repeated = retried === undefined ? repeatedLinesOf(first.narration, previous) : [];
       let final = first;
       if (repeated.length > NO_REPEATS) {
