@@ -44,6 +44,7 @@ import {
 import { contextBudgetOf } from '../../../packages/engine/src/memory.ts';
 import { oocStateOf, withoutRetconned } from '../../../packages/engine/src/ooc.ts';
 import type { RulesDocument } from '../../../packages/engine/src/own-rules.ts';
+import { GameMasterInterruptedError } from '../../../packages/engine/src/scripted-session.ts';
 import {
   correctStoryFact,
   directoryOf,
@@ -140,7 +141,7 @@ import {
   outcomeClaimsOf,
 } from './gm-proposals.ts';
 import { repeatedLinesOf } from './gm-repetition.ts';
-import { type GmSegment, narratorSegments, turnSegmentsOf } from './gm-segments.ts';
+import { type GmSegment, narrationOf, narratorSegments, turnSegmentsOf } from './gm-segments.ts';
 
 export { FAKE_GM_REPLY } from './gm-api.ts';
 
@@ -232,6 +233,8 @@ const NO_FACTS: NarrationContext = {
   viewer: PLAYER_VIEWER,
 };
 const PENDING_NARRATION = '';
+const TOO_LONG_STEP = 0;
+const NO_FAILED_TURNS: ReadonlySet<string> = new Set();
 const NO_SEGMENTS: readonly GmSegment[] = [];
 const NO_REPEATS = 0;
 const NO_CONFLICTS: readonly string[] = [];
@@ -483,10 +486,10 @@ const acceptMarkedCheck = (
   return true;
 };
 
-const oldestPendingTurn = (state: CampaignState) =>
+const oldestPendingTurn = (state: CampaignState, failed: ReadonlySet<string> = NO_FAILED_TURNS) =>
   playTurns(state)
     .map(({ actionId }) => storedTurn(state, actionId))
-    .find((turn) => turn?.turn.narration === PENDING_NARRATION);
+    .find((turn) => turn?.turn.narration === PENDING_NARRATION && !failed.has(turn.turn.id));
 
 const narrateLatest = async (
   session: Session,
@@ -497,10 +500,11 @@ const narrateLatest = async (
   defaults: GmSettings,
   modelCheck: ModelContinuityCheck | undefined,
   listener?: StreamedSegment,
+  failed: ReadonlySet<string> = NO_FAILED_TURNS,
 ): Promise<readonly GmSegment[]> => {
   const { engine, store, campaignId, database, rng } = session;
   const state = engine.getState(campaignId);
-  const committed = oldestPendingTurn(state);
+  const committed = oldestPendingTurn(state, failed);
   if (committed === undefined) return NO_SEGMENTS;
   const preset = contextBudgetOf(state.changes);
   const language = campaignLanguageOf(state.changes);
@@ -520,6 +524,8 @@ const narrateLatest = async (
   const rolling = gmRollsAllowed(state.events, strictness);
   const ledger = buildLedger(state.events);
   const guarded = ledger.length > NO_LEDGER_ENTRIES;
+  const withVoiceNotice = (shown: readonly GmSegment[]) =>
+    voiceNotice === undefined ? shown : [{ text: voiceNotice }, ...shown];
   const generate = async (
     retried: readonly unknown[] | undefined,
     repeated: readonly string[],
@@ -549,10 +555,8 @@ const narrateLatest = async (
         voice?.abandon();
         throw error;
       }
-      return {
-        packet: undefined,
-        reply: narratorReply(withNotice(error.message)),
-      };
+      segments = withVoiceNotice(narratorSegments(withNotice(error.message)));
+      throw new GameMasterInterruptedError(TOO_LONG_STEP);
     });
     reply = fitted.reply;
     sent = fitted.packet;
@@ -613,7 +617,7 @@ const narrateLatest = async (
             record,
           });
       }
-      segments = voiceNotice === undefined ? final.segments : [{ text: voiceNotice }, ...final.segments];
+      segments = withVoiceNotice(final.segments);
       proposals = final.proposals ?? [];
       const narration = voiceNotice === undefined ? final.narration : `${voiceNotice} ${final.narration}`;
       return { narration, claims: outcomeClaimsOf(proposals), segments: turnSegmentsOf(segments) };
@@ -631,9 +635,10 @@ const narrateLatest = async (
     throw error;
   });
   let offeredNow: readonly CommittedTurn[] = [];
-  if ('inconsistent' in outcome) {
+  const unnarrated = 'inconsistent' in outcome || 'interrupted' in outcome;
+  const failedTurns = new Set([...failed, committed.turn.id]);
+  if (unnarrated) {
     voice?.abandon();
-    store.recordNarration(campaignId, committed.turn.id, FAKE_GM_REPLY);
   } else {
     if ('narration' in outcome && reply !== undefined) voice?.settle(reply);
     offeredNow = commitProposals(
@@ -656,13 +661,10 @@ const narrateLatest = async (
       packet: sent,
       reportedTokens: usage === undefined || !calibrates ? 0 : reportedInputOf(usage),
     });
-  const morePending = oldestPendingTurn(engine.getState(campaignId));
-  if (
-    acceptMarkedCheck(session, committed, proposals, offeredNow, defaults) ||
-    (morePending !== undefined && morePending.turn.id !== committed.turn.id)
-  )
-    return narrateLatest(session, request, sessionId, speak, calibrates, defaults, modelCheck, listener);
-  return 'inconsistent' in outcome ? narratorSegments(FAKE_GM_REPLY) : segments;
+  const morePending = oldestPendingTurn(engine.getState(campaignId), failedTurns);
+  if (acceptMarkedCheck(session, committed, proposals, offeredNow, defaults) || morePending !== undefined)
+    return narrateLatest(session, request, sessionId, speak, calibrates, defaults, modelCheck, listener, failedTurns);
+  return 'inconsistent' in outcome ? withVoiceNotice(narratorSegments(FAKE_GM_REPLY)) : segments;
 };
 
 const recordSummaryUsage = ({ store, engine, campaignId }: Session, sessionId: string, usage: GmUsage) => {
@@ -1233,11 +1235,15 @@ const act = async (
         rulesStrictnessFor(state, session.gmDefaults()),
       ),
     );
-    await session.narrate();
-    const narrated = engine.getState(campaignId).turns.find(({ id }) => id === committed.turn.id);
+    const shown = await session.narrate();
+    const stored = engine.getState(campaignId).turns.find(({ id }) => id === committed.turn.id) ?? committed.turn;
+    const narrated =
+      stored.narration === PENDING_NARRATION && shown.length > NO_SEGMENTS.length
+        ? { ...stored, narration: narrationOf(shown) }
+        : stored;
     const warning = budgetWarning(gmSnapshotFor(session, session.gmDefaults(), sessionId), locale);
     return {
-      narration: narrate(actor.name, narrated ?? committed.turn),
+      narration: narrate(actor.name, narrated),
       warning,
     };
   } finally {

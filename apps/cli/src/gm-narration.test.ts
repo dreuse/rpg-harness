@@ -159,8 +159,29 @@ describe('rpg-42a.28 API game master wiring', () => {
   it('keeps a narration that leaks a GM secret out of the story', async (t) => {
     const dataDir = await seededCampaign(t);
     const { gm } = await providerGm(t, [textReply(`${NARRATION} ${GM_SECRET}`)]);
-    await play(dataDir, gm, [ACTION]);
-    assert.equal(lastNarration(dataDir), FAKE_GM_REPLY);
+    const [output] = await play(dataDir, gm, [ACTION]);
+    assert.equal(lastNarration(dataDir), '');
+    assert.ok(output?.endsWith(FAKE_GM_REPLY));
+  });
+
+  it('narrates the next turn when an earlier turn stays pending', async (t) => {
+    const dataDir = await seededCampaign(t);
+    const gm: GameMaster = {
+      request: async (packet) => {
+        const text = JSON.stringify(packet).includes(SECOND_ACTION) ? NARRATION : `${NARRATION} ${GM_SECRET}`;
+        return { narration: text, segments: [{ text }] };
+      },
+      summarizer: FAKE_GAME_MASTER.summarizer,
+    };
+    const output = await play(dataDir, gm, [ACTION, SECOND_ACTION]);
+    assert.deepEqual(
+      readCampaignState(dataDir, CAMPAIGN)
+        .turns.slice(-2)
+        .map(({ narration }) => narration),
+      ['', NARRATION],
+    );
+    assert.ok(output.at(-1)?.includes(NARRATION));
+    assert.ok(!output.at(-1)?.includes(FAKE_GM_REPLY));
   });
 
   it('rpg-42a.44 retries a too-long rejection once with a smaller preset and records counts only', async (t) => {
@@ -182,6 +203,7 @@ describe('rpg-42a.28 API game master wiring', () => {
     const [output] = await play(dataDir, gm, [ACTION]);
     assert.equal(received.length, 2);
     assert.match(output ?? '', /too long for the AI game master/);
+    assert.equal(lastNarration(dataDir), '');
   });
 
   it('reports the provider error for the failed turn without a placeholder and asks the provider again next turn', async (t) => {
@@ -526,7 +548,7 @@ describe('rpg-42a.58 rules strictness in the GM path', () => {
     const packets: ContextPacket[] = [];
     await play(dataDir, scriptedGm([HIT], packets), [LOOK]);
     assert.equal(packets.length, 2);
-    assert.equal(lastNarration(dataDir), FAKE_GM_REPLY);
+    assert.equal(lastNarration(dataDir), '');
   });
 
   const ATTEMPT_USAGE = { model: 'sonnet', inputTokens: 100, cacheReadTokens: 7, cacheWriteTokens: 5, outputTokens: 3 };
