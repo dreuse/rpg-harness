@@ -15,7 +15,8 @@
     "test:integration": "node --test \"packages/*/src/**/*.integration.test.ts\"",
     "check:prereqs": "node scripts/check-prerequisites.ts",
     "rpg": "node apps/cli/src/bin.ts",
-    "build": "tsc --rootDir . --outDir dist"
+    "build": "tsc --rootDir . --outDir dist",
+    "postinstall": "pnpm --filter @rpg/desktop exec install-electron"
   },
   "devDependencies": {
     "@biomejs/biome": "2.6.5",

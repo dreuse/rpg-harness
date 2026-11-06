@@ -2,6 +2,7 @@ packages:
   - packages/*
   - apps/*
 allowBuilds:
+  electron: true
   onnxruntime-node: false
   protobufjs: false
   sharp: false
