@@ -105,3 +105,14 @@ test('rpg-42a.65 condense never cuts an emoji in half', () => {
   const texts = [condensed.summary, ...condensed.sections.flatMap(({ title, text }) => [title, text])];
   for (const text of texts) assert.equal(text, text.toWellFormed());
 });
+
+test('selects the section that mentions a short all-caps token from the player input', () => {
+  const { sections } = condense(
+    '# Defense\nYour AC sets how hard you are to hit.\n\n# Travel\nThe road is long and dusty.',
+  );
+  const chosen = selectSections(sections, 'I check my AC', [], 1_000);
+  assert.deepEqual(
+    chosen.map(({ title }) => title),
+    ['Defense'],
+  );
+});

@@ -7,6 +7,7 @@ export type CondensedRules = { readonly summary: string; readonly sections: read
 const HEADING = /^#{1,6}\s+(.+)$/;
 const PARAGRAPH_BREAK = /\n\s*\n/;
 const WORD = /[\p{L}\p{N}]{4,}/gu;
+const SHORT_CAPS = /(?<![\p{L}\p{N}])(?=[\p{N}]*\p{Lu})[\p{Lu}\p{N}]{2,3}(?![\p{L}\p{N}])/gu;
 const TITLE_CHARS = 60;
 const LEAD_CHARS = 240;
 const SECTION_MAX_CHARS = 1_000;
@@ -24,7 +25,8 @@ const FIRST = 0;
 const clipped = (text: string, limit: number) =>
   text.length > limit ? `${sliced(text, limit).trimEnd()}${ELLIPSIS}` : text;
 
-const wordsOf = (text: string) => new Set(text.toLowerCase().match(WORD) ?? []);
+const wordsOf = (text: string) =>
+  new Set([...(text.match(SHORT_CAPS) ?? []), ...(text.match(WORD) ?? [])].map((word) => word.toLowerCase()));
 
 const byHeading = (text: string): RuleSection[] => {
   const sections: { title: string; lines: string[] }[] = [];

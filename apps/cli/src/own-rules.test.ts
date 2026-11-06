@@ -18,6 +18,7 @@ import {
 } from './engine-gateway.ts';
 import { GM_ROLL_PROMPT, OWN_RULES_PROMPT, OWN_RULES_STRICTNESS_PROMPTS } from './gm-api.ts';
 import type { GmProposal } from './gm-proposals.ts';
+import { ownRulesItems } from './own-rules.ts';
 import { loadOwnRules, stageOwnRules } from './own-rules-files.ts';
 import { planResult } from './quickstart.ts';
 
@@ -223,6 +224,16 @@ describe('rpg-42a.82 GM-only mode runs the rules from the player files', () => {
   });
 });
 
+describe('rpg-42a.120 imported rulebook reaches the GM packet', () => {
+  it('sends the condensed summary and the section relevant to the player input', async (t) => {
+    const { say, packets } = await ownRulesCampaign(t, [{ narration: 'You rest.' }]);
+    await say('I want to take a night of rest');
+    const ruleset = sectionOf(packets[0] as ContextPacket, 'ruleset');
+    assert.ok(ruleset.some((item) => item.includes('Sections: Two Dice; Melee Attacks; Resting')));
+    assert.ok(ruleset.some((item) => item.includes('A night of rest restores all health.')));
+  });
+});
+
 describe('rpg-42a.82 staging the player files', () => {
   it('refuses the same file name twice when loading', async (t) => {
     const dataDir = scratch(t, 'rpg-own-rules-');
@@ -266,5 +277,16 @@ describe('rpg-42a.82 planning without a built-in ruleset', () => {
     const plan = planResult({ version: PROTOCOL_VERSION, type: 'PlanCampaign', choices: { ruleset: null } });
     assert.ok(plan.ok);
     assert.equal(plan.value.entries.find(({ field }) => field === 'ruleset')?.value, 'none');
+  });
+});
+
+describe('rpg-42a.120 condensed cache', () => {
+  it('never reuses condensed text for a different document that shares a source hash', () => {
+    const base = { name: 'a.md', format: 'markdown', sourceHash: 'd'.repeat(64) } as const;
+    const first = ownRulesItems([{ ...base, text: '# Alpha\nfirst rulebook words' }], 'alpha', [], 1_000);
+    const second = ownRulesItems([{ ...base, text: '# Beta\nsecond rulebook words' }], 'beta', [], 1_000);
+    assert.ok(first.some((item) => item.includes('Alpha')));
+    assert.ok(second.some((item) => item.includes('Beta')));
+    assert.ok(!second.some((item) => item.includes('Alpha')));
   });
 });
