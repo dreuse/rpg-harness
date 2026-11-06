@@ -26,7 +26,7 @@ import {
   type PythonServiceStatus,
 } from './python-service-install.ts';
 
-export const F5_SPECS: readonly string[] = Object.freeze(['f5-tts==1.1.22', 'setuptools<81']);
+export const F5_SPECS: readonly string[] = Object.freeze(['f5-tts==1.1.22', 'setuptools<81', 'num2words==0.5.14']);
 
 const MEASURED_INSTALL_MIB = 1549;
 const SIZE_NOTE = 'Size measured on macOS only. Linux and Windows downloads are larger, several GB more with CUDA.';

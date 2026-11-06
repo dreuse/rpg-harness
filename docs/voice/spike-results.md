@@ -252,7 +252,7 @@ F5-TTS has a `speed` argument and no emotion argument. Each delivery emotion map
 - Windows, Linux and CUDA: nothing was run on them. The CPU rows are Apple M3 Max CPU cores. A mid-range x86 laptop will be slower. The 4-thread row is not a substitute: it was not slower than the default.
 - Listening quality, expression and voice similarity. WER only.
 - Peak memory for long passages beyond these four.
-- `num2words` for digits: the model card asks for numbers as words. The service lower-cases text and does not expand digits.
+- `num2words` for digits: the model card asks for numbers as words. The service now expands digits to pt_BR words before synthesis (`num2words==0.5.14`).
 
 ## Kokoro pt-BR on ONNX, CPU only (rpg-cm63.53)
 

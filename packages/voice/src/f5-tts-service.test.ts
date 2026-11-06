@@ -45,6 +45,24 @@ describe('f5 service', { skip: PYTHON_AVAILABLE ? false : 'python3 is not instal
     assert.deepEqual(parsed(VALID), ['Olá, mundo.', VOICE, 1.1]);
   });
 
+  it('expands digits through the injected converter and leaves other text alone', () => {
+    const expanded = (text: string): string =>
+      JSON.parse(runService(`print(json.dumps(service.expand_digits(sys.stdin.read(), lambda n: '<%d>' % n)))`, text));
+    assert.equal(expanded('Tenho 42 gatos.'), 'Tenho <42> gatos.');
+    assert.equal(expanded('1.000 moedas e 12.500'), '<1000> moedas e <12500>');
+    assert.equal(expanded('3,5 e 3.5'), '<3> vírgula <5> e <3> vírgula <5>');
+    assert.equal(expanded('0,05'), '<0> vírgula <0> <5>');
+    assert.equal(expanded('10m e 3d6'), '<10> m e <3> d <6>');
+    assert.equal(expanded('Olá, mundo.\nSem números.'), 'Olá, mundo.\nSem números.');
+  });
+
+  it('keeps the digits when the converter fails', () => {
+    const code = `def fail(n):
+    raise OverflowError(n)
+print(json.dumps(service.expand_digits(sys.stdin.read(), fail)))`;
+    assert.equal(JSON.parse(runService(code, 'Serial 12345 e 3,5.')), 'Serial 12345 e 3,5.');
+  });
+
   it('rejects an unknown voice, empty or oversized text and out-of-range or non-numeric speed', () => {
     const bad = [
       { ...VALID, voice: '../../etc/passwd' },

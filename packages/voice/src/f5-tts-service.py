@@ -2,6 +2,7 @@ import hmac
 import io
 import json
 import os
+import re
 import signal
 import sys
 import tarfile
@@ -40,6 +41,12 @@ HTTP_TOO_LARGE = 413
 HTTP_SERVER_ERROR = 500
 ARCHIVE_URL_PREFIX = "https://huggingface.co/"
 READ_CHUNK_BYTES = 64 * 1024
+NUMBER_LANGUAGE = "pt_BR"
+DECIMAL_WORD = "vírgula"
+NUMBER_PATTERN = re.compile(r"\d{1,3}(?:\.\d{3})+(?!\d)|\d+(?:[.,]\d+)?")
+THOUSANDS_SEPARATOR = "."
+DECIMAL_SEPARATORS = ",."
+CONVERSION_ERRORS = (ImportError, OverflowError, ValueError)
 
 
 def model_dir():
@@ -108,6 +115,35 @@ def pick_device():
     return DEVICES[1] if torch.backends.mps.is_available() else DEVICES[2]
 
 
+def expand_digits(text, to_words):
+    def spell(match):
+        token = match.group()
+        try:
+            words = spoken(token)
+        except CONVERSION_ERRORS:
+            return token
+        before = text[match.start() - 1] if match.start() else ""
+        after = text[match.end()] if match.end() < len(text) else ""
+        return (" " if before.isalpha() else "") + words + (" " if after.isalpha() else "")
+
+    def spoken(token):
+        if token.count(THOUSANDS_SEPARATOR) > 1 or re.fullmatch(r"\d{1,3}\.\d{3}", token):
+            return to_words(int(token.replace(THOUSANDS_SEPARATOR, "")))
+        elif any(mark in token for mark in DECIMAL_SEPARATORS):
+            whole, fraction = re.split("[" + DECIMAL_SEPARATORS + "]", token)
+            spelled = " ".join(to_words(int(digit)) for digit in fraction) if fraction.startswith("0") else to_words(int(fraction))
+            return f"{to_words(int(whole))} {DECIMAL_WORD} {spelled}"
+        return to_words(int(token))
+
+    return NUMBER_PATTERN.sub(spell, text)
+
+
+def number_words(value):
+    from num2words import num2words
+
+    return num2words(value, lang=NUMBER_LANGUAGE)
+
+
 class Model:
     def __init__(self, voices):
         from f5_tts.api import F5TTS
@@ -132,7 +168,7 @@ class Model:
         wav, _, _ = self.engine.infer(
             str(model_dir() / entry["clip"]),
             entry["refText"],
-            text.lower(),
+            expand_digits(text, number_words).lower(),
             speed=speed,
             nfe_step=self.nfe_step,
             show_info=lambda *_: None,
