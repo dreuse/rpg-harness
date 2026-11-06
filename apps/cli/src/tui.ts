@@ -579,6 +579,8 @@ const talkToGm = async (session: ClientSession, data: () => TuiData, held: OocPr
       notices.push(
         applied.ok ? say(locale, 'tui.oocApplied', { summary: applied.value.summary }) : applied.error.message,
       );
+      if (applied.ok && applied.value.retconnedInput !== undefined)
+        notices.push(say(locale, 'tui.oocRetold', { input: applied.value.retconnedInput }));
     }
     return notices.join(NOTICE_SEPARATOR);
   }

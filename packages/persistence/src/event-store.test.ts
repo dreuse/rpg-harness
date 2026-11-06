@@ -103,5 +103,7 @@ test('P41: scoped events are read incrementally by sequence, revision, type, id 
   assert.deepEqual(idsOf({ type: SECOND.type }), [SECOND.id]);
   assert.deepEqual(idsOf({ ids: [THIRD.id, FIRST.id] }), [FIRST.id, THIRD.id]);
   assert.deepEqual(idsOf({ tail: 2 }), [SECOND.id, THIRD.id]);
+  assert.deepEqual(idsOf({ turnIds: [TURN_ID] }), [FIRST.id, SECOND.id]);
+  assert.deepEqual(idsOf({ turnIds: [] }), []);
   connection.close();
 });

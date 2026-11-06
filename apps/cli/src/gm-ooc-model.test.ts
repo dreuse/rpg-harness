@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
+import type { StoryMemoryEntry } from '../../../packages/domain/src/story-memory.ts';
 import { MAX_TABLE_NOTE_LENGTH, validOocProposal } from '../../../packages/engine/src/ooc.ts';
 import { fakeOocReply } from './gm-ooc.ts';
-import { MAX_OOC_PROPOSALS, modelOocReplyOf, OOC_REPLY_PROMPT } from './gm-ooc-model.ts';
+import { MAX_OOC_FACTS, MAX_OOC_PROPOSALS, modelOocReplyOf, OOC_REPLY_PROMPT } from './gm-ooc-model.ts';
 import { DEFAULT_LOCALE, say } from './messages.ts';
 
 const NOTE_PROPOSAL = {
@@ -23,6 +24,22 @@ const REPLY = 'Sure, I can keep that in mind.';
 const PT_BR = 'pt-BR';
 const TEXT = 'the innkeeper should speak modern English';
 const NOTES = ['no gore'];
+const WARDEN_FACT = {
+  entityId: 'warden',
+  entityName: 'Warden',
+  kind: 'alive',
+  key: '',
+  value: 'dead',
+  sourceEventId: 'event-1',
+  corrected: false,
+} satisfies StoryMemoryEntry;
+const CANON_PROPOSAL = {
+  kind: 'canon_fix',
+  summary: 'Correct the story: Warden (alive) is now "alive"',
+  entityId: 'warden',
+  claimKind: 'alive',
+  value: 'alive',
+};
 
 const answering = (output: string) => {
   const asked: { system: string; content: string }[] = [];
@@ -107,8 +124,41 @@ describe('model-backed OOC reply', () => {
   });
 
   it('describes the four proposal kinds in the prompt', () => {
-    for (const kind of ['table_note', 'house_rule', 'retcon_last_turn', 'roll_fix'])
+    for (const kind of ['table_note', 'house_rule', 'retcon_last_turn', 'roll_fix', 'canon_fix'])
       assert.ok(OOC_REPLY_PROMPT.includes(kind), kind);
+  });
+});
+
+describe('canon fix from the model', () => {
+  it('shows the known story facts as data and keeps a canon fix about a known entity', async () => {
+    const { reply, asked } = answering(JSON.stringify({ reply: REPLY, proposals: [CANON_PROPOSAL] }));
+    const result = await reply(TEXT, DEFAULT_LOCALE, NOTES, [WARDEN_FACT]);
+    assert.deepEqual(result.proposals, [CANON_PROPOSAL]);
+    assert.ok(asked[0]?.content.includes('"entityId":"warden"'));
+    assert.ok(asked[0]?.content.includes('storyFacts'));
+  });
+
+  it('drops a canon fix about an entity the player does not know', async () => {
+    const { reply } = answering(
+      JSON.stringify({ reply: REPLY, proposals: [{ ...CANON_PROPOSAL, entityId: 'hidden-villain' }] }),
+    );
+    assert.deepEqual((await reply(TEXT, DEFAULT_LOCALE, NOTES, [WARDEN_FACT])).proposals, []);
+    assert.deepEqual((await reply(TEXT, DEFAULT_LOCALE, NOTES)).proposals, []);
+  });
+
+  it('writes the canon fix summary itself and keeps it on one line', async () => {
+    const { reply } = answering(
+      JSON.stringify({ reply: REPLY, proposals: [{ ...CANON_PROPOSAL, summary: LYING_SUMMARY, key: 'alive' }] }),
+    );
+    const [proposal] = (await reply(TEXT, DEFAULT_LOCALE, NOTES, [WARDEN_FACT])).proposals;
+    assert.equal(proposal?.summary, CANON_PROPOSAL.summary);
+  });
+
+  it('limits the facts sent to the model', async () => {
+    const { reply, asked } = answering(JSON.stringify({ reply: REPLY, proposals: [] }));
+    const many = Array.from({ length: MAX_OOC_FACTS + 5 }, (_, index) => ({ ...WARDEN_FACT, entityId: `e${index}` }));
+    await reply(TEXT, DEFAULT_LOCALE, NOTES, many);
+    assert.equal((asked[0]?.content.split('"entityId"').length ?? 0) - 1, MAX_OOC_FACTS);
   });
 });
 

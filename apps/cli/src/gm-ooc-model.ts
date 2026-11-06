@@ -1,4 +1,5 @@
 import type { OocProposal, OocReply } from '../../../packages/domain/src/ooc.ts';
+import type { StoryMemoryEntry } from '../../../packages/domain/src/story-memory.ts';
 import {
   MAX_HOUSE_RULE_ID_LENGTH,
   MAX_OOC_SUMMARY_LENGTH,
@@ -14,6 +15,7 @@ import { say } from './messages.ts';
 
 export const MAX_OOC_PROPOSALS = 3;
 export const MAX_OOC_REPLY_LENGTH = 1000;
+export const MAX_OOC_FACTS = 40;
 const OBJECT_START = '{';
 const OBJECT_END = '}';
 const NOT_FOUND = -1;
@@ -31,10 +33,16 @@ export const OOC_REPLY_PROMPT = [
   `house_rule: a rule change. Add "rule", an object with a lowercase "id" of at most ${MAX_HOUSE_RULE_ID_LENGTH} characters and a "rule" object. Propose it only when the player states a precise mechanical rule; prefer table_note otherwise.`,
   'retcon_last_turn: take back the last story turn. Add nothing else.',
   `roll_fix: correct the last roll with a missed modifier. Add "reason", a short phrase, and "value", a non-zero integer from -${MAX_MODIFIER_VALUE} to ${MAX_MODIFIER_VALUE}.`,
+  'canon_fix: correct a story fact the player sees in storyFacts. Add "entityId" copied from storyFacts, "claimKind" copied from the same fact, "key" only when that fact has one, and "value", the corrected value of at most 200 characters. For alive, the value is alive or dead.',
   'Propose nothing when the player only asks a question. Never invent dice results or change game state yourself.',
 ].join(' ');
 
-export type OocReplier = (text: string, locale: string, notes: readonly string[]) => Promise<OocReply>;
+export type OocReplier = (
+  text: string,
+  locale: string,
+  notes: readonly string[],
+  facts?: readonly StoryMemoryEntry[],
+) => Promise<OocReply>;
 
 const objectIn = (output: string): unknown => {
   const start = output.indexOf(OBJECT_START);
@@ -47,24 +55,28 @@ const objectIn = (output: string): unknown => {
   }
 };
 
-const proposalsOf = (value: unknown, locale: string): readonly OocProposal[] =>
+const aboutKnownFact = (proposal: OocProposal, facts: readonly StoryMemoryEntry[]) =>
+  proposal.kind !== 'canon_fix' || facts.some(({ entityId }) => entityId === proposal.entityId);
+
+const proposalsOf = (value: unknown, locale: string, facts: readonly StoryMemoryEntry[]): readonly OocProposal[] =>
   (Array.isArray(value) ? value : [])
     .flatMap((entry) => validOocProposal(entry) ?? [])
+    .filter((proposal) => aboutKnownFact(proposal, facts))
     .slice(0, MAX_OOC_PROPOSALS)
-    .flatMap((proposal) => validOocProposal({ ...proposal, summary: summaryOf(locale, proposal) }) ?? []);
+    .flatMap((proposal) => validOocProposal({ ...proposal, summary: summaryOf(locale, proposal, facts) }) ?? []);
 
-const replyOf = (output: string, locale: string): OocReply | undefined => {
+const replyOf = (output: string, locale: string, facts: readonly StoryMemoryEntry[]): OocReply | undefined => {
   const parsed = objectIn(output);
   if (!isRecord(parsed) || typeof parsed.reply !== 'string' || parsed.reply.trim() === '') return undefined;
   return {
     reply: parsed.reply.trim().slice(0, MAX_OOC_REPLY_LENGTH),
-    proposals: proposalsOf(parsed.proposals, locale),
+    proposals: proposalsOf(parsed.proposals, locale, facts),
   };
 };
 
-const asked = async (ask: AskModel, content: string, locale: string) => {
+const asked = async (ask: AskModel, content: string, locale: string, facts: readonly StoryMemoryEntry[]) => {
   try {
-    return replyOf(await ask(OOC_REPLY_PROMPT, content), locale);
+    return replyOf(await ask(OOC_REPLY_PROMPT, content), locale, facts);
   } catch {
     return undefined;
   }
@@ -72,9 +84,17 @@ const asked = async (ask: AskModel, content: string, locale: string) => {
 
 export const modelOocReplyOf =
   (ask: AskModel): OocReplier =>
-  async (text, locale, notes) => {
+  async (text, locale, notes, facts = []) => {
     const message = text.replace(SPACES, ' ').trim();
     if (message === '') return { reply: say(locale, 'ooc.empty'), proposals: [] };
-    const answered = await asked(ask, frameData({ message, tableNotes: notes }), locale);
+    const known = facts.slice(0, MAX_OOC_FACTS);
+    const storyFacts = known.map(({ entityId, entityName, kind, key, value }) => ({
+      entityId,
+      entityName,
+      claimKind: kind,
+      key,
+      value,
+    }));
+    const answered = await asked(ask, frameData({ message, tableNotes: notes, storyFacts }), locale, known);
     return answered ?? { reply: say(locale, 'ooc.modelFailed'), proposals: [] };
   };

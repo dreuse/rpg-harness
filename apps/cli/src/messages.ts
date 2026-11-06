@@ -77,6 +77,8 @@ export const CLI_CATALOG: Catalog = {
     'ooc.reply.retcon':
       'I can take back your last turn. The story goes back to how it was before it. Confirm to apply it.',
     'ooc.summary.retcon': 'Take back your last turn',
+    'ooc.summary.canonFix': 'Correct the story: {subject} is now "{value}"',
+    'ooc.reply.canonFix': 'Fair point. I can correct the story: {subject} becomes "{value}". Confirm to apply it.',
     'ooc.tooLong': 'That is too long for a table note. Please keep it under {max} characters.',
     'ooc.reply.note': 'I can keep this in mind for the rest of the campaign. Confirm to save it as a table note.',
     'ooc.summary.note': 'Table note: {note}',
@@ -91,6 +93,7 @@ export const CLI_CATALOG: Catalog = {
     'tui.oocDeclined': 'Nothing changed.',
     'tui.oocNothing': 'There is nothing to confirm.',
     'tui.oocUndone': 'Undone: {summary}.',
+    'tui.oocRetold': 'Your taken-back action was: {input}. Send it again, changed or not, to retell it.',
     'rollReport.needed': 'You roll this one. Roll {expression} and report the result, for example "I rolled 17".',
     'rollReport.outOfRange': '{expression} can only give {min} to {max}. Roll again or check the dice.',
     'dice.outcome': 'outcome {value}',
@@ -359,6 +362,8 @@ export const CLI_CATALOG: Catalog = {
     'ooc.reply.retcon':
       'Posso desfazer a sua última jogada. A história volta a como era antes dela. Confirme para aplicar.',
     'ooc.summary.retcon': 'Desfazer a sua última jogada',
+    'ooc.summary.canonFix': 'Corrigir a história: {subject} agora é "{value}"',
+    'ooc.reply.canonFix': 'Justo. Posso corrigir a história: {subject} passa a ser "{value}". Confirme para aplicar.',
     'ooc.tooLong': 'Isso é longo demais para uma nota da mesa. Use menos de {max} caracteres.',
     'ooc.reply.note': 'Posso guardar isso para o resto da campanha. Confirme para salvar como nota da mesa.',
     'ooc.summary.note': 'Nota da mesa: {note}',
@@ -373,6 +378,7 @@ export const CLI_CATALOG: Catalog = {
     'tui.oocDeclined': 'Nada mudou.',
     'tui.oocNothing': 'Não há nada para confirmar.',
     'tui.oocUndone': 'Desfeito: {summary}.',
+    'tui.oocRetold': 'A jogada desfeita foi: {input}. Envie de novo, alterada ou não, para recontá-la.',
     'rollReport.needed': 'Esta rolagem é sua. Role {expression} e informe o resultado, por exemplo "tirei 17".',
     'rollReport.outOfRange': '{expression} só dá de {min} a {max}. Role de novo ou confira os dados.',
     'dice.outcome': 'resultado {value}',

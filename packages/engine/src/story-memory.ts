@@ -32,6 +32,7 @@ import {
 } from '../../memory/src/ledger.ts';
 import type { ContinuityLogRecord } from '../../narrative/src/continuity.ts';
 import { type CampaignChange, recordChange } from './memory.ts';
+import { withoutRetconned } from './ooc.ts';
 import {
   commit,
   commitSystem,
@@ -192,7 +193,7 @@ export const correctStoryFact = (
     input: `${CORRECTION_INTENT} ${kind} ${entityId}`,
     intent: CORRECTION_INTENT,
   };
-  const full = buildLedger(state.events);
+  const full = buildLedger(withoutRetconned(state).events);
   const inSlot = (entry: LedgerEntry) => entry.entityId === entityId && entry.kind === kind && entry.key === key;
   const existing = currentEntries(visibleLedger(full, PLAYER_VIEWER)).find(inSlot);
   const newest = currentEntries(full).find(inSlot);
@@ -212,7 +213,7 @@ export const correctStoryFact = (
 
 export const readStoryMemory = (store: CampaignStore, entities: EntityStore, campaignId: CampaignId): StoryMemory => {
   const state = loadState(store, campaignId);
-  return storyMemoryOf(buildLedger(state.events), directoryOf(state, entities), PLAYER_VIEWER);
+  return storyMemoryOf(buildLedger(withoutRetconned(state).events), directoryOf(state, entities), PLAYER_VIEWER);
 };
 
 const SECRET_LEAK = 'secret-leak';

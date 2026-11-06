@@ -57,6 +57,7 @@ import {
 import { estimateTokens } from '../../../packages/memory/src/retrieval.ts';
 import { createEntityStore, createFactStore } from '../../../packages/persistence/src/entity-store.ts';
 import { touchesOf, walkGraph } from '../../../packages/persistence/src/graph.ts';
+import { isRecord } from '../../../packages/rules/src/rulepack.ts';
 import { scopedEventsOf, scopeLookupOf, worldOf } from './client-session.ts';
 import {
   checkRulesPrompt,
@@ -112,6 +113,26 @@ const PLAYER_SUMMARY = { visibility: 'player', actorId: null } as const;
 const TEXT_SEPARATOR = ' ';
 const NONE = 0;
 const LINE_BREAK = '\n';
+
+type RetconnedMemory = {
+  readonly events: ReadonlySet<EventId>;
+  readonly entities: ReadonlySet<string>;
+  readonly relationships: ReadonlySet<string>;
+};
+
+const idsOf = (items: unknown): string[] =>
+  Array.isArray(items) ? items.flatMap((item) => (isRecord(item) && typeof item.id === 'string' ? [item.id] : [])) : [];
+
+const retconnedMemoryOf = (database: DatabaseSync, state: CampaignState): RetconnedMemory => {
+  const turnIds = oocStateOf(state.changes).retconned;
+  const hidden = turnIds.length === NONE ? [] : scopedEventsOf(database)(state.campaign.id, { turnIds });
+  const introduced = hidden.filter(({ type }) => type === ENTITY_INTRODUCED);
+  return {
+    events: new Set(hidden.map(({ id }) => id)),
+    entities: new Set(introduced.flatMap(({ payload }) => idsOf([payload.entity]))),
+    relationships: new Set(introduced.flatMap(({ payload }) => idsOf(payload.relationships))),
+  };
+};
 
 export const fakeSummarizer: Summarizer = async (_level, texts) =>
   texts.join(TEXT_SEPARATOR).slice(NONE, FAKE_SUMMARY_LENGTH);
@@ -232,18 +253,26 @@ export const contextPacketOf = (
   { defaults = {}, retry = false, repeated = [], contradicted = [], gmRolls = [] }: PacketOptions = {},
 ): ContextPacket => {
   const campaignId = state.campaign.id;
-  const scoped = eventsOfTypes(database, campaignId, MEMORY_EVENT_TYPES);
+  const retconned = retconnedMemoryOf(database, state);
+  const scoped = eventsOfTypes(database, campaignId, MEMORY_EVENT_TYPES).filter(({ id }) => !retconned.events.has(id));
   const language = campaignLanguageOf(state.changes);
   const resultScopes = scopedEventsOf(database)(campaignId, { ids: committed.events.map(({ id }) => id) });
   const visibleEvents = new Set(visibleTo(resultScopes, viewer).map(({ id }) => id));
   const entityStore = createEntityStore(database);
-  const entities = visibleTo(entityStore.listEntities(campaignId), viewer);
-  const facts = createFactStore(database).listFacts(campaignId);
+  const entities = visibleTo(entityStore.listEntities(campaignId), viewer).filter(
+    ({ id }) => !retconned.entities.has(id),
+  );
+  const facts = createFactStore(database)
+    .listFacts(campaignId)
+    .filter(
+      ({ sourceEventId, subjectId }) =>
+        !retconned.events.has(sourceEventId ?? '') && !retconned.entities.has(subjectId ?? ''),
+    );
   const pending = visibleTo(pendingOf(scoped), viewer);
   const turns = playTurns(state).filter(({ id }) => id !== committed.turn.id);
   const recentTurnIds = new Set([...turns.slice(-RECENT_TURN_LIMIT), committed.turn].map(({ id }) => id));
   const turnOf = new Map(state.events.map(({ id, turnId }) => [id, turnId]));
-  const touches = touchesOf(database, campaignId);
+  const touches = touchesOf(database, campaignId).filter(({ eventId }) => !retconned.events.has(eventId));
   const startIds = [
     ...state.characters.map(({ id }) => id),
     ...visibleTo(touches, viewer)
@@ -264,7 +293,7 @@ export const contextPacketOf = (
     {
       nodes,
       entities,
-      relationships: entityStore.listRelationships(campaignId),
+      relationships: entityStore.listRelationships(campaignId).filter(({ id }) => !retconned.relationships.has(id)),
       facts,
       pending,
       touches,
@@ -272,7 +301,9 @@ export const contextPacketOf = (
     viewer,
   ).filter(({ id }) => !pendingIds.has(id));
   const present = new Set(nodes.filter(({ hops, role }) => role === 'link' && hops === NONE).map(({ id }) => id));
-  const summaries = summariesOf(scoped);
+  const summaries = summariesOf(scoped).filter(
+    ({ summary }) => !summary.sourceEventIds.some((id) => retconned.events.has(id)),
+  );
   const config = configOf(state);
   const world = worldOf(database)(campaignId, state.characters[0]?.id);
   const known = scopeLookupOf(database, campaignId)(state.events.map(({ id }) => id));

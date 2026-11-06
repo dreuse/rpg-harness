@@ -18,8 +18,10 @@ import {
   type OocProposalKind,
   ROLL_CORRECTED,
 } from '../../domain/src/ooc.ts';
+import { CLAIM_KINDS, SINGLETON_CLAIM_KINDS } from '../../domain/src/story-memory.ts';
 import { MAX_MODIFIER_TEXT_LENGTH, MAX_MODIFIER_VALUE } from '../../rules/src/modifiers.ts';
 import { isRecord } from '../../rules/src/rulepack.ts';
+import type { StoryCorrection } from './story-memory.ts';
 import { commitSystem, InvalidActionError, loadState, requireValid } from './turn.ts';
 
 export { OOC_STATE_SAVED, ROLL_CORRECTED };
@@ -31,12 +33,21 @@ export const MAX_HOUSE_RULE_ID_LENGTH = 60;
 export const MAX_HOUSE_RULE_LENGTH = 2000;
 export const MAX_OOC_SUMMARY_LENGTH = 200;
 export const MAX_OOC_JOURNAL = 50;
+export const MAX_CANON_VALUE_LENGTH = 200;
+export const MAX_CANON_ID_LENGTH = 100;
 export const OOC_CORRECTION_INPUT = 'GM correction ';
 export const ROLL_FIX_ACTION_SUFFIX = ':roll-fix';
+export const CANON_FIX_ACTION_SUFFIX = ':canon-fix';
+const SECRET_CLAIM = 'secret';
 
 const LINE_BREAK = /[\r\n]/;
 const CORRECTABLE_ROLL_EVENTS: readonly string[] = [CHECK_RESOLVED, ROLL_CORRECTED];
 const NOT_FOUND = -1;
+const FIRST_INDEX = 0;
+const CORRECTION_SUFFIXES: Partial<Record<OocProposalKind, string>> = {
+  roll_fix: ROLL_FIX_ACTION_SUFFIX,
+  canon_fix: CANON_FIX_ACTION_SUFFIX,
+};
 
 type Fields = Readonly<Record<string, unknown>>;
 export type JournalEntry = {
@@ -59,14 +70,16 @@ export const EMPTY_OOC_STATE: OocState = { notes: [], houseRules: [], retconned:
 
 export type RollFix = { readonly value: number; readonly reason: string };
 export type RollCorrector = (resolution: unknown, fix: RollFix) => unknown;
+export type FactCorrector = (correction: StoryCorrection) => void;
 export type OocApplication = {
   readonly campaignId: string;
   readonly actionId: string;
   readonly expectedRevision: number;
   readonly proposal: unknown;
   readonly correctRoll?: RollCorrector;
+  readonly correctFact?: FactCorrector;
 };
-export type OocUndo = Omit<OocApplication, 'proposal' | 'correctRoll'>;
+export type OocUndo = Omit<OocApplication, 'proposal' | 'correctRoll' | 'correctFact'>;
 
 const strings = (value: unknown): string[] =>
   Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
@@ -133,6 +146,17 @@ const proposalOf = (actionId: string, input: unknown): OocProposal => {
       throw invalid(`roll fix needs a non-zero integer within ±${MAX_MODIFIER_VALUE}`);
     return { kind: input.kind, summary, reason, value: value as number };
   }
+  if (input.kind === 'canon_fix') {
+    const entityId = text(input.entityId, MAX_CANON_ID_LENGTH);
+    const value = text(input.value, MAX_CANON_VALUE_LENGTH);
+    const key = input.key === undefined ? undefined : text(input.key, MAX_CANON_ID_LENGTH);
+    const claimKind = CLAIM_KINDS.find((kind) => kind === input.claimKind);
+    if (entityId === undefined || value === undefined) throw invalid('canon fix needs an entity and a value');
+    if (claimKind === undefined || claimKind === SECRET_CLAIM) throw invalid('canon fix needs a correctable fact kind');
+    if (input.key !== undefined && key === undefined) throw invalid('canon fix key must be a short text');
+    const keyed = key !== undefined && !SINGLETON_CLAIM_KINDS.includes(claimKind);
+    return { kind: input.kind, summary, entityId, claimKind, ...(keyed ? { key } : {}), value };
+  }
   throw invalid('unknown proposal kind');
 };
 
@@ -178,16 +202,24 @@ const requireRevision = (state: CampaignState, expectedRevision: number) => {
   if (state.revision !== expectedRevision) throw new StaleRevisionError(expectedRevision, state.revision);
 };
 
+const retconnedInputOf = (input: string | undefined) => (input === undefined ? {} : { retconnedInput: input });
+
 export const applyOocProposal = (store: CampaignStore, application: OocApplication): OocApplied => {
   const { campaignId, actionId, expectedRevision } = application;
   const raw = loadState(store, campaignId);
   const done = oocStateOf(raw.changes).journal.find(({ id }) => id === actionId);
-  if (done !== undefined) return { revision: raw.revision, summary: done.summary };
+  if (done !== undefined)
+    return {
+      revision: raw.revision,
+      summary: done.summary,
+      ...retconnedInputOf(raw.turns.find(({ id }) => id === done.turnIds?.[FIRST_INDEX])?.input),
+    };
   requireRevision(raw, expectedRevision);
   const proposal = proposalOf(actionId, application.proposal);
   const ooc = oocStateOf(raw.changes);
   const visible = withoutRetconned(raw);
   const entry = { id: actionId, kind: proposal.kind, summary: proposal.summary };
+  let retconnedInput: string | undefined;
   const journaled = (extra: Partial<OocState>, details: Fields = {}): OocState => ({
     ...ooc,
     ...extra,
@@ -214,7 +246,9 @@ export const applyOocProposal = (store: CampaignStore, application: OocApplicati
       journaled({ houseRules: [...ooc.houseRules, proposal.rule] }, { ruleId }),
     );
   } else if (proposal.kind === 'retcon_last_turn') {
-    const turnIds = lastPlayTurn(visible, actionId).turns.map(({ id }) => id);
+    const { turns } = lastPlayTurn(visible, actionId);
+    const turnIds = turns.map(({ id }) => id);
+    retconnedInput = turns[FIRST_INDEX]?.input;
     save(
       store,
       campaignId,
@@ -222,6 +256,22 @@ export const applyOocProposal = (store: CampaignStore, application: OocApplicati
       expectedRevision,
       journaled({ retconned: [...ooc.retconned, ...turnIds] }, { turnIds }),
     );
+  } else if (proposal.kind === 'canon_fix') {
+    const { correctFact } = application;
+    const actorId = raw.characters[FIRST_INDEX]?.id;
+    if (correctFact === undefined || actorId === undefined)
+      throw new InvalidActionError(actionId, 'the story facts cannot be corrected');
+    correctFact({
+      campaignId,
+      actionId: `${actionId}${CANON_FIX_ACTION_SUFFIX}`,
+      expectedRevision,
+      actorId,
+      entityId: proposal.entityId,
+      kind: proposal.claimKind,
+      ...(proposal.key === undefined ? {} : { key: proposal.key }),
+      value: proposal.value,
+    });
+    save(store, campaignId, actionId, expectedRevision + 1, journaled({}));
   } else {
     const { index, turns } = lastPlayTurn(visible, actionId);
     const ids = new Set(turns.map(({ id }) => id));
@@ -250,7 +300,11 @@ export const applyOocProposal = (store: CampaignStore, application: OocApplicati
     );
     save(store, campaignId, actionId, expectedRevision + 1, journaled({}));
   }
-  return { revision: loadState(store, campaignId).revision, summary: proposal.summary };
+  return {
+    revision: loadState(store, campaignId).revision,
+    summary: proposal.summary,
+    ...retconnedInputOf(retconnedInput),
+  };
 };
 
 export const undoOocChange = (
@@ -263,19 +317,20 @@ export const undoOocChange = (
   const index = ooc.journal.findLastIndex(({ undone }) => undone !== true);
   const entry = ooc.journal[index];
   if (entry === undefined) throw new InvalidActionError(actionId, 'there is no change to undo');
+  const suffix = CORRECTION_SUFFIXES[entry.kind];
   const turnIds =
-    entry.kind === 'roll_fix'
-      ? [store.findTurn(campaignId, `${entry.id}${ROLL_FIX_ACTION_SUFFIX}`)?.turn.id ?? ''].filter(Boolean)
-      : (entry.turnIds ?? []);
+    suffix === undefined
+      ? (entry.turnIds ?? [])
+      : [store.findTurn(campaignId, `${entry.id}${suffix}`)?.turn.id ?? ''].filter(Boolean);
   const reverted: Partial<OocState> = {
     notes: entry.kind === 'table_note' ? ooc.notes.filter((note) => note !== entry.note) : ooc.notes,
     houseRules: entry.kind === 'house_rule' ? ooc.houseRules.filter(({ id }) => id !== entry.ruleId) : ooc.houseRules,
     retconned:
       entry.kind === 'retcon_last_turn'
         ? ooc.retconned.filter((id) => !turnIds.includes(id))
-        : entry.kind === 'roll_fix'
-          ? [...ooc.retconned, ...turnIds]
-          : ooc.retconned,
+        : suffix === undefined
+          ? ooc.retconned
+          : [...new Set([...ooc.retconned, ...turnIds])],
   };
   const journal = ooc.journal.map((item, position) => (position === index ? { ...item, undone: true as const } : item));
   save(store, campaignId, actionId, expectedRevision, { ...ooc, ...reverted, journal });

@@ -116,6 +116,9 @@ const UNKNOWN_PLAY_TIME = null;
 
 const ROLL_EVENT_TYPES = [CHECK_RESOLVED, GM_ROLLED, ROLL_CORRECTED];
 
+const retconnedTurnsOf = (changes: CampaignState['changes']): ReadonlySet<string | null> =>
+  new Set(oocStateOf(changes).retconned);
+
 export const scopedEventsOf =
   (database: DatabaseSync): EventSource =>
   (campaignId, query) =>
@@ -330,7 +333,9 @@ export const createClientSessions = (
     const encounter = actedEvents.flatMap(({ id, payload }) =>
       resultsOf(payload, actedScopes.get(id)?.visibility ?? HIDDEN),
     );
+    const retconned = retconnedTurnsOf(state.changes);
     const checks = ROLL_EVENT_TYPES.flatMap((type) => readEvents(campaignId, { type, afterRevision: fromRevision }))
+      .filter(({ turnId }) => !retconned.has(turnId))
       .sort((first, second) => first.seq - second.seq)
       .flatMap(({ payload, visibility }) => resultsOf(payload, visibility));
     return { results: [...encounter, ...checks], preference: visualizationPreferenceOf(events) };
@@ -339,12 +344,15 @@ export const createClientSessions = (
   const sync = () => {
     const fresh = readEvents(campaignId, cursor === undefined ? { tail: logWindow } : { afterSeq: cursor });
     if (fresh.length === 0) return;
-    const preference = visualizationPreferenceOf(engine.getState(campaignId).events);
+    const { events, changes } = engine.getState(campaignId);
+    const preference = visualizationPreferenceOf(events);
+    const retconned = retconnedTurnsOf(changes);
     for (const { visibility, seq, ...event } of fresh) {
       scopes.set(event.id, { visibility, actorId: event.actorId, seq });
       cursor = seq;
       const published = log.publish(toClientEvent(event));
       if (!published.ok) throw new Error(published.error.message);
+      if (retconned.has(event.turnId)) continue;
       for (const result of resultsOf(event.payload, visibility)) log.visualize(result, preference);
     }
     for (const oldest of scopes.keys()) {
@@ -629,10 +637,11 @@ export const createClientSessions = (
           const { changes } = engine.getState(campaignId);
           const text = parseOocInput(accepted.value.text) ?? accepted.value.text;
           const locale = campaignLanguageOf(changes) ?? DEFAULT_LOCALE;
+          const facts = story === undefined ? [] : Object.values(story.read(campaignId)).flat();
           return deepFreeze(
             oocReply === undefined
-              ? fakeOocReply(text, locale)
-              : await oocReply(text, locale, oocStateOf(changes).notes),
+              ? fakeOocReply(text, locale, facts)
+              : await oocReply(text, locale, oocStateOf(changes).notes, facts),
           );
         });
       },
@@ -651,6 +660,7 @@ export const createClientSessions = (
             expectedRevision,
             proposal: prepared,
             correctRoll: correctD20Roll,
+            ...(story === undefined ? {} : { correctFact: story.correct }),
           });
           sync();
           return applied;

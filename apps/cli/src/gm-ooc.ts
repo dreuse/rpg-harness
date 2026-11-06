@@ -1,5 +1,6 @@
 import type { CampaignState } from '../../../packages/domain/src/campaign.ts';
 import type { OocProposal, OocReply } from '../../../packages/domain/src/ooc.ts';
+import type { StoryMemoryEntry } from '../../../packages/domain/src/story-memory.ts';
 import {
   MAX_OOC_SUMMARY_LENGTH,
   MAX_TABLE_NOTE_LENGTH,
@@ -24,9 +25,17 @@ import { say } from './messages.ts';
 const ROLL_FIX_WORDS =
   /(?:forgot|missed|left out|esqueceu|esqueceste|faltou)\s+(?:my\s+|the\s+|o\s+|meu\s+)?([+-]\s*\d+)\s*(?:for|from|because of|de|por|pelo|pela|do|da)?\s*(.*)$/iu;
 const RETCON_WORDS = /\b(?:undo|retcon|take (?:that )?back|rewind|desfaz(?:er)?|voltar|retroceder)\b/iu;
+const CANON_WORDS =
+  /^(?:(?:actually|na verdade)[\s,]+)?(?:(?:the|o|a)\s+)?(.+?)\s+(?:is|está|esta|é)\s+(alive|dead|vivo|viva|morto|morta)$/iu;
+const ALIVE_WORDS = new Set(['alive', 'vivo', 'viva']);
+const ALIVE_CLAIM = 'alive';
+const ALIVE_VALUE = 'alive';
+const DEAD_VALUE = 'dead';
 const SPACES = /\s+/gu;
 const TRAILING_PUNCTUATION = /[\s.!?]+$/u;
 const SIGN = /\s/gu;
+const NAME_GROUP = 1;
+const STATE_GROUP = 2;
 const REASON_GROUP = 2;
 const VALUE_GROUP = 1;
 const HOUSE_RULE_AUTHOR = 'player';
@@ -78,7 +87,17 @@ const signedValue = (value: number) => (value > 0 ? `+${value}` : String(value))
 const ruleBodyOf = ({ id: _id, source: _source, ...body }: Readonly<Record<string, unknown>>) =>
   oneLine(JSON.stringify(body));
 
-export const summaryOf = (locale: string, proposal: OocProposal): string => {
+const subjectOf = (proposal: Extract<OocProposal, { kind: 'canon_fix' }>, facts: readonly StoryMemoryEntry[]) => {
+  const name = facts.find(({ entityId }) => entityId === proposal.entityId)?.entityName ?? proposal.entityId;
+  return oneLine(`${name} (${proposal.claimKind}${proposal.key === undefined ? '' : ` ${proposal.key}`})`);
+};
+
+export const summaryOf = (locale: string, proposal: OocProposal, facts: readonly StoryMemoryEntry[] = []): string => {
+  if (proposal.kind === 'canon_fix')
+    return say(locale, 'ooc.summary.canonFix', {
+      subject: subjectOf(proposal, facts),
+      value: oneLine(proposal.value),
+    });
   if (proposal.kind === 'roll_fix')
     return say(locale, 'ooc.summary.rollFix', {
       value: signedValue(proposal.value),
@@ -93,9 +112,33 @@ export const summaryOf = (locale: string, proposal: OocProposal): string => {
   return say(locale, 'ooc.summary.retcon');
 };
 
-export const fakeOocReply = (text: string, locale: string): OocReply => {
+const canonFixOf = (
+  line: string,
+  locale: string,
+  facts: readonly StoryMemoryEntry[],
+): { reply: OocReply['reply']; proposal: OocProposal } | undefined => {
+  const found = CANON_WORDS.exec(line.replace(TRAILING_PUNCTUATION, ''));
+  const name = found?.[NAME_GROUP]?.toLowerCase();
+  const state = found?.[STATE_GROUP]?.toLowerCase();
+  const fact = facts.find(({ kind, entityName }) => kind === ALIVE_CLAIM && entityName.toLowerCase() === name);
+  if (fact === undefined || state === undefined) return undefined;
+  const proposal: OocProposal = {
+    kind: 'canon_fix',
+    summary: '',
+    entityId: fact.entityId,
+    claimKind: ALIVE_CLAIM,
+    value: ALIVE_WORDS.has(state) ? ALIVE_VALUE : DEAD_VALUE,
+  };
+  const summary = summaryOf(locale, proposal, facts);
+  const params = { subject: subjectOf(proposal, facts), value: proposal.value };
+  return { reply: say(locale, 'ooc.reply.canonFix', params), proposal: { ...proposal, summary } };
+};
+
+export const fakeOocReply = (text: string, locale: string, facts: readonly StoryMemoryEntry[] = []): OocReply => {
   const line = oneLine(text);
   if (line === '') return { reply: say(locale, 'ooc.empty'), proposals: [] };
+  const canon = canonFixOf(line, locale, facts);
+  if (canon !== undefined) return { reply: canon.reply, proposals: [canon.proposal] };
   const fix = ROLL_FIX_WORDS.exec(line);
   if (fix !== null) {
     const value = Number((fix[VALUE_GROUP] as string).replace(SIGN, ''));

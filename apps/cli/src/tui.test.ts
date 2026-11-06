@@ -1195,6 +1195,27 @@ test('rpg-42a.91: /gm and (( )) go to the GM out of character; yes confirms, no 
   assert.match(screenText, /Undone: Table note/);
 });
 
+test('rpg-42a.107: after a retcon the TUI shows the taken-back action so the player can send it again', async () => {
+  const { session, campaignId } = engineSession();
+  const retcon = { kind: 'retcon_last_turn' as const, summary: 'Take back your last turn' };
+  const gm: ClientSession = {
+    ...session,
+    submitOocMessage: async () => ({ ok: true, value: { reply: 'Sure.', proposals: [retcon] } }),
+    confirmOocProposal: () => ({
+      ok: true,
+      value: { revision: 4, summary: retcon.summary, retconnedInput: 'I kick the door' },
+    }),
+  };
+  const output: string[] = [];
+  const lines = (async function* () {
+    yield '/gm undo that';
+    yield '/gm yes';
+    yield 'q';
+  })();
+  await runTui(gm, campaignId, { capabilities: PLAIN_WIDE, lines, write: (text) => output.push(text) });
+  assert.match(output.join(''), /taken-back\s+action was: I kick the door\./);
+});
+
 test('rpg-42a.91: the TUI talks to the GM in Brazilian Portuguese', async () => {
   const { session, campaignId } = engineSession();
   const current = session.getSnapshot({ version: PROTOCOL_VERSION, type: 'GetCampaignSnapshot', campaignId });

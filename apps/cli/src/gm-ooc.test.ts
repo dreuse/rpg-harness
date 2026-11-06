@@ -12,8 +12,13 @@ import {
 import { VISUALIZATION_EVENT, type VisualizationEvent } from '../../../packages/client-protocol/src/visualization.ts';
 import { CHECK_RESOLVED, PLAYER_ACTION_SUBMITTED } from '../../../packages/domain/src/campaign.ts';
 import { type OocProposal, ROLL_CORRECTED } from '../../../packages/domain/src/ooc.ts';
+import type { StoryMemoryEntry } from '../../../packages/domain/src/story-memory.ts';
 import { oocStateOf } from '../../../packages/engine/src/ooc.ts';
+import { proposeClaims } from '../../../packages/engine/src/story-memory.ts';
 import type { ContextPacket } from '../../../packages/memory/src/packet.ts';
+import { createCampaignStore } from '../../../packages/persistence/src/campaign-store.ts';
+import { openDatabase } from '../../../packages/persistence/src/database.ts';
+import { createEntityStore } from '../../../packages/persistence/src/entity-store.ts';
 import { createRoller } from '../../../packages/rules/src/dice.ts';
 import { createScriptedRng } from '../../../packages/testkit/src/fixtures.ts';
 import {
@@ -27,6 +32,7 @@ import {
 import { TABLE_NOTES_PROMPT } from './gm-context.ts';
 import { correctD20Roll, fakeOocReply } from './gm-ooc.ts';
 import type { OocReplier } from './gm-ooc-model.ts';
+import { say } from './messages.ts';
 
 const CAMPAIGN = 'hollow-lantern';
 const D20_PITCH = 'A fantasy story using the d20-lite rules with dice animation';
@@ -36,6 +42,15 @@ const HALF = 0.5;
 const FACE = 11;
 const ACTION = 'I try to climb the wall';
 const ROLL_FIX_TEXT = '/gm you forgot my +2 for high ground';
+const WARDEN_FACT = {
+  entityId: 'warden',
+  entityName: 'Warden',
+  kind: 'alive',
+  key: '',
+  value: 'dead',
+  sourceEventId: 'event-1',
+  corrected: false,
+} satisfies StoryMemoryEntry;
 const NOTE_TEXT = '(( NPCs speak modern English ))';
 const MODEL_REPLY = 'Noted, the innkeeper will drop the thees.';
 const SECRET_PHRASE = 'xyzzy-ooc-secret';
@@ -116,7 +131,37 @@ const campaign = async (t: TestContext, oocReply?: OocReplier) => {
     return { ...opened, snapshot, say, talk, confirm, undo, seen, envelope };
   };
   const state = () => readCampaignState(dataDir, CAMPAIGN);
-  return { open, packets, requests: () => requests, state };
+  const seedWarden = () => {
+    const connection = openDatabase(join(dataDir, `${encodeURIComponent(CAMPAIGN)}.sqlite`));
+    try {
+      const store = createCampaignStore(connection.database);
+      const entities = createEntityStore(connection.database);
+      const loaded = store.load(connection.database.prepare('SELECT id FROM campaign').get()?.id as string);
+      assert.ok(loaded);
+      entities.saveEntity({
+        id: 'warden',
+        campaignId: loaded.campaign.id,
+        kind: 'npc',
+        name: 'Warden',
+        data: {},
+        visibility: 'public',
+        actorId: null,
+      });
+      proposeClaims(store, entities, {
+        campaignId: loaded.campaign.id,
+        actionId: 'seed-warden',
+        expectedRevision: loaded.revision,
+        sceneId: loaded.currentScene?.id ?? '',
+        actorId: loaded.characters[0]?.id ?? '',
+        input: 'The warden falls',
+        intent: 'The warden falls',
+        claims: [{ entityId: 'warden', kind: 'alive', value: 'dead' }],
+      });
+    } finally {
+      connection.close();
+    }
+  };
+  return { open, packets, requests: () => requests, state, seedWarden };
 };
 
 const resolutionAt = (face: number, bonus = 1, target = 14) => {
@@ -157,6 +202,24 @@ describe('rpg-42a.91 out-of-character channel', () => {
     assert.equal(fakeOocReply('undo that please', 'en').proposals[0]?.kind, 'retcon_last_turn');
     assert.equal(fakeOocReply('NPCs speak modern English', 'en').proposals[0]?.kind, 'table_note');
     assert.deepEqual(fakeOocReply('   ', 'en').proposals, []);
+  });
+
+  it('turns "the warden is alive" into a canon-fix proposal for a known fact only', () => {
+    const facts: StoryMemoryEntry[] = [
+      WARDEN_FACT,
+      { ...WARDEN_FACT, entityId: 'pier', entityName: 'Old Pier', kind: 'description' },
+    ];
+    const [fix] = fakeOocReply('Actually, the warden is alive', 'en', facts).proposals;
+    assert.deepEqual(fix, {
+      kind: 'canon_fix',
+      summary: say('en', 'ooc.summary.canonFix', { subject: 'Warden (alive)', value: 'alive' }),
+      entityId: 'warden',
+      claimKind: 'alive',
+      value: 'alive',
+    });
+    assert.equal(fakeOocReply('o warden está morto', 'pt-BR', facts).proposals[0]?.kind, 'canon_fix');
+    assert.equal(fakeOocReply('the pier is dead', 'en', facts).proposals[0]?.kind, 'table_note');
+    assert.equal(fakeOocReply('the warden is alive', 'en').proposals[0]?.kind, 'table_note');
   });
 
   it('confirm re-resolves and records the roll, decline changes nothing, undo reverts it', async (t) => {
@@ -240,6 +303,74 @@ describe('rpg-42a.91 out-of-character channel', () => {
     assert.equal(game.snapshot().rollOffer, undefined);
     assert.ok(game.undo().ok);
     assert.equal(game.snapshot().turns.at(-1)?.input, ACTION);
+  });
+
+  it('rpg-42a.107 a confirmed canon fix corrects the story fact and undo restores it', async (t) => {
+    const { open, seedWarden } = await campaign(t);
+    seedWarden();
+    const game = open();
+    const wardenIs = () => {
+      const result = game.session.getStoryMemory({ ...game.envelope, type: 'GetStoryMemory' });
+      assert.ok(result.ok);
+      return result.value.memory.person.find(({ entityId }) => entityId === 'warden')?.value;
+    };
+    assert.equal(wardenIs(), 'dead');
+    const [fix] = (await game.talk('/gm actually the warden is alive')).proposals;
+    assert.equal(fix?.kind, 'canon_fix');
+    assert.equal(wardenIs(), 'dead');
+    const confirmed = game.confirm(fix as OocProposal);
+    assert.ok(confirmed.ok, confirmed.ok ? '' : confirmed.error.message);
+    assert.equal(wardenIs(), 'alive');
+    assert.ok(game.undo().ok);
+    assert.equal(wardenIs(), 'dead');
+    const again = game.confirm(fix as OocProposal);
+    assert.ok(again.ok, again.ok ? '' : again.error.message);
+    assert.equal(wardenIs(), 'alive');
+  });
+
+  it('rpg-42a.107 a canon fix about an unknown entity is rejected and changes nothing', async (t) => {
+    const { open, state } = await campaign(t);
+    const game = open();
+    const before = state().revision;
+    const rejected = game.confirm({
+      kind: 'canon_fix',
+      summary: 'Fix the ghost',
+      entityId: 'ghost',
+      claimKind: 'alive',
+      value: 'alive',
+    });
+    assert.equal(rejected.ok, false);
+    assert.equal(state().revision, before);
+  });
+
+  it('rpg-42a.107 a confirmed retcon returns the taken-back action so a client can resubmit it', async (t) => {
+    const { open } = await campaign(t);
+    const game = open();
+    await game.say(ACTION);
+    const [retcon] = (await game.talk('/gm undo that')).proposals;
+    const confirmed = game.confirm(retcon as OocProposal);
+    assert.ok(confirmed.ok);
+    assert.equal(confirmed.value.retconnedInput, ACTION);
+    await game.say(confirmed.value.retconnedInput ?? '');
+    assert.equal(game.snapshot().turns.at(-1)?.input, ACTION);
+    assert.equal(game.snapshot().turns.at(-1)?.narration, FAKE_GM_REPLY);
+  });
+
+  it('rpg-42a.107 the visualization replay skips the rolls of a retconned turn', async (t) => {
+    const { open } = await campaign(t);
+    const first = open();
+    await first.say(ACTION);
+    const replayedCards = () => {
+      const replay = open();
+      return replay.seen.filter((event) => event.type === VISUALIZATION_EVENT).length;
+    };
+    const rolled = replayedCards();
+    assert.ok(rolled > 0);
+    const [retcon] = (await first.talk('/gm undo that')).proposals;
+    assert.ok(first.confirm(retcon as OocProposal).ok);
+    assert.equal(replayedCards(), 0);
+    assert.ok(first.undo().ok);
+    assert.equal(replayedCards(), rolled);
   });
 
   it('never turns out-of-character text into an action, a story turn or a GM request', async (t) => {

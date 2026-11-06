@@ -9,13 +9,16 @@ import {
   StaleRevisionError,
 } from '../../domain/src/campaign.ts';
 import { ROLL_CORRECTED } from '../../domain/src/ooc.ts';
+import { CLAIM_CORRECTED } from '../../memory/src/ledger.ts';
 import { createCampaignStore } from '../../persistence/src/campaign-store.ts';
 import { openDatabase } from '../../persistence/src/database.ts';
+import { createEntityStore } from '../../persistence/src/entity-store.ts';
 import { createRoller } from '../../rules/src/dice.ts';
 import { createScriptedRng } from '../../testkit/src/fixtures.ts';
 import { playTurns } from './character.ts';
 import { createEngine } from './engine.ts';
 import {
+  MAX_CANON_VALUE_LENGTH,
   MAX_HOUSE_RULE_ID_LENGTH,
   MAX_HOUSE_RULE_LENGTH,
   MAX_TABLE_NOTE_LENGTH,
@@ -23,6 +26,7 @@ import {
   oocStateOf,
   type RollCorrector,
 } from './ooc.ts';
+import { correctStoryFact, proposeClaims, readStoryMemory, type StoryCorrection } from './story-memory.ts';
 import { type Check, InvalidActionError } from './turn.ts';
 
 const IN_MEMORY = ':memory:';
@@ -36,6 +40,22 @@ const BONUS = 1;
 const TARGET = 14;
 const FIX = 2;
 const NOTE = 'NPCs speak modern English';
+const WARDEN = {
+  id: 'warden',
+  campaignId: CAMPAIGN.id,
+  kind: 'npc' as const,
+  name: 'Warden',
+  data: {},
+  visibility: 'public' as const,
+  actorId: null,
+};
+const CANON_FIX_PROPOSAL = {
+  kind: 'canon_fix',
+  summary: 'The Warden is alive',
+  entityId: WARDEN.id,
+  claimKind: 'alive',
+  value: 'alive',
+};
 const correctRoll: RollCorrector = (resolution, { value, reason }) => {
   const stored = resolution as { bonus: number };
   const bonus = stored.bonus + value;
@@ -86,7 +106,9 @@ const seeded = () => {
     events: [],
   });
   const engine = createEngine(store, createScriptedRng([(FACE - 1 + HALF) / D20]));
-  return { store, engine, close: () => connection.close() };
+  const entities = createEntityStore(connection.database);
+  entities.saveEntity(WARDEN);
+  return { store, engine, entities, close: () => connection.close() };
 };
 
 const revisionOf = (store: CampaignStore) => store.load(CAMPAIGN.id)?.revision ?? assert.fail();
@@ -247,5 +269,93 @@ test('rpg-42a.91: a house rule is bounded in id, size and source note', () => {
   assert.equal(revisionOf(store), before);
   engine.applyOoc(application(store, 'ok', houseRule({})));
   assert.equal(oocStateOf(store.load(CAMPAIGN.id)?.changes ?? []).houseRules.length, 1);
+  close();
+});
+
+type Entities = ReturnType<typeof createEntityStore>;
+
+const seedWardenDead = (store: CampaignStore, entities: Entities) =>
+  proposeClaims(store, entities, {
+    campaignId: CAMPAIGN.id,
+    actionId: 'warden-dies',
+    expectedRevision: revisionOf(store),
+    sceneId: SCENE.id,
+    actorId: HERO.id,
+    input: 'The warden falls',
+    intent: 'The warden falls',
+    claims: [{ entityId: WARDEN.id, kind: 'alive', value: 'dead' }],
+  });
+
+const wardenFact = (store: CampaignStore, entities: Entities) =>
+  readStoryMemory(store, entities, CAMPAIGN.id).person[0]?.value;
+
+const canonApplication = (store: CampaignStore, entities: Entities, actionId: string, proposal: unknown) => ({
+  ...application(store, actionId, proposal),
+  correctFact: (correction: StoryCorrection) => {
+    correctStoryFact(store, entities, correction);
+  },
+});
+
+test('rpg-42a.107: a canon fix corrects the story fact, is journaled and undo restores the prior fact', () => {
+  const { store, engine, entities, close } = seeded();
+  seedWardenDead(store, entities);
+  assert.equal(wardenFact(store, entities), 'dead');
+  const applied = engine.applyOoc(canonApplication(store, entities, 'canon', CANON_FIX_PROPOSAL));
+  assert.equal(applied.summary, CANON_FIX_PROPOSAL.summary);
+  assert.equal(wardenFact(store, entities), 'alive');
+  assert.deepEqual(
+    oocStateOf(store.load(CAMPAIGN.id)?.changes ?? []).journal.map(({ kind, undone }) => [kind, undone]),
+    [['canon_fix', undefined]],
+  );
+  engine.undoOoc(undo(store, 'undo-canon'));
+  assert.equal(wardenFact(store, entities), 'dead');
+  assert.equal(
+    engine.getState(CAMPAIGN.id).events.some(({ type }) => type === CLAIM_CORRECTED),
+    false,
+  );
+  close();
+});
+
+test('rpg-42a.107: a canon fix can be corrected again after an undo', () => {
+  const { store, engine, entities, close } = seeded();
+  seedWardenDead(store, entities);
+  engine.applyOoc(canonApplication(store, entities, 'canon', CANON_FIX_PROPOSAL));
+  engine.undoOoc(undo(store, 'undo-canon'));
+  engine.applyOoc(canonApplication(store, entities, 'canon-again', CANON_FIX_PROPOSAL));
+  assert.equal(wardenFact(store, entities), 'alive');
+  close();
+});
+
+test('rpg-42a.107: a canon fix refuses bad proposals and a missing corrector', () => {
+  const { store, engine, entities, close } = seeded();
+  seedWardenDead(store, entities);
+  const before = revisionOf(store);
+  const refused = (actionId: string, extra: object) =>
+    assert.throws(
+      () => engine.applyOoc(canonApplication(store, entities, actionId, { ...CANON_FIX_PROPOSAL, ...extra })),
+      InvalidActionError,
+    );
+  refused('unknown-kind', { claimKind: 'mood' });
+  refused('secret', { claimKind: 'secret' });
+  refused('blank', { value: ' ' });
+  refused('long', { value: 'x'.repeat(MAX_CANON_VALUE_LENGTH + 1) });
+  refused('no-entity', { entityId: '' });
+  refused('bad-key', { key: 7 });
+  refused('absent', { entityId: 'nobody' });
+  assert.throws(() => engine.applyOoc(application(store, 'no-port', CANON_FIX_PROPOSAL)), InvalidActionError);
+  assert.equal(revisionOf(store), before);
+  assert.equal(wardenFact(store, entities), 'dead');
+  close();
+});
+
+test('rpg-42a.107: a confirmed retcon returns the player action it took back', () => {
+  const { store, engine, close } = seeded();
+  act(store, engine, 'first', d20Check);
+  act(store, engine, 'second', d20Check);
+  const retconned = engine.applyOoc(application(store, 'retcon', RETCON_PROPOSAL));
+  assert.equal(retconned.retconnedInput, 'I do second');
+  assert.equal(engine.applyOoc(application(store, 'retcon', RETCON_PROPOSAL)).retconnedInput, 'I do second');
+  assert.equal('retconnedInput' in engine.undoOoc(undo(store, 'undo-retcon')), false);
+  assert.equal('retconnedInput' in engine.applyOoc(application(store, 'note', noteProposal())), false);
   close();
 });

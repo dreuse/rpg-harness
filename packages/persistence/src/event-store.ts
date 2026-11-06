@@ -69,6 +69,7 @@ export type EventQuery = {
   readonly afterRevision?: number;
   readonly type?: string;
   readonly ids?: readonly string[];
+  readonly turnIds?: readonly string[];
   readonly tail?: number;
 };
 
@@ -77,7 +78,7 @@ const SCOPED_COLUMNS =
 
 type Filter = readonly [name: string, condition: string, value: string | number | undefined];
 
-const filtersOf = ({ afterSeq, beforeSeq, afterRevision, type, ids }: EventQuery): Filter[] =>
+const filtersOf = ({ afterSeq, beforeSeq, afterRevision, type, ids, turnIds }: EventQuery): Filter[] =>
   (
     [
       ['afterSeq', 'seq > :afterSeq', afterSeq],
@@ -85,6 +86,11 @@ const filtersOf = ({ afterSeq, beforeSeq, afterRevision, type, ids }: EventQuery
       ['afterRevision', 'revision > :afterRevision', afterRevision],
       ['type', 'type = :type', type],
       ['ids', 'id IN (SELECT value FROM json_each(:ids))', ids === undefined ? undefined : JSON.stringify(ids)],
+      [
+        'turnIds',
+        'turn_id IN (SELECT value FROM json_each(:turnIds))',
+        turnIds === undefined ? undefined : JSON.stringify(turnIds),
+      ],
     ] as Filter[]
   ).filter(([, , value]) => value !== undefined);
 

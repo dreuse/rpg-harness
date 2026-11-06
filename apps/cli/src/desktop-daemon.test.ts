@@ -794,6 +794,27 @@ describe('serve client-protocol commands over the desktop engine daemon', () => 
     assert.equal(rejectionOf(rejected), 'Rejected');
   });
 
+  it('rpg-42a.107: confirms a retcon with the taken-back action and refuses a canon fix with nothing to fix', async (t) => {
+    const { env, campaignId } = await campaignEnv(t);
+    const daemon = supervise(t, { env });
+    acceptedValue<Accepted>(await daemon.command(actionCommand(await snapshotOf(daemon, campaignId), ACTION)));
+    const confirm = async (actionId: string, proposal: object) =>
+      daemon.command(
+        lifecycle('ConfirmOocProposal', {
+          campaignId,
+          actionId,
+          expectedRevision: (await snapshotOf(daemon, campaignId)).revision,
+          proposal,
+        }),
+      );
+    const canon = { kind: 'canon_fix', summary: 'Fix', entityId: 'ghost', claimKind: 'alive', value: 'alive' };
+    assert.equal(rejectionOf(await confirm('ooc-canon', canon)), 'Rejected');
+    const retcon = acceptedValue<{ retconnedInput?: string }>(
+      await confirm('ooc-retcon', { kind: 'retcon_last_turn', summary: 'Take back your last turn' }),
+    );
+    assert.equal(retcon.retconnedInput, ACTION);
+  });
+
   it('rpg-42a.13: opens another campaign, drops old subscriptions and rejects an unknown name', async (t) => {
     const { env, campaignId } = await campaignEnv(t);
     await createCampaigns(String(env[DATA_DIR_ENV]), [SECOND_CAMPAIGN]);

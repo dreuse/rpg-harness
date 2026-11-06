@@ -2,14 +2,14 @@ import assert from 'node:assert/strict';
 import { after, describe, it } from 'node:test';
 import { type CampaignStore, type CommittedTurn, MAIN_BRANCH } from '../../../packages/domain/src/campaign.ts';
 import { saveGmSettings } from '../../../packages/engine/src/gm-settings.ts';
-import { introduceEntity, openPending, saveContextBudget } from '../../../packages/engine/src/memory.ts';
-import { applyOocProposal } from '../../../packages/engine/src/ooc.ts';
+import { introduceEntity, openPending, recordSummary, saveContextBudget } from '../../../packages/engine/src/memory.ts';
+import { applyOocProposal, undoOocChange, withoutRetconned } from '../../../packages/engine/src/ooc.ts';
 import type { RulesDocument } from '../../../packages/engine/src/own-rules.ts';
 import { proposeClaims } from '../../../packages/engine/src/story-memory.ts';
 import { openScene, type PlayerAction, performAction } from '../../../packages/engine/src/turn.ts';
 import { setVoiceTraits } from '../../../packages/engine/src/voice-profile.ts';
 import { PENDING_HOP_LIMIT } from '../../../packages/memory/src/graph.ts';
-import { summariesOf } from '../../../packages/memory/src/history.ts';
+import { summariesOf, summarize } from '../../../packages/memory/src/history.ts';
 import {
   CONTEXT_BUDGETS,
   packetParts,
@@ -203,6 +203,79 @@ it('rpg-42a.91 scene summaries leave out a retconned turn', async () => {
     summarized.some((text) => text.includes(RETCONNED_INPUT)),
     false,
   );
+  fixture.connection.close();
+});
+
+const retconLast = (fixture: ReturnType<typeof campaign>, actionId: string) =>
+  applyOocProposal(fixture.store, {
+    campaignId: CAMPAIGN.id,
+    actionId,
+    expectedRevision: fixture.store.load(CAMPAIGN.id)?.revision ?? 0,
+    proposal: { kind: 'retcon_last_turn', summary: 'Take back your last turn' },
+  });
+
+const unretconLast = (fixture: ReturnType<typeof campaign>, actionId: string) =>
+  undoOocChange(fixture.store, {
+    campaignId: CAMPAIGN.id,
+    actionId,
+    expectedRevision: fixture.store.load(CAMPAIGN.id)?.revision ?? 0,
+  });
+
+const retconAwarePacketText = (fixture: ReturnType<typeof campaign>, actionId: string, input = 'I look around') => {
+  const committed = play(fixture.store, actionId, input);
+  const state = withoutRetconned(fixture.store.load(CAMPAIGN.id) ?? assert.fail());
+  return packetText(contextPacketOf(fixture.database, state, committed));
+};
+
+it('rpg-42a.107 memory built from a retconned turn does not reach the GM packet and returns on undo', () => {
+  const fixture = campaign();
+  play(fixture.store, 'turn-1');
+  introduceEntity(fixture.store, fixture.entities, fixture.facts, {
+    ...actionFor(fixture.store, 'meet-ilse', 'I hail the captain'),
+    entity: { id: ILSE, kind: 'npc', name: 'Captain Ilse', data: {}, ...PUBLIC },
+    facts: [{ id: 'ilse-debt', statement: NPC_FACT, layer: 'canon', ...PUBLIC }],
+    relationships: [{ id: 'harbour-ilse', kind: 'contains', sourceId: HARBOUR, targetId: ILSE, data: {} }],
+  });
+  openPending(fixture.store, {
+    ...actionFor(fixture.store, 'ilse-promise', 'I accept her offer'),
+    pending: { pendingId: 'promise-ilse', kind: 'promise', text: PROMISE, entityIds: [ILSE], ...PUBLIC },
+  });
+  const remembered = retconAwarePacketText(fixture, 'control', 'I look for Captain Ilse');
+  for (const expected of [NPC_FACT, PROMISE, 'Harbour contains Captain Ilse']) assert.ok(remembered.includes(expected));
+  retconLast(fixture, 'retcon-control');
+  retconLast(fixture, 'retcon-memory');
+  const forgotten = retconAwarePacketText(fixture, 'after-retcon');
+  for (const gone of [NPC_FACT, PROMISE, 'Ilse']) assert.ok(!forgotten.includes(gone), gone);
+  unretconLast(fixture, 'undo-memory');
+  const restored = retconAwarePacketText(fixture, 'after-undo', 'I look for Captain Ilse');
+  for (const expected of [NPC_FACT, PROMISE]) assert.ok(restored.includes(expected), expected);
+  fixture.connection.close();
+});
+
+it('rpg-42a.107 a scene summary that cites a retconned turn is left out of the GM packet', () => {
+  const fixture = campaign();
+  play(fixture.store, 'turn-1');
+  const taken = play(fixture.store, 'taken-back', RETCONNED_INPUT);
+  const state = fixture.store.load(CAMPAIGN.id) ?? assert.fail();
+  recordSummary(fixture.store, {
+    campaignId: CAMPAIGN.id,
+    actionId: 'summary-1',
+    expectedRevision: state.revision,
+    level: 'scene',
+    scopeId: 'scene-1',
+    summary: summarize(state.events, {
+      id: 'summary-1',
+      campaignId: CAMPAIGN.id,
+      text: `Mara did this: ${RETCONNED_INPUT}`,
+      sourceEventIds: taken.events.map(({ id }) => id),
+      visibility: 'player',
+      actorId: null,
+    }),
+  });
+  assert.ok(retconAwarePacketText(fixture, 'control').includes(RETCONNED_INPUT));
+  retconLast(fixture, 'retcon-control');
+  retconLast(fixture, 'retcon');
+  assert.ok(!retconAwarePacketText(fixture, 'after-retcon').includes(RETCONNED_INPUT));
   fixture.connection.close();
 });
 
