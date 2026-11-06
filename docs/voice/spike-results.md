@@ -220,7 +220,37 @@ Model size on disk: 1,348,431,976 + 54,365,991 + 13,800 + 461 = 1,402,812,228 by
 - Attempt 1: point `fetch_from_hub` at a folder with the checkpoint and vocab. The weights load without a key or shape error. Output is gibberish: WER 2.96.
 - Attempt 2: build the DiT with `text_mask_padding=False`. Whisper heard a repeated unrelated sentence.
 - `mlx` 0.32.4 also needs `mx.random.normal` to receive integer shapes. `f5_bench.py` patches that.
-- Both attempts stopped there. A working MLX route needs a port of `pe_attn_head` or a v1-based pt-BR fine-tune. Neither was found. The PyTorch MPS route is the Apple Silicon fast path instead.
+- Both attempts stopped there. A working MLX route needs a port of `pe_attn_head` or a v1-based pt-BR fine-tune. Neither was found at the time. A v1 fine-tune was found later and works (next section). The PyTorch MPS route stays the Apple Silicon fast path.
+
+### MLX route, v1 pt-BR fine-tune: works, but no faster than PyTorch MPS (rpg-cm63.57, 2026-11-06)
+
+Same machine, venvs and bench script as above. Hugging Face was searched with the `huggingface_hub` API (`F5-TTS`, `f5tts`, `portuguese`, `pt-br` and similar queries). Most pt-BR repos are fine-tunes of the older `F5TTS_Base` (no `F5TTS_v1_Base` config, or no card). One is a v1 fine-tune:
+
+- Model: `Tharyck/multispeaker-ptbr-f5tts` at `984a19879e2fcff4a1db586f6a74994c9dfed537`. Card `license: apache-2.0`, `base_model: SWivid/F5-TTS` (so the base `cc-by-nc-4.0` term likely still applies; not resolved), trained on `Tharyck/multispeaker-tts-ptbr` plus private data, 390.78 h, `F5TTS_v1_Base` config, `pe_attn_head: null`, char tokenizer, "educational and research" notice.
+- File `model_last.safetensors`, 1,348,431,976 bytes, sha256 `39435f0d0179abc166cd443c6bc60b8a55f7908e368b58887853e4a7d94d488b`. Vocab `vocab.txt`, 11,255 bytes, 2546 entries, sha256 `4e173934be56219eb38759fa8d4c48132d5a34454f0c44abce409bcf6a07ec46`. The embedding has 2546 rows, so it matches `f5-tts-mlx` unchanged.
+- No port is needed. `f5-tts-mlx` 0.2.6 loads the checkpoint through its own key conversion with no change. The vocoder is `lucasnewman/vocos-mel-24khz` (as in the earlier MLX row).
+- Not evaluated: `BornSaint/F5-TTS-PT-BR` (`cc-by-nc-4.0`, 5.4 GB `.pt`, no config), `ModelsLab/F5-tts-brazilian`, `traderpedroso/F5-TTS-BRAZILIAN-PORTUGUESE`, `Tharyck/f5-tts-ptbr-multispeaker` (all from 2024 to early 2025, older base by date and size), `RodrigoLimaRFL/f5tts-pt-br` (April 2026, 5.4 GB `.pt`, no card or config, base unknown). The pe_attn_head port (step 2 of the plan) was not attempted, because step 1 succeeded.
+
+Passages, reference clip `f5-pt-f1`, one run each, WER from `openai/whisper-small` (pt). Median over the four passages:
+
+| Route | Device | Steps | Load ms | Warm-up ms | Median first audio ms | Median RTF | Peak RSS MiB | Peak footprint MiB | Mean WER |
+|---|---|---|---|---|---|---|---|---|---|
+| f5-tts-mlx, Tharyck v1 | MLX | 8 x rk4 (MLX default) | 946 | 2535 | 2156 | 1.12 | 1661 | 11559 | 0.08 |
+| f5-tts-mlx, Tharyck v1 | MLX | 4 x rk4 | 1336 | 1091 | 956 | 0.53 | 1635 | 11505 | 0.70 (unusable) |
+| PyTorch, Tharyck v1 (`F5TTS_v1_Base`) | MPS | 32 | 7310 | 2420 | 2255 | 1.39 | 3754 | 4731 | 0.10 |
+| PyTorch, Tharyck v1 (`F5TTS_v1_Base`) | MPS | 16 | 11222 | 1777 | 1143 | 0.70 | 3754 | 4731 | 0.10 |
+| PyTorch, firstpixel (shipped, from the table above) | MPS | 16 | 15199 | 1461 | 1111 | 0.68 | 3731 | 4734 | 0.06 |
+
+Per passage WER, MLX 8 x rk4: narration 0.32, warning 0.00, innkeeper 0.00, emotional 0.00. The narration miss is a leaked "uma história" at the start and mangled proper nouns ("Varrow", "portões"). PyTorch MPS 16 steps: narration 0.09, warning 0.33 (drops "Fala baixo"), innkeeper 0.00, emotional 0.00. The WER differences between the two checkpoints are single words on short lines. Nobody listened.
+
+Verdict:
+
+- The MLX route speaks intelligible pt-BR with a v1 fine-tune. Previous gibberish came from the architecture mismatch, as suspected.
+- It is not faster. `f5-tts-mlx` has no 16-evaluation setting that works: 8 x rk4 is 32 network evaluations and gives RTF 1.12, against 0.70 for PyTorch MPS at 16 steps. 4 x rk4 is fast (RTF 0.53) and unintelligible.
+- MLX wins only on load time (about 1 s against 7 to 15 s) and process RSS (1.7 GiB against 3.8 GiB). Its peak footprint is 11.5 GiB, 2.4 times the PyTorch figure.
+- Decision: no integration. The shipped PyTorch route on CUDA, MPS and CPU stays. A second checkpoint (1.3 GB), a second venv and a second backend in the service would buy start-up time at the cost of speed.
+- Not run: MLX quantised weights (`quantization_bits` in `f5-tts-mlx`), MLX with fewer or different solver settings than the two above, Windows, Linux, CUDA, listening.
+- Side result worth an A/B listening test: the Tharyck v1 checkpoint runs on the shipped PyTorch route at the same speed as the firstpixel checkpoint (RTF 0.70 against 0.68), trained on 390 h of multispeaker data. Whether it sounds better is unknown.
 
 ### Reference voices
 

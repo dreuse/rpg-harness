@@ -64,6 +64,7 @@ The voices of this engine count toward the target of rpg-cm63.45 once the owner 
 - Model: 1338 MiB on disk (acoustic model, vocab, vocoder). Venv: 1549 MiB on macOS.
 - Intelligibility: Whisper-small word error rate 0.04 to 0.07 across the four passages. Nobody has listened.
 - MLX (`f5-tts-mlx` 0.2.6): its network is the v1 architecture. The pt-BR checkpoint is a fine-tune of the older base. It loads and speaks gibberish (WER 2.96). Two attempts. Not shipped.
+- MLX with a v1 pt-BR fine-tune (rpg-cm63.57, 2026-11-06): `Tharyck/multispeaker-ptbr-f5tts` at `984a19879e2fcff4a1db586f6a74994c9dfed537`, `model_last.safetensors` sha256 `39435f0d0179abc166cd443c6bc60b8a55f7908e368b58887853e4a7d94d488b`, card `apache-2.0` over a `cc-by-nc-4.0` base. It loads in `f5-tts-mlx` unchanged and is intelligible (WER 0.08), at median RTF 1.12 and first audio 2156 ms. PyTorch MPS at 16 steps with the same checkpoint: RTF 0.70, first audio 1143 ms, WER 0.10. Not shipped, no speed gain.
 - Not run: Windows, Linux, CUDA, x86 CPU.
 
 **Decision.**
@@ -72,7 +73,7 @@ The voices of this engine count toward the target of rpg-cm63.45 once the owner 
 - Provider id `f5-tts`. Off by default. It never replaces Kokoro as the default or the fallback. The desktop host and the CLI live runtime now register it, and the settings voice picker lists it. It is never the default voice: the saved speech preference must name it. Live narration then puts it first and keeps the Kokoro entry behind it, so a campaign that picks it falls back to Kokoro when it is not installed, not healthy or fails. The CLI reads the choice from `desktop-preferences.json` in the data directory. `voicesFor('pt-BR')` still returns Kokoro.
 - The default is 16 steps (`F5_NFE_STEP`), half of F5's own default. The WER did not change in the spike. The quality cost is unknown until someone listens. The 32-step samples are kept for comparison.
 - The PyTorch route is the shipped route on every platform. The service picks CUDA, then MPS, then CPU.
-- MLX is deferred. It needs a v1-based pt-BR fine-tune or a port of `pe_attn_head`.
+- MLX is not shipped. A v1 pt-BR fine-tune now makes it work, but it is slower than PyTorch MPS at the quality that is intelligible. Revisit if `f5-tts-mlx` gains a cheaper solver setting or quantised v1 pt-BR weights appear.
 
 **Voices.** Four named reference voices, two female and two male (`f5-pt-f1`, `f5-pt-f2`, `f5-pt-m1`, `f5-pt-m2`), cut from Google FLEURS `pt_br` clips (card: `cc-by-4.0`, anonymous volunteers). Each has gender, age, timbre words (in `VOICE_CATALOG`), source URL, sha256 and attribution (`f5-voices.ts`). Age is `adult` for all four and is unverified, because FLEURS has no age field. Timbre words follow measured pitch, not listening. The FLoRes sentence licence and per-speaker consent were not checked. No emotion reference clips exist, so delivery maps to speed only.
 
@@ -83,4 +84,4 @@ The voices of this engine count toward the target of rpg-cm63.45 once the owner 
 - Attribution strings are in `F5_ATTRIBUTIONS`. The repo has no Settings > About voices screen for any provider yet, so nothing is surfaced.
 - Not built, as for Chatterbox: composition-root wiring, a settings entry and an install action. `status().supported` is true on darwin, linux and win32.
 
-**Still open.** Listening test and age labels. A run on Windows, Linux and CUDA. Digit expansion (the model card asks for numbers as words). A v1-based pt-BR fine-tune for MLX. Whether the Chatterbox pt-BR pack or its MLX and CoreML ports beat F5 on speed (rpg-cm63.47 follow-up, still unmeasured).
+**Still open.** Listening test and age labels. A run on Windows, Linux and CUDA. Digit expansion (the model card asks for numbers as words). An A/B listening test of the Tharyck v1 checkpoint against firstpixel on the PyTorch route. Whether the Chatterbox pt-BR pack or its MLX and CoreML ports beat F5 on speed (rpg-cm63.47 follow-up, still unmeasured).
