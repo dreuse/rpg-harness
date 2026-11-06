@@ -91,7 +91,7 @@ export const checkRulesPrompt = (ruleIds: readonly string[]): string =>
 export const voiceTraitsPrompt = (npcIds: readonly string[]): string =>
   `These npcs have no voice traits yet: ${npcIds.join(', ')}. Add one voice-traits proposal for each, with kind "voice-traits", a lowercase id, the npc as entityId and voiceTraits holding gender, age and manner.`;
 export const npcSheetPrompt = ({ pack, defense, hitPoints }: CombatRules): string =>
-  `To make an npc fightable, add a sheet to its entity proposal with traits (a list of id and whole-number value, including ${defense} for defense and ${hitPoints} for hit points), optional motivations and background, and rulepack ${JSON.stringify(pack)}; the engine refuses a sheet that does not match.`;
+  `To make an npc fightable, add a sheet to its entity proposal with traits (a list of id and whole-number value, including ${defense} for defense and ${hitPoints} for hit points), optional motivations and background, and rulepack ${JSON.stringify(pack)}; the engine refuses a sheet that does not match. For an npc attack on the player, add attacker (the npc id or name) to the check proposal; the engine then rolls the npc's attack against the player's sheet and applies the damage. To restore hit points, add a heal proposal with kind "heal", a lowercase id, a target (an npc or the player character) and a whole-number amount up to the missing hit points.`;
 const effectText = (effect: ModifierEffect): string => {
   if (effect.kind === 'flat') return effect.value < 0 ? String(effect.value) : `+${effect.value}`;
   if (effect.kind === 'dice') return `${effect.count < 0 ? '' : '+'}${effect.count} dice`;

@@ -27,6 +27,7 @@ export type NoCheckReason = (typeof NO_CHECK_REASONS)[number];
 export const CHECK_OFFERED = 'CheckOffered';
 export const GM_ROLLED = 'GmRolled';
 export const DAMAGE_APPLIED = 'DamageApplied';
+export const HEALING_APPLIED = 'HealingApplied';
 export const ROLL_REPORTED = 'RollReported';
 export const CONDITION_APPLIED = 'ConditionApplied';
 export const CONDITION_REMOVED = 'ConditionRemoved';

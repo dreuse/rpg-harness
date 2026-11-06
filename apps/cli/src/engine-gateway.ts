@@ -180,6 +180,7 @@ import {
   enforcedStrictnessFor,
   gmRollExpressionFor,
   gmRollsAllowed,
+  healTargetOf,
   modifierPolicyOf,
   rulesStrictnessFor,
   whoRollsFor,
@@ -675,6 +676,7 @@ const narrateLatest = async (
       checkRulesFor(state.events, rulesStrictnessFor(state, defaults), installed),
       modifierPolicyOf(state.events, rulesStrictnessFor(state, defaults), installed),
       combatRulesOf(state.events, installed),
+      healTargetOf,
     );
   }
   if (sent !== undefined)
@@ -1128,6 +1130,7 @@ const createCampaign = async (
       checkRulesFor(state.events, strictness, installed),
       modifierPolicyOf(state.events, strictness, installed),
       combatRulesOf(state.events, installed),
+      healTargetOf,
     );
     connection.close();
     return generic

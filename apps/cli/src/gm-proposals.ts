@@ -1,10 +1,13 @@
 import {
+  type CampaignEvent,
   type CampaignStore,
+  type CharacterId,
   type CommittedTurn,
   GM_ROLLED,
   StaleRevisionError,
 } from '../../../packages/domain/src/campaign.ts';
 import {
+  type CampaignEntity,
   ENTITY_KINDS,
   type EntityId,
   type EntityKind,
@@ -27,7 +30,7 @@ import {
   endCondition,
   type ModifierPolicy,
 } from '../../../packages/engine/src/conditions.ts';
-import { type CombatRules, NPC_SHEET_FIELD } from '../../../packages/engine/src/damage.ts';
+import { type Combatant, type CombatRules, NPC_SHEET_FIELD } from '../../../packages/engine/src/damage.ts';
 import {
   GM_ROLL_VISIBILITIES,
   type GmRollVisibility,
@@ -37,6 +40,7 @@ import {
   rollForGm,
 } from '../../../packages/engine/src/gm-roll.ts';
 import { recordGmRejections } from '../../../packages/engine/src/gm-settings.ts';
+import { healCombatant } from '../../../packages/engine/src/healing.ts';
 import { introduceEntity, openPending, setNpcSheet } from '../../../packages/engine/src/memory.ts';
 import { type ClaimDraft, proposeClaims } from '../../../packages/engine/src/story-memory.ts';
 import {
@@ -77,6 +81,8 @@ export const MAX_PENDING_TEXT_LENGTH = 300;
 export const MAX_PENDING_ENTITIES = 5;
 export const MAX_LABEL_LENGTH = 120;
 export const MAX_OUTCOME_LENGTH = 200;
+export const MAX_HEAL_AMOUNT = 999;
+const MIN_HEAL_AMOUNT = 1;
 export const PROPOSAL_ENTITY_KINDS = ENTITY_KINDS.filter((kind) => kind !== 'character');
 export const PROPOSAL_VISIBILITIES = ['player', 'gm'] as const;
 export const ENTITY_PROPOSAL = 'entity';
@@ -88,6 +94,7 @@ export const VOICE_TRAITS_PROPOSAL = 'voice-traits';
 export const CONDITION_PROPOSAL = 'condition';
 export const CONDITION_END_PROPOSAL = 'condition-end';
 export const CLAIM_PROPOSAL = 'claim';
+export const HEAL_PROPOSAL = 'heal';
 
 const ID_PATTERN = '^[a-z0-9][a-z0-9-]*$';
 const ID_REGEX = new RegExp(ID_PATTERN);
@@ -111,7 +118,18 @@ const PROPOSAL_KEYS = {
     NPC_SHEET_FIELD,
   ],
   [PENDING_PROPOSAL]: ['kind', 'id', 'pendingKind', 'text', 'entityIds', 'visibility'],
-  [CHECK_PROPOSAL]: ['kind', 'id', 'ruleId', 'target', 'label', 'difficulty', 'modifiers', NEEDS_CHECK_FIELD],
+  [CHECK_PROPOSAL]: [
+    'kind',
+    'id',
+    'ruleId',
+    'target',
+    'attacker',
+    'label',
+    'difficulty',
+    'modifiers',
+    NEEDS_CHECK_FIELD,
+  ],
+  [HEAL_PROPOSAL]: ['kind', 'id', 'target', 'amount'],
   [OUTCOME_PROPOSAL]: ['kind', 'id', 'text', 'declared'],
   [VOICE_TRAITS_PROPOSAL]: ['kind', 'id', 'entityId', VOICE_TRAITS_FIELD],
   [GM_ROLL_PROPOSAL]: ['kind', 'id', 'roller', 'reason', 'visibility', 'ruleId', 'expression', 'section', 'modifiers'],
@@ -156,6 +174,7 @@ export type CheckProposal = {
   readonly id: string;
   readonly ruleId: string;
   readonly target: string;
+  readonly attacker?: string;
   readonly label: string;
   readonly difficulty?: string;
   readonly modifiers?: readonly ModifierRequest[];
@@ -215,7 +234,15 @@ export type ClaimProposal = {
   readonly visibility?: ProposalVisibility;
 };
 
+export type HealProposal = {
+  readonly kind: typeof HEAL_PROPOSAL;
+  readonly id: string;
+  readonly target: string;
+  readonly amount: number;
+};
+
 export type GmProposal =
+  | HealProposal
   | EntityProposal
   | PendingProposal
   | CheckProposal
@@ -341,12 +368,24 @@ export const PROPOSALS_SCHEMA = {
           id: idSchema,
           ruleId: { type: 'string', maxLength: MAX_ID_LENGTH, pattern: RULE_ID_PATTERN },
           target: { type: 'string', maxLength: MAX_NAME_LENGTH },
+          attacker: { type: 'string', maxLength: MAX_NAME_LENGTH },
           label: { type: 'string', maxLength: MAX_LABEL_LENGTH },
           difficulty: idSchema,
           modifiers: modifiersSchema,
           [NEEDS_CHECK_FIELD]: { type: 'boolean' },
         },
         required: ['kind', 'id', 'ruleId', 'target', 'label'],
+        additionalProperties: false,
+      },
+      {
+        type: 'object',
+        properties: {
+          kind: { const: HEAL_PROPOSAL },
+          id: idSchema,
+          target: { type: 'string', maxLength: MAX_NAME_LENGTH },
+          amount: { type: 'integer', minimum: MIN_HEAL_AMOUNT, maximum: MAX_HEAL_AMOUNT },
+        },
+        required: ['kind', 'id', 'target', 'amount'],
         additionalProperties: false,
       },
       {
@@ -559,11 +598,13 @@ const checkOf = (value: Record<string, unknown>): CheckProposal | undefined => {
   const id = idOf(value.id);
   const ruleId = typeof value.ruleId === 'string' && RULE_ID_REGEX.test(value.ruleId) ? value.ruleId : undefined;
   const target = textOf(value.target, MAX_NAME_LENGTH);
+  const attacker = value.attacker === undefined ? undefined : textOf(value.attacker, MAX_NAME_LENGTH);
   const label = textOf(value.label, MAX_LABEL_LENGTH);
   const difficulty = value.difficulty === undefined ? undefined : idOf(value.difficulty);
   const modifiers = modifiersOf(value.modifiers);
   if (id === undefined || ruleId === undefined || target === undefined || label === undefined) return undefined;
   if ((value.difficulty !== undefined && difficulty === undefined) || modifiers === null) return undefined;
+  if (value.attacker !== undefined && attacker === undefined) return undefined;
   const needsCheck = value[NEEDS_CHECK_FIELD];
   if (needsCheck !== undefined && typeof needsCheck !== 'boolean') return undefined;
   return {
@@ -571,6 +612,7 @@ const checkOf = (value: Record<string, unknown>): CheckProposal | undefined => {
     id,
     ruleId,
     target,
+    ...(attacker === undefined ? {} : { attacker }),
     label,
     ...(difficulty === undefined ? {} : { difficulty }),
     ...(modifiers === undefined ? {} : { modifiers }),
@@ -671,6 +713,16 @@ const claimOf = (value: Record<string, unknown>): ClaimProposal | undefined => {
   };
 };
 
+const healOf = (value: Record<string, unknown>): HealProposal | undefined => {
+  const id = idOf(value.id);
+  const target = textOf(value.target, MAX_NAME_LENGTH);
+  const { amount } = value;
+  const valid = Number.isInteger(amount) && Number(amount) >= MIN_HEAL_AMOUNT && Number(amount) <= MAX_HEAL_AMOUNT;
+  return id === undefined || target === undefined || !valid
+    ? undefined
+    : { kind: HEAL_PROPOSAL, id, target, amount: Number(amount) };
+};
+
 const PARSERS = {
   [ENTITY_PROPOSAL]: entityOf,
   [PENDING_PROPOSAL]: pendingOf,
@@ -681,6 +733,7 @@ const PARSERS = {
   [CONDITION_PROPOSAL]: conditionOf,
   [CONDITION_END_PROPOSAL]: conditionEndOf,
   [CLAIM_PROPOSAL]: claimOf,
+  [HEAL_PROPOSAL]: healOf,
 } as const;
 
 const proposalOf = (value: unknown): GmProposal | undefined => {
@@ -793,6 +846,14 @@ const sparseSheetOf = ({ id, name, sheet }: EntityProposal) => ({
   ...sheet,
 });
 
+export type HealTargetResolver = (
+  events: readonly CampaignEvent[],
+  entities: readonly CampaignEntity[],
+  target: string,
+  actorId: CharacterId,
+  rules: CombatRules,
+) => Combatant | undefined;
+
 export const commitProposals = (
   store: CampaignStore,
   entities: EntityStore,
@@ -802,6 +863,7 @@ export const commitProposals = (
   checkRules: readonly string[] = NO_RULES,
   policy?: ModifierPolicy,
   combat?: CombatRules,
+  healTargetOf?: HealTargetResolver,
 ): readonly CommittedTurn[] => {
   const { campaignId } = committed.turn;
   const results: CommittedTurn[] = [];
@@ -817,16 +879,33 @@ export const commitProposals = (
         continue;
       }
       if (proposal.kind === CHECK_PROPOSAL) {
-        const { id: offerId, ruleId, target, label, difficulty, modifiers } = proposal;
+        const { id: offerId, ruleId, target, attacker, label, difficulty, modifiers } = proposal;
         if (checkRules.includes(ruleId))
           results.push(
             offerCheck(store, {
               ...action,
-              offer: { offerId, ruleId, target, label, ...(difficulty === undefined ? {} : { difficulty }) },
+              offer: {
+                offerId,
+                ruleId,
+                target,
+                label,
+                ...(attacker === undefined ? {} : { attacker }),
+                ...(difficulty === undefined ? {} : { difficulty }),
+              },
               ...(modifiers === undefined ? {} : { requested: modifiers }),
               ...(policy === undefined ? {} : { policy }),
             }),
           );
+        continue;
+      }
+      if (proposal.kind === HEAL_PROPOSAL) {
+        const { events } = loadState(store, campaignId);
+        const healed =
+          combat === undefined || healTargetOf === undefined
+            ? undefined
+            : healTargetOf(events, entities.listEntities(campaignId), proposal.target, committed.turn.actorId, combat);
+        if (healed !== undefined)
+          results.push(healCombatant(store, { ...action, target: healed, amount: proposal.amount }));
         continue;
       }
       if (proposal.kind === CONDITION_PROPOSAL) {

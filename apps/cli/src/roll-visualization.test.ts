@@ -6,6 +6,7 @@ import {
   type CampaignEvent,
   CHECK_OFFERED,
   DAMAGE_APPLIED,
+  HEALING_APPLIED,
   PLAYER_ACTION_SUBMITTED,
   RULES_DOCUMENT_ADDED,
 } from '../../../packages/domain/src/campaign.ts';
@@ -40,6 +41,7 @@ import {
   emitVisualizations,
   enforcedStrictnessFor,
   gmRollExpressionFor,
+  healTargetOf,
   modifierPolicyOf,
   offeredCheckFor,
   POOL_MECHANIC,
@@ -874,4 +876,83 @@ test('rpg-42a.136: an installed ruleset targets and defends with its own pin', (
     installed,
   )?.('a', drawing([HIT_FACE, D20_SIDES], [DAMAGE_FACE, D6]));
   assert.equal(result?.target, FOE_DEFENSE);
+});
+
+const HERO_DEFENSE = 11;
+const HERO_HP = 7;
+const TAM_MIGHT = 9;
+const TAM_MIGHT_MOD = 4;
+
+const attackingTam = (visibility: CampaignEntity['visibility'] = 'public', might = TAM_MIGHT) =>
+  tam(
+    {
+      ...foeSheet(),
+      traits: [...foeSheet().traits, { id: 'might', value: might }],
+    },
+    visibility,
+  );
+
+const woundedHero = (hp: number | null = HERO_HP) => [
+  ...configured(builtInConfig('d20-lite')),
+  heroCreated({ ...ATTRIBUTES, defense: HERO_DEFENSE, ...(hp === null ? {} : { hp }) }),
+];
+
+const tamStrikes = (events: CampaignEvent[], entities: CampaignEntity[], rng: () => number, attacker = 'Old Tam') =>
+  offeredCheckFor(events, { ...OFFER, attacker }, HERO, entities)?.('a', rng);
+
+test('rpg-42a.135: an npc attacker rolls its own attack against the player sheet and damages the player', () => {
+  const result = tamStrikes(woundedHero(), [attackingTam()], drawing([HIT_FACE, D20_SIDES], [DAMAGE_FACE, D6]));
+  assert.equal(result?.events[0]?.event, 'attack.hit');
+  assert.equal(result?.target, HERO_DEFENSE);
+  assert.equal(result?.bonus, TAM_MIGHT_MOD + PROFICIENCY);
+  assert.deepEqual(result?.damage, { targetId: HERO, amount: TAM_MIGHT_MOD + DAMAGE_FACE, defeated: true });
+});
+
+test('rpg-42a.135: earlier damage and healing set the player hit points an npc attack sees', () => {
+  const events = (type: string, amount: number) =>
+    ({ type, payload: { targetId: HERO, amount } }) as unknown as CampaignEvent;
+  const rng = () => drawing([HIT_FACE, D20_SIDES], [DAMAGE_FACE, D6]);
+  const hurt = tamStrikes([...woundedHero(), events(DAMAGE_APPLIED, 2)], [attackingTam()], rng());
+  assert.deepEqual(hurt?.damage, { targetId: HERO, amount: HERO_HP - 2, defeated: true });
+  const mended = [...woundedHero(), events(DAMAGE_APPLIED, 5), events(HEALING_APPLIED, 4)];
+  const result = tamStrikes(mended, [attackingTam()], rng());
+  assert.deepEqual(result?.damage, { targetId: HERO, amount: HERO_HP - 1, defeated: true });
+});
+
+test('rpg-42a.135: an npc attack with no usable sheet on either side is a plain check', () => {
+  const rng = () => 0.5;
+  const plain = (events: CampaignEvent[], entities: CampaignEntity[], attacker = 'Old Tam') => {
+    const result = tamStrikes(events, entities, rng, attacker);
+    assert.equal(result?.damage, undefined);
+    assert.equal(result?.target, DEFAULT_CHECK_DC);
+  };
+  plain(woundedHero(null), [attackingTam()]);
+  plain(strongHero(), [attackingTam()]);
+  plain(woundedHero(), [attackingTam('gm')]);
+  plain(woundedHero(), [tam()]);
+  plain(woundedHero(), [attackingTam()], 'nobody');
+  plain(woundedHero(), [{ ...attackingTam(), data: { [NPC_SHEET_FIELD]: foeSheet(FOE_HP, 'r0') } }]);
+});
+
+test('rpg-42a.135: a ruleId that is not an attack ignores the named attacker', () => {
+  const result = offeredCheckFor(woundedHero(), { ...OFFER, ruleId: 'check.might', attacker: 'Old Tam' }, HERO, [
+    attackingTam(),
+  ])?.('a', () => 0.5);
+  assert.equal(result?.damage, undefined);
+});
+
+test('rpg-42a.135: a heal target is a visible npc or the player character, with its current hit points', () => {
+  const hurt = (targetId: string, amount: number) =>
+    ({ type: DAMAGE_APPLIED, payload: { targetId, amount, defeated: false } }) as unknown as CampaignEvent;
+  const events = [...woundedHero(), hurt(HERO, 2), hurt('npc-tam', 3)];
+  const rules = combatRulesOf(events);
+  assert.ok(rules);
+  const heal = (target: string, entities = [attackingTam()]) => healTargetOf(events, entities, target, HERO, rules);
+  assert.equal(heal('Old Tam')?.current, FOE_HP - 3);
+  assert.equal(heal('npc-tam')?.id, 'npc-tam');
+  assert.equal(heal(' wren ')?.current, HERO_HP - 2);
+  assert.equal(heal(HERO)?.id, HERO);
+  assert.equal(heal('nobody'), undefined);
+  assert.equal(heal('Old Tam', [attackingTam('gm')]), undefined);
+  assert.equal(heal('Old Tam', [tam()]), undefined);
 });

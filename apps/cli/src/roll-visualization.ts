@@ -15,7 +15,11 @@ import type {
   CharacterId,
   NoCheckReason,
 } from '../../../packages/domain/src/campaign.ts';
-import { CHARACTER_KIND, parseCharacterProfile } from '../../../packages/domain/src/character.ts';
+import {
+  CHARACTER_KIND,
+  type CharacterProfile,
+  parseCharacterProfile,
+} from '../../../packages/domain/src/character.ts';
 import type { CampaignEntity, Visibility } from '../../../packages/domain/src/entity.ts';
 import { DEFAULT_WHO_ROLLS, type GmSettings, type WhoRolls } from '../../../packages/domain/src/gm.ts';
 import {
@@ -30,7 +34,14 @@ import {
   pendingCheckOffer,
 } from '../../../packages/engine/src/check-offer.ts';
 import { conditionModifiersOf, type ModifierPolicy, mergeModifiers } from '../../../packages/engine/src/conditions.ts';
-import { type Combatant, type CombatRules, combatantOf, targetNpcOf } from '../../../packages/engine/src/damage.ts';
+import {
+  type Combatant,
+  type CombatRules,
+  combatantFromProfile,
+  combatantOf,
+  npcProfileOf,
+  targetNpcOf,
+} from '../../../packages/engine/src/damage.ts';
 import { GM_ROLLER, PLAYER_ROLLER } from '../../../packages/engine/src/gm-roll.ts';
 import { gmSettingsOf } from '../../../packages/engine/src/gm-settings.ts';
 import { rulesDocumentsOf, usesOwnRules } from '../../../packages/engine/src/own-rules.ts';
@@ -212,7 +223,12 @@ const attributeOf = (input: string): Attribute =>
     .map((word) => ATTRIBUTE_WORDS.get(word))
     .find((attribute) => attribute !== undefined) ?? DEFAULT_CHECK_ATTRIBUTE;
 
-type OfferedRoll = Pick<CheckOffer, 'modifiers' | 'difficulty'> & { readonly defender?: Combatant };
+type Attacker = { readonly id: string; readonly sheet: TraitSheet };
+
+type OfferedRoll = Pick<CheckOffer, 'modifiers' | 'difficulty'> & {
+  readonly defender?: Combatant;
+  readonly attacker?: Attacker;
+};
 
 type CheckSource = (
   events: readonly CampaignEvent[],
@@ -279,11 +295,11 @@ const strike = ({
   defender,
   rolls,
 }: Strike): CheckResolution => {
-  const { npcId, defense, current, max } = defender;
+  const { id, defense, current, max } = defender;
   const struck = attack({
     actionId,
     attacker: sheet,
-    target: combatantSheet({ id: npcId, defense, current, max }),
+    target: combatantSheet({ id, defense, current, max }),
     attribute,
     damageSides: D20_LITE_COMBAT.damageSides,
     rng,
@@ -315,12 +331,26 @@ const strike = ({
     ],
     ...(keep === undefined ? {} : { keep }),
     ...(rolls.version === undefined ? {} : { version: rolls.version }),
-    attack: { targetId: npcId, damageBonus: attributeBonus, damageRoll },
-    damage: { targetId: npcId, amount, defeated: current - amount <= NO_DAMAGE },
+    attack: { targetId: id, damageBonus: attributeBonus, damageRoll },
+    damage: { targetId: id, amount, defeated: current - amount <= NO_DAMAGE },
   };
 };
 
 const unavailable = (noCheck: NoCheckReason): NoCheck => ({ noCheck });
+
+const sheetFor = (id: string, profile: CharacterProfile | undefined, fillMissing = false): TraitSheet | undefined => {
+  const scores = new Map(profile?.traits.map((trait) => [trait.id, trait.value]));
+  const written = ATTRIBUTES.some((attribute) => scores.has(attribute));
+  const attributes = Object.fromEntries(
+    ATTRIBUTES.map((attribute) => [
+      attribute,
+      written ? (scores.get(attribute) ?? (fillMissing ? ATTRIBUTE_AVERAGE : undefined)) : ATTRIBUTE_AVERAGE,
+    ]),
+  );
+  return ATTRIBUTES.every((attribute) => isScore(attributes[attribute]))
+    ? createSheet({ characterId: id as CharacterId, attributes: attributes as Record<Attribute, number> })
+    : undefined;
+};
 
 const d20Check: CheckSource = (
   events,
@@ -333,18 +363,15 @@ const d20Check: CheckSource = (
   installed,
 ) => {
   const parsed = parseCharacterProfile(profileOf(events, actorId, worldProfile));
-  const scores = new Map(parsed.ok ? parsed.profile.traits.map(({ id, value }) => [id, value]) : []);
-  const written = ATTRIBUTES.some((id) => scores.has(id));
-  const attributes = Object.fromEntries(ATTRIBUTES.map((id) => [id, written ? scores.get(id) : ATTRIBUTE_AVERAGE]));
-  if (!ATTRIBUTES.every((id) => isScore(attributes[id]))) return unavailable('missing-scores');
-  const sheet = createSheet({ characterId: actorId, attributes: attributes as Record<Attribute, number> });
+  const sheet = offered?.attacker?.sheet ?? sheetFor(actorId, parsed.ok ? parsed.profile : undefined);
+  if (sheet === undefined) return unavailable('missing-scores');
   const attribute = ruleId === undefined ? attributeOf(input) : D20_LITE_CHECK_RULES[ruleId];
   if (attribute === undefined) return undefined;
   const defender = ATTACK_RULES.includes(ruleId ?? '') ? offered?.defender : undefined;
   const applicable = D20_LITE_VOCABULARY.effects.filter((kind) => kind !== 'step' || defender !== undefined);
   const modifiers = modifiersFor(
     events,
-    actorId,
+    offered?.attacker?.id ?? actorId,
     ruleId ?? `check.${attribute}`,
     D20_LITE_VOCABULARY,
     offered,
@@ -585,18 +612,64 @@ const defenderOf = (
   return npc === undefined ? undefined : combatantOf(npc, events, combatRulesFor(pack));
 };
 
+const playerCombatantOf = (
+  events: readonly CampaignEvent[],
+  entities: readonly CampaignEntity[],
+  actorId: CharacterId,
+  rules: CombatRules,
+): Combatant | undefined => {
+  const parsed = parseCharacterProfile(profileOf(events, actorId, worldProfileOf(entities, actorId)));
+  return parsed.ok ? combatantFromProfile(parsed.profile, actorId, events, rules) : undefined;
+};
+
+export const healTargetOf = (
+  events: readonly CampaignEvent[],
+  entities: readonly CampaignEntity[],
+  target: string,
+  actorId: CharacterId,
+  rules: CombatRules,
+): Combatant | undefined => {
+  const npc = targetNpcOf(entities, target);
+  if (npc !== undefined) return combatantOf(npc, events, rules);
+  const player = playerCombatantOf(events, entities, actorId, rules);
+  const named = player?.name.trim().toLowerCase() === target.trim().toLowerCase();
+  return target === actorId || named ? player : undefined;
+};
+
+const npcAttackOf = (
+  events: readonly CampaignEvent[],
+  entities: readonly CampaignEntity[],
+  attackerName: string,
+  actorId: CharacterId,
+  rules: CombatRules,
+): { readonly attacker: Attacker; readonly defender: Combatant } | undefined => {
+  const npc = targetNpcOf(entities, attackerName);
+  const profile = npc === undefined ? undefined : npcProfileOf(npc, rules);
+  const sheet = npc === undefined ? undefined : sheetFor(npc.id, profile, true);
+  const defender = playerCombatantOf(events, entities, actorId, rules);
+  return npc === undefined || profile === undefined || sheet === undefined || defender === undefined
+    ? undefined
+    : { attacker: { id: npc.id, sheet }, defender };
+};
+
 export const offeredCheckFor = (
   events: readonly CampaignEvent[],
-  offer: Pick<CheckOffer, 'ruleId' | 'label' | 'modifiers' | 'difficulty'> & Partial<Pick<CheckOffer, 'target'>>,
+  offer: Pick<CheckOffer, 'ruleId' | 'label' | 'modifiers' | 'difficulty'> &
+    Partial<Pick<CheckOffer, 'target' | 'attacker'>>,
   actorId: CharacterId,
   entities = NO_ENTITIES,
   houseRules: StoredHouseRules = NO_HOUSE_RULES,
   installed?: InstalledRuleset,
 ): Check | undefined => {
-  const { ruleId, label, target } = offer;
+  const { ruleId, label, target, attacker, modifiers, difficulty } = offer;
   const entry = checkEntryOf(events, AS_WRITTEN, installed);
+  const pack = entry === undefined ? undefined : (installed?.manifest ?? entry[0]);
+  const struck =
+    pack === undefined || attacker === undefined || !ATTACK_RULES.includes(ruleId)
+      ? undefined
+      : npcAttackOf(events, entities, attacker, actorId, combatRulesFor(pack));
   const defender =
-    entry === undefined ? undefined : defenderOf(events, entities, target, installed?.manifest ?? entry[0]);
+    attacker !== undefined || pack === undefined ? struck?.defender : defenderOf(events, entities, target, pack);
   const offered = entry?.[2].includes(ruleId)
     ? entry[1](
         events,
@@ -604,7 +677,12 @@ export const offeredCheckFor = (
         label,
         worldProfileOf(entities, actorId),
         ruleId,
-        { ...offer, ...(defender === undefined ? {} : { defender }) },
+        {
+          ...(modifiers === undefined ? {} : { modifiers }),
+          ...(difficulty === undefined ? {} : { difficulty }),
+          ...(defender === undefined ? {} : { defender }),
+          ...(struck === undefined ? {} : { attacker: struck.attacker }),
+        },
         houseRules,
         installed,
       )

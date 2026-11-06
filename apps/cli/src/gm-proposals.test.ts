@@ -21,6 +21,7 @@ import {
 import {
   MAX_FACT_LENGTH,
   MAX_FACTS,
+  MAX_HEAL_AMOUNT,
   MAX_MOOD_TAGS,
   MAX_NAME_LENGTH,
   MAX_PROPOSALS,
@@ -456,5 +457,35 @@ describe('rpg-42a.90 modifier and condition proposals', () => {
     const text = JSON.stringify(PROPOSALS_SCHEMA);
     for (const needle of ['"condition"', '"condition-end"', 'modifiers', 'difficulty', 'sourceRule'])
       assert.ok(text.includes(needle), needle);
+  });
+});
+
+describe('rpg-42a.135 npc attacker and heal proposals', () => {
+  const parse = (...proposals: unknown[]) => proposalsOf({ proposals });
+  const heal = { kind: 'heal', id: 'tonic', target: 'Old Tam', amount: 3 };
+
+  it('parses an attacker on a check and refuses one that is blank, long or not text', () => {
+    assert.equal(parse({ ...ATTACK_CHECK, attacker: 'Old Tam' })?.length, 1);
+    for (const attacker of [' ', 'x'.repeat(MAX_NAME_LENGTH + 1), 7])
+      assert.equal(parse({ ...ATTACK_CHECK, attacker }), undefined);
+  });
+
+  it('parses a heal with a whole positive amount and refuses everything else', () => {
+    assert.equal(parse(heal)?.length, 1);
+    for (const amount of [0, -1, 1.5, '3', null, MAX_HEAL_AMOUNT + 1])
+      assert.equal(parse({ ...heal, amount }), undefined);
+    for (const bad of [
+      { ...heal, target: ' ' },
+      { ...heal, id: 'Bad Id' },
+      { ...heal, extra: 1 },
+    ])
+      assert.equal(parse(bad), undefined);
+    const { amount: _amount, ...missing } = heal;
+    assert.equal(parse(missing), undefined);
+  });
+
+  it('declares both in the proposals schema', () => {
+    const schema = JSON.stringify(PROPOSALS_SCHEMA);
+    assert.ok(schema.includes('"attacker"') && schema.includes('"heal"'));
   });
 });

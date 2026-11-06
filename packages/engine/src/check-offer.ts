@@ -23,6 +23,7 @@ export type CheckOffer = {
   readonly offerId: string;
   readonly ruleId: string;
   readonly target: string;
+  readonly attacker?: string;
   readonly label: string;
   readonly difficulty?: string;
   readonly modifiers?: readonly AppliedModifier[];

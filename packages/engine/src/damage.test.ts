@@ -1,8 +1,16 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { type CampaignEvent, DAMAGE_APPLIED } from '../../domain/src/campaign.ts';
+import { type CampaignEvent, DAMAGE_APPLIED, HEALING_APPLIED } from '../../domain/src/campaign.ts';
+import { parseCharacterProfile } from '../../domain/src/character.ts';
 import type { CampaignEntity } from '../../domain/src/entity.ts';
-import { type CombatRules, combatantOf, damageTakenOf, NPC_SHEET_FIELD, targetNpcOf } from './damage.ts';
+import {
+  type CombatRules,
+  combatantFromProfile,
+  combatantOf,
+  damageTakenOf,
+  NPC_SHEET_FIELD,
+  targetNpcOf,
+} from './damage.ts';
 
 const PACK = { id: 'any-pack', edition: '2', revision: 'r7' };
 const RULES: CombatRules = { pack: PACK, defense: 'armor', hitPoints: 'vigor' };
@@ -65,7 +73,7 @@ const damaged = (amount: number, targetId = NPC_ID): CampaignEvent => ({
 test('a sparse or full npc sheet yields the defense and hit points the pack names', () => {
   for (const sheet of [sparse(STATS), full(STATS)])
     assert.deepEqual(combatantOf(npc(sheet), [], RULES), {
-      npcId: NPC_ID,
+      id: NPC_ID,
       name: 'Warden Oslo',
       defense: DEFENSE,
       current: VIGOR,
@@ -75,7 +83,7 @@ test('a sparse or full npc sheet yields the defense and hit points the pack name
 
 test('damage events lower current hit points of that npc only and never below zero', () => {
   const events = [damaged(DAMAGE), damaged(DAMAGE, 'someone-else')];
-  assert.equal(damageTakenOf(events, NPC_ID), DAMAGE);
+  assert.equal(damageTakenOf(events, NPC_ID, VIGOR), DAMAGE);
   assert.equal(combatantOf(npc(sparse(STATS)), events, RULES)?.current, VIGOR - DAMAGE);
   assert.equal(combatantOf(npc(sparse(STATS)), [damaged(VIGOR), damaged(DAMAGE)], RULES)?.current, 0);
 });
@@ -113,4 +121,36 @@ test('an npc the player cannot see is never a target, even when it is the only m
   assert.equal(targetNpcOf([hidden], 'Warden Oslo'), undefined);
   const seen = npc(sparse(STATS), { id: 'npc-seen', visibility: 'player' });
   assert.equal(targetNpcOf([hidden, seen], 'Warden Oslo')?.id, 'npc-seen');
+});
+
+const healed = (amount: number, targetId = NPC_ID): CampaignEvent => ({
+  ...damaged(amount, targetId),
+  id: `heal-${amount}-${targetId}`,
+  type: HEALING_APPLIED,
+  payload: { targetId, amount },
+});
+
+test('healing restores hit points of that npc only, in event order, never past the maximum', () => {
+  const sheet = npc(sparse(STATS));
+  assert.equal(combatantOf(sheet, [damaged(DAMAGE), healed(1)], RULES)?.current, VIGOR - DAMAGE + 1);
+  assert.equal(combatantOf(sheet, [damaged(DAMAGE), healed(1, 'someone-else')], RULES)?.current, VIGOR - DAMAGE);
+  assert.equal(combatantOf(sheet, [damaged(DAMAGE), healed(VIGOR)], RULES)?.current, VIGOR);
+  assert.equal(combatantOf(sheet, [healed(DAMAGE), damaged(DAMAGE)], RULES)?.current, VIGOR - DAMAGE);
+  assert.equal(combatantOf(sheet, [damaged(VIGOR + DAMAGE), healed(DAMAGE)], RULES)?.current, DAMAGE);
+});
+
+test('a profile yields a combatant under the given id, or none without whole-number defense and hit points', () => {
+  const profile = (traits: readonly { id: string; value: unknown }[]) => full(traits).profile;
+  const parsed = parseCharacterProfile(profile(STATS));
+  assert.ok(parsed.ok);
+  assert.deepEqual(combatantFromProfile(parsed.profile, 'hero', [damaged(DAMAGE, 'hero')], RULES), {
+    id: 'hero',
+    name: 'Warden Oslo',
+    defense: DEFENSE,
+    current: VIGOR - DAMAGE,
+    max: VIGOR,
+  });
+  const bare = parseCharacterProfile(profile([]));
+  assert.ok(bare.ok);
+  assert.equal(combatantFromProfile(bare.profile, 'hero', [], RULES), undefined);
 });

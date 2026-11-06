@@ -1,4 +1,4 @@
-import { type CampaignEvent, DAMAGE_APPLIED } from '../../domain/src/campaign.ts';
+import { type CampaignEvent, DAMAGE_APPLIED, HEALING_APPLIED } from '../../domain/src/campaign.ts';
 import { type CharacterProfile, parseCharacterProfile, type RulePackLink } from '../../domain/src/character.ts';
 import type { CampaignEntity, EntityId } from '../../domain/src/entity.ts';
 import { PLAYER_VIEWER, visibleTo } from '../../memory/src/knowledge.ts';
@@ -12,7 +12,7 @@ export type CombatRules = {
   readonly hitPoints: string;
 };
 export type Combatant = {
-  readonly npcId: EntityId;
+  readonly id: EntityId;
   readonly name: string;
   readonly defense: number;
   readonly current: number;
@@ -22,6 +22,7 @@ export type DamageDealt = { readonly targetId: EntityId; readonly amount: number
 
 const NPC_KIND = 'npc';
 const NO_DAMAGE = 0;
+const UNBOUNDED = Number.POSITIVE_INFINITY;
 const SINGLE = 1;
 const FULL_DETAIL = 'full';
 const SPARSE_DETAIL = 'sparse';
@@ -55,10 +56,13 @@ const wholeTrait = ({ traits }: CharacterProfile, id: string): number | undefine
   return typeof value === 'number' && Number.isInteger(value) ? value : undefined;
 };
 
-export const damageTakenOf = (events: readonly CampaignEvent[], npcId: EntityId): number =>
-  events
-    .filter(({ type, payload }) => type === DAMAGE_APPLIED && payload.targetId === npcId)
-    .reduce((sum, { payload }) => sum + Number(payload.amount), NO_DAMAGE);
+export const damageTakenOf = (events: readonly CampaignEvent[], id: EntityId, max = UNBOUNDED): number =>
+  events.reduce((taken, { type, payload }) => {
+    if (payload.targetId !== id) return taken;
+    if (type === DAMAGE_APPLIED) return Math.min(max, taken + Number(payload.amount));
+    if (type === HEALING_APPLIED) return Math.max(NO_DAMAGE, taken - Number(payload.amount));
+    return taken;
+  }, NO_DAMAGE);
 
 export const targetNpcOf = (entities: readonly CampaignEntity[], target: string): CampaignEntity | undefined => {
   const npcs = visibleTo(entities, PLAYER_VIEWER).filter(({ kind }) => kind === NPC_KIND);
@@ -67,16 +71,31 @@ export const targetNpcOf = (entities: readonly CampaignEntity[], target: string)
   return matches.length === SINGLE ? matches[0] : undefined;
 };
 
-export const combatantOf = (
-  entity: CampaignEntity,
+export const combatantFromProfile = (
+  profile: CharacterProfile,
+  id: EntityId,
   events: readonly CampaignEvent[],
   { pack, defense, hitPoints }: CombatRules,
 ): Combatant | undefined => {
-  const profile = profileOf(entity);
-  if (profile === undefined || !sameRulepack(profile.rulepack, pack)) return undefined;
+  if (!sameRulepack(profile.rulepack, pack)) return undefined;
   const armor = wholeTrait(profile, defense);
   const max = wholeTrait(profile, hitPoints);
   if (armor === undefined || max === undefined || max < NO_DAMAGE) return undefined;
-  const current = Math.max(NO_DAMAGE, max - damageTakenOf(events, entity.id));
-  return { npcId: entity.id, name: entity.name, defense: armor, current, max };
+  const current = Math.max(NO_DAMAGE, max - damageTakenOf(events, id, max));
+  return { id, name: profile.identity.name, defense: armor, current, max };
+};
+
+export const npcProfileOf = (entity: CampaignEntity, { pack }: CombatRules): CharacterProfile | undefined => {
+  const profile = profileOf(entity);
+  return profile !== undefined && sameRulepack(profile.rulepack, pack) ? profile : undefined;
+};
+
+export const combatantOf = (
+  entity: CampaignEntity,
+  events: readonly CampaignEvent[],
+  rules: CombatRules,
+): Combatant | undefined => {
+  const profile = profileOf(entity);
+  const combatant = profile === undefined ? undefined : combatantFromProfile(profile, entity.id, events, rules);
+  return combatant === undefined ? undefined : { ...combatant, name: entity.name };
 };
