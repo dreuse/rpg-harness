@@ -58,7 +58,7 @@ import { estimateTokens } from '../../../packages/memory/src/retrieval.ts';
 import { createEntityStore, createFactStore } from '../../../packages/persistence/src/entity-store.ts';
 import { touchesOf, walkGraph } from '../../../packages/persistence/src/graph.ts';
 import { isRecord } from '../../../packages/rules/src/rulepack.ts';
-import { scopedEventsOf, scopeLookupOf, worldOf } from './client-session.ts';
+import { foldEventsOf, scopedEventsOf, scopeLookupOf, worldOf } from './client-session.ts';
 import {
   checkRulesPrompt,
   continuityRetryPrompt,
@@ -317,7 +317,8 @@ export const contextPacketOf = (
   const world = worldOf(database)(campaignId, state.characters[0]?.id);
   const known = scopeLookupOf(database, campaignId)(state.events.map(({ id }) => id));
   const eventScopes = [...known].map(([id, scope]) => ({ id, ...scope }));
-  const { inventory, quests } = panelsOf({ state, eventScopes, ...world }, viewer);
+  const foldEvents = foldEventsOf(scopedEventsOf(database), campaignId, state);
+  const { inventory, quests } = panelsOf({ state, eventScopes, foldEvents, ...world }, viewer);
   const budget = budgetOf(preset, ratio);
   const untraited = entities
     .filter(

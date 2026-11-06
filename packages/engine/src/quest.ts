@@ -1,4 +1,4 @@
-import type { CampaignEvent, CampaignStore, CommittedTurn } from '../../domain/src/campaign.ts';
+import type { CampaignId, CampaignStore, CommittedTurn } from '../../domain/src/campaign.ts';
 import {
   QUEST_ACTIVATED,
   QUEST_COMPLETED,
@@ -13,7 +13,6 @@ import {
   type QuestStatus,
   TERMINAL_QUEST_STATUSES,
   type TerminalQuestStatus,
-  visibleFoldsOf,
 } from '../../timelines/src/live-folds.ts';
 import { commitSystem, loadState, type PlayerAction, recorded, replayOf, requireValid, validate } from './turn.ts';
 
@@ -42,39 +41,42 @@ const isFilled = (value: unknown): value is string => typeof value === 'string' 
 
 const questMapOf = (quests: readonly Quest[]): Quests => new Map(quests.map((quest) => [quest.id, quest]));
 
-export const questLog = (events: readonly CampaignEvent[]): readonly Quest[] => visibleFoldsOf(events).quests;
+type EventSeen = (type: string, eventId: string | undefined) => boolean;
 
-const isMet = (events: readonly CampaignEvent[], quests: Quests, prerequisite: QuestPrerequisite) =>
+const seenIn =
+  (store: CampaignStore, campaignId: CampaignId): EventSeen =>
+  (type, eventId) =>
+    store.hasEvent(campaignId, type, eventId);
+
+const isMet = (seen: EventSeen, quests: Quests, prerequisite: QuestPrerequisite) =>
   prerequisite.kind === EVENT
-    ? events.some(
-        ({ id, type }) =>
-          type === prerequisite.eventType && (prerequisite.eventId === undefined || id === prerequisite.eventId),
-      )
+    ? seen(prerequisite.eventType, prerequisite.eventId)
     : quests.get(prerequisite.questId)?.status === prerequisite.status;
 
-const unmetOf = (events: readonly CampaignEvent[], quests: Quests, quest: Quest) =>
-  quest.prerequisites.filter((prerequisite) => !isMet(events, quests, prerequisite));
+const unmetOf = (seen: EventSeen, quests: Quests, quest: Quest) =>
+  quest.prerequisites.filter((prerequisite) => !isMet(seen, quests, prerequisite));
 
 export const unmetPrerequisites = (
-  events: readonly CampaignEvent[],
+  store: CampaignStore,
+  campaignId: CampaignId,
   questId: QuestId,
 ): readonly QuestPrerequisite[] => {
-  const quests = questMapOf(questLog(events));
+  const quests = questMapOf(loadState(store, campaignId).folds.gm.quests);
   const quest = quests.get(questId);
-  return quest === undefined ? [] : unmetOf(events, quests, quest);
+  return quest === undefined ? [] : unmetOf(seenIn(store, campaignId), quests, quest);
 };
 
 const run = (
   store: CampaignStore,
   action: PlayerAction,
   [type, fields]: readonly [string, Readonly<Record<string, unknown>>],
-  steps: (events: readonly CampaignEvent[], quests: Quests) => readonly (readonly [string, Record<string, unknown>])[],
+  steps: (quests: Quests, seen: EventSeen) => readonly (readonly [string, Record<string, unknown>])[],
 ): CommittedTurn => {
   const state = loadState(store, action.campaignId);
   const stored = replayOf(store, state, action, recorded(type, fields));
   if (stored !== undefined) return stored;
   validate(state, action);
-  return commitSystem(store, action, steps(state.events, questMapOf(state.folds.gm.quests)));
+  return commitSystem(store, action, steps(questMapOf(state.folds.gm.quests), seenIn(store, action.campaignId)));
 };
 
 const questIn = (quests: Quests, { actionId, questId }: QuestTarget, status: QuestStatus): Quest => {
@@ -104,7 +106,7 @@ const toPrerequisite = (
 };
 
 export const defineQuest = (store: CampaignStore, definition: PlayerAction & QuestDefinition): CommittedTurn =>
-  run(store, definition, [QUEST_DEFINED, { questId: definition.questId, title: definition.title }], (_, quests) => {
+  run(store, definition, [QUEST_DEFINED, { questId: definition.questId, title: definition.title }], (quests) => {
     const { actionId, questId, title } = definition;
     requireValid(actionId, isFilled(questId), 'quest id is blank');
     requireValid(actionId, !quests.has(questId), `quest ${questId} is already defined`);
@@ -119,9 +121,9 @@ export const defineQuest = (store: CampaignStore, definition: PlayerAction & Que
   });
 
 export const activateQuest = (store: CampaignStore, target: QuestTarget): CommittedTurn =>
-  run(store, target, [QUEST_ACTIVATED, { questId: target.questId }], (events, quests) => {
+  run(store, target, [QUEST_ACTIVATED, { questId: target.questId }], (quests, seen) => {
     const quest = questIn(quests, target, PENDING);
-    const unmet = unmetOf(events, quests, quest);
+    const unmet = unmetOf(seen, quests, quest);
     requireValid(
       target.actionId,
       unmet.length === 0,
@@ -135,7 +137,7 @@ export const completeObjective = (store: CampaignStore, completion: ObjectiveCom
     store,
     completion,
     [QUEST_OBJECTIVE_COMPLETED, { questId: completion.questId, objectiveId: completion.objectiveId }],
-    (_, quests) => {
+    (quests) => {
       const { actionId, objectiveId } = completion;
       const quest = questIn(quests, completion, ACTIVE);
       const objective = quest.objectives.find(({ id }) => id === objectiveId);
@@ -146,25 +148,20 @@ export const completeObjective = (store: CampaignStore, completion: ObjectiveCom
   );
 
 export const completeQuest = (store: CampaignStore, completion: QuestCompletion): CommittedTurn =>
-  run(
-    store,
-    completion,
-    [QUEST_COMPLETED, { questId: completion.questId, outcome: completion.outcome }],
-    (_, quests) => {
-      const { actionId, outcome } = completion;
-      const quest = questIn(quests, completion, ACTIVE);
-      requireValid(
-        actionId,
-        quest.objectives.every(({ done }) => done),
-        `quest ${quest.id} has open objectives`,
-      );
-      requireValid(actionId, isFilled(outcome), 'outcome is blank');
-      return [[QUEST_COMPLETED, { questId: quest.id, outcome }]];
-    },
-  );
+  run(store, completion, [QUEST_COMPLETED, { questId: completion.questId, outcome: completion.outcome }], (quests) => {
+    const { actionId, outcome } = completion;
+    const quest = questIn(quests, completion, ACTIVE);
+    requireValid(
+      actionId,
+      quest.objectives.every(({ done }) => done),
+      `quest ${quest.id} has open objectives`,
+    );
+    requireValid(actionId, isFilled(outcome), 'outcome is blank');
+    return [[QUEST_COMPLETED, { questId: quest.id, outcome }]];
+  });
 
 export const failQuest = (store: CampaignStore, failure: QuestFailure): CommittedTurn =>
-  run(store, failure, [QUEST_FAILED, { questId: failure.questId, reason: failure.reason }], (_, quests) => {
+  run(store, failure, [QUEST_FAILED, { questId: failure.questId, reason: failure.reason }], (quests) => {
     const { actionId, reason } = failure;
     const quest = questIn(quests, failure, ACTIVE);
     requireValid(actionId, isFilled(reason), 'reason is blank');

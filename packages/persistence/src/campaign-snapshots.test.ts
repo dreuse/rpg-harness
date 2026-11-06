@@ -280,3 +280,20 @@ test('P57: projected folds equal a full fold over the stored events, also after 
   }
   assert.equal(resumed?.folds.world.clocks[0]?.current, 1);
 });
+
+test('rpg-42a.118: a snapshot from the previous projection version is skipped and its fold events do not come back', () => {
+  const { database, store } = setup();
+  for (let index = 1; index <= SNAPSHOT_EVERY; index++) play(store, index);
+  const expected = store.load(CAMPAIGN.id);
+  const stored = JSON.parse(String(database.prepare('SELECT state FROM campaign_snapshot LIMIT 1').get()?.state));
+  const unpruned = { ...stored, events: [...stored.events, { ...stored.events[0], type: 'QuestDefined' }] };
+  database
+    .prepare('UPDATE campaign_snapshot SET state = ?, version = ?')
+    .run(JSON.stringify(unpruned), LIVE_PROJECTION_VERSION - 1);
+  const reopened = createCampaignStore(database).load(CAMPAIGN.id);
+  assert.deepEqual(reopened, expected);
+  assert.equal(
+    reopened?.events.some(({ type }) => type === 'QuestDefined'),
+    false,
+  );
+});

@@ -7,10 +7,10 @@ import {
 } from '../../domain/src/campaign.ts';
 import type { Visibility } from '../../domain/src/entity.ts';
 import { EMPTY_GM_USAGE_LEDGER, GM_USAGE_RECORDED, type GmUsageLedger, recordInLedger } from '../../domain/src/gm.ts';
-import { EMPTY_LIVE_FOLDS, foldLive, type LiveFolds } from './live-folds.ts';
+import { EMPTY_LIVE_FOLDS, FOLD_EVENT_TYPES, foldLive, type LiveFolds } from './live-folds.ts';
 import type { Projection } from './replay.ts';
 
-export const LIVE_PROJECTION_VERSION = 2;
+export const LIVE_PROJECTION_VERSION = 3;
 export const RECENT_TURN_WINDOW = 200;
 export const SNAPSHOT_EVERY_EVENTS = 1000;
 const PRUNE_EVERY_EVENTS = 1000;
@@ -61,12 +61,14 @@ export const createLiveAccumulator = (from: LiveState) => {
       count += 1;
       if (event.turnId !== null) {
         const turnEvent = toTurnEvent({ ...event, turnId: event.turnId });
-        events.push(turnEvent);
-        folds = foldLive(folds, turnEvent, visibility, event.actorId);
-        sincePrune += 1;
-        if (sincePrune >= PRUNE_EVERY_EVENTS) {
-          events = [...pruned(events)];
-          sincePrune = 0;
+        if (FOLD_EVENT_TYPES.has(event.type)) folds = foldLive(folds, turnEvent, visibility, event.actorId);
+        else {
+          events.push(turnEvent);
+          sincePrune += 1;
+          if (sincePrune >= PRUNE_EVERY_EVENTS) {
+            events = [...pruned(events)];
+            sincePrune = 0;
+          }
         }
       } else if (event.type === GM_USAGE_RECORDED) gmUsage = recordInLedger(gmUsage, event.payload);
       else changes = { ...changes, [event.type]: { type: event.type, payload: event.payload } };

@@ -554,3 +554,22 @@ test('rpg-cm63.41 a scene stored before the tags existed loads without them', as
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+const PRUNED_EVENT = { ...REWARD_EVENT, id: 'event-quest', type: 'QuestCompleted', payload: { questId: 'q' } };
+
+test('rpg-42a.118 hasEvent finds stored turn events of a type, also ones the live window prunes', () => {
+  const { connection, store } = openStore(IN_MEMORY);
+  create(store, CAMPAIGN);
+  store.commitTurn({ ...COMMIT, events: [ACTION_EVENT, PRUNED_EVENT] });
+  assert.equal(
+    store.load(CAMPAIGN.id)?.events.some(({ type }) => type === PRUNED_EVENT.type),
+    false,
+  );
+  assert.equal(store.hasEvent(CAMPAIGN.id, PRUNED_EVENT.type), true);
+  assert.equal(store.hasEvent(CAMPAIGN.id, PRUNED_EVENT.type, PRUNED_EVENT.id), true);
+  assert.equal(store.hasEvent(CAMPAIGN.id, PRUNED_EVENT.type, MISSING_ID), false);
+  assert.equal(store.hasEvent(CAMPAIGN.id, MISSING_ID), false);
+  assert.equal(store.hasEvent(OTHER_CAMPAIGN.id, PRUNED_EVENT.type), false);
+  assert.equal(store.hasEvent(CAMPAIGN.id, 'CampaignCreated'), false);
+  connection.close();
+});

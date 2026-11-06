@@ -60,7 +60,6 @@ const SETUP_TURN: Turn = {
   narration: 'A lantern sways at the end of the pier.',
 };
 const OUTCOME = 'The ferryman yields the oar.';
-const ACTION_RESOLVED = 'EncounterActionResolved';
 const SECRET_IDS = MYSTERY_PACK.investigation.secrets.map(({ id }) => id);
 const FIRST_CLUE = 'wound-clock';
 const ACCUSATION_CLUES = ['mud', 'will'];
@@ -256,8 +255,9 @@ test('idempotent mechanics: replaying an action or encounter move commits its ef
 
   const state = store.load(CAMPAIGN.id);
   assert.equal(state?.revision, revision + 1);
-  assert.equal(state?.events.filter(({ type }) => type === ACTION_RESOLVED).length, 1);
-  assert.equal(currentEncounter(state?.events ?? [])?.actorId, FERRYMAN.id);
+  const encounter = state === undefined ? undefined : currentEncounter(state);
+  assert.equal(encounter?.actions.length, 1);
+  assert.equal(encounter?.actorId, FERRYMAN.id);
 
   const talk = performAction(store, action('talk', revision + 1, FERRYMAN.id));
   assert.deepEqual(performAction(store, action('talk', revision + 1, FERRYMAN.id)), talk);

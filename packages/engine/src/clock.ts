@@ -1,5 +1,5 @@
 import { isDeepStrictEqual } from 'node:util';
-import type { CampaignEvent, CampaignStore, CommittedTurn } from '../../domain/src/campaign.ts';
+import type { CampaignState, CampaignStore, CommittedTurn } from '../../domain/src/campaign.ts';
 import {
   CLOCK_DEFINED,
   CLOCK_TICKED,
@@ -14,7 +14,6 @@ import {
   type EffectPayload,
   TIME_ADVANCED,
   type WorldTime,
-  worldOf,
 } from '../../timelines/src/live-folds.ts';
 import { commitSystem, loadState, type PlayerAction, requireValid, storedTurnOf, validate } from './turn.ts';
 
@@ -47,7 +46,7 @@ const stateOf = ({ now, clocks, effects }: WorldTime): State => ({
   effects: new Map(effects.map((effect) => [effect.effectId, effect])),
 });
 
-export const worldTime = (events: readonly CampaignEvent[]): WorldTime => worldOf(events);
+export const worldTime = (state: CampaignState): WorldTime => state.folds.world;
 
 const isComplete = ({ current, segments }: Clock) => current >= segments;
 

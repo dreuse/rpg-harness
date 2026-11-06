@@ -813,39 +813,52 @@ test('rpg-42a.117 the sheetless identity fields are labelled in the campaign lan
     assert.deepEqual(labels(), ['Name', 'Description']);
   }));
 
-test('panels read the projected quest log and fold the visible events once a turn is retconned', () => {
-  const quest = (id: string, turnId: string) => ({
+test('panels read the projected quest log and refold the supplied fold events once a turn is retconned', () => {
+  const quest = (id: string, turnId: string, visibility: Visibility = PUBLIC) => ({
     id: `event-${id}`,
     campaignId: CAMPAIGN,
     turnId,
     causationId: null,
     type: 'QuestDefined',
     payload: { questId: id, title: id, objectives: [], prerequisites: [] },
+    visibility,
+    actorId: null,
   });
-  const events = [quest('kept', 'turn-1'), quest('undone', 'turn-2')];
-  const folds = events.reduce((all, event) => foldLive(all, event, PUBLIC, null), EMPTY_LIVE_FOLDS);
+  const events = [quest('kept', 'turn-1'), quest('hidden', 'turn-1', 'gm'), quest('undone', 'turn-2')];
+  const folds = events.reduce(
+    (all, { visibility, actorId, ...event }) => foldLive(all, event, visibility, actorId),
+    EMPTY_LIVE_FOLDS,
+  );
   const state = {
     campaign: { id: CAMPAIGN, name: CAMPAIGN },
     revision: 2,
     characters: [],
     currentScene: undefined,
     turns: [],
-    events,
+    events: [],
     changes: [] as { type: string; payload: Record<string, unknown> }[],
     gmUsage: EMPTY_GM_USAGE_LEDGER,
     folds,
   };
-  const eventScopes = events.map(({ id }) => ({ id, visibility: PUBLIC, actorId: null }));
-  const titles = (source: typeof state) =>
-    panelsOf({ state: source, entities: [], relationships: [], eventScopes }, { scope: 'player' }).quests.map(
-      ({ title }) => title,
-    );
-  assert.deepEqual(titles(state), ['kept', 'undone']);
-  assert.deepEqual(titles({ ...state, events: [] }), ['kept', 'undone']);
+  const titles = (source: typeof state, foldEvents: typeof events | undefined, scope: 'player' | 'gm') =>
+    panelsOf(
+      {
+        state: source,
+        entities: [],
+        relationships: [],
+        eventScopes: [],
+        ...(foldEvents === undefined ? {} : { foldEvents }),
+      },
+      { scope },
+    ).quests.map(({ title }) => title);
+  assert.deepEqual(titles(state, undefined, 'player'), ['kept', 'undone']);
+  assert.deepEqual(titles(state, undefined, 'gm'), ['kept', 'hidden', 'undone']);
   const retconned = {
     ...state,
-    events: events.slice(0, 1),
     changes: [{ type: OOC_STATE_SAVED, payload: { state: { retconned: ['turn-2'] } } }],
   };
-  assert.deepEqual(titles(retconned), ['kept']);
+  const surviving = events.slice(0, 2);
+  assert.deepEqual(titles(retconned, surviving, 'player'), ['kept']);
+  assert.deepEqual(titles(retconned, surviving, 'gm'), ['kept', 'hidden']);
+  assert.deepEqual(titles(retconned, undefined, 'gm'), []);
 });

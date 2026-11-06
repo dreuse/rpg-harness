@@ -118,14 +118,8 @@ export const loadState = (store: CampaignStore, campaignId: CampaignId) => {
   return state;
 };
 
-export const storedTurn = (state: CampaignState, actionId: string): CommittedTurn | undefined => {
-  const turn = state.turns.find((candidate) => candidate.actionId === actionId);
-  if (turn === undefined) return undefined;
-  return { turn, events: state.events.filter((event) => event.turnId === turn.id) };
-};
-
 export const storedTurnOf = (store: CampaignStore, state: CampaignState, actionId: string): CommittedTurn | undefined =>
-  storedTurn(state, actionId) ?? store.findTurn(state.campaign.id, actionId);
+  store.findTurn(state.campaign.id, actionId);
 
 export const requireValid = (actionId: string, valid: boolean, reason: string) => {
   if (!valid) throw new InvalidActionError(actionId, reason);

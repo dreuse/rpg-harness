@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { mock, test } from 'node:test';
-import { type CampaignEvent, type CampaignStore, SYSTEM_TURN } from '../../domain/src/campaign.ts';
+import { type CampaignEvent, type CampaignState, type CampaignStore, SYSTEM_TURN } from '../../domain/src/campaign.ts';
 import { createCampaignStore } from '../../persistence/src/campaign-store.ts';
 import { openDatabase } from '../../persistence/src/database.ts';
 import { advanceGameTime, defineClock, GAME_TIME_TRIGGERS, scheduleEffect, worldTime } from './clock.ts';
@@ -67,6 +67,8 @@ const actionFor = (store: CampaignStore, actionId: string): PlayerAction => ({
   intent: `Mara does ${actionId}.`,
 });
 
+const stateOf = (store: CampaignStore) => store.load(CAMPAIGN.id) as CampaignState;
+
 const fired = (turnEvents: readonly CampaignEvent[]) =>
   turnEvents.filter(({ type }) => type === 'DelayedEffectFired').map(({ payload }) => payload);
 
@@ -78,10 +80,10 @@ test('advance event clocks and delayed effects only on approved game-time trigge
     defineClock(store, { ...actionFor(store, 'define-alarm'), ...ALARM });
     scheduleEffect(store, { ...actionFor(store, 'schedule-tide'), ...TIDE });
     scheduleEffect(store, { ...actionFor(store, 'schedule-guards'), ...GUARDS });
-    assert.deepEqual(worldTime(events(store)).clocks, [{ ...ALARM, current: 0 }]);
+    assert.deepEqual(worldTime(stateOf(store)).clocks, [{ ...ALARM, current: 0 }]);
 
     performAction(store, actionFor(store, 'wander'));
-    assert.equal(worldTime(events(store)).now, 0);
+    assert.equal(worldTime(stateOf(store)).now, 0);
 
     const rest = advanceGameTime(store, {
       ...actionFor(store, 'rest'),
@@ -99,7 +101,7 @@ test('advance event clocks and delayed effects only on approved game-time trigge
       trigger: { kind: 'clock-tick', clockId: ALARM.clockId, segments: 2, reason: 'A crate falls.' },
     });
     assert.deepEqual(fired(tick.events), []);
-    assert.equal(worldTime(events(store)).clocks[0]?.current, 2);
+    assert.equal(worldTime(stateOf(store)).clocks[0]?.current, 2);
 
     const wait = advanceGameTime(store, {
       ...actionFor(store, 'wait'),
@@ -117,7 +119,7 @@ test('advance event clocks and delayed effects only on approved game-time trigge
     );
     assert.deepEqual(fired(shout.events), [{ effectId: GUARDS.effectId, effect: GUARDS.effect }]);
 
-    const state = worldTime(events(store));
+    const state = worldTime(stateOf(store));
     assert.equal(state.now, 6);
     assert.deepEqual(state.clocks, [{ ...ALARM, current: ALARM.segments }]);
     assert.deepEqual(
@@ -127,7 +129,7 @@ test('advance event clocks and delayed effects only on approved game-time trigge
         [GUARDS.effectId, true],
       ],
     );
-    assert.deepEqual(worldTime([...events(store)]), state);
+    assert.deepEqual(worldTime(stateOf(store)), state);
 
     const rejected = (actionId: string, run: (action: PlayerAction) => unknown) => {
       const before = revision(store);
@@ -176,7 +178,7 @@ test('closing the app does not unexpectedly advance game time', (t) => {
     ...actionFor(first.store, 'rest'),
     trigger: { kind: 'time-passage', units: 5, reason: 'Mara rests.' },
   });
-  const before = worldTime(events(first.store));
+  const before = worldTime(stateOf(first.store));
   const eventCount = events(first.store).length;
   first.close();
 
@@ -186,11 +188,11 @@ test('closing the app does not unexpectedly advance game time', (t) => {
 
   const reopened = fileStore(path);
   try {
-    assert.deepEqual(worldTime(events(reopened.store)), before);
+    assert.deepEqual(worldTime(stateOf(reopened.store)), before);
     assert.equal(before.now, 5);
     assert.equal(events(reopened.store).length, eventCount);
     performAction(reopened.store, actionFor(reopened.store, 'look'));
-    const after = worldTime(events(reopened.store));
+    const after = worldTime(stateOf(reopened.store));
     assert.equal(after.now, before.now);
     assert.deepEqual(after.clocks, before.clocks);
     assert.equal(after.effects[0]?.fired, false);

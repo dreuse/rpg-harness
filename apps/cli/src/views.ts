@@ -19,7 +19,7 @@ import {
 import type { CampaignEntity, EntityKind, Relationship } from '../../../packages/domain/src/entity.ts';
 import { usesSheet } from '../../../packages/domain/src/rules-usage.ts';
 import { CHARACTER_CREATED, playTurns, profileOf } from '../../../packages/engine/src/character.ts';
-import { currentEncounter, type EncounterAction } from '../../../packages/engine/src/encounter.ts';
+import type { EncounterAction } from '../../../packages/engine/src/encounter.ts';
 import { oocStateOf } from '../../../packages/engine/src/ooc.ts';
 import { campaignConfigOf } from '../../../packages/engine/src/turn.ts';
 import { parseCampaignConfig } from '../../../packages/intent/src/config.ts';
@@ -49,14 +49,18 @@ export const VIEW_NAMES = ['sheet', 'sheet-export', 'inventory', 'journal', 'que
 export type ViewName = (typeof VIEW_NAMES)[number];
 export type ReadView = Exclude<ViewName, 'recap'>;
 
+export type FoldEvent = CampaignEvent & Scoped;
+
 export type ViewSource = {
   readonly state: CampaignState;
   readonly entities: readonly CampaignEntity[];
   readonly relationships: readonly Relationship[];
   readonly eventScopes: readonly (Scoped & { readonly id: EventId })[];
+  readonly foldEvents?: readonly FoldEvent[];
   readonly packs?: Packs;
 };
 
+const NO_FOLD_EVENTS: readonly FoldEvent[] = [];
 const ITEM_KIND: EntityKind = 'item';
 const OWNER_FIELD: FieldVisibility = 'owner';
 const HIDDEN_FIELD: FieldVisibility = 'hidden';
@@ -291,11 +295,11 @@ const visibleEvents = ({ state, eventScopes }: ViewSource, viewer: Viewer) => {
 
 const isRetconned = ({ changes }: CampaignState) => oocStateOf(changes).retconned.length > 0;
 
-export const encounterOf = (state: CampaignState) =>
-  isRetconned(state) ? currentEncounter(state.events) : state.folds.gm.encounter;
+export const encounterOf = (state: CampaignState, foldEvents: readonly FoldEvent[] = NO_FOLD_EVENTS) =>
+  isRetconned(state) ? visibleFoldsOf(foldEvents).encounter : state.folds.gm.encounter;
 
-const foldsFor = (source: ViewSource, viewer: Viewer) =>
-  isRetconned(source.state) ? visibleFoldsOf(visibleEvents(source, viewer)) : audienceOf(source.state.folds, viewer);
+const foldsFor = ({ state, foldEvents = NO_FOLD_EVENTS }: ViewSource, viewer: Viewer) =>
+  isRetconned(state) ? visibleFoldsOf(visibleTo(foldEvents, viewer)) : audienceOf(state.folds, viewer);
 
 const quests = (source: ViewSource, locale: string) => {
   const rows = foldsFor(source, PLAYER_VIEWER).quests.flatMap((quest) => [

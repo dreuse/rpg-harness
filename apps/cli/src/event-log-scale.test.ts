@@ -27,7 +27,7 @@ const HERO_ID = 'scale-hero';
 const HIGH_VOLUME_TYPES = [PLAYER_ACTION_SUBMITTED, ACTION_VALIDATED, CHECK_RESOLVED];
 const EVERY_TURN = 1;
 const SPARSE_RETENTION = 20;
-const RETAINED_TYPE = 'EncounterActionResolved';
+const RETAINED_TYPE = 'OpaqueRetained';
 const QUEST_ID = 'scale-quest';
 const CLOCK_ID = 'scale-clock';
 const CLOCK_SEGMENTS = 1_000_000;
@@ -209,7 +209,12 @@ test('rpg-42a.57: smoke test, a 100k-event log with quest and clock events proje
     const largeMs = perActionMs(largePath);
     assert.ok(largeMs <= Math.max(smallMs * GROWTH_FACTOR, NOISE_FLOOR_MS), `${smallMs}ms grew to ${largeMs}ms`);
     const opened = openSession(largePath);
-    const { folds } = opened.engine.getState(CAMPAIGN_ID);
+    const { folds, events } = opened.engine.getState(CAMPAIGN_ID);
+    const pruned = new Set<string>([...FOLD_SETUP, ...FOLD_EVENTS].map(([type]) => type));
+    assert.equal(
+      events.some(({ type }) => pruned.has(type)),
+      false,
+    );
     assert.equal(folds.gm.quests[0]?.status, 'active');
     assert.equal(folds.world.clocks[0]?.current, 1);
     opened.connection.close();

@@ -68,6 +68,7 @@ export type EventQuery = {
   readonly beforeSeq?: number;
   readonly afterRevision?: number;
   readonly type?: string;
+  readonly types?: readonly string[];
   readonly ids?: readonly string[];
   readonly turnIds?: readonly string[];
   readonly tail?: number;
@@ -78,13 +79,18 @@ const SCOPED_COLUMNS =
 
 type Filter = readonly [name: string, condition: string, value: string | number | undefined];
 
-const filtersOf = ({ afterSeq, beforeSeq, afterRevision, type, ids, turnIds }: EventQuery): Filter[] =>
+const filtersOf = ({ afterSeq, beforeSeq, afterRevision, type, types, ids, turnIds }: EventQuery): Filter[] =>
   (
     [
       ['afterSeq', 'seq > :afterSeq', afterSeq],
       ['beforeSeq', 'seq < :beforeSeq', beforeSeq],
       ['afterRevision', 'revision > :afterRevision', afterRevision],
       ['type', 'type = :type', type],
+      [
+        'types',
+        'type IN (SELECT value FROM json_each(:types))',
+        types === undefined ? undefined : JSON.stringify(types),
+      ],
       ['ids', 'id IN (SELECT value FROM json_each(:ids))', ids === undefined ? undefined : JSON.stringify(ids)],
       [
         'turnIds',
@@ -106,7 +112,7 @@ export const listScopedEvents = (
     ...(onBranch ? { branchId: MAIN_BRANCH } : {}),
     ...Object.fromEntries(filters.map(([name, , value]) => [name, value])),
   };
-  const byRevision = query.type !== undefined || query.afterRevision !== undefined;
+  const byRevision = query.type !== undefined || query.types !== undefined || query.afterRevision !== undefined;
   const campaign = byRevision ? 'campaign_id = :campaignId' : '+campaign_id = :campaignId';
   const branch = onBranch ? ['branch_id = :branchId'] : [];
   const conditions = [campaign, ...branch, ...filters.map(([, condition]) => condition)];

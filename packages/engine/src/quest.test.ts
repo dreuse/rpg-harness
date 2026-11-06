@@ -11,7 +11,6 @@ import {
   defineQuest,
   failQuest,
   type QuestDefinition,
-  questLog,
   unmetPrerequisites,
 } from './quest.ts';
 import { InvalidActionError, type PlayerAction } from './turn.ts';
@@ -81,7 +80,8 @@ const actionFor = (store: CampaignStore, actionId: string): PlayerAction => ({
   intent: `Mara does ${actionId}.`,
 });
 
-const quest = (store: CampaignStore, questId: string) => questLog(events(store)).find((q) => q.id === questId);
+const questLog = (store: CampaignStore) => store.load(CAMPAIGN.id)?.folds.gm.quests ?? [];
+const quest = (store: CampaignStore, questId: string) => questLog(store).find((q) => q.id === questId);
 
 test('track active/completed/failed quests and prerequisites linked to events', () => {
   const { store, close } = openStore();
@@ -96,14 +96,14 @@ test('track active/completed/failed quests and prerequisites linked to events', 
     defineQuest(store, { ...actionFor(store, 'define-crossing'), ...CROSSING });
     defineQuest(store, { ...actionFor(store, 'define-bribe'), ...BRIBE });
     assert.deepEqual(
-      questLog(events(store)).map(({ id, status }) => [id, status]),
+      questLog(store).map(({ id, status }) => [id, status]),
       [
         [FERRY.questId, 'pending'],
         [CROSSING.questId, 'pending'],
         [BRIBE.questId, 'pending'],
       ],
     );
-    assert.deepEqual(unmetPrerequisites(events(store), CROSSING.questId), CROSSING.prerequisites);
+    assert.deepEqual(unmetPrerequisites(store, CAMPAIGN.id, CROSSING.questId), CROSSING.prerequisites);
 
     activateQuest(store, { ...actionFor(store, 'start-bribe'), questId: BRIBE.questId });
     failQuest(store, { ...actionFor(store, 'fail-bribe'), questId: BRIBE.questId, reason: 'The guard refused.' });
@@ -123,11 +123,15 @@ test('track active/completed/failed quests and prerequisites linked to events', 
     );
     completeQuest(store, { ...actionFor(store, 'finish-ferry'), questId: FERRY.questId, outcome: 'Ferry found.' });
     assert.equal(quest(store, FERRY.questId)?.status, 'completed');
-    assert.deepEqual(unmetPrerequisites(events(store), CROSSING.questId), [CROSSING.prerequisites[1]]);
+    assert.deepEqual(unmetPrerequisites(store, CAMPAIGN.id, CROSSING.questId), [CROSSING.prerequisites[1]]);
 
     startEncounter(store, { ...actionFor(store, 'fight'), participants: [MARA.id] });
     const resolved = resolveEncounter(store, { ...actionFor(store, 'win'), outcome: 'Pirates flee.' });
-    assert.deepEqual(unmetPrerequisites(events(store), CROSSING.questId), []);
+    assert.deepEqual(unmetPrerequisites(store, CAMPAIGN.id, CROSSING.questId), []);
+    assert.equal(
+      events(store).some(({ type }) => type === ENCOUNTER_RESOLVED),
+      false,
+    );
     activateQuest(store, { ...actionFor(store, 'start-crossing'), questId: CROSSING.questId });
     assert.equal(quest(store, CROSSING.questId)?.status, 'active');
 
@@ -141,7 +145,7 @@ test('track active/completed/failed quests and prerequisites linked to events', 
       objectives: [],
       prerequisites: [linked, stale],
     });
-    assert.deepEqual(unmetPrerequisites(events(store), 'aftermath'), [stale]);
+    assert.deepEqual(unmetPrerequisites(store, CAMPAIGN.id, 'aftermath'), [stale]);
   } finally {
     close();
   }
@@ -205,7 +209,7 @@ test('quest cannot complete twice or activate unmet prerequisites silently', () 
     rejected('fail-completed', (a) => failQuest(store, { ...a, questId: FERRY.questId, reason: 'Lost.' }));
     rejected('reactivate', (a) => activateQuest(store, { ...a, questId: FERRY.questId }));
     rejected('still-unmet', (a) => activateQuest(store, { ...a, questId: CROSSING.questId }));
-    assert.equal(events(store).filter(({ type }) => type === 'QuestCompleted').length, 1);
+    assert.equal(quest(store, FERRY.questId)?.outcome, 'Done.');
   } finally {
     close();
   }

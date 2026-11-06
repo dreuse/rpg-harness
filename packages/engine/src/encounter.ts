@@ -1,12 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
-import type {
-  CampaignEvent,
-  CampaignState,
-  CampaignStore,
-  CharacterId,
-  CommittedTurn,
-} from '../../domain/src/campaign.ts';
+import type { CampaignState, CampaignStore, CharacterId, CommittedTurn } from '../../domain/src/campaign.ts';
 import type { Rng } from '../../rules/src/dice.ts';
 import { type EffectiveMechanic, parseRuleDsl, type RuleDsl } from '../../rules/src/dsl.ts';
 import { resolveAction } from '../../rules/src/resolve.ts';
@@ -22,7 +16,6 @@ import {
   type EncounterResolution,
   type EncounterRules,
   type EncounterStatus,
-  visibleFoldsOf,
 } from '../../timelines/src/live-folds.ts';
 import { commitSystem, loadState, type PlayerAction, recorded, replayOf, requireValid, validate } from './turn.ts';
 
@@ -47,11 +40,10 @@ const INVALID_ACTION = 'InvalidAction';
 const NO_MODIFIERS: Readonly<Record<string, number>> = {};
 const DETERMINISTIC = 'deterministic';
 
-export const currentEncounter = (events: readonly CampaignEvent[]): Encounter | undefined =>
-  visibleFoldsOf(events).encounter;
+export const currentEncounter = (state: CampaignState): Encounter | undefined => state.folds.gm.encounter;
 
 const activeEncounter = (state: CampaignState, actionId: string): Encounter => {
-  const { encounter } = state.folds.gm;
+  const encounter = currentEncounter(state);
   requireValid(actionId, encounter?.status === ACTIVE, 'no encounter is active');
   return encounter as Encounter;
 };

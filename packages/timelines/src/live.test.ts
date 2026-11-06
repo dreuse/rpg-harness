@@ -11,7 +11,7 @@ import {
 import type { Visibility } from '../../domain/src/entity.ts';
 import { GM_USAGE_RECORDED } from '../../domain/src/gm.ts';
 import { createLiveAccumulator, LIVE_PROJECTION_VERSION, liveProjection, RECENT_TURN_WINDOW } from './live.ts';
-import { audienceOf, EMPTY_LIVE_FOLDS, visibleFoldsOf, worldOf } from './live-folds.ts';
+import { audienceOf, EMPTY_LIVE_FOLDS, FOLD_EVENT_TYPES, visibleFoldsOf, worldOf } from './live-folds.ts';
 
 const CAMPAIGN = 'campaign-1';
 const TURN = 'turn-1';
@@ -198,4 +198,20 @@ test('only turn events feed the folds and a new live projection version skips ol
   accumulator.push(eventOf(FIRST, 'QuestDefined', quest('stray', 'Stray'), null), 'public');
   assert.deepEqual(accumulator.state().folds, EMPTY_LIVE_FOLDS);
   assert.ok(LIVE_PROJECTION_VERSION > 1);
+});
+
+test('quest, encounter and clock events are folded but never kept in the window', () => {
+  const config = eventOf(LAST_REVISION, CAMPAIGN_CONFIGURED, { config: {} });
+  const accumulator = createLiveAccumulator(liveProjection.initial);
+  for (const { event, visibility } of mixedEvents()) accumulator.push(event, visibility);
+  accumulator.push(config);
+  const state = accumulator.state();
+  assert.deepEqual(
+    state.events.map(({ type }) => type),
+    [CAMPAIGN_CONFIGURED],
+  );
+  assert.equal(state.count, MIXED.length + FIRST);
+  assert.equal(state.folds.world.now, 6);
+  assert.ok(MIXED.every(([type]) => FOLD_EVENT_TYPES.has(type)));
+  assert.deepEqual(fold(mixedEvents().map(({ event }) => event)).events, []);
 });

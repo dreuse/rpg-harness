@@ -39,6 +39,7 @@ import {
 } from '../../../packages/rules/src/rulepack.ts';
 import type { TraitSheet } from '../../../packages/rules/src/traits.ts';
 import { createScriptedRng } from '../../../packages/testkit/src/fixtures.ts';
+import { worldOf } from '../../../packages/timelines/src/live-folds.ts';
 
 const TEMP_PREFIX = 'rpg-q04-';
 const DATABASE_FILE = 'campaigns.sqlite';
@@ -287,11 +288,15 @@ const assertCausalIntegrity = ({ turns, events }: CampaignState) => {
   });
 };
 
-const projectionsByTurn = ({ turns, events }: CampaignState) =>
-  turns.map((_, index) => {
-    const included = new Set(turns.slice(0, index + 1).map(({ id }) => id));
-    return worldTime(events.filter(({ turnId }) => included.has(turnId)));
-  });
+const withAllEvents = (store: CampaignStore, state: CampaignState): CampaignState => ({
+  ...state,
+  events: state.turns.flatMap(({ actionId }) => store.findTurn(state.campaign.id, actionId)?.events ?? []),
+});
+
+const projectionsByTurn = (store: CampaignStore, { campaign, turns }: CampaignState) =>
+  turns.map((_, index) =>
+    worldOf(turns.slice(0, index + 1).flatMap(({ actionId }) => store.findTurn(campaign.id, actionId)?.events ?? [])),
+  );
 
 const engineSources = () =>
   readdirSync(ENGINE_SOURCE)
@@ -335,16 +340,17 @@ test('verify fantasy, sci-fi, horror and mystery multi-session campaigns across 
     const resumed = inSession(path, (store) => campaigns.map(({ id }) => loadState(store, id)));
     assert.deepEqual(resumed, live);
 
-    const shapes = resumed.map(({ turns, events }) =>
+    const complete = inSession(path, (store) => resumed.map((state) => withAllEvents(store, state)));
+    const shapes = complete.map(({ turns, events }) =>
       turns.map(({ id }) => events.filter(({ turnId }) => turnId === id).map(({ type }) => type)),
     );
-    resumed.forEach((state, index) => {
+    complete.forEach((state, index) => {
       const { ruleset } = runs[index] as (typeof runs)[number];
       assert.equal(state.revision, live[index]?.revision);
       assert.ok(state.events.every(({ campaignId }) => campaignId === state.campaign.id));
       assert.deepEqual(shapes[index], shapes[0]);
       assertCausalIntegrity(state);
-      assert.deepEqual(worldTime(state.events), {
+      assert.deepEqual(worldTime(state), {
         now: TIME_UNITS,
         clocks: [
           { clockId: THREAT, label: THREAT, segments: THREAT_SEGMENTS, current: 0 },
@@ -390,7 +396,7 @@ test('multiple concurrent world clocks and imported house rules retain causal in
     const overlaid = unwrap(applyHouseRule(base, HOUSE_RULE)).effective;
     const genre = HORROR_PACK.genre as GenrePack;
     const snapshots: ReturnType<typeof worldTime>[] = [];
-    const record = (store: CampaignStore, id: string) => snapshots.push(worldTime(loadState(store, id).events));
+    const record = (store: CampaignStore, id: string) => snapshots.push(worldTime(loadState(store, id)));
     const step = (store: CampaignStore, id: string, run: () => unknown) => {
       run();
       record(store, id);
@@ -460,10 +466,13 @@ test('multiple concurrent world clocks and imported house rules retain causal in
       return replay;
     });
 
-    const state = inSession(path, (store) => loadState(store, campaign.id));
+    const state = inSession(path, (store) => withAllEvents(store, loadState(store, campaign.id)));
     assertCausalIntegrity(state);
-    assert.deepEqual(projectionsByTurn(state), snapshots);
-    assert.deepEqual(worldTime(state.events).clocks, [
+    assert.deepEqual(
+      inSession(path, (store) => projectionsByTurn(store, state)),
+      snapshots,
+    );
+    assert.deepEqual(worldTime(state).clocks, [
       { clockId: THREAT, label: THREAT, segments: THREAT_SEGMENTS, current: THREAT_SEGMENTS },
       { clockId: PROGRESS, label: PROGRESS, segments: PROGRESS_SEGMENTS, current: PROGRESS_SEGMENTS },
     ]);

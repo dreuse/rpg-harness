@@ -89,6 +89,8 @@ const WORLD_FOLD_TYPES: ReadonlySet<string> = new Set([
   EFFECT_FIRED,
 ]);
 
+export const FOLD_EVENT_TYPES: ReadonlySet<string> = new Set([...VISIBLE_FOLD_TYPES, ...WORLD_FOLD_TYPES]);
+
 type Payload = Readonly<Record<string, unknown>>;
 
 export const EMPTY_VISIBLE_FOLDS: VisibleFolds = { quests: [] };

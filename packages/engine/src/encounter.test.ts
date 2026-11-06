@@ -187,7 +187,7 @@ test('persist encounter initiation, transitions, mechanical turns and resolution
     assert.equal(started.turn.kind, SYSTEM_TURN);
     assert.deepEqual(types(started.events), ['PlayerActionSubmitted', 'ActionValidated', 'EncounterStarted']);
     assertCausalChain(started.events);
-    const opened = currentEncounter(loaded(store).events);
+    const opened = currentEncounter(loaded(store));
     assert.deepEqual(
       { ...opened, id: '' },
       {
@@ -221,7 +221,7 @@ test('persist encounter initiation, transitions, mechanical turns and resolution
 
     const state = loaded(store);
     assert.equal(state.revision, SETUP_REVISION + 4);
-    const encounter = currentEncounter(state.events);
+    const encounter = currentEncounter(state);
     assert.equal(encounter?.id, opened?.id);
     assert.equal(encounter?.status, 'resolved');
     assert.equal(encounter?.outcome, OUTCOME);
@@ -280,7 +280,7 @@ test('a failed precondition is committed with its partial rolls and uses up the 
     actInEncounter(store, { ...move('mara-1', MARA.id, SETUP_REVISION + 1, MID_DRAW), ruleId: UNREACHABLE_RULE.id });
     const state = loaded(store);
     assert.equal(state.revision, SETUP_REVISION + 2);
-    const encounter = currentEncounter(state.events);
+    const encounter = currentEncounter(state);
     const [action] = encounter?.actions ?? [];
     assert.equal(action?.resolution.ok, false);
     assert.equal(action?.resolution.ok === false && action.resolution.error.code, 'PreconditionFailed');
@@ -309,7 +309,7 @@ test('resume mid-encounter without rerolling previously committed mechanics', ()
 
     const reader = openStore(path);
     try {
-      const resumed = currentEncounter(loaded(reader.store).events);
+      const resumed = currentEncounter(loaded(reader.store));
       assert.equal(resumed?.status, 'active');
       assert.equal(resumed?.actorId, FERRYMAN.id);
       const [recorded] = resumed?.actions ?? [];
@@ -324,13 +324,13 @@ test('resume mid-encounter without rerolling previously committed mechanics', ()
       assert.deepEqual(start(reader.store).events, opened.events);
 
       actInEncounter(reader.store, move('ferryman-1', FERRYMAN.id, SETUP_REVISION + 2, HIGH_DRAW));
-      const after = currentEncounter(loaded(reader.store).events);
+      const after = currentEncounter(loaded(reader.store));
       assert.equal(after?.round, SECOND_ROUND);
       assert.equal(after?.actorId, MARA.id);
       assert.deepEqual(after?.actions[0], recorded);
 
       actInEncounter(reader.store, move('mara-2', MARA.id, SETUP_REVISION + 3, HIGH_DRAW));
-      const carried = currentEncounter(loaded(reader.store).events);
+      const carried = currentEncounter(loaded(reader.store));
       const [, , second] = carried?.actions ?? [];
       assert.deepEqual(second?.resolution.ok && second.resolution.changes, [
         { id: 'stamina', from: STAMINA_MAX - STRAIN, to: STAMINA_MAX - STRAIN - STRAIN },
@@ -394,7 +394,7 @@ test('an encounter without pinned rules or sheets runs narratively and rejects m
   try {
     setup(store);
     startEncounter(store, { ...base('start', MARA.id, SETUP_REVISION), participants: PARTICIPANTS });
-    const encounter = currentEncounter(loaded(store).events);
+    const encounter = currentEncounter(loaded(store));
     assert.equal(encounter?.rules, undefined);
     assert.deepEqual(encounter?.sheets[MARA.id], { characterId: MARA.id, traits: [] });
     assert.throws(
@@ -402,7 +402,7 @@ test('an encounter without pinned rules or sheets runs narratively and rejects m
       InvalidActionError,
     );
     resolveEncounter(store, { ...base('end', MARA.id, SETUP_REVISION + 1), outcome: OUTCOME });
-    assert.equal(currentEncounter(loaded(store).events)?.status, 'resolved');
+    assert.equal(currentEncounter(loaded(store))?.status, 'resolved');
   } finally {
     close();
   }

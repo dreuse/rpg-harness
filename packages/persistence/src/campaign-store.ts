@@ -50,6 +50,8 @@ const SELECT_RECENT_TURNS = `${TURN_COLUMNS} WHERE campaign_id = ? ORDER BY revi
 const SELECT_TURN_BY_ACTION = `${TURN_COLUMNS} WHERE campaign_id = ? AND action_id = ?`;
 const EVENT_COLUMNS = 'SELECT id, campaign_id, turn_id, causation_id, type, payload FROM event_log';
 const ON_MAIN_BRANCH = `IFNULL(branch_id, '${MAIN_BRANCH}') = '${MAIN_BRANCH}'`;
+const HAS_TURN_EVENT = `SELECT 1 FROM event_log WHERE campaign_id = ? AND type = ? AND turn_id IS NOT NULL AND ${ON_MAIN_BRANCH} LIMIT 1`;
+const HAS_TURN_EVENT_ID = `SELECT 1 FROM event_log WHERE campaign_id = ? AND type = ? AND id = ? AND turn_id IS NOT NULL AND ${ON_MAIN_BRANCH} LIMIT 1`;
 const SELECT_TURN_EVENTS = `${EVENT_COLUMNS} WHERE turn_id = ? AND ${ON_MAIN_BRANCH} ORDER BY seq`;
 
 type Row = Record<string, unknown>;
@@ -304,6 +306,10 @@ export const createCampaignStore = (
         }),
       ),
     findTurn: (campaignId, actionId) => storedTurn(database, { campaignId, actionId }),
+    hasEvent: (campaignId, type, eventId) =>
+      eventId === undefined
+        ? database.prepare(HAS_TURN_EVENT).get(campaignId, type) !== undefined
+        : database.prepare(HAS_TURN_EVENT_ID).get(campaignId, type, eventId) !== undefined,
     load: (id) => {
       const row = database.prepare(SELECT_CAMPAIGN).get(id);
       if (row === undefined) return undefined;

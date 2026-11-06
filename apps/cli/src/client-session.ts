@@ -69,6 +69,7 @@ import { type Scoped, type Viewer, visibleTo } from '../../../packages/memory/sr
 import { createEntityStore } from '../../../packages/persistence/src/entity-store.ts';
 import { type EventQuery, listScopedEvents } from '../../../packages/persistence/src/event-store.ts';
 import { rangeIssue } from '../../../packages/rules/src/character-builder.ts';
+import { FOLD_EVENT_TYPES } from '../../../packages/timelines/src/live-folds.ts';
 import { correctD20Roll, fakeOocReply, houseRuleOf } from './gm-ooc.ts';
 import type { OocReplier } from './gm-ooc-model.ts';
 import type { InstalledRuleset } from './installed-rulesets.ts';
@@ -83,7 +84,7 @@ import {
   visualizationPreferenceOf,
   whoRollsFor,
 } from './roll-visualization.ts';
-import { encounterOf, panelsOf, printable, sheetFields, type ViewSource } from './views.ts';
+import { encounterOf, type FoldEvent, panelsOf, printable, sheetFields, type ViewSource } from './views.ts';
 
 export type ScopedEvent = DomainEvent & Scoped & { readonly seq: number };
 export type EventSource = (campaignId: CampaignId, query?: EventQuery) => readonly ScopedEvent[];
@@ -120,6 +121,20 @@ const ROLL_EVENT_TYPES = [CHECK_RESOLVED, GM_ROLLED, ROLL_CORRECTED];
 
 const retconnedTurnsOf = (changes: CampaignState['changes']): ReadonlySet<string | null> =>
   new Set(oocStateOf(changes).retconned);
+
+const FOLD_EVENT_TYPE_LIST = [...FOLD_EVENT_TYPES];
+
+export const foldEventsOf = (
+  read: EventSource,
+  campaignId: CampaignId,
+  { changes }: Pick<CampaignState, 'changes'>,
+): readonly FoldEvent[] => {
+  const retconned = retconnedTurnsOf(changes);
+  if (retconned.size === 0) return [];
+  return read(campaignId, { types: FOLD_EVENT_TYPE_LIST }).flatMap(({ turnId, ...event }) =>
+    turnId === null || retconned.has(turnId) ? [] : [{ ...event, turnId }],
+  );
+};
 
 export const scopedEventsOf =
   (database: DatabaseSync): EventSource =>
@@ -337,11 +352,10 @@ export const createClientSessions = (
   const replayedRolls = (fromRevision: number) => {
     const state = engine.getState(campaignId);
     const { events } = state;
-    const acted = new Set(encounterOf(state)?.actions.map(({ eventId }) => eventId));
-    const actedEvents = events.filter(({ id }) => acted.has(id));
-    const actedScopes = scopesFor(actedEvents.map(({ id }) => id));
-    const encounter = actedEvents.flatMap(({ id, payload }) =>
-      resultsOf(payload, actedScopes.get(id)?.visibility ?? HIDDEN),
+    const acted = encounterOf(state, foldEventsOf(readEvents, campaignId, state))?.actions ?? [];
+    const actedScopes = scopesFor(acted.map(({ eventId }) => eventId));
+    const encounter = acted.flatMap((action) =>
+      resultsOf(action, actedScopes.get(action.eventId)?.visibility ?? HIDDEN),
     );
     const retconned = retconnedTurnsOf(state.changes);
     const checks = ROLL_EVENT_TYPES.flatMap((type) => readEvents(campaignId, { type, afterRevision: fromRevision }))
@@ -435,6 +449,7 @@ export const createClientSessions = (
     return {
       state,
       eventScopes,
+      foldEvents: foldEventsOf(readEvents, campaignId, state),
       packs: packsWith(() => installedRuleset?.(state.events)),
       ...readWorld(campaignId, state.characters[0]?.id),
     };

@@ -147,6 +147,7 @@ export interface CampaignStore {
   recordUsage(event: CampaignChange): void;
   load(id: CampaignId): CampaignState | undefined;
   findTurn(campaignId: CampaignId, actionId: string): CommittedTurn | undefined;
+  hasEvent(campaignId: CampaignId, type: string, eventId?: EventId): boolean;
 }
 
 export class CampaignNotFoundError extends Error {

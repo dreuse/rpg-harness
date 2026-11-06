@@ -32,6 +32,7 @@ import {
   campaignSummaryOf,
   createClientSessions,
   type EventSource,
+  foldEventsOf,
   type SheetPort,
   scopedEventsOf,
   worldOf,
@@ -1198,4 +1199,33 @@ test('rpg-42a.67: SetCampaignLanguage changes the snapshot language, rejects a b
   assert.equal(bad.ok, false);
   const stale = session.setCampaignLanguage({ ...set, actionId: 'lang-3', expectedRevision: OPENING_REVISION });
   assert.equal(stale.ok ? undefined : stale.error.code, 'StaleRevision');
+});
+
+test('rpg-42a.118 foldEventsOf reads fold events from the store only after a retcon and skips retconned turns', () => {
+  const asked: EventQuery[] = [];
+  const stored = ['turn-1', 'turn-2'].map((turnId, seq) => ({
+    id: `event-${turnId}`,
+    campaignId: 'c',
+    branchId: 'main',
+    turnId,
+    actorId: null,
+    revision: seq,
+    causationId: null,
+    type: 'QuestDefined',
+    payload: {},
+    visibility: 'public' as const,
+    seq,
+  }));
+  const read: EventSource = (_, query) => {
+    asked.push(query ?? {});
+    return stored;
+  };
+  assert.deepEqual(foldEventsOf(read, 'c', { changes: [] }), []);
+  assert.equal(asked.length, 0);
+  const changes = [{ type: 'OocStateSaved', payload: { state: { retconned: ['turn-2'] } } }];
+  assert.deepEqual(
+    foldEventsOf(read, 'c', { changes }).map(({ id }) => id),
+    ['event-turn-1'],
+  );
+  assert.ok(asked[0]?.types?.includes('QuestDefined'));
 });

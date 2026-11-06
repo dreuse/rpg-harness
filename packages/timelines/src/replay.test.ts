@@ -174,7 +174,7 @@ test('T01: replay state matches directly materialized state and recorded roll ou
   );
   assert.deepEqual(replayed.currentScene?.moodTags, ['tense']);
   assert.equal(replayed.currentScene?.locationKind, 'harbour');
-  const materializedRolls = currentEncounter(state.events)?.actions.flatMap(({ resolution }) => resolution.rolls);
+  const materializedRolls = currentEncounter(state)?.actions.flatMap(({ resolution }) => resolution.rolls);
   assert.equal(committedRolls.length, DRAWS.length);
   assert.deepEqual(replayed.rolls, committedRolls);
   assert.deepEqual(replayed.rolls, materializedRolls);

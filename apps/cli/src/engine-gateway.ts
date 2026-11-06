@@ -58,7 +58,6 @@ import {
   loadState,
   openScene,
   performAction,
-  storedTurn,
 } from '../../../packages/engine/src/turn.ts';
 import { voiceSettingsOf } from '../../../packages/engine/src/voice-settings.ts';
 import { type CampaignConfig, parseCampaignConfig } from '../../../packages/intent/src/config.ts';
@@ -80,6 +79,7 @@ import { type Ask, createCharacter } from './character-creation.ts';
 import {
   campaignSummaryOf,
   createClientSessions,
+  foldEventsOf,
   gmSnapshotOf,
   type SheetPort,
   type StoryPort,
@@ -487,10 +487,14 @@ const acceptMarkedCheck = (
   return true;
 };
 
-const oldestPendingTurn = (state: CampaignState, failed: ReadonlySet<string> = NO_FAILED_TURNS) =>
-  playTurns(state)
-    .map(({ actionId }) => storedTurn(state, actionId))
-    .find((turn) => turn?.turn.narration === PENDING_NARRATION && !failed.has(turn.turn.id));
+const oldestPendingTurn = (
+  store: Session['store'],
+  state: CampaignState,
+  failed: ReadonlySet<string> = NO_FAILED_TURNS,
+) => {
+  const pending = playTurns(state).find(({ id, narration }) => narration === PENDING_NARRATION && !failed.has(id));
+  return pending === undefined ? undefined : store.findTurn(state.campaign.id, pending.actionId);
+};
 
 type RoutedModel = {
   readonly calibrates: boolean;
@@ -510,7 +514,7 @@ const narrateLatest = async (
 ): Promise<readonly GmSegment[]> => {
   const { engine, store, campaignId, database, rng } = session;
   const state = engine.getState(campaignId);
-  const committed = oldestPendingTurn(state, failed);
+  const committed = oldestPendingTurn(store, state, failed);
   if (committed === undefined) return NO_SEGMENTS;
   const preset = contextBudgetOf(state.changes);
   const language = campaignLanguageOf(state.changes);
@@ -668,7 +672,7 @@ const narrateLatest = async (
       packet: sent,
       reportedTokens: usage === undefined || !routed.calibrates ? 0 : reportedInputOf(usage),
     });
-  const morePending = oldestPendingTurn(engine.getState(campaignId), failedTurns);
+  const morePending = oldestPendingTurn(store, engine.getState(campaignId), failedTurns);
   if (acceptMarkedCheck(session, committed, proposals, offeredNow, defaults) || morePending !== undefined)
     return narrateLatest(session, request, sessionId, speak, routed, defaults, modelCheck, listener, failedTurns);
   return 'inconsistent' in outcome ? withVoiceNotice(narratorSegments(FAKE_GM_REPLY)) : segments;
@@ -1288,6 +1292,7 @@ const recapText = (name: string, state: CampaignState, locale: string) =>
 
 const viewSourceOf = (database: Session['database'], campaignId: CampaignId, state: CampaignState, packs?: Packs) => ({
   state,
+  foldEvents: foldEventsOf(scopedEventsOf(database), campaignId, state),
   ...(packs === undefined ? {} : { packs }),
   eventScopes: [...scopeLookupOf(database, campaignId)(state.events.map(({ id }) => id))].map(([id, scope]) => ({
     id,
