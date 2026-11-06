@@ -14,6 +14,7 @@ import type { GmSettings } from '../../../packages/domain/src/gm.ts';
 import { toVoiceTraits, VOICE_TRAITS_FIELD } from '../../../packages/domain/src/voice.ts';
 import { playTurns } from '../../../packages/engine/src/character.ts';
 import { campaignLanguageOf } from '../../../packages/engine/src/engine.ts';
+import { gmRejectionsOf } from '../../../packages/engine/src/gm-settings.ts';
 import {
   contextBudgetOf,
   ENTITY_INTRODUCED,
@@ -72,6 +73,7 @@ import {
   OWN_RULES_STRICTNESS_PROMPTS,
   RULES_RETRY_PROMPT,
   RULES_STRICTNESS_PROMPTS,
+  rejectedProposalsPrompt,
   repetitionRetryPrompt,
   SYSTEM_PROMPT,
   voiceTraitsPrompt,
@@ -351,6 +353,7 @@ export const contextPacketOf = (
     .slice(NONE, MAX_TRAIT_REQUESTS)
     .map(({ id }) => id);
   const tableNotes = tableNoteLines(state);
+  const rejections = gmRejectionsOf(state.changes, turns.at(-1)?.id);
   const combat = combatRulesOf(state.events, installed);
   return buildContextPacket(
     {
@@ -370,6 +373,7 @@ export const contextPacketOf = (
           .filter(({ type }) => type === CHECK_SKIPPED)
           .map(({ payload }) => noCheckPrompt(String(payload.reason))),
         ...(untraited.length === NONE ? [] : [voiceTraitsPrompt(untraited)]),
+        ...(rejections.length === NONE ? [] : [rejectedProposalsPrompt(rejections)]),
         ...(retry ? [RULES_RETRY_PROMPT] : []),
         ...(repeated.length === NONE ? [] : [repetitionRetryPrompt(repeated)]),
         ...(contradicted.length === NONE ? [] : [continuityRetryPrompt(contradicted)]),

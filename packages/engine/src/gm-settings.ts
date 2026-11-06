@@ -16,6 +16,7 @@ import { InvalidActionError } from './turn.ts';
 export const GM_SETTINGS_SAVED = 'GmSettingsSaved';
 export const GM_USAGE_RECORDED = 'GmUsageRecorded';
 export const GM_CONTEXT_RECORDED = 'GmContextRecorded';
+export const GM_PROPOSALS_REJECTED = 'GmProposalsRejected';
 export const NON_ENGLISH_RATIO = 1.5;
 export const MIN_RATIO = 1;
 export const MAX_RATIO = 4;
@@ -149,4 +150,20 @@ export const recordContextDiagnostics = (
       recent,
     }),
   );
+};
+
+export const recordGmRejections = (
+  store: CampaignStore,
+  campaignId: string,
+  turnId: string,
+  rejections: readonly string[],
+): void => {
+  if (rejections.length === NONE) return;
+  store.recordUsage(changeOf(campaignId, randomUUID(), GM_PROPOSALS_REJECTED, { turnId, rejections }));
+};
+
+export const gmRejectionsOf = (changes: Events, turnId: string | undefined): readonly string[] => {
+  const payload = changes.find(({ type }) => type === GM_PROPOSALS_REJECTED)?.payload;
+  const rejections = payload?.rejections;
+  return payload?.turnId === turnId && Array.isArray(rejections) ? rejections.map(String) : [];
 };

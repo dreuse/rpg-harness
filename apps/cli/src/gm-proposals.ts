@@ -36,6 +36,7 @@ import {
   MAX_ROLL_SECTION_LENGTH,
   rollForGm,
 } from '../../../packages/engine/src/gm-roll.ts';
+import { recordGmRejections } from '../../../packages/engine/src/gm-settings.ts';
 import { introduceEntity, openPending, setNpcSheet } from '../../../packages/engine/src/memory.ts';
 import { type ClaimDraft, proposeClaims } from '../../../packages/engine/src/story-memory.ts';
 import {
@@ -804,6 +805,7 @@ export const commitProposals = (
 ): readonly CommittedTurn[] => {
   const { campaignId } = committed.turn;
   const results: CommittedTurn[] = [];
+  const rejections: string[] = [];
   for (const proposal of proposals) {
     if (proposal.kind === OUTCOME_PROPOSAL || proposal.kind === GM_ROLL_PROPOSAL) continue;
     const action = actionFor(committed, proposal, loadState(store, campaignId).revision);
@@ -895,8 +897,10 @@ export const commitProposals = (
           }),
         );
     } catch (error) {
-      if (!REFUSALS.some((refusal) => error instanceof refusal)) throw error;
+      if (!(error instanceof Error) || !REFUSALS.some((refusal) => error instanceof refusal)) throw error;
+      rejections.push(`${proposal.kind} ${proposal.id}: ${error.message}`);
     }
   }
+  recordGmRejections(store, campaignId, committed.turn.id, rejections);
   return results;
 };

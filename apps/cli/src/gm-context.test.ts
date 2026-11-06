@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
 import { after, describe, it } from 'node:test';
 import { type CampaignStore, type CommittedTurn, MAIN_BRANCH } from '../../../packages/domain/src/campaign.ts';
-import { saveGmSettings } from '../../../packages/engine/src/gm-settings.ts';
+import { GM_PROPOSALS_REJECTED, saveGmSettings } from '../../../packages/engine/src/gm-settings.ts';
 import { introduceEntity, openPending, recordSummary, saveContextBudget } from '../../../packages/engine/src/memory.ts';
 import { applyOocProposal, undoOocChange, withoutRetconned } from '../../../packages/engine/src/ooc.ts';
 import type { RulesDocument } from '../../../packages/engine/src/own-rules.ts';
 import { proposeClaims } from '../../../packages/engine/src/story-memory.ts';
-import { openScene, type PlayerAction, performAction } from '../../../packages/engine/src/turn.ts';
+import { commitSystem, openScene, type PlayerAction, performAction } from '../../../packages/engine/src/turn.ts';
 import { setVoiceTraits } from '../../../packages/engine/src/voice-profile.ts';
 import { PENDING_HOP_LIMIT } from '../../../packages/memory/src/graph.ts';
 import { summariesOf, summarize } from '../../../packages/memory/src/history.ts';
@@ -44,6 +44,7 @@ import {
   type Summarizer,
   summarizeCampaign,
 } from './gm-context.ts';
+import { commitProposals } from './gm-proposals.ts';
 import { planCampaign } from './quickstart.ts';
 import { checkRulesFor } from './roll-visualization.ts';
 
@@ -726,5 +727,39 @@ it('rpg-42a.73 an imported style with no entries adds no style line', () => {
   const fixture = campaign(CREATED_EVENT.payload, undefined, [document]);
   const packet = packetAt(fixture, play(fixture.store, 'turn-1'));
   assert.deepEqual(packet.sections.find(({ name }) => name === 'style')?.items, []);
+  fixture.connection.close();
+});
+
+const rejectedHarbour = (fixture: ReturnType<typeof campaign>, committed: CommittedTurn) =>
+  commitProposals(fixture.store, fixture.entities, fixture.facts, committed, [
+    { kind: 'entity', id: HARBOUR, entityKind: 'location', name: 'Second Harbour', visibility: 'public' },
+  ] as never);
+
+const rejectionItemOf = (fixture: ReturnType<typeof campaign>, committed: CommittedTurn) =>
+  (instructionsOf(fixture, committed) ?? []).find((item) => item.includes('rejected'));
+
+it('rpg-42a.138 a rejected entity proposal reaches the next gm context with its reason, then expires', () => {
+  const fixture = campaign();
+  const first = play(fixture.store, 'turn-1');
+  const before = fixture.store.load(CAMPAIGN.id);
+  rejectedHarbour(fixture, first);
+  const after = fixture.store.load(CAMPAIGN.id);
+  assert.equal(after?.revision, before?.revision);
+  assert.equal(
+    after?.events.some(({ type }) => type === GM_PROPOSALS_REJECTED),
+    false,
+  );
+  const rejected = rejectionItemOf(fixture, play(fixture.store, 'turn-2'));
+  assert.ok(rejected?.includes(HARBOUR));
+  assert.equal(rejectionItemOf(fixture, play(fixture.store, 'turn-3')), undefined);
+  fixture.connection.close();
+});
+
+it('rpg-42a.138 a system turn between the rejection and the next play turn does not hide it', () => {
+  const fixture = campaign();
+  const first = play(fixture.store, 'turn-1');
+  rejectedHarbour(fixture, first);
+  commitSystem(fixture.store, actionFor(fixture.store, 'system-1', 'sheet edit'), []);
+  assert.ok(rejectionItemOf(fixture, play(fixture.store, 'turn-2'))?.includes(HARBOUR));
   fixture.connection.close();
 });
