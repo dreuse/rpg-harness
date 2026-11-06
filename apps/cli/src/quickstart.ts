@@ -246,10 +246,12 @@ export type Opening = {
   moodTags?: readonly string[];
 };
 
-export const openingFor = ({ genre }: CampaignConfig, fallback: Opening): Opening => {
+export const openingFor = ({ genre }: CampaignConfig, fallback: Opening, locale = DEFAULT_LOCALE): Opening => {
   const pack = GENRE_PACKS.find((candidate) => candidate.genre.id === genre?.id);
   const scene = pack?.story?.openingScenes[0];
-  return pack === undefined || scene === undefined ? fallback : { title: pack.genre.name, narration: `${scene}.` };
+  return pack === undefined || scene === undefined
+    ? fallback
+    : { title: contentText(locale, 'genre', pack.genre.id, pack.genre.name), narration: `${scene}.` };
 };
 
 const styleLine = (source: string, id: string, style: unknown) =>

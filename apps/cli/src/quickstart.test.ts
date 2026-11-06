@@ -14,7 +14,15 @@ import { createCampaignFrom, readCampaignState, summaryOf } from './engine-gatew
 import { hermeticGmEnv } from './gm-test-env.ts';
 import { BUILT_IN_PACKS } from './import-gateway.ts';
 import { installRuleset } from './installed-rulesets.ts';
-import { packsIn, planCampaign, planResult, planStart, startOptions, UnknownEdition } from './quickstart.ts';
+import {
+  openingFor,
+  packsIn,
+  planCampaign,
+  planResult,
+  planStart,
+  startOptions,
+  UnknownEdition,
+} from './quickstart.ts';
 
 const BIN = join(import.meta.dirname, 'bin.ts');
 const EXIT_OK = 0;
@@ -347,3 +355,11 @@ test('rpg-42a.122 a new campaign pins an installed ruleset and a missing one is 
       UnknownEdition,
     );
   }));
+
+test('rpg-42a.72 the opening scene title reads in the campaign language', () => {
+  const config = { genre: { id: FANTASY_PACK.genre.id } } as Parameters<typeof openingFor>[0];
+  const fallback = { title: 'x', narration: 'y' };
+  assert.equal(openingFor(config, fallback, 'pt-BR').title, 'Fantasia');
+  assert.equal(openingFor(config, fallback, 'es').title, 'Fantasía');
+  assert.equal(openingFor(config, fallback).title, FANTASY_PACK.genre.name);
+});

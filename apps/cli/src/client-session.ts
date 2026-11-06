@@ -407,7 +407,11 @@ export const createClientSessions = (
     parseViewDescriptor({
       campaignId,
       viewId: SHEET_VIEW,
-      components: sheetFields(viewSource(), viewer),
+      components: sheetFields(
+        viewSource(),
+        viewer,
+        campaignLanguageOf(engine.getState(campaignId).changes) ?? DEFAULT_LOCALE,
+      ),
     });
 
   const parsedAs = <T extends ClientCommand>(command: unknown, type: T['type']): Result<T> => {

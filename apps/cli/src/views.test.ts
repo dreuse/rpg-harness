@@ -672,6 +672,31 @@ test('rpg-42a.21: sheet components keep groups, edit rights, display names and c
   ]);
 });
 
+test('rpg-42a.72 sheet labels of built-in stats read in the app language, imported labels stay', () => {
+  const view = {
+    rulepack: { ...RULEPACK, id: 'd20-lite', sourceRefs: [] },
+    groups: [
+      {
+        id: 'core' as const,
+        fields: [
+          { id: 'might', label: 'Might', widget: 'number' as const, value: 6, edit: { editable: true } },
+          { id: 'grit', label: 'Grit', widget: 'number' as const, value: 3, edit: { editable: true } },
+        ],
+      },
+    ],
+    computed: [],
+  };
+  const labels = (locale: string) => sheetComponents(view, locale).map(({ label }) => label);
+  assert.deepEqual(labels('es'), ['Fuerza', 'Grit']);
+  assert.deepEqual(labels('pt-BR'), ['Força', 'Grit']);
+  assert.deepEqual(labels('en'), ['Might', 'Grit']);
+  const imported = { ...view, rulepack: { ...RULEPACK, sourceRefs: [] } };
+  assert.deepEqual(
+    sheetComponents(imported, 'pt-BR').map(({ label }) => label),
+    ['Might', 'Grit'],
+  );
+});
+
 test('sheet components pass numeric limits from the field edit', () => {
   const view = {
     rulepack: { ...RULEPACK, sourceRefs: [] },

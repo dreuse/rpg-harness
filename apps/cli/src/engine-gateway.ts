@@ -1041,7 +1041,7 @@ const isPlace = (proposal: GmProposal): proposal is EntityProposal =>
 const starterFor =
   (gm: GameMaster, { name, pitch, config, language, model }: StartRequest): Starter =>
   async (databasePath) => {
-    const opening = openingFor(config, DEFAULT_OPENING);
+    const opening = openingFor(config, DEFAULT_OPENING, language);
     const generic = {
       opening,
       proposals: pitch === undefined ? [] : [openingPlace(opening)],

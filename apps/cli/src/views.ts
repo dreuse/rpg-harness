@@ -1,3 +1,5 @@
+import { contentText } from '../../../packages/client-protocol/src/content-names.ts';
+import { DEFAULT_LOCALE } from '../../../packages/client-protocol/src/locale.ts';
 import type { CampaignPanels, CitationEntry } from '../../../packages/client-protocol/src/protocol.ts';
 import type { SheetSchema, SheetValueType } from '../../../packages/client-protocol/src/sheet-widgets.ts';
 import {
@@ -22,6 +24,7 @@ import { oocStateOf } from '../../../packages/engine/src/ooc.ts';
 import { campaignConfigOf } from '../../../packages/engine/src/turn.ts';
 import { parseCampaignConfig } from '../../../packages/intent/src/config.ts';
 import { PLAYER_VIEWER, type Scoped, type Viewer, visibleTo } from '../../../packages/memory/src/knowledge.ts';
+import { D20_LITE_MANIFEST } from '../../../packages/rules/src/d20-lite.ts';
 import type { RollEvent } from '../../../packages/rules/src/dice.ts';
 import {
   type Visibility as FieldVisibility,
@@ -217,7 +220,8 @@ const explanationOf = ({ expression, bonuses, constraints }: ComputedDescriptor)
     }),
   ].join(EXPLANATION_SEPARATOR);
 
-export const sheetComponents = ({ groups, computed }: SheetView) => {
+export const sheetComponents = ({ rulepack, groups, computed }: SheetView, locale: string = DEFAULT_LOCALE) => {
+  const sheetLocale = rulepack.id === D20_LITE_MANIFEST.id ? locale : DEFAULT_LOCALE;
   const explained = new Map(computed.map((descriptor) => [descriptor.field, explanationOf(descriptor)]));
   return groups.flatMap(({ id: group, fields }) =>
     fields.map(({ id, label, value, edit }) => {
@@ -225,7 +229,7 @@ export const sheetComponents = ({ groups, computed }: SheetView) => {
       return {
         kind: SHEET_COMPONENT,
         id,
-        label: label ?? id,
+        label: label === undefined ? id : contentText(sheetLocale, 'stat', label, label),
         value,
         group,
         editable: edit.editable,
@@ -250,12 +254,12 @@ const identityComponents = (hero: Character, source: ViewSource) => {
   });
 };
 
-export const sheetFields = (source: ViewSource, viewer: Viewer) => {
+export const sheetFields = (source: ViewSource, viewer: Viewer, locale: string = DEFAULT_LOCALE) => {
   const [hero] = source.state.characters;
   const sheetViewer = hero === undefined ? undefined : sheetViewerOf(viewer, hero);
   if (hero !== undefined && sheetViewer !== undefined && sheetless(source)) return identityComponents(hero, source);
   const input = hero === undefined || sheetViewer === undefined ? undefined : sheetInput(source, hero, sheetViewer);
-  return input === undefined ? [] : sheetComponents(buildSheetView(input));
+  return input === undefined ? [] : sheetComponents(buildSheetView(input), locale);
 };
 
 const sheetExport = (hero: Character, source: ViewSource, viewer: SheetViewer) => {

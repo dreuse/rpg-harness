@@ -50,7 +50,53 @@ const PT_BR: Readonly<Record<string, string>> = {
   'stat.Presence': 'Presença',
 };
 
-const TABLES: Readonly<Record<string, Readonly<Record<string, string>>>> = { 'pt-BR': PT_BR };
+const ES: Readonly<Record<string, string>> = {
+  'genre.fantasy': 'Fantasía',
+  'genre.science-fiction': 'Ciencia ficción',
+  'genre.horror': 'Terror creciente',
+  'genre.investigative-mystery': 'Misterio de investigación',
+  'genre.modern-adventure': 'Aventura moderna',
+  'genre.blank-world': 'Mundo en blanco',
+  'genre.blurb.fantasy': 'Las piedras erguidas zumban cuando la luna pasa sobre la sierra, y esta noche está llena.',
+  'genre.blurb.science-fiction': 'El relé responde doce minutos tarde, y el mensaje está en tu propia voz.',
+  'genre.blurb.horror': 'El rasguño se detuvo en el instante en que contuviste la respiración.',
+  'genre.blurb.investigative-mystery': 'El reloj tenía cuerda de sobra, pero nadie admitió haberlo tocado.',
+  'genre.blurb.modern-adventure':
+    'Tu celular vibra dos veces: la dirección de una entrega secreta y un vuelo que sale en cuarenta minutos.',
+  'genre.blurb.blank-world': 'Mundo en blanco',
+  'archetype.Hedge witch': 'Bruja del campo',
+  'archetype.Exiled knight': 'Caballero exiliado',
+  'archetype.River smuggler': 'Contrabandista del río',
+  'archetype.Station engineer': 'Ingeniero de estación',
+  'archetype.Corporate envoy': 'Enviado corporativo',
+  'archetype.Drift salvager': 'Recolector de restos',
+  'archetype.Skeptic': 'Escéptico',
+  'archetype.Survivor': 'Sobreviviente',
+  'archetype.Detective': 'Detective',
+  'archetype.Journalist': 'Periodista',
+  'archetype.Fixer': 'Intermediario',
+  'archetype.Reporter': 'Reportero',
+  'archetype.Pilot': 'Piloto',
+  'archetype.summary.Hedge witch': 'Cambia remedios por secretos a las afueras del pueblo',
+  'archetype.summary.Exiled knight': 'Cumple el juramento hecho a un señor que lo desterró',
+  'archetype.summary.River smuggler': 'Lleva mercancías y personas más allá de los puestos de peaje',
+  'archetype.summary.Station engineer': 'Mantiene el soporte vital funcionando con un presupuesto en quiebra',
+  'archetype.summary.Corporate envoy': 'Negocia por una empresa dueña de la concesión de la colonia',
+  'archetype.summary.Drift salvager': 'Desarma naves abandonadas y vende lo que aún funciona',
+  'archetype.summary.Skeptic': 'Explica lo imposible hasta que ya no hay explicación',
+  'archetype.summary.Survivor': 'Ya vio la cosa antes y aún tiene las cicatrices',
+  'archetype.summary.Detective': 'Lee a las personas y los lugares en busca de lo que no encaja',
+  'archetype.summary.Journalist': 'Sigue la historia adonde lo lleve',
+  'archetype.summary.Fixer': 'Conoce a alguien en cada ciudad y debe favores a la mayoría',
+  'archetype.summary.Reporter': 'Persigue la historia hasta donde la policía se detiene',
+  'archetype.summary.Pilot': 'Lleva a la gente adentro y afuera cuando se cierran los caminos',
+  'stat.Might': 'Fuerza',
+  'stat.Agility': 'Agilidad',
+  'stat.Wits': 'Ingenio',
+  'stat.Presence': 'Presencia',
+};
+
+const TABLES: Readonly<Record<string, Readonly<Record<string, string>>>> = { es: ES, 'pt-BR': PT_BR };
 
 export const contentText = (locale: string, kind: ContentKind, id: string, fallback: string): string => {
   const table = TABLES[matchLocale(locale, Object.keys(TABLES), DEFAULT_LOCALE)];
