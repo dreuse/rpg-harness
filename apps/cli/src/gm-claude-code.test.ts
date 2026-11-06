@@ -660,6 +660,14 @@ describe('rpg-42a.101 Claude Code failures keep their real reason', () => {
     assert.equal(tries, 1);
   });
 
+  it('caps a very long reset time', async (t) => {
+    const { failure } = await failureKind(t, {
+      stdout: resultOf({ is_error: true, result: `limit reached · resets ${'x'.repeat(500)}` }),
+      code: FAILURE_EXIT,
+    });
+    assert.equal(failure?.detail?.length, 80);
+  });
+
   it('reads a usage limit without a reset time', async (t) => {
     const { failure } = await failureKind(t, {
       stdout: resultOf({ is_error: true, result: 'Claude usage limit reached.' }),

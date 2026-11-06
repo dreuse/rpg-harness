@@ -1142,6 +1142,20 @@ const pendingTurnSnapshot = (revision: number, actionId: string): CampaignSnapsh
 };
 const LIMIT = { kind: 'limit', detail: '3:30pm (Europe/Lisbon)' };
 
+test('rpg-42a.116 a failure with an unknown kind is ignored and keeps the action queued', () => {
+  const { wire, client } = connectedClient();
+  assert.ok(client.submit('wait').ok);
+  wire.receive({ type: 'NarrationFailed', actionId: 'a0', failure: { kind: 'bogus', detail: 'x' } });
+  assert.equal(client.state().stalled, undefined);
+});
+
+test('rpg-42a.116 a failure detail that is not text is dropped', () => {
+  const { wire, client } = connectedClient();
+  assert.ok(client.submit('wait').ok);
+  wire.receive({ type: 'NarrationFailed', actionId: 'a0', failure: { kind: 'limit', detail: 42 } });
+  assert.deepEqual(client.state().stalled?.failure, { kind: 'limit' });
+});
+
 test('rpg-42a.101 a failed narration shows the reason and a retry, and retry resends the same action', () => {
   const { wire, client } = connectedClient();
   assert.ok(client.submit('wait').ok);

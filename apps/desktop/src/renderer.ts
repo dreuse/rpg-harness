@@ -1,4 +1,8 @@
-import type { GmFailure } from '../../../packages/client-protocol/src/gm-failure.ts';
+import {
+  GM_FAILURE_KINDS,
+  type GmFailure,
+  type GmFailureKind,
+} from '../../../packages/client-protocol/src/gm-failure.ts';
 import {
   createCommand,
   DEFAULT_ADVENTURE_NAME,
@@ -785,7 +789,11 @@ export const createDesktopClient = ({
     }
     if (message.type === NARRATION_FAILED && isRecord(message.failure)) {
       const action = state.outbox.find((queued) => queued.actionId === message.actionId);
-      if (action !== undefined) update({ stalled: { action, failure: message.failure as GmFailure } });
+      const { kind, detail } = message.failure;
+      if (action === undefined || !GM_FAILURE_KINDS.includes(kind as GmFailureKind)) return;
+      const failure: GmFailure =
+        typeof detail === 'string' ? { kind: kind as GmFailureKind, detail } : { kind: kind as GmFailureKind };
+      update({ stalled: { action, failure } });
       return;
     }
     if (message.type === VISUALIZATION_EVENT) {

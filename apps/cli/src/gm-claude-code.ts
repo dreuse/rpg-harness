@@ -78,6 +78,7 @@ const LIMIT_PATTERN = /usage limit|hit your limit|limit reached/i;
 const RESET_PATTERN = /resets?\s+(?:at\s+)?([^\n·|]+)/i;
 const AUTH_PATTERN = /not logged in|\/login|invalid api key|unauthorized|authentication/i;
 const RESET_GROUP = 1;
+const MAX_RESET_DETAIL_CHARS = 80;
 const FINAL_FAILURE_KINDS: ReadonlySet<string> = new Set(['limit', 'auth', 'notInstalled']);
 const WORKSPACE_FAILED = 'The Claude Code workspace could not be prepared.';
 const MALFORMED_REPLY = 'Claude Code sent a malformed reply.';
@@ -121,7 +122,7 @@ export const claudeError = (failure: GmFailure, message = gmFailureText(DEFAULT_
 
 export const claudeFailureOf = (said: string): GmFailure | undefined => {
   if (LIMIT_PATTERN.test(said)) {
-    const reset = RESET_PATTERN.exec(said)?.[RESET_GROUP]?.trim();
+    const reset = RESET_PATTERN.exec(said)?.[RESET_GROUP]?.slice(0, MAX_RESET_DETAIL_CHARS).trim();
     return reset ? { kind: 'limit', detail: reset } : { kind: 'limit' };
   }
   return AUTH_PATTERN.test(said) ? { kind: 'auth' } : undefined;
