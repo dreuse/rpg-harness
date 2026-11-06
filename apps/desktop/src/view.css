@@ -886,6 +886,14 @@ body:has(main[data-screen="home"]) #action-form {
   font-size: calc(var(--text-sm) * var(--font-scale, 1));
 }
 
+[data-roll]:has([data-roll-breakdown]) figcaption {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+
 [data-roll-skip] {
   grid-row: 1 / span 2;
   grid-column: 2;
@@ -1293,6 +1301,11 @@ main[data-screen="home"] [data-region="start"] [data-actions] {
   inline-size: 6rem;
 }
 
+[data-roller] {
+  color: var(--text-muted);
+  font-size: calc(var(--text-sm) * var(--font-scale, 1));
+}
+
 [data-reported-badge] {
   font-size: 0.875rem;
 }
@@ -1300,4 +1313,15 @@ main[data-screen="home"] [data-region="start"] [data-actions] {
 :is(h1, h2)[tabindex="-1"]:focus-visible {
   outline-color: transparent;
   box-shadow: inset var(--marker-width) 0 0 var(--accent);
+}
+
+[data-region="status"] h1 {
+  padding-inline-start: var(--marker-width);
+}
+
+[data-modifier] {
+  margin-inline-start: var(--space-2);
+  color: var(--text-muted);
+  font-size: calc(var(--text-sm) * var(--font-scale, 1));
+  font-weight: normal;
 }

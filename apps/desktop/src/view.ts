@@ -155,8 +155,19 @@ const diagnostics = ({ diagnostics: { pid, gm, error, attempts } }: ViewModel, l
 
 const pageHeading = (text: string) => `<h1 id="${HEADING_ID}${STATUS}" tabindex="-1">${escapeHtml(text)}</h1>`;
 
+const SLUG = /^[a-z0-9]+(?:[-_][a-z0-9]+)*$/;
+const SLUG_SEPARATOR = /[-_]/;
+
+export const campaignTitle = (name: string) =>
+  SLUG.test(name)
+    ? name
+        .split(SLUG_SEPARATOR)
+        .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+        .join(' ')
+    : name;
+
 const header = (model: ViewModel, locale: string) =>
-  `<hgroup>${pageHeading(model.title.campaign ?? translate(locale, 'app.name'))}${model.title.scene === undefined ? '' : `<p>${escapeHtml(model.title.scene)}</p>`}</hgroup>`;
+  `<hgroup>${pageHeading(model.title.campaign === undefined ? translate(locale, 'app.name') : campaignTitle(model.title.campaign))}${model.title.scene === undefined ? '' : `<p>${escapeHtml(model.title.scene)}</p>`}</hgroup>`;
 
 const connection = (model: ViewModel, locale: string) =>
   `<p role="status" data-connection="${model.status.connection}">${escapeHtml(model.status.label)}</p>${model.status.canRetry ? button('data-action', 'retry', translate(locale, 'action.retry')) : ''}${diagnostics(model, locale)}`;
@@ -758,26 +769,34 @@ const sheetInput = ({ id, value, error, min, max }: SheetField) => {
 const sheetError = ({ id, error }: SheetField) =>
   error === undefined ? '' : `<p role="alert" id="sheet-error-${escapeHtml(id)}">${escapeHtml(error)}</p>`;
 
-const sheetValue = ({ id, text, explanation }: SheetField) =>
-  explanation === undefined
-    ? escapeHtml(text)
-    : `<span tabindex="0" aria-describedby="sheet-explain-${escapeHtml(id)}">${escapeHtml(text)}</span><span role="tooltip" id="sheet-explain-${escapeHtml(id)}">${escapeHtml(explanation)}</span>`;
+const sheetModifier = ({ modifier }: SheetField, locale: string) =>
+  modifier === undefined
+    ? ''
+    : ` <span data-modifier>${escapeHtml(translate(locale, 'sheet.modifier', { value: modifier }))}</span>`;
+
+const sheetValue = (field: SheetField, locale: string) => {
+  const { id, text, explanation } = field;
+  const modifier = sheetModifier(field, locale);
+  return explanation === undefined
+    ? `${escapeHtml(text)}${modifier}`
+    : `<span tabindex="0" aria-describedby="sheet-explain-${escapeHtml(id)}">${escapeHtml(text)}</span><span role="tooltip" id="sheet-explain-${escapeHtml(id)}">${escapeHtml(explanation)}</span>${modifier}`;
+};
 
 const statOpen = ({ id, changed }: SheetField) =>
   `<div data-stat="${escapeHtml(id)}"${changed ? ' data-changed' : ''}>`;
 
-const statView = (field: SheetField) =>
-  `${statOpen(field)}<dt>${escapeHtml(field.name)}</dt><dd>${sheetValue(field)}</dd></div>`;
+const statView = (locale: string) => (field: SheetField) =>
+  `${statOpen(field)}<dt>${escapeHtml(field.name)}</dt><dd>${sheetValue(field, locale)}</dd></div>`;
 
-const statEditor = (field: SheetField) =>
+const statEditor = (locale: string) => (field: SheetField) =>
   field.editable
     ? `${statOpen(field)}<label for="${SHEET_INPUT}${escapeHtml(field.id)}">${escapeHtml(field.name)}</label>${sheetInput(field)}${sheetError(field)}</div>`
-    : `${statOpen(field)}<span>${escapeHtml(field.name)}</span><span>${sheetValue(field)}</span></div>`;
+    : `${statOpen(field)}<span>${escapeHtml(field.name)}</span><span>${sheetValue(field, locale)}</span></div>`;
 
 const sheetGroup = ({ id, fields }: SheetGroup, locale: string, editing: boolean) => {
   const items = editing
-    ? `<div data-stats>${fields.map(statEditor).join('')}</div>`
-    : `<dl data-stats>${fields.map(statView).join('')}</dl>`;
+    ? `<div data-stats>${fields.map(statEditor(locale)).join('')}</div>`
+    : `<dl data-stats>${fields.map(statView(locale)).join('')}</dl>`;
   if (id === UNGROUPED) return items;
   const group = escapeHtml(id);
   return `<section data-sheet-group="${group}" aria-labelledby="sheet-group-${group}"><h4 id="sheet-group-${group}">${escapeHtml(translate(locale, `sheet.group.${id}`))}</h4>${items}</section>`;

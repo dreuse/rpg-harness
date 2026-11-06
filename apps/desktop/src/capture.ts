@@ -204,7 +204,7 @@ const steps = (...parts: readonly string[]) => `(async () => { ${parts.join(' ')
 
 const JOURNEY_LISTENER = `window.${BRIDGE_KEY}.onLine((line) => { const message = JSON.parse(line); if (message.type === 'Snapshot') window.journeySnapshot = message.snapshot; });`;
 const SHEET_INPUT_SELECTOR = `#sheet-field-${JOURNEY_EDIT.fieldId}`;
-const SHEET_VALUE = `document.querySelector('[data-stat="${JOURNEY_EDIT.fieldId}"] dd')?.textContent === '${JOURNEY_EDIT.value}'`;
+const SHEET_VALUE = `document.querySelector('[data-stat="${JOURNEY_EDIT.fieldId}"] dd')?.firstChild?.textContent.trim() === '${JOURNEY_EDIT.value}'`;
 
 type JourneyStep = {
   readonly script: string;

@@ -9,7 +9,7 @@ import { resolveDerived, type Trait, type TraitSheet } from './traits.ts';
 
 export const ATTRIBUTES = ['might', 'agility', 'wits', 'presence'] as const;
 export type Attribute = (typeof ATTRIBUTES)[number];
-const ATTRIBUTE_LABELS: Record<Attribute, string> = {
+export const ATTRIBUTE_LABELS: Record<Attribute, string> = {
   might: 'Might',
   agility: 'Agility',
   wits: 'Wits',

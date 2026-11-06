@@ -759,6 +759,21 @@ test('rpg-42a.39 the language control names each locale in its own language and 
 
 const sheetState = (sheetErrors: DesktopState['sheetErrors'] = {}): DesktopState => ({
   ...state,
+  selected: CAMPAIGN,
+  campaigns: [
+    {
+      id: CAMPAIGN,
+      name: 'Harbor',
+      health: 'ok',
+      lastPlayedAt: null,
+      sceneTitle: null,
+      characters: [],
+      ruleset: { id: 'd20-lite', edition: 'original', revision: 'r1', provenance: 'explicit' },
+      genre: null,
+      lastNarration: null,
+      turnCount: 0,
+    },
+  ],
   sheetErrors,
   views: {
     sheet: {
@@ -796,7 +811,10 @@ const editing = (sheetErrors: DesktopState['sheetErrors'] = {}) => ({ ...sheetSt
 
 test('rpg-42a.29: the sheet shows read-only stat blocks and one Edit action', () => {
   const html = renderView(viewModel(sheetState(), WIDE_WIDTH), 'en');
-  assert.match(html, /<dl data-stats><div data-stat="might"><dt>Might<\/dt><dd>3<\/dd><\/div><\/dl>/);
+  assert.match(
+    html,
+    /<dl data-stats><div data-stat="might"><dt>Might<\/dt><dd>3 <span data-modifier>roll -2<\/span><\/dd><\/div><\/dl>/,
+  );
   assert.match(html, /<div data-stat="hidden"><dt>Hidden<\/dt><dd>no<\/dd><\/div>/);
   assert.equal(html.match(/data-sheet-action="edit"/g)?.length, 1);
   assert.match(html, /<button type="button" id="sheet-edit" data-sheet-action="edit">Edit sheet<\/button>/);
@@ -1168,4 +1186,14 @@ test('rpg-42a.69 a home card shows the ruleset player name and a humanized genre
   assert.ok(html.includes('<p data-meta>Ash · Classic d20, Investigative mystery · Docks · 1 hour ago</p>'));
   const hostile = home({ campaigns: [{ ...HARBOR, ruleset: { ...ruleset, id: HOSTILE } }] });
   assert.ok(hostile.includes(ESCAPED));
+});
+
+test('rpg-42a.150: the header turns a campaign slug into a readable title', () => {
+  const snapshot = state.snapshot as NonNullable<DesktopState['snapshot']>;
+  const titled = (name: string) =>
+    renderView(viewModel({ ...state, snapshot: { ...snapshot, campaign: { id: CAMPAIGN, name } } }, WIDE_WIDTH), 'en');
+  assert.match(titled('hollow-lantern'), /<h1 id="heading-status" tabindex="-1">Hollow Lantern<\/h1>/);
+  assert.match(titled('the_old_road'), />The Old Road<\/h1>/);
+  assert.match(titled('Hollow Lantern'), />Hollow Lantern<\/h1>/);
+  assert.match(titled('Ünder-Keep'), />Ünder-Keep<\/h1>/);
 });

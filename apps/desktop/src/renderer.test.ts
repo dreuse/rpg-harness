@@ -674,13 +674,34 @@ const GROUPED_SHEET = {
   ],
 };
 
+const rulesetCampaign = (id: string) => ({
+  ...snapshotAt(0).campaign,
+  ruleset: { id, edition: 'original', revision: 'r1', provenance: 'explicit' },
+});
+
+test('rpg-42a.150: attribute ids only get a roll modifier under the d20-lite ruleset', () => {
+  const modifierUnder = (rulesetId: string | undefined) => {
+    const { wire, client } = connectedClient();
+    wire.receive({
+      type: 'Campaigns',
+      campaigns: [rulesetId === undefined ? snapshotAt(0).campaign : rulesetCampaign(rulesetId)],
+    });
+    wire.receive({ type: 'View', campaignId: CAMPAIGN, view: GROUPED_SHEET });
+    return viewModel(client.state(), WIDE_WIDTH).sheetGroups[0]?.fields[0]?.modifier;
+  };
+  assert.equal(modifierUnder('d20-lite'), '-2');
+  assert.equal(modifierUnder('narrative'), undefined);
+  assert.equal(modifierUnder(undefined), undefined);
+});
+
 test('rpg-42a.21: the sheet groups fields and keeps edit rights and explanations', () => {
   const { wire, client } = connectedClient();
+  wire.receive({ type: 'Campaigns', campaigns: [rulesetCampaign('d20-lite')] });
   wire.receive({ type: 'View', campaignId: CAMPAIGN, view: GROUPED_SHEET });
   assert.deepEqual(viewModel(client.state(), WIDE_WIDTH).sheetGroups, [
     {
       id: 'core',
-      fields: [{ id: 'might', name: 'Might', text: '3', value: 3, editable: true, changed: false }],
+      fields: [{ id: 'might', name: 'Might', text: '3', value: 3, editable: true, changed: false, modifier: '-2' }],
     },
     {
       id: 'computed',

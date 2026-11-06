@@ -138,7 +138,7 @@ test('rpg-42a.39 the outcome word follows the player locale and keeps the rules 
   assert.match(unknown, /<strong data-outcome="hit" aria-hidden="true">hit<\/strong>/);
 });
 
-test('rpg-42a.90: the roll card lists the die, the attribute, each modifier with its reason and total against target', () => {
+test('rpg-42a.90: the roll card lists the attribute label, each modifier with its reason and total against target', () => {
   const final = {
     total: 7,
     modifier: -5,
@@ -150,8 +150,12 @@ test('rpg-42a.90: the roll card lists the die, the attribute, each modifier with
   } as const;
   const html = (locale: string) => renderRoll(rollPlan(rollOf([die(20, 12)], final), 'off'), locale);
   const items = (locale: string) => [...html(locale).matchAll(/<li>([^<]*)<\/li>/g)].map(([, text]) => text);
-  assert.deepEqual(items('en'), ['Die 12', 'wits -3', 'darkness -2: the lantern went out', 'Total 7 against 10']);
-  assert.deepEqual(items('pt-BR'), ['Dado 12', 'wits -3', 'darkness -2: the lantern went out', 'Total 7 contra 10']);
+  assert.deepEqual(items('en'), ['Wits -3', 'darkness -2: the lantern went out', 'Total 7 against 10']);
+  assert.deepEqual(items('pt-BR'), ['Raciocínio -3', 'darkness -2: the lantern went out', 'Total 7 contra 10']);
+  assert.equal(
+    items('en').some((text) => text?.startsWith('Die')),
+    false,
+  );
 });
 
 test('rpg-42a.90: an advantage roll shows the kept die and the rule it applied', () => {
@@ -174,4 +178,16 @@ test('rpg-42a.96: a player-rolled card is marked and says so, an app-rolled card
   assert.match(reported, /<span data-reported-badge>rolled by you<\/span>/);
   const app = renderRoll(rollPlan(rollOf([die(20, 14)], { total: 14 }), 'off'), LOCALE);
   assert.doesNotMatch(app, /data-reported/);
+});
+
+test('rpg-42a.150: an unknown attribute id keeps its id on the breakdown line', () => {
+  const final = { total: 7, breakdown: { attribute: { id: 'luck', value: 1 }, modifiers: [] } } as const;
+  const html = renderRoll(rollPlan(rollOf([die(20, 6)], final), 'off'), LOCALE);
+  assert.match(html, /<li>luck \+1<\/li>/);
+});
+
+test('rpg-42a.150: the roller stays visible when a breakdown hides the caption', () => {
+  const final = { total: 7, roller: 'Old Tam', breakdown: { modifiers: [] } } as const;
+  const html = renderRoll(rollPlan(rollOf([die(20, 6)], final), 'off'), LOCALE);
+  assert.match(html, /<span data-roller>rolled by Old Tam<\/span>/);
 });

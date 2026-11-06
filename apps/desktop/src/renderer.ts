@@ -52,8 +52,9 @@ import type { CampaignId, NoCheckReason } from '../../../packages/domain/src/cam
 import type { GmSettings } from '../../../packages/domain/src/gm.ts';
 import type { OocProposal } from '../../../packages/domain/src/ooc.ts';
 import { DEFAULT_RULES_USAGE, usesDice, usesSheet } from '../../../packages/domain/src/rules-usage.ts';
+import { ATTRIBUTES, attributeModifier, D20_LITE_MANIFEST } from '../../../packages/rules/src/d20-lite.ts';
 import { componentValue, DEFAULT_LOCALE, DEFAULT_PREFERENCES, translate, type UiPreferences } from './accessibility.ts';
-import { effectiveMotion, parseVisualization, ROLL_HISTORY, rollPlan } from './dice.ts';
+import { effectiveMotion, parseVisualization, ROLL_HISTORY, rollPlan, signed } from './dice.ts';
 import type { ImportRequest, ImportResult } from './preload.ts';
 
 export const COMPACT_MAX_WIDTH = 720;
@@ -283,6 +284,7 @@ export type SheetField = {
   readonly editable: boolean;
   readonly explanation?: string;
   readonly changed: boolean;
+  readonly modifier?: string;
   readonly error?: string;
   readonly min?: number;
   readonly max?: number;
@@ -313,16 +315,22 @@ export const parseSheetValue = (field: Bounds, raw: SheetInput, locale: string):
   return { ok: true, value: typeof field.value === 'boolean' ? raw === true : String(raw) };
 };
 
+const isAttribute = (id: string) => (ATTRIBUTES as readonly string[]).includes(id);
+
+const hasD20Modifiers = ({ campaigns, selected }: DesktopState) =>
+  campaigns.find(({ id }) => id === selected)?.ruleset?.id === D20_LITE_MANIFEST.id;
+
+const modifierOf = ({ id, value }: ViewComponent, state: DesktopState) =>
+  isAttribute(id) && Number.isInteger(value) && hasD20Modifiers(state)
+    ? { modifier: signed(attributeModifier(value as number)) }
+    : {};
+
 export type SheetGroup = { readonly id: string; readonly fields: SheetField[] };
 
-const sheetGroupsOf = (
-  components: readonly ViewComponent[],
-  { sheetChanged, sheetErrors }: DesktopState,
-  locale: string,
-) =>
+const sheetGroupsOf = (components: readonly ViewComponent[], state: DesktopState, locale: string) =>
   components.reduce<SheetGroup[]>((groups, component) => {
     const id = component.group ?? UNGROUPED;
-    const error = sheetErrors[component.id];
+    const error = state.sheetErrors[component.id];
     const field: SheetField = {
       id: component.id,
       name: component.label,
@@ -330,7 +338,8 @@ const sheetGroupsOf = (
       value: component.value,
       editable: component.editable === true,
       ...(component.explanation === undefined ? {} : { explanation: component.explanation }),
-      changed: sheetChanged.includes(component.id),
+      changed: state.sheetChanged.includes(component.id),
+      ...modifierOf(component, state),
       ...(error === undefined ? {} : { error }),
       ...(component.min === undefined ? {} : { min: component.min }),
       ...(component.max === undefined ? {} : { max: component.max }),

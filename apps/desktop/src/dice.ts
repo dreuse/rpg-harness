@@ -1,3 +1,4 @@
+import { contentText } from '../../../packages/client-protocol/src/content-names.ts';
 import { PROTOCOL_VERSION } from '../../../packages/client-protocol/src/protocol.ts';
 import {
   breakdownLines,
@@ -11,6 +12,7 @@ import {
   type VisualizationEvent,
   type VisualizationFinal,
 } from '../../../packages/client-protocol/src/visualization.ts';
+import { ATTRIBUTE_LABELS } from '../../../packages/rules/src/d20-lite.ts';
 import { translate } from './accessibility.ts';
 import { escapeHtml } from './view.ts';
 
@@ -73,7 +75,7 @@ export const rollPlan = (event: VisualizationEvent, motion: MotionSetting): Roll
   };
 };
 
-const signed = (value: number) => (value < 0 ? String(value) : `+${value}`);
+export const signed = (value: number) => (value < 0 ? String(value) : `+${value}`);
 const finalFace = (faces: readonly number[]) => faces.at(-1);
 
 export const rollSummary = ({ groups, tokens, final }: RollPlan, locale: string) =>
@@ -104,13 +106,39 @@ const rollOutcome = ({ outcome }: VisualizationFinal, locale: string) => {
   return `<strong data-outcome="${escapeHtml(outcomeLabel(outcome))}" aria-hidden="true">${word}</strong>`;
 };
 
+const attributeLabel = (id: string, locale: string) => {
+  const label = Object.hasOwn(ATTRIBUTE_LABELS, id) ? ATTRIBUTE_LABELS[id as keyof typeof ATTRIBUTE_LABELS] : undefined;
+  return label === undefined ? id : contentText(locale, 'stat', label, label);
+};
+
+const labelled = (final: VisualizationFinal, locale: string): VisualizationFinal => {
+  const { breakdown } = final;
+  return breakdown?.attribute === undefined
+    ? final
+    : {
+        ...final,
+        breakdown: {
+          ...breakdown,
+          attribute: { ...breakdown.attribute, id: attributeLabel(breakdown.attribute.id, locale) },
+        },
+      };
+};
+
 const rollBreakdown = ({ groups, final }: RollPlan, locale: string) => {
-  const faces = groups.flatMap(({ dice }) => dice.flatMap((die) => finalFace(die) ?? []));
-  const lines = breakdownLines(faces, final, translate, locale);
+  const faces =
+    final.breakdown?.kept === undefined
+      ? []
+      : groups.flatMap(({ dice }) => dice.flatMap((die) => finalFace(die) ?? []));
+  const lines = breakdownLines(faces, labelled(final, locale), translate, locale);
   return lines.length === 0
     ? ''
     : `<ul data-roll-breakdown>${lines.map((line) => `<li>${escapeHtml(line)}</li>`).join('')}</ul>`;
 };
+
+const rollRoller = ({ roller }: VisualizationFinal, locale: string) =>
+  roller === undefined
+    ? ''
+    : `<span data-roller>${escapeHtml(translate(locale, 'roll.roller', { name: roller }))}</span>`;
 
 const rollReportedBadge = ({ source }: VisualizationFinal, locale: string) =>
   source === undefined ? '' : `<span data-reported-badge>${escapeHtml(translate(locale, 'roll.reported'))}</span>`;
@@ -122,7 +150,7 @@ export const renderRoll = (plan: RollPlan, locale: string) =>
     )
     .join(
       '',
-    )}${plan.tokens.map((label) => `<span data-token>${escapeHtml(label)}</span>`).join('')}</div>${rollTotal(plan.final)}${rollOutcome(plan.final, locale)}${rollReportedBadge(plan.final, locale)}</div>${rollBreakdown(plan, locale)}<figcaption>${escapeHtml(rollSummary(plan, locale))}</figcaption>${plan.animated ? `<button type="button" data-roll-skip>${escapeHtml(translate(locale, 'roll.skip'))}</button>` : ''}</figure>`;
+    )}${plan.tokens.map((label) => `<span data-token>${escapeHtml(label)}</span>`).join('')}</div>${rollTotal(plan.final)}${rollOutcome(plan.final, locale)}${rollReportedBadge(plan.final, locale)}${rollRoller(plan.final, locale)}</div>${rollBreakdown(plan, locale)}<figcaption>${escapeHtml(rollSummary(plan, locale))}</figcaption>${plan.animated ? `<button type="button" data-roll-skip>${escapeHtml(translate(locale, 'roll.skip'))}</button>` : ''}</figure>`;
 
 const badgeResult = (plan: RollPlan, locale: string) => {
   const { total, outcome } = plan.final;
