@@ -26,7 +26,8 @@ MLX_VOICES = {"en": "af_heart", "pt-BR": "pf_dora"}
 ESPEAK_DATA_COPY = "espeak-ng-data"
 
 CHATTERBOX_LANGUAGES = {"en": "en", "pt-BR": "pt"}
-CHATTERBOX_DEVICE = "mps"
+CHATTERBOX_DEVICE_ENV = "CHATTERBOX_DEVICE"
+CHATTERBOX_DEVICE = os.environ.get(CHATTERBOX_DEVICE_ENV, "mps")
 CHATTERBOX_DEFAULT_STYLE = {"exaggeration": 0.5, "cfg_weight": 0.5}
 CHATTERBOX_EMOTIONAL_STYLE = {"exaggeration": 0.8, "cfg_weight": 0.3}
 
@@ -98,7 +99,8 @@ class Chatterbox:
 
         del self.model
         gc.collect()
-        torch.mps.empty_cache()
+        if CHATTERBOX_DEVICE == "mps":
+            torch.mps.empty_cache()
 
 
 ADAPTERS = {"mlx-audio": MlxKokoro, "chatterbox": Chatterbox}

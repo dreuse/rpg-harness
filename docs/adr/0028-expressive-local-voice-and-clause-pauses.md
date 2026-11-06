@@ -1,6 +1,6 @@
 # ADR 0028 — Clause pauses on Kokoro and an optional expressive local engine (rpg-cm63.47)
 
-**Status:** Accepted. Amended 2026-11-05 (F5-TTS reopened, see Amendment 1). **Decision:** (1) Kokoro speech splits at clause marks and appends a named silence after each piece, so commas, semicolons, colons and dashes are audible. (2) Chatterbox Multilingual is added as an optional local provider, id `chatterbox`, for Brazilian Portuguese (pt-BR) with emotion control. It is off by default, downloads only with consent, and never replaces Kokoro as the default or the fallback.
+**Status:** Accepted. Amended 2026-11-05 (F5-TTS reopened, see Amendment 1) and 2026-11-06 (cross-platform Chatterbox route, see Amendment 2). **Decision:** (1) Kokoro speech splits at clause marks and appends a named silence after each piece, so commas, semicolons, colons and dashes are audible. (2) Chatterbox Multilingual is added as an optional local provider, id `chatterbox`, for Brazilian Portuguese (pt-BR) with emotion control. It is off by default, downloads only with consent, and never replaces Kokoro as the default or the fallback.
 
 **Context:** The owner reported that pt-BR voices run clauses together and show no emotion (bead rpg-cm63.47). Kokoro takes a voice and a speed only (ADR 0019). ADR 0019 Amendment 2 measured Chatterbox as too slow for live turns and did not compare other engines. Facts below were read on 2026-11-05 from the Hugging Face API, PyPI and the `chatterbox-tts` 0.1.7 wheel, or come from `docs/voice/spike-results.md`. Anything else is marked unverified.
 
@@ -85,3 +85,37 @@ The voices of this engine count toward the target of rpg-cm63.45 once the owner 
 - Not built, as for Chatterbox: composition-root wiring, a settings entry and an install action. `status().supported` is true on darwin, linux and win32.
 
 **Still open.** Chatterbox is registered on all platforms; Windows, Linux, CUDA and CPU timings are not measured. Listening test and age labels. A run on Windows, Linux and CUDA. Digit expansion (the model card asks for numbers as words). An A/B listening test of the Tharyck v1 checkpoint against firstpixel on the PyTorch route. Whether the Chatterbox pt-BR pack or its MLX and CoreML ports beat F5 on speed (rpg-cm63.47 follow-up, still unmeasured).
+
+## Amendment 2 (2026-11-06, rpg-cm63.47 AC4): cross-platform route and measured numbers
+
+**Route.** The cross-platform route for Chatterbox Multilingual is PyTorch (`torch` 2.6.0, `chatterbox-tts` 0.1.7) on CUDA or CPU. MPS is the Apple Silicon fast path. MLX is not part of the route. Kokoro pt-BR on `mlx-audio` is Apple-only (ADR 0019 Amendment 1). Its cross-platform route is ONNX on CPU (`kokoro-onnx-engine.ts`, `docs/voice/spike-results.md`, rpg-cm63.53).
+
+**Measured** (Apple M3 Max, 64 GB, pt-BR narration, npc-warning and emotional, full tables in `docs/voice/spike-results.md`; the machine was shared, so CPU rows are noisy):
+
+| Route | Median first audio | Median RTF | Peak footprint |
+|---|---|---|---|
+| Kokoro `pf_dora`, mlx-audio, MLX | 57 ms | 0.040 | 4294 MiB |
+| Chatterbox, MPS | 5069 ms | 2.15 | 16355 MiB |
+| Chatterbox, PyTorch CPU (latest run per passage) | 12523 ms | 3.36 | 5135 MiB |
+
+- Chatterbox on CPU, all five runs: RTF 2.93 to 4.61, first audio 8.8 to 32.6 s, peak footprint 4810 to 5300 MiB, peak RSS 6.7 GiB. Weights are 3.0 GiB on disk.
+- Median RTF on CPU is about 1.6 times the MPS median (up to 2.1 times per passage). CPU uses about a third of the peak footprint (about 5 GiB against up to 16 GiB).
+
+**Verdict against RTF below 0.5 and first audio below 1.5 s.**
+
+- Kokoro on MLX passes both. Kokoro on ONNX CPU passes both (RTF 0.125, first audio 271 ms, from rpg-cm63.53).
+- Chatterbox fails both on every measured device. MPS is 4 times over on RTF and 3.4 times over on first audio. CPU is 6 to 9 times over on RTF and 6 to 22 times over on first audio.
+- So Chatterbox stays opt-in and never the default or the fallback. It suits prerendered scene openings, not live turns. The cross-platform route is named and measured, and it is usable only as a slow, non-live option.
+
+**Code state.**
+
+- Since rpg-cm63.51, `chatterbox-install.ts` offers the install on macOS, Windows and Linux and `chatterbox-service.py` picks CUDA, then MPS, then CPU. Only the CPU and MPS timings above are measured.
+- This amendment changes no product code.
+
+**Not run.**
+
+- CUDA, Windows, Linux, x86 CPU.
+- The Chatterbox MLX and CoreML ports and the single-language pt-BR pack. They are still unmeasured and could change the speed verdict.
+- Whisper word error rate and listening (rpg-cm63.61).
+- The provider and service path with real weights. Only the bench script ran.
+- The `innkeeper` passage.

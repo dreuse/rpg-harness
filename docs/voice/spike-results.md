@@ -330,3 +330,62 @@ Measured on 2026-11-06. Apple M3 Max (16 cores), macOS 26.6.2, Node v24.22.1. on
 - Listening quality and pronunciation. Nobody listened to the output and no speech-to-text check ran. Only duration, sample rate and non-empty audio were checked. The espeak-ng pt-br output uses its own phoneme set, not the misaki one the model was trained on, so some sounds may be off.
 - The `kokoro-onnx-engine.integration.test.ts` test through the repo's own module resolution. This worktree had no `node_modules`, so the measurement injected the espeak and onnxruntime modules from a scratch install. The test skips unless `RPG_KOKORO_MODEL_DIR` holds the files.
 - Peak memory per process beyond the Node RSS above.
+
+## Chatterbox pt-BR: MPS and PyTorch CPU, against Kokoro (rpg-cm63.47, AC4)
+
+Measured on 2026-11-06 on the same Apple M3 Max, 64 GB, macOS 26.6.2. Python 3.12 from `uv`. `mlx-audio` 0.6.4, `mlx` 0.32.4, `chatterbox-tts` 0.1.7, `torch` 2.6.0. One run per row, unless two runs are listed.
+
+```bash
+# venvs and Hugging Face caches in ~/rpg-voice-cache, outside the repo
+# passages: pt-BR narration, npc-warning and emotional from scripts/voice-spike/passages.ts (innkeeper skipped)
+HF_HOME=<cache>/hf /usr/bin/time -l <venv>/bin/python -I scripts/voice-spike/python_bench.py mlx-audio <passages.json> <out>
+CHATTERBOX_DEVICE=mps|cpu HF_HOME=<cache>/hf /usr/bin/time -l <venv>/bin/python -I scripts/voice-spike/python_bench.py chatterbox <one-passage.json> <out>
+```
+
+- Same method as the first sections: first audio is the time to the first sentence, RTF is total synthesis time over audio duration. Sentence split at `.`, `!`, `?`. No clause split in the bench, so this is not the provider path.
+- `python_bench.py` now reads the Chatterbox device from `CHATTERBOX_DEVICE` (default `mps`) so CPU can be measured. `run.ts` was not used: it keeps its caches in the repo and runs all eight passages in one process. The bench script is the same one it calls.
+- Chatterbox ran one passage per process, so peak memory is per passage. Weights are the pinned-for-install repo `ResembleAI/chatterbox` multilingual files, 3.0 GiB in the cache. Voice: built-in default.
+- Audio samples are in `~/rpg-voice-samples/chatterbox/{kokoro-mlx,chatterbox-mps,chatterbox-cpu}`, three WAV files each. Nothing from this run is in git. Nobody listened. Listening is rpg-cm63.61.
+- Chatterbox does not seed its sampling. The same text gave different audio lengths per run (see the CPU rows).
+- The machine was not idle. Other sessions ran on it (load average 15 to 24 on 16 cores) and a project gate started during the first CPU narration run. The MPS and Kokoro runs ran with no gate active. CPU numbers are noisy, so both runs are listed.
+
+### Summary
+
+| Route | Device | Median first audio ms | Median RTF | Peak footprint MiB (max) | Peak RSS MiB (max) | Bar RTF < 0.5 and first audio < 1.5 s |
+|---|---|---|---|---|---|---|
+| Kokoro `pf_dora`, mlx-audio | MLX (Apple GPU) | 57 | 0.040 | 4294 | 1114 | passes both (narration first audio 1178 ms includes pt-BR pipeline creation) |
+| Chatterbox multilingual | MPS | 5069 | 2.150 | 16355 | 5134 | fails both |
+| Chatterbox multilingual | PyTorch CPU, latest run per passage | 12523 | 3.355 | 5135 | 6899 | fails both |
+
+Kokoro numbers come from one process with three passages and an English warm-up. Chatterbox numbers come from one process per passage, each with its own English warm-up. Medians are over the three passages.
+
+### Per passage
+
+| Route | Passage | First audio ms | Total ms | Audio s | RTF | Peak footprint MiB | Peak RSS MiB |
+|---|---|---|---|---|---|---|---|
+| Kokoro MLX | pt-BR-narration | 1178 | 1718 | 16.00 | 0.107 | 4294 | 1114 |
+| Kokoro MLX | pt-BR-npc-warning | 49 | 124 | 3.13 | 0.040 | same process | same process |
+| Kokoro MLX | pt-BR-emotional | 57 | 163 | 4.55 | 0.036 | same process | same process |
+| Chatterbox MPS | pt-BR-narration | 10398 | 33281 | 14.92 | 2.231 | 16355 | 5134 |
+| Chatterbox MPS | pt-BR-npc-warning | 5069 | 9775 | 5.40 | 1.810 | 10373 | 5029 |
+| Chatterbox MPS | pt-BR-emotional | 3410 | 11697 | 5.44 | 2.150 | 13363 | 5030 |
+| Chatterbox CPU, run 1 | pt-BR-narration | 31894 | 71056 | 16.04 | 4.430 | 4987 | 6832 |
+| Chatterbox CPU, run 2 | pt-BR-narration | 12523 | 47552 | 15.92 | 2.987 | 5135 | 6899 |
+| Chatterbox CPU, run 1 | pt-BR-npc-warning | 8753 | 17312 | 5.16 | 3.355 | 4899 | 6883 |
+| Chatterbox CPU, run 1 | pt-BR-emotional | 32554 | 41903 | 14.28 | 2.934 | 5300 | 6836 |
+| Chatterbox CPU, run 2 | pt-BR-emotional | 16550 | 25824 | 5.60 | 4.610 | 4810 | 6837 |
+
+- Narration CPU run 1 overlapped the start of a gate. Emotional CPU run 1 produced 14.28 s of audio for a line that took 5.4 to 5.6 s in the other runs: a long tail, which lowers RTF and raises first audio. Run 2 of emotional had a 13.0 s warm-up (others 4.9 to 5.9 s), so the machine was busy.
+- CPU range over all five runs: RTF 2.93 to 4.61, first audio 8.8 to 32.6 s.
+- The MPS first run loaded in 117 s because it downloaded the weights. Later loads took 12.7 and 15.3 s. CPU loads took 11.9 to 13.0 s. Warm-up took 4.5 to 8.9 s on MPS and 4.9 to 13.0 s on CPU.
+- The MPS memory differs per passage (10.1 to 16.0 GiB footprint) and stays below the 17.8 GiB of the first spike. The CPU route stays near 5 GiB footprint (4810 to 5300) and 6.7 GiB RSS.
+- Against the first spike (MPS, eight passages, one process): median RTF 3.14 then, 2.15 now. Run-to-run noise and the per-passage process explain part of it. It still fails the bar by 4 times.
+
+### Not run
+
+- Whisper word error rate: no speech-to-text model installed. Skipped.
+- Listening. Moved to rpg-cm63.61.
+- The Chatterbox MLX and CoreML pt-BR ports (`theoracleguy/Chatterbox-Multilingual-pt-br-MLX`, `itsmechico/chatterbox-multilingual-pt-br-coreml-ane`) and the single-language pt-BR pack: not measured. `mlx-audio` 0.6.4 ships a `chatterbox` model folder, but the ports need their own loader code and weights, so this was not quick.
+- CUDA, Windows, Linux, x86 CPU. All CPU rows are Apple M3 Max CPU cores. A mid-range x86 laptop will be slower.
+- The `innkeeper` pt-BR passage. Three of the four were rendered.
+- Provider and service path (`chatterbox-service.py`) with real weights. Only the bench script ran.
