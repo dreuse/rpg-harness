@@ -630,13 +630,16 @@ const reviewOf = (
 const summaryPage = (draft: StartDraft, plan: Result<CampaignPlan> | undefined, locale: string): Page => ({
   title: text(locale, 'summary.title'),
   text: plan?.ok
-    ? entriesOf(draft, plan.value.entries).map(({ field, value, provenance }) =>
-        text(locale, 'summary.line', {
-          label: fieldLabel(locale, field),
-          value: shown(locale, field, value, plan.value.options),
-          provenance: text(locale, `provenance.${provenance === DEFAULT_PROVENANCE ? DEFAULT_PROVENANCE : CHOSEN}`),
-        }),
-      )
+    ? [
+        ...(plan.value.notes ?? []),
+        ...entriesOf(draft, plan.value.entries).map(({ field, value, provenance }) =>
+          text(locale, 'summary.line', {
+            label: fieldLabel(locale, field),
+            value: shown(locale, field, value, plan.value.options),
+            provenance: text(locale, `provenance.${provenance === DEFAULT_PROVENANCE ? DEFAULT_PROVENANCE : CHOSEN}`),
+          }),
+        ),
+      ]
     : [],
   options: [],
   entry: { label: text(locale, 'summary.entry'), value: draft.name || text(locale, 'name.default') },

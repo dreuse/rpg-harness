@@ -43,7 +43,7 @@ export const CLI_CATALOG: Catalog = {
     'import.incomplete.other': 'Import not completed: {count} gaps left.',
     'import.installed': 'Installed ruleset {id} (edition {edition}). It now appears in the start options.',
     'claude.missing': 'Claude Code was not found. Install it, run claude once to sign in, then try again.',
-    'quickstart.issue': '{path} {reason}.',
+    'quickstart.issue': 'Your pitch has a problem with "{words}": {reason}.',
     'quickstart.code.invalid_type': 'invalid type',
     'quickstart.code.invalid_value': 'invalid value',
     'quickstart.code.invalid_provenance': 'invalid provenance',
@@ -303,7 +303,19 @@ export const CLI_CATALOG: Catalog = {
       'Ruleset {requested} matches more than one installed ruleset: {candidates}. Name one of them.',
     'quickstart.rulesetMissing': 'Ruleset {requested} is not installed. Installed rulesets: {available}. {hint}',
     'quickstart.genreMissing': 'Genre {genre} is not installed. Installed genres: {available}.',
-    'quickstart.needsDice': 'diceVisualization needs a ruleset with dice.',
+    'quickstart.needsDice':
+      'Your pitch says "{words}", but this adventure has no dice. Pick rules with dice, or remove those words.',
+    'quickstart.field.dice': 'dice',
+    'quickstart.field.attributes': 'character stats',
+    'quickstart.field.combat': 'combat',
+    'quickstart.field.diceVisualization': 'dice animation',
+    'quickstart.field.voiceInput': 'voice input',
+    'quickstart.field.voiceOutput': 'voice narration',
+    'quickstart.field.ambience': 'ambient sound',
+    'quickstart.unsupported':
+      'Your pitch says "{words}", but the chosen rules do not support it. Pick rules that do, or remove those words.',
+    'quickstart.genreKept':
+      'No built-in genre matches "{phrase}", so this adventure uses {genre} and keeps "{phrase}" as its description.',
     'quickstart.intentTooLong': 'Campaign intent must be at most {max} characters.',
     'quickstart.intentConflict': 'Your intent gives conflicting choices for {fields}.',
     'quickstart.useClient': 'Use the {clients} client for {fields}.',
@@ -400,7 +412,7 @@ export const CLI_CATALOG: Catalog = {
     'import.installed': 'Livro de regras {id} (edição {edition}) instalado. Ele já aparece nas opções de início.',
     'claude.missing':
       'O Claude Code não foi encontrado. Instale-o, rode claude uma vez para entrar na conta e tente de novo.',
-    'quickstart.issue': '{path} {reason}.',
+    'quickstart.issue': 'Seu pedido tem um problema com "{words}": {reason}.',
     'quickstart.code.invalid_type': 'tipo inválido',
     'quickstart.code.invalid_value': 'valor inválido',
     'quickstart.code.invalid_provenance': 'origem inválida',
@@ -667,7 +679,19 @@ export const CLI_CATALOG: Catalog = {
     'quickstart.rulesetMissing':
       'O livro de regras {requested} não está instalado. Livros de regras instalados: {available}. {hint}',
     'quickstart.genreMissing': 'O gênero {genre} não está instalado. Gêneros instalados: {available}.',
-    'quickstart.needsDice': 'diceVisualization precisa de um livro de regras com dados.',
+    'quickstart.needsDice':
+      'Seu pedido diz "{words}", mas esta aventura não tem dados. Escolha regras com dados ou remova essas palavras.',
+    'quickstart.field.dice': 'dados',
+    'quickstart.field.attributes': 'atributos do personagem',
+    'quickstart.field.combat': 'combate',
+    'quickstart.field.diceVisualization': 'animação de dados',
+    'quickstart.field.voiceInput': 'entrada por voz',
+    'quickstart.field.voiceOutput': 'narração por voz',
+    'quickstart.field.ambience': 'som ambiente',
+    'quickstart.unsupported':
+      'Seu pedido diz "{words}", mas as regras escolhidas não oferecem isso. Escolha regras que ofereçam ou remova essas palavras.',
+    'quickstart.genreKept':
+      'Nenhum gênero embutido corresponde a "{phrase}", então esta aventura usa {genre} e mantém "{phrase}" como descrição.',
     'quickstart.intentTooLong': 'A intenção da campanha pode ter no máximo {max} caracteres.',
     'quickstart.intentConflict': 'Sua intenção traz escolhas conflitantes para {fields}.',
     'quickstart.useClient': 'Use o cliente {clients} para {fields}.',
@@ -767,7 +791,7 @@ export const CLI_CATALOG: Catalog = {
     'import.installed': 'Libro de reglas {id} (edición {edition}) instalado. Ya aparece en las opciones de inicio.',
     'claude.missing':
       'No se encontró Claude Code. Instálalo, ejecuta claude una vez para iniciar sesión y vuelve a intentarlo.',
-    'quickstart.issue': '{path} {reason}.',
+    'quickstart.issue': 'Tu pedido tiene un problema con "{words}": {reason}.',
     'quickstart.code.invalid_type': 'tipo no válido',
     'quickstart.code.invalid_value': 'valor no válido',
     'quickstart.code.invalid_provenance': 'origen no válido',
@@ -1037,7 +1061,19 @@ export const CLI_CATALOG: Catalog = {
     'quickstart.rulesetMissing':
       'El conjunto de reglas {requested} no está instalado. Conjuntos instalados: {available}. {hint}',
     'quickstart.genreMissing': 'El género {genre} no está instalado. Géneros instalados: {available}.',
-    'quickstart.needsDice': 'diceVisualization necesita un conjunto de reglas con dados.',
+    'quickstart.needsDice':
+      'Tu pedido dice "{words}", pero esta aventura no tiene dados. Elige reglas con dados o quita esas palabras.',
+    'quickstart.field.dice': 'dados',
+    'quickstart.field.attributes': 'atributos del personaje',
+    'quickstart.field.combat': 'combate',
+    'quickstart.field.diceVisualization': 'animación de dados',
+    'quickstart.field.voiceInput': 'entrada de voz',
+    'quickstart.field.voiceOutput': 'narración por voz',
+    'quickstart.field.ambience': 'sonido ambiente',
+    'quickstart.unsupported':
+      'Tu pedido dice "{words}", pero las reglas elegidas no lo admiten. Elige reglas que sí lo admitan o quita esas palabras.',
+    'quickstart.genreKept':
+      'Ningún género incluido coincide con "{phrase}", así que esta aventura usa {genre} y mantiene "{phrase}" como descripción.',
     'quickstart.intentTooLong': 'La intención de la campaña puede tener como máximo {max} caracteres.',
     'quickstart.intentConflict': 'Tu intención da elecciones contradictorias para {fields}.',
     'quickstart.useClient': 'Usa el cliente {clients} para {fields}.',

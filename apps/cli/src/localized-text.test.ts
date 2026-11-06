@@ -68,11 +68,11 @@ test('rpg-42a.53 a client that cannot show a feature says which client to use, i
   const error = failure(() => planCampaign(undefined, { ruleset: NARRATIVE, diceVisualization: true }));
   assert.equal(
     errorText(PORTUGUESE, error),
-    'diceVisualization precisa de um livro de regras com dados.\nUse o cliente tui ou desktop para diceVisualization.',
+    'Seu pedido diz "animação de dados", mas esta aventura não tem dados. Escolha regras com dados ou remova essas palavras.\nUse o cliente tui ou desktop para animação de dados.',
   );
   assert.equal(
     errorText('en', error),
-    'diceVisualization needs a ruleset with dice.\nUse the tui or desktop client for diceVisualization.',
+    'Your pitch says "dice animation", but this adventure has no dice. Pick rules with dice, or remove those words.\nUse the tui or desktop client for dice animation.',
   );
 });
 
@@ -104,8 +104,8 @@ test('rpg-42a.117 a character that does not fit explains each engine issue in Br
 
 test('rpg-42a.117 a config issue line reads in Brazilian Portuguese and stays English by default', () => {
   const error = failure(() => planCampaign(undefined, { genre: 5 }));
-  assert.equal(errorText(PORTUGUESE, error), 'genre.value valor inválido.');
-  assert.equal(errorText('en', error), 'genre.value invalid value.');
+  assert.equal(errorText(PORTUGUESE, error), 'Seu pedido tem um problema com "genre.value": valor inválido.');
+  assert.equal(errorText('en', error), 'Your pitch has a problem with "genre.value": invalid value.');
 });
 
 test('rpg-42a.117 archive, import and Claude Code leaf errors read in Brazilian Portuguese', (t) => {

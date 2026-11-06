@@ -22,6 +22,7 @@ import { installRuleset } from './installed-rulesets.ts';
 import {
   openingFor,
   packsIn,
+  pitchNotes,
   planCampaign,
   planResult,
   planStart,
@@ -150,7 +151,7 @@ test('plain-English genre names resolve to installed genre ids', () => {
     ['a horror story set in a ruined world', 'horror'],
   ] as const;
   for (const [text, id] of cases) assert.equal(planCampaign(text).genre?.id, id, text);
-  assert.throws(() => planCampaign('a western story'), /not installed/);
+  assert.equal(planCampaign('a western story').genre?.id, 'blank-world');
 });
 
 test('rpg-42a.40 pt-BR genre names resolve to installed genre ids', () => {
@@ -163,7 +164,61 @@ test('rpg-42a.40 pt-BR genre names resolve to installed genre ids', () => {
     ['uma história de terror usando as regras Narrative', 'horror'],
   ] as const;
   for (const [text, id] of cases) assert.equal(planCampaign(text).genre?.id, id, text);
-  assert.throws(() => planCampaign('uma história de faroeste'), /not installed/);
+  assert.equal(planCampaign('uma história de faroeste').genre?.id, 'blank-world');
+});
+
+const OPEN_WORLD_PITCHES = [
+  ['en', 'an open world adventure with combat', 'open world', 'Blank world'],
+  ['pt-BR', 'uma aventura de mundo aberto com combate', 'mundo aberto', 'Mundo em branco'],
+  ['es', 'an open world adventure with combat', 'open world', 'Mundo en blanco'],
+] as const;
+
+test('rpg-42a.142 an unknown genre phrase uses blank-world and combat in the pitch never fails', () => {
+  for (const [locale, pitch, phrase] of OPEN_WORLD_PITCHES) {
+    const config = planCampaign(pitch);
+    assert.equal(config.genre?.id, 'blank-world', pitch);
+    assert.equal(config.values.combat, 'on', pitch);
+    assert.notEqual(config.rulepack, null, pitch);
+    const result = planResult({ version: PROTOCOL_VERSION, type: 'PlanCampaign', intent: pitch }, undefined, locale);
+    assert.ok(result.ok, pitch);
+    const [note] = result.value.notes ?? [];
+    assert.ok(note?.includes(`"${phrase}"`), `${locale}: ${note}`);
+  }
+});
+
+test('rpg-42a.142 new with an unknown genre phrase succeeds and prints the note', () =>
+  withDataDir((dataDir) => {
+    const output = succeed(dataDir, ['new', DEFAULT_CAMPAIGN, 'an open world adventure with combat']);
+    assert.ok(output.includes('keeps "open world" as its description.'), output);
+  }));
+
+test('rpg-42a.142 the genre note names the genre used and says the phrase was kept', () => {
+  const notes = OPEN_WORLD_PITCHES.map(([locale, pitch]) => pitchNotes(pitch, locale));
+  assert.deepEqual(notes, [
+    [
+      'No built-in genre matches "open world", so this adventure uses Blank world and keeps "open world" as its description.',
+    ],
+    [
+      'Nenhum gênero embutido corresponde a "mundo aberto", então esta aventura usa Mundo em branco e mantém "mundo aberto" como descrição.',
+    ],
+    [
+      'Ningún género incluido coincide con "open world", así que esta aventura usa Mundo en blanco y mantiene "open world" como descripción.',
+    ],
+  ]);
+  assert.deepEqual(pitchNotes('a fantasy story'), []);
+});
+
+test('rpg-42a.142 a conflict names the pitch words instead of a field code', () => {
+  const cases = [
+    ['en', 'A horror story using the Narrative rules with dice', 'with dice'],
+    ['pt-BR', 'Uma história de terror usando as regras Narrative com dados', 'com dados'],
+  ] as const;
+  for (const [locale, pitch, words] of cases) {
+    const result = planResult({ version: PROTOCOL_VERSION, type: 'PlanCampaign', intent: pitch }, undefined, locale);
+    assert.ok(!result.ok, pitch);
+    assert.ok(result.error.message.includes(`"${words}"`), result.error.message);
+    assert.doesNotMatch(result.error.message, /conflict|conflito|dice conflict/i);
+  }
 });
 
 const PLAN = { version: PROTOCOL_VERSION, type: 'PlanCampaign' } as const;
@@ -221,8 +276,9 @@ test('rpg-42a.8 free text turns dice animation on for the tui client', () => {
 
 const DICE_ONLY_INTENT = 'with dice animation';
 const VOICE_DICE_INTENT = `${DICE_ANIMATION_INTENT} and voice narration`;
-const DICE_HINT = 'Use the tui or desktop client for diceVisualization. Add --client tui.';
-const NEEDS_DICE = 'diceVisualization needs a ruleset with dice.';
+const DICE_HINT = 'Use the tui or desktop client for dice animation. Add --client tui.';
+const NEEDS_DICE =
+  'Your pitch says "dice animation", but this adventure has no dice. Pick rules with dice, or remove those words.';
 
 test('rpg-42a.31 new explains each conflict once, hints at --client and accepts --client', () =>
   withDataDir((dataDir) => {
@@ -230,7 +286,7 @@ test('rpg-42a.31 new explains each conflict once, hints at --client and accepts 
       [[DICE_ANIMATION_INTENT], `${DICE_HINT}\n`],
       [[DICE_ONLY_INTENT], `${NEEDS_DICE}\n${DICE_HINT}\n`],
       [[DICE_ONLY_INTENT, '--client', TUI_CLIENT], `${NEEDS_DICE}\n`],
-      [[VOICE_DICE_INTENT], 'Use the desktop client for voiceOutput and diceVisualization. Add --client desktop.\n'],
+      [[VOICE_DICE_INTENT], 'Use the desktop client for voice narration and dice animation. Add --client desktop.\n'],
     ];
     for (const [args, stderr] of refusals) {
       const refused = rpg(dataDir, ['new', DEFAULT_CAMPAIGN, ...args]);

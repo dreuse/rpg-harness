@@ -25,6 +25,9 @@ import { createDesktopClient } from './renderer.ts';
 const TEMP_PREFIX = 'rpg-desktop-start-';
 const HORROR_INTENT = 'A horror story using the Narrative rules';
 const UNINSTALLED_INTENT = 'Play D&D 1.9 in a noir mystery';
+const OPEN_WORLD_INTENT = 'an open world adventure with combat';
+const OPEN_WORLD_NOTE =
+  'No built-in genre matches "open world", so this adventure uses Blank world and keeps "open world" as its description.';
 const GUIDED_NAME = 'Ashfall';
 const PLAYER_ACTION = 'I look around';
 const IGNORE = () => {};
@@ -128,6 +131,16 @@ test('rpg-42a.14 desktop describe it path creates a playable campaign', async (t
   assert.ok(summary?.text.includes('Genre: Horror (chosen)'));
   assert.ok(desktop.client.state().campaigns.some(({ name }) => name === DEFAULT_ADVENTURE_NAME));
   assert.equal(await playOneTurn(t, dataDir, DEFAULT_ADVENTURE_NAME), PLAYER_ACTION);
+});
+
+test('rpg-42a.142 desktop describe path with an unknown genre phrase starts on blank-world and says so', async (t) => {
+  const { summary } = await createThrough(t, [
+    { kind: 'path', path: 'describe' },
+    { kind: 'enter', text: OPEN_WORLD_INTENT },
+    { kind: 'next' },
+  ]);
+  assert.ok(summary?.text.includes(OPEN_WORLD_NOTE), summary?.text.join('\n'));
+  assert.ok(summary?.text.includes('Genre: Blank world (chosen)'), summary?.text.join('\n'));
 });
 
 test('rpg-42a.14 desktop guide me path creates a playable campaign with chosen settings', async (t) => {

@@ -269,6 +269,7 @@ export type CampaignPlan = {
   readonly version: ProtocolVersion;
   readonly options: StartOptions;
   readonly entries: readonly PlanEntry[];
+  readonly notes?: readonly string[];
 };
 
 export type SpeakingNpc = { readonly id: string; readonly name: string };

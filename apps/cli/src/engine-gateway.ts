@@ -161,6 +161,7 @@ import {
   type Packs,
   packsIn,
   packsWith,
+  pitchNotes,
   planCampaign,
   startingCharacter,
   titleOf,
@@ -1658,7 +1659,10 @@ export const createEngineGateway = (
       starterFor(gm, { name: title, pitch, config, language, model: readGmDefaults(dataDir).model }),
       language,
     );
-    yield `${derived ? `${say(shown, 'campaign.created', { title })}\n${say(shown, 'campaign.keepName')}\n` : ''}${say(shown, 'campaign.savedSettings')}\n${describeConfig(config, shown)}\n${scene}`;
+    const notes = pitchNotes(pitch, shown, packsIn(dataDir))
+      .map((note) => `${note}\n`)
+      .join('');
+    yield `${derived ? `${say(shown, 'campaign.created', { title })}\n${say(shown, 'campaign.keepName')}\n` : ''}${notes}${say(shown, 'campaign.savedSettings')}\n${describeConfig(config, shown)}\n${scene}`;
     const character = await characterFor(dataDir, title, config, ask);
     if (character !== undefined) yield character;
   },

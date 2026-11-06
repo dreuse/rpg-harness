@@ -143,10 +143,17 @@ const reportFor = ({ ruleset }: CampaignIntent, registry: Registry): CapabilityR
   return rules?.ok === true ? rules.capabilities : NO_MECHANICS;
 };
 
-const conflictText = ({ code, entries: [entry] }: IntentConflict) =>
-  code === REQUIRES_DICE
-    ? new LocalizedError('quickstart.needsDice')
-    : issueLine({ code: CONFLICT, path: entry?.field ?? '' });
+type Words = Partial<Record<IntentField, string>>;
+const NO_WORDS: Words = {};
+const NAMED_FIELDS: readonly string[] = [...MECHANICAL_FIELDS, ...UI_REQUIREMENTS.map(([field]) => field)];
+const wordsOf = (words: Words, field: string) =>
+  words[field as IntentField] ??
+  (NAMED_FIELDS.includes(field) ? new LocalizedError(`quickstart.field.${field}`) : field);
+
+const conflictText = ({ code, entries: [entry] }: IntentConflict, words: Words) =>
+  new LocalizedError(code === REQUIRES_DICE ? 'quickstart.needsDice' : 'quickstart.unsupported', {
+    words: wordsOf(words, entry?.field ?? ''),
+  });
 
 const listed = (items: readonly string[], kind?: ContentKind) => new ListParam(items, 'plain', kind);
 const rulesets = (candidates: readonly RulesetCandidate[]) =>
@@ -167,16 +174,19 @@ const rulesetError = (resolution: Exclude<RulesetResolution, { status: 'resolved
   });
 };
 
-const issueLine = ({ code, path }: ConfigIssue | IntentIssue) =>
-  new LocalizedError('quickstart.issue', { path, reason: new LocalizedError(`quickstart.code.${code}`) });
+const issueLine = ({ code, path }: ConfigIssue | IntentIssue, words: Words = NO_WORDS) =>
+  new LocalizedError('quickstart.issue', {
+    words: wordsOf(words, path),
+    reason: new LocalizedError(`quickstart.code.${code}`),
+  });
 
-const issueText = (intent: CampaignIntent, issue: ConfigIssue) =>
+const issueText = (intent: CampaignIntent, issue: ConfigIssue, words: Words) =>
   issue.path === 'genre' && issue.code === 'not_installed'
     ? new LocalizedError('quickstart.genreMissing', {
         genre: intent.genre.value,
         available: listed(GENRE_REGISTRY.map(({ id }) => id)),
       })
-    : issueLine(issue);
+    : issueLine(issue, words);
 
 const canonicalGenre = (registry: Registry, intent: CampaignIntent): CampaignIntent => {
   if (intent.genre.value === null) return intent;
@@ -187,17 +197,57 @@ const canonicalGenre = (registry: Registry, intent: CampaignIntent): CampaignInt
 const chosenIntent = (registry: Registry, choices: Choices, derived: CampaignIntentInput = {}): CampaignIntent => {
   const chosen = Object.entries(choices).map(([field, value]) => [field, { value, provenance: CHOSEN }]);
   const parsed = parseCampaignIntent({ ...derived, ...Object.fromEntries(chosen) });
-  if (!parsed.ok) throw new LocalizedError('quickstart.lines', { lines: parsed.issues.map(issueLine) });
+  if (!parsed.ok)
+    throw new LocalizedError('quickstart.lines', { lines: parsed.issues.map((issue) => issueLine(issue)) });
   return resolvedIntent(registry, parsed.intent);
 };
 
-const intentFrom = (registry: Registry, text: string, choices: Choices): CampaignIntent => {
+const BLANK_WORLD_ID = BLANK_WORLD_PACK.genre.id;
+const DERIVED: Provenance = 'derived';
+
+const unmatchedGenre = (registry: Registry, { genre }: CampaignIntentInput) => {
+  const phrase = genre?.value;
+  return typeof phrase === 'string' && matchGenre(registry, { id: phrase, version: null }).ok === false
+    ? phrase
+    : undefined;
+};
+
+const mechanicalRuleset = (registry: Registry, input: CampaignIntentInput): CampaignIntentInput => {
+  const wanted = MECHANICAL_FIELDS.filter((field) => input[field]?.value === 'on');
+  if (input.ruleset?.value != null || wanted.length === 0) return input;
+  for (const { id, edition } of registry.rulepacks) {
+    const match = matchRuleset(registry, { id, edition }, MECHANICAL_FIELDS);
+    if (match.ok && wanted.every((field) => match.capabilities.advertised.includes(field)))
+      return { ...input, ruleset: { value: { id, edition }, provenance: DERIVED } };
+  }
+  return input;
+};
+
+const intentFrom = (registry: Registry, text: string, choices: Choices) => {
   const proposed = proposeCampaignIntent(text);
   if (!proposed.ok) throw new LocalizedError('quickstart.intentTooLong', { max: MAX_INTENT_TEXT_LENGTH });
-  const { conflicts, input } = proposed.proposal;
+  const { conflicts, input, settings } = proposed.proposal;
   if (conflicts.length > 0)
     throw new LocalizedError('quickstart.intentConflict', { fields: listed(conflicts.map(({ field }) => field)) });
-  return chosenIntent(registry, choices, input);
+  const known =
+    unmatchedGenre(registry, input) === undefined
+      ? input
+      : { ...input, genre: { value: BLANK_WORLD_ID, provenance: DERIVED } };
+  const words: Words = Object.fromEntries(settings.map(({ field, evidence }) => [field, evidence.text]));
+  return { intent: chosenIntent(registry, choices, mechanicalRuleset(registry, known)), words };
+};
+
+export const pitchNotes = (text: string | undefined, locale = DEFAULT_LOCALE, packs: Packs = BUILT_IN_PACKS) => {
+  const proposed = text === undefined ? undefined : proposeCampaignIntent(text);
+  const phrase = proposed?.ok ? unmatchedGenre(registryOf(packs), proposed.proposal.input) : undefined;
+  return phrase === undefined
+    ? []
+    : [
+        say(locale, 'quickstart.genreKept', {
+          phrase,
+          genre: contentText(locale, 'genre', BLANK_WORLD_ID, BLANK_WORLD_PACK.genre.name),
+        }),
+      ];
 };
 
 const resolvedIntent = (registry: Registry, choices: CampaignIntent): CampaignIntent => {
@@ -209,7 +259,7 @@ const resolvedIntent = (registry: Registry, choices: CampaignIntent): CampaignIn
   return { ...intent, ruleset: { value: { id, edition }, provenance: intent.ruleset.provenance } };
 };
 
-const configFor = (registry: Registry, intent: CampaignIntent): CampaignConfig => {
+const configFor = (registry: Registry, intent: CampaignIntent, words: Words = NO_WORDS): CampaignConfig => {
   const result = generateCampaignConfig(intent, registry);
   if (result.ok) return result.config;
   const conflicts = result.issues.some(({ code }) => code === CONFLICT)
@@ -219,25 +269,27 @@ const configFor = (registry: Registry, intent: CampaignIntent): CampaignConfig =
     code === CLIENT_UNSUPPORTED && entry !== undefined ? [entry.field] : [],
   );
   const lines = [
-    ...result.issues.filter(({ code }) => code !== CONFLICT).map((issue) => issueText(intent, issue)),
-    ...conflicts.filter(({ code }) => code !== CLIENT_UNSUPPORTED).map(conflictText),
+    ...result.issues.filter(({ code }) => code !== CONFLICT).map((issue) => issueText(intent, issue, words)),
+    ...conflicts.filter(({ code }) => code !== CLIENT_UNSUPPORTED).map((conflict) => conflictText(conflict, words)),
   ];
   const clients = CLIENTS.filter((client) => unsupported.every((field) => supports(client, field)));
   const [client] = clients;
   if (unsupported.length === 0 || client === undefined) throw new LocalizedError('quickstart.lines', { lines });
   const advice = new LocalizedError('quickstart.useClient', {
     clients: new ListParam(clients, 'disjunction'),
-    fields: new ListParam(unsupported, 'conjunction'),
+    fields: new ListParam(
+      unsupported.map((field) => wordsOf(words, field)),
+      'conjunction',
+    ),
   });
   throw new ClientUnsupported([...lines, advice], client);
 };
 
 export const planCampaign = (text?: string, choices: Choices = {}, packs: Packs = BUILT_IN_PACKS): CampaignConfig => {
   const registry = registryOf(packs);
-  return configFor(
-    registry,
-    text === undefined ? chosenIntent(registry, choices) : intentFrom(registry, text, choices),
-  );
+  if (text === undefined) return configFor(registry, chosenIntent(registry, choices));
+  const { intent, words } = intentFrom(registry, text, choices);
+  return configFor(registry, intent, words);
 };
 
 const MAX_TITLE_WORDS = 4;
@@ -456,7 +508,9 @@ export const planResult = (
   packs: Packs = BUILT_IN_PACKS,
 ): Result<CampaignPlan> => {
   try {
-    return { ok: true, value: planStart(command, client, packs) };
+    const plan = planStart(command, client, packs);
+    const notes = pitchNotes(command.intent, locale, packs);
+    return { ok: true, value: notes.length === 0 ? plan : { ...plan, notes } };
   } catch (error) {
     return failureOf(error, locale);
   }
