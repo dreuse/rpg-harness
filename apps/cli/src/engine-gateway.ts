@@ -531,7 +531,8 @@ const narrateLatest = async (
   const previous = previousNarrationsOf(state, committed);
   const forward = streamOf(checkPending ? undefined : voice, listener, committed.turn.id);
   const strictness = rulesStrictnessFor(state, defaults);
-  const rolling = gmRollsAllowed(state.events, strictness);
+  const installed = session.installedRuleset(state.events);
+  const rolling = gmRollsAllowed(state.events, strictness, installed);
   const ledger = buildLedger(state.events);
   const guarded = ledger.length > NO_LEDGER_ENTRIES;
   const withVoiceNotice = (shown: readonly GmSegment[]) =>
@@ -553,7 +554,8 @@ const narrateLatest = async (
           repeated,
           contradicted,
           gmRolls,
-          packs: packsWith(() => session.installedRuleset(state.events)),
+          packs: packsWith(() => installed),
+          installed,
         }),
       send: (packet) => {
         if (live) voice?.restart();
@@ -587,9 +589,9 @@ const narrateLatest = async (
             createEntityStore(database),
             committed,
             drafted.proposals ?? [],
-            (spec) => gmRollExpressionFor(state.events, strictness, spec),
+            (spec) => gmRollExpressionFor(state.events, strictness, spec, installed),
             rng,
-            modifierPolicyOf(state.events, strictness),
+            modifierPolicyOf(state.events, strictness, installed),
           ).flatMap(({ events }) =>
             events
               .filter(({ type }) => type === GM_ROLLED)
@@ -658,9 +660,9 @@ const narrateLatest = async (
       createFactStore(database),
       committed,
       proposals,
-      checkRulesFor(state.events, rulesStrictnessFor(state, defaults)),
-      modifierPolicyOf(state.events, rulesStrictnessFor(state, defaults)),
-      combatRulesOf(state.events),
+      checkRulesFor(state.events, rulesStrictnessFor(state, defaults), installed),
+      modifierPolicyOf(state.events, rulesStrictnessFor(state, defaults), installed),
+      combatRulesOf(state.events, installed),
     );
   }
   if (sent !== undefined)
@@ -1099,15 +1101,16 @@ const createCampaign = async (
       recordGmUsage(store, { campaignId: campaign.id, turnId: committed.turn.id, sessionId: randomUUID(), usage });
     const state = engine.getState(campaign.id);
     const strictness = rulesStrictnessFor(state, readGmDefaults(dataDir));
+    const installed = installedRulesetIn(dataDir, state.events);
     commitProposals(
       store,
       createEntityStore(database),
       createFactStore(database),
       committed,
       proposals,
-      checkRulesFor(state.events, strictness),
-      modifierPolicyOf(state.events, strictness),
-      combatRulesOf(state.events),
+      checkRulesFor(state.events, strictness, installed),
+      modifierPolicyOf(state.events, strictness, installed),
+      combatRulesOf(state.events, installed),
     );
     connection.close();
     return generic

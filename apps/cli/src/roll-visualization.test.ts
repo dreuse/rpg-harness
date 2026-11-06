@@ -35,10 +35,12 @@ import {
   checkFor as checkForOrReason,
   checkResult,
   checkRulesFor,
+  combatRulesOf,
   DICE_MECHANIC,
   emitVisualizations,
   enforcedStrictnessFor,
   gmRollExpressionFor,
+  modifierPolicyOf,
   offeredCheckFor,
   POOL_MECHANIC,
   poolResult,
@@ -807,4 +809,55 @@ test('rpg-42a.123: stored rules pinned to another ruleset make the roll fail ins
     () => checkFor(campaign, TRY_CLIMB, HERO, undefined, undefined, undefined, { manifest, rules: [foreign.rule] }),
     /cannot build its roll table/,
   );
+});
+
+const installedCampaign = () => {
+  const installed = installedGenerous();
+  return { ...installed, campaign: [...installed.events, heroCreated(ATTRIBUTES)] };
+};
+
+test('rpg-42a.136: the GM rule list, roll expression and modifiers of an installed d20 ruleset come from it', () => {
+  const { manifest, rules, campaign } = installedCampaign();
+  const installed = { manifest, rules };
+  assert.deepEqual(checkRulesFor(campaign, 'as-written'), []);
+  assert.ok(checkRulesFor(campaign, 'as-written', installed).includes('attack.melee'));
+  assert.equal(gmRollExpressionFor(campaign, 'as-written', { ruleId: 'attack.melee' }), undefined);
+  assert.equal(gmRollExpressionFor(campaign, 'as-written', { ruleId: 'attack.melee' }, installed), '1d20');
+  assert.equal(modifierPolicyOf(campaign, 'as-written')?.vocabulary.modifiers.length, 0);
+  assert.ok((modifierPolicyOf(campaign, 'as-written', installed)?.vocabulary.modifiers.length ?? 0) > 0);
+});
+
+test('rpg-42a.136: an installed dice-pool ruleset lists no GM rules because it is refused', () => {
+  const manifest = { ...DICE_POOL_LITE_MANIFEST, id: `${DICE_POOL_LITE_MANIFEST.id}-import-0123456789ab` };
+  const intent = createCampaignIntent({
+    ruleset: explicit({ id: manifest.id, edition: manifest.edition }),
+    dice: explicit('rulepack'),
+  });
+  const generated = generateCampaignConfig(intent, { rulepacks: [...BUILT_IN_PACKS, manifest], genres: [] });
+  assert.ok(generated.ok, JSON.stringify(generated));
+  assert.deepEqual(checkRulesFor(configured(generated.config), 'as-written', { manifest, rules: [] }), []);
+});
+
+test('rpg-42a.136: an installed ruleset targets and defends with its own pin', () => {
+  const { manifest, rules, campaign } = installedCampaign();
+  const installed = { manifest, rules };
+  assert.equal(combatRulesOf(campaign), undefined);
+  assert.deepEqual(combatRulesOf(campaign, installed)?.pack, {
+    id: manifest.id,
+    edition: manifest.edition,
+    revision: manifest.revision,
+  });
+  const sheet = {
+    ...foeSheet(),
+    rulepack: { id: manifest.id, edition: manifest.edition, revision: manifest.revision },
+  };
+  const result = offeredCheckFor(
+    campaign,
+    { ...OFFER, ruleId: 'attack.melee' },
+    HERO,
+    [tam(sheet)],
+    undefined,
+    installed,
+  )?.('a', drawing([HIT_FACE, D20_SIDES], [DAMAGE_FACE, D6]));
+  assert.equal(result?.target, FOE_DEFENSE);
 });

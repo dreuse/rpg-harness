@@ -449,6 +449,7 @@ export const gmRollExpressionFor = (
   events: readonly CampaignEvent[],
   strictness: RulesStrictness,
   spec: GmRollSpec,
+  installed?: InstalledRuleset,
 ): string | undefined => {
   if (usesOwnRules(events)) return ownRulesExpression(events, strictness, spec);
   const { ruleId, expression, roller } = spec;
@@ -456,7 +457,7 @@ export const gmRollExpressionFor = (
   const saved = parseCampaignConfig(campaignConfigOf(events));
   if (!saved.ok || !rollsDice(saved.config)) return undefined;
   if (ruleId !== undefined) {
-    const entry = checkEntryOf(events, strictness);
+    const entry = checkEntryOf(events, strictness, installed);
     return entry?.[2].includes(ruleId) ? entry[3] : undefined;
   }
   return saved.config.rulepack === null || strictness !== 'off' ? expression : undefined;
@@ -465,6 +466,7 @@ export const gmRollExpressionFor = (
 export const modifierPolicyOf = (
   events: readonly CampaignEvent[],
   strictness: RulesStrictness,
+  installed?: InstalledRuleset,
 ): ModifierPolicy | undefined => {
   if (strictness === 'off') return undefined;
   if (usesOwnRules(events)) {
@@ -477,20 +479,25 @@ export const modifierPolicyOf = (
   }
   const saved = parseCampaignConfig(campaignConfigOf(events));
   if (!saved.ok || !rollsDice(saved.config)) return undefined;
-  return { vocabulary: checkEntryOf(events, strictness)?.[4] ?? NO_VOCABULARY, strictness };
+  return { vocabulary: checkEntryOf(events, strictness, installed)?.[4] ?? NO_VOCABULARY, strictness };
 };
 
 const GM_ROLL_PROBE = `1d${D20_SIDES}`;
 
-export const gmRollsAllowed = (events: readonly CampaignEvent[], strictness: RulesStrictness): boolean =>
+export const gmRollsAllowed = (
+  events: readonly CampaignEvent[],
+  strictness: RulesStrictness,
+  installed?: InstalledRuleset,
+): boolean =>
   usesOwnRules(events)
     ? strictness !== 'off'
-    : gmRollExpressionFor(events, strictness, { expression: GM_ROLL_PROBE }) !== undefined;
+    : gmRollExpressionFor(events, strictness, { expression: GM_ROLL_PROBE }, installed) !== undefined;
 
 export const checkRulesFor = (
   events: readonly CampaignEvent[],
   strictness: RulesStrictness = DEFAULT_RULES_STRICTNESS,
-): readonly string[] => checkEntryOf(events, strictness)?.[2] ?? NO_RULES;
+  installed?: InstalledRuleset,
+): readonly string[] => checkEntryOf(events, strictness, installed)?.[2] ?? NO_RULES;
 
 const worldProfileOf = (entities: readonly CampaignEntity[], actorId: CharacterId) =>
   entities.find(({ id, kind }) => id === actorId && kind === CHARACTER_KIND)?.data;
@@ -530,9 +537,12 @@ const combatRulesFor = (pack: RulePackManifest): CombatRules => ({
   hitPoints: D20_LITE_COMBAT.hitPoints,
 });
 
-export const combatRulesOf = (events: readonly CampaignEvent[]): CombatRules | undefined => {
-  const pack = checkEntryOf(events, AS_WRITTEN)?.[0];
-  return pack === D20_LITE_MANIFEST ? combatRulesFor(pack) : undefined;
+export const combatRulesOf = (
+  events: readonly CampaignEvent[],
+  installed?: InstalledRuleset,
+): CombatRules | undefined => {
+  const pack = checkEntryOf(events, AS_WRITTEN, installed)?.[0];
+  return pack === D20_LITE_MANIFEST ? combatRulesFor(installed?.manifest ?? pack) : undefined;
 };
 
 const defenderOf = (
@@ -555,7 +565,8 @@ export const offeredCheckFor = (
 ): Check | undefined => {
   const { ruleId, label, target } = offer;
   const entry = checkEntryOf(events, AS_WRITTEN, installed);
-  const defender = entry === undefined ? undefined : defenderOf(events, entities, target, entry[0]);
+  const defender =
+    entry === undefined ? undefined : defenderOf(events, entities, target, installed?.manifest ?? entry[0]);
   const offered = entry?.[2].includes(ruleId)
     ? entry[1](
         events,

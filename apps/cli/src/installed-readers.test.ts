@@ -148,3 +148,12 @@ test('rpg-42a.124 an installed ruleset uses the creation rules of its base pack'
     const { rulepack } = pinnedTo(dataDir, D20_LITE_MANIFEST);
     assert.equal(creationRulesFor(rulepack)?.schema.rulepack.id, D20_LITE_MANIFEST.id);
   }));
+
+test('rpg-42a.136 live play lists the check rules of an installed d20 ruleset to the GM', async (t) => {
+  const { packets } = await requestedPackets(freshDataDir(t), D20_LITE_MANIFEST);
+  const lines = packets.flatMap((packet) => packet.sections.flatMap(({ items }) => items));
+  assert.ok(
+    lines.some((line) => line.includes('ruleId from this list') && line.includes('attack.melee')),
+    JSON.stringify(lines),
+  );
+});

@@ -78,6 +78,7 @@ import {
 } from './gm-api.ts';
 import { budgetOf } from './gm-limits.ts';
 import { COMPARED_NARRATIONS, closingSentencesOf } from './gm-repetition.ts';
+import type { InstalledRuleset } from './installed-rulesets.ts';
 import { ownRulesItems } from './own-rules.ts';
 import { describeConfig, type Packs, rulesDocumentStyleLines, styleLinesOf } from './quickstart.ts';
 import {
@@ -216,6 +217,7 @@ export type PacketOptions = {
   readonly contradicted?: readonly string[];
   readonly gmRolls?: readonly string[];
   readonly packs?: Packs;
+  readonly installed?: InstalledRuleset | undefined;
 };
 
 const ownRulesInstructions = (state: CampaignState, defaults: GmSettings) => {
@@ -223,18 +225,23 @@ const ownRulesInstructions = (state: CampaignState, defaults: GmSettings) => {
   return strictness === 'off' ? [] : [OWN_RULES_PROMPT, OWN_RULES_STRICTNESS_PROMPTS[strictness]];
 };
 
-const strictnessInstructions = (config: ReturnType<typeof configOf>, state: CampaignState, defaults: GmSettings) => {
+const strictnessInstructions = (
+  config: ReturnType<typeof configOf>,
+  state: CampaignState,
+  defaults: GmSettings,
+  installed?: InstalledRuleset,
+) => {
   if (rulesDocumentsOf(state.events).length > NONE) return ownRulesInstructions(state, defaults);
   if (config === undefined || config.rulepack === null) return [];
   const strictness = rulesStrictnessFor(state, defaults);
   const promptApplies = strictness !== 'as-written' || enforcedStrictnessFor(state, defaults) !== undefined;
   if (!promptApplies) return [];
-  const ruleIds = checkRulesFor(state.events, strictness);
+  const ruleIds = checkRulesFor(state.events, strictness, installed);
   return [RULES_STRICTNESS_PROMPTS[strictness], ...(ruleIds.length === NONE ? [] : [checkRulesPrompt(ruleIds)])];
 };
 
-const modifierInstructions = (state: CampaignState, defaults: GmSettings) => {
-  const policy = modifierPolicyOf(state.events, rulesStrictnessFor(state, defaults));
+const modifierInstructions = (state: CampaignState, defaults: GmSettings, installed?: InstalledRuleset) => {
+  const policy = modifierPolicyOf(state.events, rulesStrictnessFor(state, defaults), installed);
   const empty = policy?.vocabulary.modifiers.length === NONE && policy.strictness === 'as-written';
   return policy === undefined || empty ? [] : [modifiersPrompt(policy)];
 };
@@ -259,7 +266,15 @@ export const contextPacketOf = (
   viewer: Viewer = PLAYER_VIEWER,
   preset: ContextBudgetPreset = contextBudgetOf(state.changes),
   ratio = 1,
-  { defaults = {}, retry = false, repeated = [], contradicted = [], gmRolls = [], packs }: PacketOptions = {},
+  {
+    defaults = {},
+    retry = false,
+    repeated = [],
+    contradicted = [],
+    gmRolls = [],
+    packs,
+    installed,
+  }: PacketOptions = {},
 ): ContextPacket => {
   const campaignId = state.campaign.id;
   const retconned = retconnedMemoryOf(database, state);
@@ -328,7 +343,7 @@ export const contextPacketOf = (
     .slice(NONE, MAX_TRAIT_REQUESTS)
     .map(({ id }) => id);
   const tableNotes = tableNoteLines(state);
-  const combat = combatRulesOf(state.events);
+  const combat = combatRulesOf(state.events, installed);
   return buildContextPacket(
     {
       instructions: [
@@ -336,12 +351,12 @@ export const contextPacketOf = (
         ...(tableNotes.length === NONE ? [] : [TABLE_NOTES_PROMPT]),
         ...(isStalled(state) ? [STALL_INSTRUCTION] : []),
         ...(language === undefined ? [] : [languageInstruction(language)]),
-        ...strictnessInstructions(config, state, defaults),
-        ...(gmRollsAllowed(state.events, rulesStrictnessFor(state, defaults)) &&
+        ...strictnessInstructions(config, state, defaults, installed),
+        ...(gmRollsAllowed(state.events, rulesStrictnessFor(state, defaults), installed) &&
         rulesDocumentsOf(state.events).length === NONE
           ? [GM_ROLL_PROMPT]
           : []),
-        ...modifierInstructions(state, defaults),
+        ...modifierInstructions(state, defaults, installed),
         ...(combat === undefined ? [] : [npcSheetPrompt(combat)]),
         ...committed.events
           .filter(({ type }) => type === CHECK_SKIPPED)
