@@ -11,6 +11,7 @@ import {
   preparedWorkspace,
   replyOf,
   startFailure,
+  withGameTools,
 } from './gm-claude-code.ts';
 import { toolInputStream } from './gm-segment-stream.ts';
 import { type GmSegment, segmentsOf } from './gm-segments.ts';
@@ -59,14 +60,15 @@ const leaksProposals = (result: string): boolean => {
   return typeof body.result === 'string' && hasProposalsBlock(body.result);
 };
 
-export const streamClaudeNarration = async (
+const streamWith = async (
   route: ClaudeCodeRoute,
   system: string,
   input: string,
   onSegment: (segment: GmSegment) => void,
+  mcpConfig: string | undefined,
 ): Promise<GmReply> => {
   const cwd = preparedWorkspace(route);
-  const child = spawn(route.bin, claudeStreamArgs(route, system), {
+  const child = spawn(route.bin, claudeStreamArgs(route, system, mcpConfig), {
     cwd,
     env: route.env,
     stdio: ['pipe', 'pipe', 'pipe'],
@@ -106,13 +108,23 @@ export const streamClaudeNarration = async (
   }
 };
 
+export const streamClaudeNarration = (
+  route: ClaudeCodeRoute,
+  system: string,
+  input: string,
+  onSegment: (segment: GmSegment) => void,
+  databasePath?: string,
+): Promise<GmReply> =>
+  withGameTools(route, databasePath, (mcpConfig) => streamWith(route, system, input, onSegment, mcpConfig));
+
 const PART_SEPARATOR = '\n';
 
 export const requestClaudeStream = (
   route: ClaudeCodeRoute,
   packet: Pick<ContextPacket, 'sections'>,
   onSegment: (segment: GmSegment) => void,
+  databasePath?: string,
 ): Promise<GmReply> => {
   const { instructions, stable, variable } = packetParts(packet);
-  return streamClaudeNarration(route, instructions, [stable, variable].join(PART_SEPARATOR), onSegment);
+  return streamClaudeNarration(route, instructions, [stable, variable].join(PART_SEPARATOR), onSegment, databasePath);
 };

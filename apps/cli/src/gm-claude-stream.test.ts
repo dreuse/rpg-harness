@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { after, type TestContext, test } from 'node:test';
 import { ProviderError } from './gm-api.ts';
 import { claudeCodeRouteOf, MAX_OUTPUT_BYTES } from './gm-claude-code.ts';
@@ -29,7 +29,8 @@ test('claudeStreamArgs forces the segments schema so the model answers with stru
   assert.equal(args[args.indexOf('--json-schema') + 1], JSON.stringify(SEGMENTS_SCHEMA));
 });
 
-const STREAM_OK = ['#!/bin/sh', 'cat >/dev/null'];
+const MCP_COPY = `prev=''; for arg in "$@"; do [ "$prev" = --mcp-config ] && cp "$arg" "$(dirname "$0")/mcp.json"; prev="$arg"; done`;
+const STREAM_OK = ['#!/bin/sh', MCP_COPY, 'cat >/dev/null'];
 const fakeClaude = (t: TestContext, outputLines: readonly string[], exitCode = 0) => {
   const dir = mkdtempSync(join(tmpdir(), 'rpg-stream-'));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
@@ -165,4 +166,51 @@ test('rpg-42a.101 a streamed usage limit keeps its reset time', async (t: TestCo
       error.failure?.kind === 'limit' &&
       error.failure.detail === '3:30pm (Europe/Lisbon)',
   );
+});
+
+const ASAR_ENTRY = '/app/Resources/app.asar/apps/mcp-server/src/main.ts';
+const DATABASE = '/data/campaign.sqlite';
+const HOSTED = { url: 'http://127.0.0.1:4242/mcp', token: 'per-launch-token' };
+const mcpOf = (bin: string) => {
+  const file = join(dirname(bin), 'mcp.json');
+  return existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) : null;
+};
+
+test('rpg-42a.143 a streamed request in an asar build hosts the game server and closes it', async (t: TestContext) => {
+  const bin = fakeClaude(t, recorded());
+  const hosted: string[] = [];
+  let closed = 0;
+  const route = {
+    ...claudeCodeRouteOf(bin, DATA_ENV),
+    mcpEntry: ASAR_ENTRY,
+    hostGameServer: async (databasePath: string) => {
+      hosted.push(databasePath);
+      return {
+        ...HOSTED,
+        close: async () => {
+          closed += 1;
+        },
+      };
+    },
+  };
+  await streamClaudeNarration(route, 'sys', 'input', () => {}, DATABASE);
+  assert.deepEqual(hosted, [DATABASE]);
+  assert.deepEqual(mcpOf(bin), {
+    mcpServers: { rpg: { type: 'http', url: HOSTED.url, headers: { Authorization: `Bearer ${HOSTED.token}` } } },
+  });
+  assert.equal(closed, 1);
+});
+
+test('rpg-42a.143 a streamed request passes the stdio game server outside an asar archive', async (t: TestContext) => {
+  const bin = fakeClaude(t, recorded());
+  await streamClaudeNarration(claudeCodeRouteOf(bin, DATA_ENV), 'sys', 'input', () => {}, DATABASE);
+  assert.equal(mcpOf(bin)?.mcpServers.rpg.env.RPG_DATABASE_PATH, DATABASE);
+});
+
+test('rpg-42a.143 a streamed request without a database or a host passes no game server', async (t: TestContext) => {
+  const bin = fakeClaude(t, recorded());
+  const route = { ...claudeCodeRouteOf(bin, DATA_ENV), mcpEntry: ASAR_ENTRY, hostGameServer: undefined };
+  await streamClaudeNarration(route, 'sys', 'input', () => {}, DATABASE);
+  await streamClaudeNarration(claudeCodeRouteOf(bin, DATA_ENV), 'sys', 'input', () => {});
+  assert.equal(mcpOf(bin), null);
 });

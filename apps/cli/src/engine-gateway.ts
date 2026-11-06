@@ -378,7 +378,7 @@ export const claudeCodeGameMaster = (route: ClaudeCodeRoute): GameMaster => ({
     const routed = { ...route, model: chosen(model) ?? route.model };
     return onSegment === undefined
       ? requestClaudeNarration(routed, packet, databasePath)
-      : requestClaudeStream(routed, packet, onSegment).catch((error: unknown) =>
+      : requestClaudeStream(routed, packet, onSegment, databasePath).catch((error: unknown) =>
           error instanceof MalformedStreamReply
             ? requestClaudeNarration(routed, packet, databasePath)
             : Promise.reject(error),

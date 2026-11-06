@@ -9,6 +9,7 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs';
+import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
 import { after, describe, it, type TestContext } from 'node:test';
@@ -92,6 +93,8 @@ const USAGE = {
   server_tool_use: { web: 0 },
 };
 const COST_USD = 0.0123;
+const ASAR_ENTRY = '/app/Resources/app.asar/apps/mcp-server/src/main.ts';
+const HOSTED = { url: 'http://127.0.0.1:4242/mcp', token: 'per-launch-token' };
 const MCP_SERVER_ENTRY = join(import.meta.dirname, '../../mcp-server/src/main.ts');
 
 type Reply = {
@@ -428,6 +431,104 @@ describe('rpg-42a.33 Claude Code CLI game master', () => {
     assert.equal(gameServerLaunchable('C:\\App\\resources\\app.asar\\apps\\mcp-server\\src\\main.ts'), false);
     assert.equal(gameServerLaunchable('/repo/apps/mcp-server/src/main.ts'), true);
     assert.equal(gameServerLaunchable('/repo/app.asarx/main.ts'), true);
+  });
+
+  it('rpg-42a.143 hosts the game tools over http when the MCP entry sits inside an asar archive', async (t) => {
+    const { bin, calls } = fakeClaude(t);
+    const hosted: string[] = [];
+    let closed = 0;
+    const close = async () => {
+      closed += 1;
+    };
+    const route = {
+      ...routeFor(bin),
+      mcpEntry: ASAR_ENTRY,
+      hostGameServer: async (databasePath: string) => {
+        hosted.push(databasePath);
+        return { ...HOSTED, close };
+      },
+    };
+    assert.equal((await requestClaudeNarration(route, packet(), DATABASE)).narration, NARRATION);
+    const [call] = calls();
+    assert.deepEqual(hosted, [DATABASE]);
+    assert.deepEqual(call?.mcp, {
+      mcpServers: {
+        rpg: { type: 'http', url: HOSTED.url, headers: { Authorization: `Bearer ${HOSTED.token}` } },
+      },
+    });
+    assertSafe(call?.args ?? []);
+    assert.equal(closed, 1);
+  });
+
+  it('rpg-42a.143 the default route hosts a working game server', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'rpg-hosted-'));
+    const route = claudeCodeRouteOf('claude', { RPG_DATA_DIR: DATA_DIR });
+    const hosted = await route.hostGameServer?.(join(directory, 'campaign.sqlite'));
+    try {
+      const reply = await fetch(hosted?.url ?? '', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          accept: 'application/json, text/event-stream',
+          authorization: `Bearer ${hosted?.token}`,
+        },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
+      });
+      assert.equal(reply.status, 200);
+    } finally {
+      await hosted?.close();
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('rpg-42a.143 a failed listen leaves the call running with no MCP config and no hang', async (t) => {
+    const { bin, calls } = fakeClaude(t);
+    const busy = createServer();
+    await new Promise<void>((resolve) => busy.listen(0, '127.0.0.1', resolve));
+    t.after(() => busy.close());
+    const directory = mkdtempSync(join(tmpdir(), 'rpg-busy-'));
+    t.after(() => rmSync(directory, { recursive: true, force: true }));
+    const { port } = busy.address() as { port: number };
+    const route = {
+      ...routeFor(bin),
+      mcpEntry: ASAR_ENTRY,
+      hostGameServer: async (databasePath: string) =>
+        (await import('../../mcp-server/src/host.ts')).hostGameServer(databasePath, port),
+    };
+    await requestClaudeNarration(route, packet(), join(directory, 'campaign.sqlite'));
+    assert.deepEqual(
+      calls().map(({ mcp }) => mcp),
+      [null],
+    );
+  });
+
+  it('rpg-42a.143 closes the hosted game server when Claude Code fails', async (t) => {
+    const { bin } = fakeClaude(t, [{ code: 1, stderr: 'boom' }]);
+    let closed = 0;
+    const close = async () => {
+      closed += 1;
+    };
+    const route = { ...routeFor(bin), mcpEntry: ASAR_ENTRY, hostGameServer: async () => ({ ...HOSTED, close }) };
+    await failureOf(requestClaudeNarration(route, packet(), DATABASE));
+    assert.equal(closed, CLAUDE_MAX_RETRIES + 1);
+  });
+
+  it('rpg-42a.143 passes no MCP config when the entry is in an asar archive and nothing can host it', async (t) => {
+    const { bin, calls } = fakeClaude(t);
+    const unhostable = { ...routeFor(bin), mcpEntry: ASAR_ENTRY, hostGameServer: undefined };
+    await requestClaudeNarration(unhostable, packet(), DATABASE);
+    const failing = {
+      ...routeFor(bin),
+      mcpEntry: ASAR_ENTRY,
+      hostGameServer: async () => {
+        throw new Error('no server');
+      },
+    };
+    await requestClaudeNarration(failing, packet(), DATABASE);
+    assert.deepEqual(
+      calls().map(({ mcp }) => mcp),
+      [null, null],
+    );
   });
 
   it('rpg-42a.48 reports the token usage and cost of a summary call', async (t) => {

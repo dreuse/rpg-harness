@@ -152,6 +152,13 @@ describe('rpg-42a.47 Claude Code workspace', () => {
     assert.ok(!args.some((arg) => /dangerously|bypassPermissions/.test(arg)));
   });
 
+  it('rpg-42a.143 rpg claude passes no game server when its entry sits inside an asar archive', (t) => {
+    const { bin, call } = fakeInteractive(t);
+    const env = { PATH: '/usr/bin', [CLAUDE_BIN_ENV]: bin };
+    launchClaude(env, sandbox(t), CAMPAIGN_DATABASE, '/app/Resources/app.asar/apps/mcp-server/src/main.ts');
+    assert.deepEqual(call().args, ['--setting-sources', 'project']);
+  });
+
   it('rpg claude without a campaign passes no game server and returns the exit code', (t) => {
     const { bin, call } = fakeInteractive(t, FAILURE_EXIT);
     const dataDir = sandbox(t);

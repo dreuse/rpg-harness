@@ -65,6 +65,8 @@ const MCP_SERVER_ENTRY = join(import.meta.dirname, '../../mcp-server/src/main.ts
 const ASAR_SEGMENT = /[\\/][^\\/]*\.asar[\\/]/;
 const ELECTRON_RUN_AS_NODE_ENV = 'ELECTRON_RUN_AS_NODE';
 const ENABLED = '1';
+const HTTP_TRANSPORT = 'http';
+const BEARER = 'Bearer';
 const DATABASE_ENV = 'RPG_DATABASE_PATH';
 const TEMP_PREFIX = 'rpg-gm-';
 const MCP_CONFIG_FILE = 'mcp.json';
@@ -99,13 +101,21 @@ export type ClaudeCodeRoute = {
   readonly timeoutMs: number;
   readonly env: NodeJS.ProcessEnv;
   readonly workspace: string;
+  readonly mcpEntry: string;
+  readonly hostGameServer: HostGameServer | undefined;
 };
+
+export type HostedGameServer = { readonly url: string; readonly token: string; readonly close: () => Promise<void> };
+export type HostGameServer = (databasePath: string) => Promise<HostedGameServer>;
 
 const childEnvOf = (keys: readonly string[], env: NodeJS.ProcessEnv): NodeJS.ProcessEnv =>
   Object.fromEntries(keys.flatMap((name) => (env[name] === undefined ? [] : [[name, env[name]]])));
 
 const workspaceOf = (env: NodeJS.ProcessEnv) =>
   join(userDataDir({ platform: process.platform, env, homedir: homedir() }), CLAUDE_WORKSPACE_DIR);
+
+const hostedGameServer: HostGameServer = async (databasePath) =>
+  (await import('../../mcp-server/src/host.ts')).hostGameServer(databasePath);
 
 export const claudeCodeRouteOf = (bin: string, env: NodeJS.ProcessEnv): ClaudeCodeRoute => ({
   bin,
@@ -116,6 +126,8 @@ export const claudeCodeRouteOf = (bin: string, env: NodeJS.ProcessEnv): ClaudeCo
   timeoutMs: CLAUDE_TIMEOUT_MS,
   env: childEnvOf(CHILD_ENV_KEYS, env),
   workspace: workspaceOf(env),
+  mcpEntry: MCP_SERVER_ENTRY,
+  hostGameServer: hostedGameServer,
 });
 
 export const claudeError = (failure: GmFailure, message = gmFailureText(DEFAULT_LOCALE, failure), tooLong = false) =>
@@ -195,6 +207,25 @@ export const gameMcpConfig = (databasePath: string, versions: { readonly electro
   },
 });
 
+export const gameHttpConfig = ({ url, token }: Pick<HostedGameServer, 'url' | 'token'>) => ({
+  mcpServers: { [GAME_SERVER]: { type: HTTP_TRANSPORT, url, headers: { Authorization: `${BEARER} ${token}` } } },
+});
+
+type GameTools = { readonly config: object; readonly close: () => unknown };
+
+const gameToolsOf = async (
+  { mcpEntry, hostGameServer }: ClaudeCodeRoute,
+  databasePath: string,
+): Promise<GameTools | undefined> => {
+  if (gameServerLaunchable(mcpEntry)) return { config: gameMcpConfig(databasePath), close: IGNORE };
+  try {
+    const hosted = await hostGameServer?.(databasePath);
+    return hosted && { config: gameHttpConfig(hosted), close: hosted.close };
+  } catch {
+    return undefined;
+  }
+};
+
 export type Exit = { readonly code: number | null; readonly stdout: string; readonly stderr?: string };
 
 const run = ({ bin, env, timeoutMs }: ClaudeCodeRoute, args: string[], input: string, cwd: string) =>
@@ -255,19 +286,31 @@ export const replyOf = ({ code, stdout, stderr = '' }: Exit, model: string | und
   };
 };
 
-const attempt = async (route: ClaudeCodeRoute, system: string, input: string, databasePath?: string) => {
-  const schema = databasePath === undefined ? undefined : NARRATION_SCHEMA;
+export const withGameTools = async <T>(
+  route: ClaudeCodeRoute,
+  databasePath: string | undefined,
+  use: (mcpConfig: string | undefined) => Promise<T>,
+): Promise<T> => {
   const dir = mkdtempSync(join(tmpdir(), TEMP_PREFIX));
+  let tools: GameTools | undefined;
   try {
-    const config = databasePath === undefined || !gameServerLaunchable() ? undefined : join(dir, MCP_CONFIG_FILE);
-    if (config !== undefined && databasePath !== undefined)
-      writeFileSync(config, JSON.stringify(gameMcpConfig(databasePath)), { mode: PRIVATE_FILE_MODE });
-    const cwd = preparedWorkspace(route);
-    return replyOf(await run(route, claudeArgs(route, system, config, schema), input, cwd), route.model);
+    tools = databasePath === undefined ? undefined : await gameToolsOf(route, databasePath);
+    const config = tools === undefined ? undefined : join(dir, MCP_CONFIG_FILE);
+    if (config !== undefined && tools !== undefined)
+      writeFileSync(config, JSON.stringify(tools.config), { mode: PRIVATE_FILE_MODE });
+    return await use(config);
   } finally {
     rmSync(dir, { recursive: true, force: true });
+    await tools?.close();
   }
 };
+
+const attempt = (route: ClaudeCodeRoute, system: string, input: string, databasePath?: string) =>
+  withGameTools(route, databasePath, async (config) => {
+    const schema = databasePath === undefined ? undefined : NARRATION_SCHEMA;
+    const cwd = preparedWorkspace(route);
+    return replyOf(await run(route, claudeArgs(route, system, config, schema), input, cwd), route.model);
+  });
 
 const request = async (route: ClaudeCodeRoute, system: string, input: string, databasePath?: string) => {
   for (let tried = 0; ; tried += 1) {
@@ -310,13 +353,18 @@ export const requestClaudeSummary = async (
 
 const MCP_CONFIG_FLAG = '--mcp-config';
 
-export const launchClaude = (env: NodeJS.ProcessEnv, dataDir: string, campaignDatabase?: string): number => {
+export const launchClaude = (
+  env: NodeJS.ProcessEnv,
+  dataDir: string,
+  campaignDatabase?: string,
+  mcpEntry: string = MCP_SERVER_ENTRY,
+): number => {
   const bin = claudeBinOf(env);
   if (bin === undefined) throw new LocalizedError('claude.missing');
   const workspace = ensureClaudeWorkspace(join(dataDir, CLAUDE_WORKSPACE_DIR));
   const args = [
     ...SETTING_SOURCES,
-    ...(campaignDatabase === undefined || !gameServerLaunchable()
+    ...(campaignDatabase === undefined || !gameServerLaunchable(mcpEntry)
       ? []
       : [MCP_CONFIG_FLAG, JSON.stringify(gameMcpConfig(campaignDatabase))]),
   ];
