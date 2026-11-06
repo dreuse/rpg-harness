@@ -129,7 +129,7 @@ export const JOURNEY_ACTION = 'I try to climb the wall';
 export const JOURNEY_EDIT = { fieldId: 'might', value: 8 } as const;
 export const SHOT_DATA_EXTENSION = '.json';
 
-const JOURNEY_TIMEOUT_MS = 15000;
+const JOURNEY_TIMEOUT_MS = 60000;
 const WIDE_LAYOUT = 'wide';
 const JOURNEY_RULESET = 'Classic d20';
 const PORTUGUESE_RULESET = 'd20 clássico';
@@ -284,6 +284,12 @@ const oocSteps = (prefix: string): readonly JourneyStep[] => [
   { script: ASK_OOC, shot: `${prefix}ooc-proposal` },
   { script: APPLY_OOC, shot: `${prefix}ooc-applied` },
 ];
+const NPC_ROLL_ACTION = 'Tam steps out from the bar and brings the cudgel down on me.';
+const NPC_ROLL_TURN = steps(
+  `document.querySelector('#action-input').value = ${JSON.stringify(NPC_ROLL_ACTION)};`,
+  `document.querySelector('#action-form').requestSubmit();`,
+  `await ${until(`document.querySelector('[data-rolls] [data-roll]') && ${GM_REPLIED} && ${SETTLED}`)};`,
+);
 
 const COLLAPSED_ROLL = steps(`await ${until(`document.querySelector('[data-roll-badge]') && ${SETTLED}`)};`);
 
@@ -383,10 +389,12 @@ export const JOURNEY: Readonly<
     | 'failure'
     | 'ownRules'
     | 'rollOffer'
-    | 'rollOfferPortuguese',
+    | 'rollOfferPortuguese'
+    | 'npcRoll',
     readonly JourneyStep[]
   >
 > = {
+  npcRoll: [{ script: OPEN_FIRST_CAMPAIGN }, { script: NPC_ROLL_TURN, shot: 'npc-roll' }],
   rollOffer: [{ script: OPEN_ROLL_OFFER, shot: 'roll-offer' }],
   rollOfferPortuguese: [{ script: OPEN_ROLL_OFFER, shot: 'pt-BR-roll-offer' }],
   failure: [

@@ -527,3 +527,19 @@ test('rpg-42a.89: a GM roll resolves only the outcome claim that names its roll 
     close();
   }
 });
+
+test('rpg-42a.100: a GM roll proposed under another action does not resolve this turn', async () => {
+  const { store, close } = open();
+  try {
+    const committed = performAction(store, actionFor(store, 'swing'));
+    rolledFor(store, 'elsewhere', 'tam-swing');
+    const { narrator, retries } = scripted(
+      { narration: HIT_NARRATION, claims: [{ kind: 'outcome', ref: 'tam-swing' }] },
+      MISS_FREE_REPLY,
+    );
+    assert.equal(narrated(await narrateTurn(store, narrator, committed, AS_WRITTEN)).narration, MISS_FREE_NARRATION);
+    assert.deepEqual(retries, [undefined, ['unresolved-outcome']]);
+  } finally {
+    close();
+  }
+});

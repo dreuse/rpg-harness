@@ -43,18 +43,21 @@ export class UncommittedTurnError extends Error {
 }
 
 const PENDING_NARRATION = '';
+const PROPOSAL_INFIX = ':proposal:';
 
 const isUnresolvedOutcome = ({ kind }: Violation) => kind === 'unresolved-outcome';
 
-const gmRollIdsAfter = (
+const gmRollIdsOf = (
   { events, turns }: Pick<CampaignState, 'events' | 'turns'>,
   { turn }: CommittedTurn,
 ): ReadonlySet<string> => {
+  const proposalPrefix = `${turn.actionId}${PROPOSAL_INFIX}`;
   const actionOf = new Map(turns.map(({ id, actionId }) => [id, actionId]));
   const rolled = events
-    .slice(events.findLastIndex(({ turnId }) => turnId === turn.id) + 1)
     .filter(({ type }) => type === GM_ROLLED)
-    .map(({ turnId }) => gmRollIdOf(actionOf.get(turnId) ?? ''));
+    .map(({ turnId }) => actionOf.get(turnId) ?? '')
+    .filter((actionId) => actionId.startsWith(proposalPrefix))
+    .map(gmRollIdOf);
   return new Set(rolled.filter((id) => id !== undefined));
 };
 
@@ -67,7 +70,7 @@ const recordChecked = (
   const state = loadState(store, committed.turn.campaignId);
   const { events } = state;
   const checkResolved = committed.events.some(({ type }) => type === CHECK_RESOLVED || type === CHECK_SKIPPED);
-  const rolledIds = gmRollIdsAfter(state, committed);
+  const rolledIds = gmRollIdsOf(state, committed);
   const unrolled = claims.filter(({ kind, ref }) => kind !== 'outcome' || !rolledIds.has(ref));
   const report = checkConsistency({ ...context, narration, claims: unrolled, events, checkResolved });
   if (!report.ok) return { committed, inconsistent: report };
