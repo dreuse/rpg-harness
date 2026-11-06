@@ -317,7 +317,7 @@ export const CLI_CATALOG: Catalog = {
     'quickstart.genreKept':
       'No built-in genre matches "{phrase}", so this adventure uses {genre} and keeps "{phrase}" as its description.',
     'quickstart.intentTooLong': 'Campaign intent must be at most {max} characters.',
-    'quickstart.intentConflict': 'Your intent gives conflicting choices for {fields}.',
+    'quickstart.intentConflict': 'Your pitch asks for both {words}. Keep only one of them.',
     'quickstart.useClient': 'Use the {clients} client for {fields}.',
     'quickstart.lines': '{lines}',
     'quickstart.characterNeeds': 'Your character needs {fields}. Add them to your description, or skip this step.',
@@ -693,7 +693,7 @@ export const CLI_CATALOG: Catalog = {
     'quickstart.genreKept':
       'Nenhum gênero embutido corresponde a "{phrase}", então esta aventura usa {genre} e mantém "{phrase}" como descrição.',
     'quickstart.intentTooLong': 'A intenção da campanha pode ter no máximo {max} caracteres.',
-    'quickstart.intentConflict': 'Sua intenção traz escolhas conflitantes para {fields}.',
+    'quickstart.intentConflict': 'Seu pedido pede ao mesmo tempo {words}. Mantenha só uma das opções.',
     'quickstart.useClient': 'Use o cliente {clients} para {fields}.',
     'quickstart.lines': '{lines}',
     'quickstart.characterNeeds': 'Seu personagem precisa de {fields}. Inclua isso na descrição ou pule esta etapa.',
@@ -1075,7 +1075,7 @@ export const CLI_CATALOG: Catalog = {
     'quickstart.genreKept':
       'Ningún género incluido coincide con "{phrase}", así que esta aventura usa {genre} y mantiene "{phrase}" como descripción.',
     'quickstart.intentTooLong': 'La intención de la campaña puede tener como máximo {max} caracteres.',
-    'quickstart.intentConflict': 'Tu intención da elecciones contradictorias para {fields}.',
+    'quickstart.intentConflict': 'Tu pedido pide a la vez {words}. Deja solo una de las opciones.',
     'quickstart.useClient': 'Usa el cliente {clients} para {fields}.',
     'quickstart.lines': '{lines}',
     'quickstart.characterNeeds': 'Tu personaje necesita {fields}. Añádelos a tu descripción, o omite este paso.',

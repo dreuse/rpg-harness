@@ -295,6 +295,14 @@ test('rpg-42a.82 desktop journey of own rules files: choice, added file and a cr
   }
 });
 
+test('rpg-42a.142 desktop journey of an unknown genre phrase: the blank-world notice on the summary', {
+  skip,
+}, async (t) => {
+  const files = await captureJourneys(t, ['openWorld']);
+  checkBaselines(t, files);
+  assert.ok(files.length > 0);
+});
+
 test('rpg-42a.38 desktop journey of a diceless, sheetless campaign: rules, summary and play', { skip }, async (t) => {
   checkBaselines(t, await captureJourneys(t, ['diceless']));
 });

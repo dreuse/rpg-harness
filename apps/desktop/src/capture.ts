@@ -281,6 +281,15 @@ const BEGIN_TO_SUMMARY = steps(
 );
 const guide = (guideOption: string, feature: string, ruleset: string) =>
   steps(...guideToRules(guideOption), ...guideFromRules(feature, ruleset));
+const OPEN_WORLD_PITCH = 'an open world adventure with combat';
+const OPEN_WORLD_TO_SUMMARY = steps(
+  chooseOption('Describe it', 'describe'),
+  `document.querySelector('#start-entry').value = ${JSON.stringify(OPEN_WORLD_PITCH)};`,
+  `document.querySelector('[data-start-form]').requestSubmit();`,
+  `await ${until(`document.querySelector('[data-start-title="begin"]')`)};`,
+  `await ${BEGIN_TO_SUMMARY};`,
+  `if (![...document.querySelectorAll('[data-start-head] ~ p[role="status"]')].some((note) => note.textContent.includes('Blank world'))) throw new Error('summary lacks the blank-world notice');`,
+);
 const PORTUGUESE_TO_RULES = steps(...guideToRules(PORTUGUESE_GUIDE, 'fantasia'));
 const FIRST_TURN = steps(
   JOURNEY_LISTENER,
@@ -433,6 +442,7 @@ export const JOURNEY: Readonly<
     | 'reopen'
     | 'portuguese'
     | 'diceless'
+    | 'openWorld'
     | 'physical'
     | 'failure'
     | 'ownRules'
@@ -550,6 +560,11 @@ export const JOURNEY: Readonly<
     { script: BEGIN_TO_SUMMARY, shot: 'diceless-summary' },
     { script: DICELESS_PLAY, shot: 'diceless-play' },
     { script: OPEN_SOUND, shot: 'sound-settings' },
+  ],
+  openWorld: [
+    { script: FIRST_HOME },
+    { script: OPEN_START },
+    { script: OPEN_WORLD_TO_SUMMARY, shot: 'open-world-summary' },
   ],
   portuguese: [
     { script: FIRST_HOME, shot: 'pt-BR-first-run-home' },

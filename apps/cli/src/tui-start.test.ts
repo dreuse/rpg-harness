@@ -34,6 +34,9 @@ const FIRST = '1';
 const NARRATIVE = '1';
 const HORROR_INTENT = 'A horror story using the Narrative rules';
 const DICE_ANIMATION_INTENT = 'A fantasy story using the d20-lite rules with dice animation';
+const OPEN_WORLD_INTENT = 'an open world adventure with combat';
+const OPEN_WORLD_NOTE =
+  'No built-in genre matches "open world", so this adventure uses Blank world and keeps "open world" as its description.';
 const GUIDED_NAME = 'Ashfall';
 const PLAYER_ACTION = 'I look around';
 const PITCH = 'a fantasy adventure in a drowned chapel';
@@ -97,6 +100,14 @@ test('rpg-42a.14 tui describe it path creates a playable campaign from one sente
   assert.equal(summaryOf(dataDir, DEFAULT_ADVENTURE_NAME)?.genre?.id, 'horror');
   assert.ok((await playOneTurn(dataDir, DEFAULT_ADVENTURE_NAME)).length > 1);
   assert.ok(!existsSync(join(dataDir, START_DRAFT_FILE)));
+});
+
+test('rpg-42a.142 tui describe it path says an unknown genre phrase starts on blank-world', async (t) => {
+  const out = await answer(tempDataDir(t), [DESCRIBE, OPEN_WORLD_INTENT, CONTINUE, CONTINUE]);
+  assert.ok(
+    out.some((screen) => screen.includes(OPEN_WORLD_NOTE)),
+    out.join('\n'),
+  );
 });
 
 test('rpg-42a.8 tui describe it path saves dice animation on from free text', async (t) => {

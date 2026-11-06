@@ -80,6 +80,7 @@ export type StartScreen = {
   readonly step: StartStep;
   readonly title: string;
   readonly text: readonly string[];
+  readonly notes?: readonly string[];
   readonly options: readonly StartOption[];
   readonly entry?: { readonly label: string; readonly value: string };
   readonly review?: readonly StartReviewGroup[];
@@ -636,17 +637,15 @@ const reviewOf = (
 const summaryPage = (draft: StartDraft, plan: Result<CampaignPlan> | undefined, locale: string): Page => ({
   title: text(locale, 'summary.title'),
   text: plan?.ok
-    ? [
-        ...(plan.value.notes ?? []),
-        ...entriesOf(draft, plan.value.entries).map(({ field, value, provenance }) =>
-          text(locale, 'summary.line', {
-            label: fieldLabel(locale, field),
-            value: shown(locale, field, value, plan.value.options),
-            provenance: text(locale, `provenance.${provenance === DEFAULT_PROVENANCE ? DEFAULT_PROVENANCE : CHOSEN}`),
-          }),
-        ),
-      ]
+    ? entriesOf(draft, plan.value.entries).map(({ field, value, provenance }) =>
+        text(locale, 'summary.line', {
+          label: fieldLabel(locale, field),
+          value: shown(locale, field, value, plan.value.options),
+          provenance: text(locale, `provenance.${provenance === DEFAULT_PROVENANCE ? DEFAULT_PROVENANCE : CHOSEN}`),
+        }),
+      )
     : [],
+  ...(plan?.ok && plan.value.notes?.length ? { notes: plan.value.notes } : {}),
   options: [],
   entry: { label: text(locale, 'summary.entry'), value: draft.name || text(locale, 'name.default') },
   ...(plan?.ok ? { review: reviewOf(draft, plan.value, locale) } : {}),

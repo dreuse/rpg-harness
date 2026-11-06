@@ -222,6 +222,21 @@ test('rpg-42a.142 a conflict names the pitch words instead of a field code', () 
   }
 });
 
+test('rpg-42a.142 a contradiction names the pitch words instead of field codes', () => {
+  const cases = [
+    ['en', 'A fantasy story with voice narration and without voice narration', 'voice narration'],
+    ['pt-BR', 'Uma história de fantasia com animação de dados e sem animação de dados', 'animação de dados'],
+    ['en', 'A fantasy story that is also a horror story', 'horror'],
+    ['en', 'A fantasy story with relaxed pacing and fast pacing', 'relaxed pacing'],
+  ] as const;
+  for (const [locale, pitch, words] of cases) {
+    const result = planResult({ version: PROTOCOL_VERSION, type: 'PlanCampaign', intent: pitch }, undefined, locale);
+    assert.ok(!result.ok, pitch);
+    assert.ok(result.error.message.includes(words), result.error.message);
+    assert.doesNotMatch(result.error.message, /voiceOutput|diceVisualization|both (genre|pacing)\b|yes and no/);
+  }
+});
+
 const PLAN = { version: PROTOCOL_VERSION, type: 'PlanCampaign' } as const;
 const DOCUMENTED_DEFAULTS = [
   { field: 'ruleset', value: 'none', provenance: 'default' },

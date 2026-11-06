@@ -1025,6 +1025,7 @@ const startBody = (model: ViewModel, locale: string) => {
         ...(start.review === undefined ? start.text.map((line) => `<p>${escapeHtml(line)}</p>`) : []),
         startOptions(start, locale),
         startImport(model, start, locale),
+        ...(start.notes ?? []).map((line) => `<p role="status">${escapeHtml(line)}</p>`),
         start.review === undefined ? '' : startReview(start.review, locale),
         startEntry(start),
         start.error === undefined ? '' : alert(start.error),

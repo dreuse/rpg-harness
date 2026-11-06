@@ -54,6 +54,7 @@ const render = (screen: StartScreen, locale: string) =>
       ? screen.title
       : say(locale, 'start.step', { ...screen.progress, title: screen.title }),
     ...screen.text,
+    ...(screen.notes ?? []),
     ...(screen.importHint === undefined ? [] : [screen.importHint]),
     ...screen.options.flatMap(({ label, detail, selected, badge, group }, index) => [
       ...(group === undefined || group === screen.options[index - 1]?.group ? [] : [`${group}:`]),

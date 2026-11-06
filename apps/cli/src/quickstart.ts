@@ -229,13 +229,18 @@ const intentFrom = (registry: Registry, text: string, choices: Choices) => {
   const proposed = proposeCampaignIntent(text);
   if (!proposed.ok) throw new LocalizedError('quickstart.intentTooLong', { max: MAX_INTENT_TEXT_LENGTH });
   const { conflicts, input, settings } = proposed.proposal;
+  const words: Words = Object.fromEntries(settings.map(({ field, evidence }) => [field, evidence.text]));
   if (conflicts.length > 0)
-    throw new LocalizedError('quickstart.intentConflict', { fields: listed(conflicts.map(({ field }) => field)) });
+    throw new LocalizedError('quickstart.intentConflict', {
+      words: new ListParam(
+        [...new Set(conflicts.flatMap(({ candidates }) => candidates.map(({ evidence }) => evidence.text)))],
+        'conjunction',
+      ),
+    });
   const known =
     unmatchedGenre(registry, input) === undefined
       ? input
       : { ...input, genre: { value: BLANK_WORLD_ID, provenance: DERIVED } };
-  const words: Words = Object.fromEntries(settings.map(({ field, evidence }) => [field, evidence.text]));
   return { intent: chosenIntent(registry, choices, mechanicalRuleset(registry, known)), words };
 };
 

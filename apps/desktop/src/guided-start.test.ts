@@ -139,7 +139,7 @@ test('rpg-42a.142 desktop describe path with an unknown genre phrase starts on b
     { kind: 'enter', text: OPEN_WORLD_INTENT },
     { kind: 'next' },
   ]);
-  assert.ok(summary?.text.includes(OPEN_WORLD_NOTE), summary?.text.join('\n'));
+  assert.deepEqual(summary?.notes, [OPEN_WORLD_NOTE]);
   assert.ok(summary?.text.includes('Genre: Blank world (chosen)'), summary?.text.join('\n'));
 });
 
