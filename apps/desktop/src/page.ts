@@ -162,6 +162,8 @@ const ENTRY_SELECTOR = `#${START_ENTRY}`;
 const TITLE_SELECTOR = `[${START_TITLE}]`;
 const OPEN_SELECTOR = `[${START_OPEN}]`;
 const FOCUSED_SELECTOR = ':focus';
+const TEXT_FIELD_SELECTOR = 'input, textarea, select';
+const ROLL_OFFER_SELECTOR = `[${ROLL_OFFER_ATTRIBUTE}]`;
 const STEP_INDEX = /^\d+$/;
 const ARCHIVED_SELECTOR = '[data-archived]';
 const SETTINGS_SELECTOR = '[data-settings]';
@@ -213,6 +215,7 @@ const ROLLS_HELD_SELECTOR = '[data-rolls]:is(:hover, :focus-within)';
 const MOTION_ATTRIBUTE = 'data-motion';
 const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)';
 const FOCUS_ATTRIBUTES = [
+  ROLL_OFFER_ATTRIBUTE,
   START_TITLE,
   START_OPTION,
   START_CONTROL,
@@ -236,7 +239,9 @@ export type PageElements = {
   readonly root: Pick<HTMLElement, 'innerHTML' | 'style' | 'addEventListener' | 'querySelector'>;
   readonly form: Pick<HTMLFormElement, 'addEventListener' | 'requestSubmit'>;
   readonly input: Pick<HTMLInputElement, 'value'> &
-    Partial<Pick<HTMLInputElement, 'placeholder' | 'addEventListener' | 'setAttribute' | 'removeAttribute'>>;
+    Partial<
+      Pick<HTMLInputElement, 'placeholder' | 'matches' | 'addEventListener' | 'setAttribute' | 'removeAttribute'>
+    >;
   readonly slashMenu?: Pick<HTMLElement, 'innerHTML' | 'hidden' | 'addEventListener'>;
   readonly slashStatus?: Pick<HTMLElement, 'textContent'>;
   readonly slashHint?: Pick<HTMLElement, 'textContent'>;
@@ -435,9 +440,16 @@ export const mountPage = ({
     return Object.fromEntries(entries);
   };
   let focusRollsOnRender = false;
+  let shownOfferId: string | undefined;
   const render = () => {
     const model = viewModel(client.state(), width(), preferences, undefined, startVoices());
-    const focused = selectorOf(root.querySelector<HTMLElement>(FOCUSED_SELECTOR));
+    const focusedElement = root.querySelector<HTMLElement>(FOCUSED_SELECTOR);
+    const focused = selectorOf(focusedElement);
+    const typingInField =
+      (focusedElement?.matches?.(TEXT_FIELD_SELECTOR) === true && (focusedElement as HTMLInputElement).value !== '') ||
+      (input.matches?.(FOCUSED_SELECTOR) === true && input.value !== '');
+    const offerAppeared = model.rollOffer !== undefined && model.rollOffer.offerId !== shownOfferId;
+    shownOfferId = model.rollOffer?.offerId;
     const typed = entryValue();
     const sheetTyped = sheetInputs().map((field) => ({ field, value: field?.value, checked: field?.checked }));
     const memoryInputs = () =>
@@ -531,6 +543,7 @@ export const mountPage = ({
       focusRollsOnRender = false;
       return root.querySelector<HTMLElement>(ROLLS_SELECTOR)?.focus();
     }
+    if (offerAppeared && !typingInField) return root.querySelector<HTMLElement>(ROLL_OFFER_SELECTOR)?.focus();
     const typing = focused === ENTRY_SELECTOR || focused === SEARCH_SELECTOR;
     if (soundFocus !== null && !typing) soundFocus.focus();
     else if (focused !== undefined) root.querySelector<HTMLElement>(focused)?.focus();

@@ -297,6 +297,12 @@ const OPEN_REPORT = steps(
   click('#home-continue-0'),
   `await ${until(`document.querySelector(${JSON.stringify(REPORT_FORM)}) && ${SETTLED}`)};`,
 );
+const OFFER_BUTTON = '[data-roll-offer]';
+const OPEN_ROLL_OFFER = steps(
+  `await ${until(`${CONNECTED} && document.querySelector('#home-continue-0')`)};`,
+  click('#home-continue-0'),
+  `await ${until(`document.querySelector(${JSON.stringify(OFFER_BUTTON)}) && ${SETTLED}`)};`,
+);
 const SUBMIT_REPORT = steps(
   `document.querySelector(${JSON.stringify(REPORT_INPUT)}).value = '${REPORTED_TOTAL}';`,
   `document.querySelector(${JSON.stringify(REPORT_FORM)}).requestSubmit();`,
@@ -343,8 +349,21 @@ const OWN_CREATED = steps(
 );
 
 export const JOURNEY: Readonly<
-  Record<'first' | 'reopen' | 'portuguese' | 'diceless' | 'physical' | 'failure' | 'ownRules', readonly JourneyStep[]>
+  Record<
+    | 'first'
+    | 'reopen'
+    | 'portuguese'
+    | 'diceless'
+    | 'physical'
+    | 'failure'
+    | 'ownRules'
+    | 'rollOffer'
+    | 'rollOfferPortuguese',
+    readonly JourneyStep[]
+  >
 > = {
+  rollOffer: [{ script: OPEN_ROLL_OFFER, shot: 'roll-offer' }],
+  rollOfferPortuguese: [{ script: OPEN_ROLL_OFFER, shot: 'pt-BR-roll-offer' }],
   failure: [
     { script: OPEN_FIRST_CAMPAIGN },
     { script: FAIL_A_TURN, shot: 'gm-failure-notice' },

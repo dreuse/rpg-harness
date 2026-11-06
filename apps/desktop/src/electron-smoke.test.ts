@@ -366,6 +366,28 @@ test('rpg-42a.96 desktop journey of a physical roll: the report field and the pl
   checkBaselines(t, files);
 });
 
+test('rpg-42a.87 desktop journey of a pending roll offer: the primary button in English and Portuguese', {
+  skip,
+}, async (t) => {
+  const dataDir = mkdtempSync(join(tmpdir(), 'rpg-desktop-offer-'));
+  t.after(() => rmSync(dataDir, { recursive: true, force: true }));
+  await seedPhysicalOffer(dataDir);
+  const dir = process.env[CAPTURE_ENV] || mkdtempSync(join(tmpdir(), 'rpg-desktop-offer-screens-'));
+  const files: string[] = [];
+  for (const [phase, language] of [
+    ['rollOffer', DEFAULT_LOCALE],
+    ['rollOfferPortuguese', PORTUGUESE],
+  ] as const) {
+    const stdout = await run(dataDir, { [CAPTURE_ENV]: dir, [JOURNEY_ENV]: phase, [LANGUAGE_ENV]: language });
+    assert.doesNotMatch(stdout, new RegExp(JOURNEY_ERROR));
+    for (const file of journeyShots(dir, phase)) {
+      assert.ok(stdout.includes(`${CAPTURE_STATUS}${file}`), file);
+      files.push(file);
+    }
+  }
+  checkBaselines(t, files);
+});
+
 const LIMIT_REPLY = JSON.stringify({
   type: 'result',
   is_error: true,

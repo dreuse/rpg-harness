@@ -52,6 +52,7 @@ const fakePage = () => {
   const selections: Record<string, [number, number]> = {};
   let prevented = 0;
   let held = false;
+  let inputFocused = false;
   const inputAttributes: Record<string, string> = {};
   let onLine = (_line: string) => {};
   const bridge: PageOptions['bridge'] = {
@@ -122,6 +123,7 @@ const fakePage = () => {
     form: { addEventListener: on('form:'), requestSubmit: () => listeners.get('form:submit')?.(event({})) },
     input: {
       value: '',
+      matches: (selector: string) => selector === FOCUSED && inputFocused,
       addEventListener: on('input:'),
       setAttribute: (name: string, value: string) => {
         inputAttributes[name] = value;
@@ -168,6 +170,9 @@ const fakePage = () => {
     fields,
     selections,
     prevented: () => prevented,
+    set typingInAction(next: boolean) {
+      inputFocused = next;
+    },
     set held(next: boolean) {
       held = next;
     },
@@ -1580,6 +1585,29 @@ test('rpg-42a.74 page accepts the roll offer from its button', () => {
   const command = page.sent.findLast(({ type }) => type === 'SubmitPlayerAction');
   assert.ok(command && 'rollOfferId' in command);
   assert.equal(command.rollOfferId, 'tam-attack');
+});
+
+test('rpg-42a.87 the roll offer takes focus when it appears and keeps it off a focused action input', () => {
+  const OFFER = '[data-roll-offer]';
+  const OFFER_FOCUS = /^\[data-roll-offer/;
+  const idle = fakePage();
+  startPlay(idle, SNAPSHOT);
+  idle.receive({ type: 'Snapshot', snapshot: OFFER_SNAPSHOT });
+  assert.match(idle.focused.at(-1) ?? '', OFFER_FOCUS);
+  idle.focused.length = 0;
+  idle.receive({ type: 'Snapshot', snapshot: OFFER_SNAPSHOT });
+  assert.equal(idle.focused.at(-1), '[data-roll-offer=""]');
+  const empty = fakePage();
+  startPlay(empty, SNAPSHOT);
+  empty.typingInAction = true;
+  empty.receive({ type: 'Snapshot', snapshot: OFFER_SNAPSHOT });
+  assert.match(empty.focused.at(-1) ?? '', OFFER_FOCUS);
+  const typing = fakePage();
+  startPlay(typing, SNAPSHOT);
+  typing.typingInAction = true;
+  typing.typeAction('I open');
+  typing.receive({ type: 'Snapshot', snapshot: OFFER_SNAPSHOT });
+  assert.equal(typing.focused.includes(OFFER), false);
 });
 
 test('rpg-42a.101 page retries a failed narration from the notice button', async () => {
