@@ -14,10 +14,12 @@ import {
   ENTITY_INTRODUCED,
   FACT_RECORDED,
   introduceEntity,
+  NPC_SHEET_SET,
   openPending,
   recordSummary,
   resolvePending,
   saveContextBudget,
+  setNpcSheet,
 } from './memory.ts';
 import { ActionIdConflictError, InvalidActionError, type PlayerAction } from './turn.ts';
 
@@ -430,3 +432,71 @@ test('rpg-42a.127 a sheet on a non-npc entity is refused', () => {
   );
   connection.close();
 });
+
+const sheetSet = (
+  store: ReturnType<typeof seeded>['store'],
+  sheet: unknown,
+  combat?: CombatRules,
+  npcId = 'sheeted',
+) => ({
+  ...actionFor(store, `sheet-${npcId}`),
+  npcId,
+  sheet,
+  ...(combat === undefined ? {} : { combat }),
+});
+
+const introduceSheeted = (context: ReturnType<typeof seeded>, sheet?: unknown) => {
+  const { store, entities, facts } = context;
+  const input = sheetIntro(store, sheet, SHEET_RULES);
+  introduceEntity(store, entities, facts, {
+    ...input,
+    entity: { ...input.entity, data: sheet === undefined ? {} : { [NPC_SHEET_FIELD]: sheet } },
+  });
+};
+
+test('rpg-42a.133 a valid sheet is set on an existing npc without one', () => {
+  const context = seeded();
+  const { connection, store, entities } = context;
+  introduceSheeted(context);
+  const committed = setNpcSheet(store, entities, sheetSet(store, sheetOf(), SHEET_RULES));
+  assert.ok(committed.events.some(({ type }) => type === NPC_SHEET_SET));
+  assert.deepEqual(entities.getEntity(CAMPAIGN.id, 'sheeted')?.data[NPC_SHEET_FIELD], sheetOf());
+  connection.close();
+});
+
+test('rpg-42a.133 a valid sheet replaces the existing one, and a replay does not duplicate it', () => {
+  const context = seeded();
+  const { connection, store, entities } = context;
+  introduceSheeted(context, sheetOf());
+  const stronger = sheetOf([
+    { id: 'armor', value: 17 },
+    { id: 'vigor', value: 20 },
+  ]);
+  const input = sheetSet(store, stronger, SHEET_RULES);
+  setNpcSheet(store, entities, input);
+  const revision = store.load(CAMPAIGN.id)?.revision;
+  setNpcSheet(store, entities, input);
+  assert.equal(store.load(CAMPAIGN.id)?.revision, revision);
+  assert.deepEqual(entities.getEntity(CAMPAIGN.id, 'sheeted')?.data[NPC_SHEET_FIELD], stronger);
+  connection.close();
+});
+
+const REFUSED_SHEET_SETS: readonly [string, unknown, CombatRules | undefined, string][] = [
+  ['without campaign combat rules', sheetOf(), undefined, 'sheeted'],
+  ['malformed', { detail: 'sparse' }, SHEET_RULES, 'sheeted'],
+  ['for another rulepack', sheetOf(SHEET_TRAITS, { ...SHEET_PACK, revision: 'r8' }), SHEET_RULES, 'sheeted'],
+  ['missing a trait', sheetOf([{ id: 'vigor', value: 9 }]), SHEET_RULES, 'sheeted'],
+  ['for an unknown entity', sheetOf(), SHEET_RULES, 'nobody'],
+  ['for a non-npc entity', sheetOf(), SHEET_RULES, 'pier'],
+];
+for (const [label, sheet, combat, npcId] of REFUSED_SHEET_SETS)
+  test(`rpg-42a.133 a sheet ${label} commits nothing and keeps the old sheet`, () => {
+    const context = seeded();
+    const { connection, store, entities } = context;
+    introduceSheeted(context, sheetOf());
+    const turns = store.load(CAMPAIGN.id)?.turns.length;
+    assert.throws(() => setNpcSheet(store, entities, sheetSet(store, sheet, combat, npcId)), InvalidActionError);
+    assert.equal(store.load(CAMPAIGN.id)?.turns.length, turns);
+    assert.deepEqual(entities.getEntity(CAMPAIGN.id, 'sheeted')?.data[NPC_SHEET_FIELD], sheetOf());
+    connection.close();
+  });

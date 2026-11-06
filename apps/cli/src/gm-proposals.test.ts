@@ -190,6 +190,60 @@ describe('rpg-42a.127 GM npc sheet proposals', () => {
   });
 });
 
+describe('rpg-42a.133 GM npc sheet on an existing npc and in the opening scene', () => {
+  const sheetOfNpc = (entities: readonly { id: string; data: Record<string, unknown> }[]) =>
+    entities.find(({ id }) => id === STRANGER.id)?.data[NPC_SHEET_FIELD];
+  const sparse = (sheet: Record<string, unknown>) => ({
+    detail: 'sparse',
+    npcId: STRANGER.id,
+    role: 'minor',
+    name: STRANGER.name,
+    ...sheet,
+  });
+
+  it('sets a sheet on an npc created earlier without one', async (t) => {
+    const { entities } = await narratedWith(t, [STRANGER, sheetProposal(gmSheet())], D20_INTENT);
+    assert.deepEqual(sheetOfNpc(entities), sparse(gmSheet()));
+  });
+
+  it('replaces the sheet of an existing npc', async (t) => {
+    const stronger = gmSheet({ traits: [{ id: D20_LITE_COMBAT.defense, value: 16 }, SHEET_TRAITS[1]] });
+    const { entities } = await narratedWith(t, [sheetProposal(gmSheet()), sheetProposal(stronger)], D20_INTENT);
+    assert.deepEqual(sheetOfNpc(entities), sparse(stronger));
+  });
+
+  it('keeps the old sheet when the replacement is refused', async (t) => {
+    const bad = gmSheet({ rulepack: { ...SHEET_PACK, revision: 'other' } });
+    const { entities } = await narratedWith(t, [sheetProposal(gmSheet()), sheetProposal(bad)], D20_INTENT);
+    assert.deepEqual(sheetOfNpc(entities), sparse(gmSheet()));
+  });
+
+  it('does not set a sheet on an existing npc outside the d20-lite rules', async (t) => {
+    const { entities } = await narratedWith(t, [STRANGER, sheetProposal(gmSheet())]);
+    assert.equal(sheetOfNpc(entities), undefined);
+  });
+
+  it('accepts a sheet in the opening scene', async (t) => {
+    const dataDir = tempDataDir(t);
+    const gm: GameMaster = {
+      request: async () => ({
+        narration: NARRATION,
+        segments: [{ text: NARRATION }],
+        proposals: proposalsOf({ proposals: [sheetProposal(gmSheet())] }) ?? [],
+      }),
+      summarizer: FAKE_GAME_MASTER.summarizer,
+    };
+    for await (const _ of createEngineGateway(dataDir, gm).create(CAMPAIGN, D20_INTENT, NO_CHARACTER));
+    const state = readCampaignState(dataDir, CAMPAIGN);
+    const connection = openDatabase(join(dataDir, `${CAMPAIGN}.sqlite`));
+    t.after(() => connection.close());
+    assert.deepEqual(
+      sheetOfNpc(createEntityStore(connection.database).listEntities(state.campaign.id)),
+      sparse(gmSheet()),
+    );
+  });
+});
+
 describe('rpg-42a.43 GM proposals', () => {
   it('parses valid entity and pending proposals', () => {
     assert.deepEqual(proposalsOf({ proposals: [STRANGER, DEBT] }), [

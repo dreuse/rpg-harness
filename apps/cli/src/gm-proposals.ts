@@ -36,7 +36,7 @@ import {
   MAX_ROLL_SECTION_LENGTH,
   rollForGm,
 } from '../../../packages/engine/src/gm-roll.ts';
-import { introduceEntity, openPending } from '../../../packages/engine/src/memory.ts';
+import { introduceEntity, openPending, setNpcSheet } from '../../../packages/engine/src/memory.ts';
 import { type ClaimDraft, proposeClaims } from '../../../packages/engine/src/story-memory.ts';
 import {
   ActionIdConflictError,
@@ -255,9 +255,9 @@ const durationSchema = {
 const sheetRulepackSchema = {
   type: 'object',
   properties: {
-    id: { type: 'string', maxLength: MAX_TAG_LENGTH },
-    edition: { type: 'string', maxLength: MAX_TAG_LENGTH },
-    revision: { type: 'string', maxLength: MAX_TAG_LENGTH },
+    id: { type: 'string', minLength: 1, maxLength: MAX_TAG_LENGTH },
+    edition: { type: 'string', minLength: 1, maxLength: MAX_TAG_LENGTH },
+    revision: { type: 'string', minLength: 1, maxLength: MAX_TAG_LENGTH },
   },
   required: ['id', 'edition', 'revision'],
   additionalProperties: false,
@@ -266,14 +266,18 @@ const sheetRulepackSchema = {
 const sheetSchema = {
   type: 'object',
   properties: {
-    motivations: { type: 'array', maxItems: MAX_FACTS, items: { type: 'string', maxLength: MAX_FACT_LENGTH } },
+    motivations: {
+      type: 'array',
+      maxItems: MAX_FACTS,
+      items: { type: 'string', minLength: 1, maxLength: MAX_FACT_LENGTH },
+    },
     background: { type: 'string', maxLength: MAX_FACT_LENGTH },
     traits: {
       type: 'array',
       maxItems: MAX_SHEET_TRAITS,
       items: {
         type: 'object',
-        properties: { id: { type: 'string', maxLength: MAX_TAG_LENGTH }, value: { type: 'number' } },
+        properties: { id: { type: 'string', minLength: 1, maxLength: MAX_TAG_LENGTH }, value: { type: 'integer' } },
         required: ['id', 'value'],
         additionalProperties: false,
       },
@@ -469,7 +473,7 @@ const sheetOf = (value: unknown): NpcSheetProposal | undefined => {
       : listOf(value.motivations, MAX_FACTS, (goal) => textOf(goal, MAX_FACT_LENGTH));
   const traits = listOf(value.traits, MAX_SHEET_TRAITS, traitOf);
   const rulepack = sheetRulepackOf(value.rulepack);
-  const background = value.background ?? '';
+  const background = typeof value.background === 'string' ? value.background.trim() : (value.background ?? '');
   const bounded = typeof background === 'string' && background.length <= MAX_FACT_LENGTH;
   if (motivations === undefined || traits === undefined || rulepack === undefined || !bounded) return undefined;
   return { motivations, background, traits, rulepack };
@@ -778,6 +782,7 @@ export const commitGmRolls = (
 
 const SPARSE_DETAIL = 'sparse';
 const SHEET_ROLE = 'minor';
+const SHEET_ACTION_SUFFIX = ':sheet';
 
 const sparseSheetOf = ({ id, name, sheet }: EntityProposal) => ({
   detail: SPARSE_DETAIL,
@@ -838,6 +843,20 @@ export const commitProposals = (
         continue;
       }
       const scope = { visibility: proposal.visibility, actorId: null };
+      const existing = proposal.kind === ENTITY_PROPOSAL ? entities.getEntity(campaignId, proposal.id) : undefined;
+      if (proposal.kind === ENTITY_PROPOSAL && existing !== undefined) {
+        if (proposal.sheet !== undefined)
+          results.push(
+            setNpcSheet(store, entities, {
+              ...action,
+              actionId: `${action.actionId}${SHEET_ACTION_SUFFIX}`,
+              npcId: proposal.id,
+              sheet: sparseSheetOf({ ...proposal, name: existing.name }),
+              ...(combat === undefined ? {} : { combat }),
+            }),
+          );
+        continue;
+      }
       if (proposal.kind === ENTITY_PROPOSAL)
         results.push(
           introduceEntity(store, entities, facts, {

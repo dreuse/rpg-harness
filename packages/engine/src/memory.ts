@@ -48,6 +48,7 @@ import {
 } from './turn.ts';
 
 export const ENTITY_INTRODUCED = 'EntityIntroduced';
+export const NPC_SHEET_SET = 'NpcSheetSet';
 export const FACT_RECORDED = 'FactRecorded';
 export const CONTEXT_BUDGET_SET = 'ContextBudgetSet';
 
@@ -60,6 +61,12 @@ export type EntityIntroduction = PlayerAction & {
   readonly entity: Omit<CampaignEntity, 'campaignId'>;
   readonly facts: readonly (Omit<Fact, 'campaignId' | 'subjectId' | 'sourceEventId'> & Scope)[];
   readonly relationships: readonly Omit<Relationship, 'campaignId'>[];
+  readonly combat?: CombatRules;
+};
+
+export type NpcSheetAssignment = PlayerAction & {
+  readonly npcId: EntityId;
+  readonly sheet: unknown;
   readonly combat?: CombatRules;
 };
 
@@ -229,6 +236,27 @@ export const introduceEntity = (
       [ENTITY_INTRODUCED, { entity, relationships }, turnVisibility(entity.visibility)],
       ...recordedFacts.map((fact): Step => [FACT_RECORDED, { fact }, turnVisibility(fact.visibility)]),
     ]),
+  );
+};
+
+export const setNpcSheet = (store: CampaignStore, entities: EntityStore, input: NpcSheetAssignment): CommittedTurn => {
+  const { campaignId, actionId, npcId, sheet, combat } = input;
+  const state = loadState(store, campaignId);
+  const npc = entities.getEntity(campaignId, npcId);
+  const project = (committed: CommittedTurn) => {
+    if (npc !== undefined) entities.saveEntity({ ...npc, data: { ...npc.data, [NPC_SHEET_FIELD]: sheet } });
+    return committed;
+  };
+  const stored = replayOf(store, state, input, recorded(NPC_SHEET_SET, { npcId, sheet }));
+  if (stored !== undefined) return project(stored);
+  validate(state, input);
+  const usable =
+    npc?.kind === NPC_KIND &&
+    combat !== undefined &&
+    combatantOf({ ...npc, data: { ...npc.data, [NPC_SHEET_FIELD]: sheet } }, [], combat) !== undefined;
+  requireValid(actionId, usable, `npc sheet for ${npcId} is not valid for the campaign rulepack`);
+  return project(
+    commitSystem(store, input, [[NPC_SHEET_SET, { npcId, sheet }, turnVisibility(npc?.visibility ?? GM_ONLY)]]),
   );
 };
 
