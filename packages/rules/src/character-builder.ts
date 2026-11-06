@@ -18,13 +18,21 @@ export const BUILDER_ISSUE_CODES = [
   'override_not_permitted',
   'unsupported_equipment',
   'duplicate',
+  'not_list',
   'invalid',
 ] as const;
 export const BLOCKING_WIDGETS: readonly WidgetType[] = [...NUMERIC_WIDGETS, 'toggle', 'choice'];
 export const BACKSTORY_SOURCE = 'player';
 
 export type BuilderIssueCode = (typeof BUILDER_ISSUE_CODES)[number];
-export type BuilderIssue = { path: string; code: BuilderIssueCode; message: string };
+export type BuilderIssue = {
+  path: string;
+  code: BuilderIssueCode;
+  message: string;
+  min?: number;
+  max?: number;
+  widget?: WidgetType;
+};
 export type CreationRules = {
   schema: SheetSchema;
   constraints: StatConstraint[];
@@ -117,15 +125,17 @@ const checkValues = (
   const byId = new Map(rules.schema.fields.map((field) => [field.id, field]));
   const accepted = new Map<string, ProfileTraitValue>();
   for (const [id, value] of entriesOf(values)) {
-    const at = (code: BuilderIssueCode, message: string) => issues.push({ path: `${path}.${id}`, code, message });
+    const at = (code: BuilderIssueCode, message: string, extra: Partial<BuilderIssue> = {}) =>
+      issues.push({ path: `${path}.${id}`, code, message, ...extra });
     const field = byId.get(id);
     if (field === undefined) at('unknown_field', 'is not declared by the sheet schema');
     else if (field.derived) at('derived_field', 'is computed by the rulepack');
     else if (overriding && !rules.overridableFields.includes(id))
       at('override_not_permitted', 'is not open to user override');
-    else if (!fitsWidget(field, value)) at('invalid_value', `must fit the ${field.widget} widget`);
+    else if (!fitsWidget(field, value))
+      at('invalid_value', `must fit the ${field.widget} widget`, { widget: field.widget });
     else if (!overriding && typeof value === 'number' && !inBounds(value, boundsOf(rules.constraints, id)))
-      at('out_of_range', rangeMessage(boundsOf(rules.constraints, id)));
+      at('out_of_range', rangeMessage(boundsOf(rules.constraints, id)), boundsOf(rules.constraints, id));
     else accepted.set(id, value as ProfileTraitValue);
   }
   return accepted;
@@ -134,7 +144,7 @@ const checkValues = (
 const checkEquipment = (rules: CreationRules, equipment: unknown, issues: BuilderIssue[]) => {
   const items = Array.isArray(equipment) ? Array.from(equipment) : [];
   if (!Array.isArray(equipment))
-    issues.push({ path: 'proposal.equipment', code: 'invalid', message: 'must be a list' });
+    issues.push({ path: 'proposal.equipment', code: 'not_list', message: 'must be a list' });
   const seen = new Set<unknown>();
   items.forEach((item, index) => {
     const path = `proposal.equipment.${index}`;
@@ -182,6 +192,7 @@ const budgetIssues = (rules: CreationRules, values: Map<string, ProfileTraitValu
     path: `fields.${field}`,
     code: 'out_of_range',
     message: rangeMessage(boundsOf(rules.constraints, field)),
+    ...boundsOf(rules.constraints, field),
   }));
 };
 

@@ -478,6 +478,24 @@ test('UI08 main persists only valid preferences from its window', () => {
   assert.equal(JSON.parse(electron.written[join(DATA_DIR, PREFERENCES_FILE)] ?? '').language, 'es');
 });
 
+test('rpg-42a.148 a language change reaches the running engine once, not on every preference save', () => {
+  const languages: string[] = [];
+  const daemon = {
+    ...fakeDaemon(),
+    language: async (locale: string) => {
+      languages.push(locale);
+      return { id: 0, type: 'Localized' as const };
+    },
+  };
+  const electron = fakeElectron();
+  start(electron, daemon);
+  electron.ipc(CHANNELS.preferences, SENT_PREFERENCES);
+  assert.deepEqual(languages, []);
+  electron.ipc(CHANNELS.preferences, { ...SENT_PREFERENCES, locale: 'es' });
+  electron.ipc(CHANNELS.preferences, { ...SENT_PREFERENCES, locale: 'es', fontScale: 1 });
+  assert.deepEqual(languages, ['es']);
+});
+
 const PARENT_PORT_SHIM = `data:text/javascript,${encodeURIComponent(
   "process.parentPort = { postMessage: (m) => process.send(m), on: (_e, l) => process.on('message', (data) => l({ data })) };",
 )}`;

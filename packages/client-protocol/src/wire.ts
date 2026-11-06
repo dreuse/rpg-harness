@@ -23,10 +23,11 @@ export type Request = {
   readonly command?: unknown;
   readonly subscription?: number;
   readonly narration?: boolean;
+  readonly language?: unknown;
 };
 export type Reply = {
   readonly id: number;
-  readonly type: 'Pong' | 'Stopped' | 'Error' | 'Result' | 'Unsubscribed' | 'Played' | 'Diagnosed';
+  readonly type: 'Pong' | 'Stopped' | 'Error' | 'Result' | 'Unsubscribed' | 'Played' | 'Diagnosed' | 'Localized';
   readonly message?: string;
   readonly summary?: unknown;
   readonly result?: Result<unknown>;

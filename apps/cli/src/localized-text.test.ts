@@ -9,7 +9,7 @@ import { createEngineGateway } from './engine-gateway.ts';
 import { launchClaude } from './gm-claude-code.ts';
 import { readInside } from './import-gateway.ts';
 import { CLI_CATALOG, errorText, say } from './messages.ts';
-import { describeConfig, planCampaign, planResult, startingCharacter } from './quickstart.ts';
+import { builderIssueText, describeConfig, planCampaign, planResult, startingCharacter } from './quickstart.ts';
 
 const PORTUGUESE = 'pt-BR';
 const CAMPAIGN = 'Ember';
@@ -100,6 +100,19 @@ test('rpg-42a.117 a character that does not fit explains each engine issue in Br
   const error = failure(() => startingCharacter(config));
   assert.equal(errorText(PORTUGUESE, error), 'Seu personagem não se encaixa nas regras: deve estar entre 0 e 10.');
   assert.equal(errorText('en', error), 'Your character does not fit the rules: must be between 0 and 10.');
+});
+
+test('rpg-42a.148 builder issues localize from code and bounds, not from the English message', () => {
+  const unbounded = builderIssueText({ path: 'a', code: 'out_of_range', message: 'x', max: 6 });
+  const bounded = builderIssueText({ path: 'a', code: 'out_of_range', message: 'x', min: 1, max: 5 });
+  const widget = builderIssueText({ path: 'a', code: 'invalid_value', message: 'x', widget: 'choice' });
+  const list = builderIssueText({ path: 'a', code: 'not_list', message: 'x' });
+  assert.equal(errorText(PORTUGUESE, unbounded), 'deve estar entre -∞ e 6');
+  assert.equal(errorText(PORTUGUESE, bounded), 'deve estar entre 1 e 5');
+  assert.equal(errorText('es', bounded), 'debe estar entre 1 y 5');
+  assert.equal(errorText('en', widget), 'must fit the choice widget');
+  assert.equal(errorText(PORTUGUESE, list), 'deve ser uma lista');
+  assert.equal(builderIssueText({ path: 'a', code: 'out_of_range', message: 'overflow' }), 'overflow');
 });
 
 test('rpg-42a.117 a config issue line reads in Brazilian Portuguese and stays English by default', () => {
@@ -222,7 +235,9 @@ const createWith = async (t: TestContext, description: string, locale: string) =
 
 test('rpg-42a.140 a created character, an unfinished one and the prompt read in Brazilian Portuguese', async (t) => {
   const done = await createWith(t, 'A scout named Wren with might 6, agility 5, wits 7 and presence 4.', PORTUGUESE);
-  assert.match(done.text, /Wren criado\./);
+  assert.match(done.text, /Personagem Wren criado\./);
+  const spanish = await createWith(t, 'A scout named Wren with might 6, agility 5, wits 7 and presence 4.', 'es');
+  assert.match(spanish.text, /Personaje Wren creado\./);
   assert.notEqual(done.asked[0], PROMPT_ENGLISH);
   const pending = await createWith(t, 'A scout named Wren.', PORTUGUESE);
   assert.match(pending.text, /Personagem não criado, você joga como The Wanderer: sem resposta para /);

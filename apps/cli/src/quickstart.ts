@@ -408,7 +408,7 @@ export const startOptions = (packs: Packs = BUILT_IN_PACKS): StartOptions => {
       id: genre.id,
       name: genre.name,
       blurb: genre.examples[0] ?? genre.name,
-      characters: genre.archetypes.map(({ name, summary }) => ({ name, summary })),
+      characters: genre.archetypes.map(({ id, name, summary }) => ({ id, name, summary })),
     })),
     rulesets: packs.map((pack) => {
       const features = featuresOf(pack);
@@ -442,23 +442,25 @@ export const creationRulesFor = (rulepack: CampaignConfig['rulepack']) =>
       pack.revision === rulepack.revision,
   );
 
-const BOUNDS_MESSAGE = /^must be between (.+) and (.+)$/;
-const WIDGET_MESSAGE = /^must fit the (.+) widget$/;
-const LIST_MESSAGE = 'must be a list';
 const STATIC_BUILDER_CODES: readonly BuilderIssue['code'][] = [
   'unknown_field',
   'derived_field',
   'override_not_permitted',
   'unsupported_equipment',
   'duplicate',
+  'not_list',
 ];
+const UNBOUNDED_MIN = '-∞';
+const UNBOUNDED_MAX = '∞';
 
-export const builderIssueText = ({ code, message }: BuilderIssue): string | LocalizedError => {
-  const bounds = BOUNDS_MESSAGE.exec(message);
-  if (bounds !== null) return new LocalizedError('quickstart.builder.out_of_range', { min: bounds[1], max: bounds[2] });
-  const widget = WIDGET_MESSAGE.exec(message);
-  if (widget !== null) return new LocalizedError('quickstart.builder.invalid_value', { widget: widget[1] });
-  if (message === LIST_MESSAGE) return new LocalizedError('quickstart.builder.listRequired');
+export const builderIssueText = ({ code, message, min, max, widget }: BuilderIssue): string | LocalizedError => {
+  if (code === 'out_of_range' && (min !== undefined || max !== undefined))
+    return new LocalizedError('quickstart.builder.out_of_range', {
+      min: min ?? UNBOUNDED_MIN,
+      max: max ?? UNBOUNDED_MAX,
+    });
+  if (code === 'invalid_value' && widget !== undefined)
+    return new LocalizedError('quickstart.builder.invalid_value', { widget });
   return STATIC_BUILDER_CODES.includes(code) ? new LocalizedError(`quickstart.builder.${code}`) : message;
 };
 

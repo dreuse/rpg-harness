@@ -36,7 +36,7 @@ export const SMOKE_STATUS = 'rpg-desktop-smoke-status: ';
 const TEXT = 'utf8';
 
 export type Daemon = Pick<ReturnType<typeof startEngine>, 'ready' | 'command' | 'subscribe' | 'stop'> &
-  Partial<Pick<ReturnType<typeof startEngine>, 'playback' | 'diagnostics'>>;
+  Partial<Pick<ReturnType<typeof startEngine>, 'playback' | 'diagnostics' | 'language'>>;
 export type WebContentsLike = {
   send(channel: string, ...args: unknown[]): void;
   on(name: 'will-navigate', listener: (event: { preventDefault(): void }) => void): unknown;
@@ -231,6 +231,7 @@ export const startMain = ({
   const push = (channel: string, value: string | number | boolean) => {
     if (!window.isDestroyed()) window.webContents.send(channel, value);
   };
+  let engineLocale = preferences.locale;
   const daemon = startDaemon({
     env: { ...engineEnv(env), [LANGUAGE_ENV]: preferences.locale },
     onCrash: () => push(CHANNELS.close, ENGINE_CRASHED),
@@ -271,7 +272,11 @@ export const startMain = ({
     CHANNELS.preferences,
     fromWindow((input) => {
       const parsed = parsePreferences(input);
-      if (parsed.ok) save(preferencesPath, persistedPreferences(parsed.value, systemLocale));
+      if (!parsed.ok) return;
+      save(preferencesPath, persistedPreferences(parsed.value, systemLocale));
+      if (parsed.value.locale === engineLocale) return;
+      engineLocale = parsed.value.locale;
+      daemon.language?.(engineLocale)?.catch(() => undefined);
     }),
   );
   ipcMain.on(

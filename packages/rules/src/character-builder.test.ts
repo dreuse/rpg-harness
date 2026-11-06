@@ -88,8 +88,13 @@ test('ai cannot quietly grant unsupported high stats or illegal starting equipme
   assert.deepEqual(result, {
     status: 'rejected',
     issues: [
-      { path: 'proposal.values.might', code: 'out_of_range', message: 'must be between 1 and 5' },
-      { path: 'proposal.values.calling', code: 'invalid_value', message: 'must fit the choice widget' },
+      { path: 'proposal.values.might', code: 'out_of_range', message: 'must be between 1 and 5', min: 1, max: 5 },
+      {
+        path: 'proposal.values.calling',
+        code: 'invalid_value',
+        message: 'must fit the choice widget',
+        widget: 'choice',
+      },
       { path: 'proposal.values.guard', code: 'derived_field', message: 'is computed by the rulepack' },
       { path: 'proposal.values.luck', code: 'unknown_field', message: 'is not declared by the sheet schema' },
       { path: 'overrides.might', code: 'override_not_permitted', message: 'is not open to user override' },
@@ -120,7 +125,7 @@ const budgetOf = (values: Record<string, number>, overrides: Record<string, numb
 test('ai cannot exceed a derived budget declared by the rulepack', () => {
   const overBudget = {
     status: 'rejected',
-    issues: [{ path: 'fields.total', code: 'out_of_range', message: 'must be between -∞ and 6' }],
+    issues: [{ path: 'fields.total', code: 'out_of_range', message: 'must be between -∞ and 6', max: 6 }],
   };
   assert.deepEqual(budgetOf({ a: 5, b: 5 }), overBudget);
   assert.deepEqual(budgetOf({ b: 2 }, { a: 9 }), overBudget);
@@ -149,7 +154,7 @@ test('reject non-finite, oversized, mistyped and malformed builder input', () =>
   ]);
   const notList = buildCharacter(inputOf({ proposal: { name: 'Ash', values: {}, equipment: 'rope' as never } }));
   assert.deepEqual(notList.status === 'rejected' && notList.issues, [
-    { path: 'proposal.equipment', code: 'invalid', message: 'must be a list' },
+    { path: 'proposal.equipment', code: 'not_list', message: 'must be a list' },
   ]);
 });
 
@@ -177,7 +182,7 @@ test('ask for custom inputs that a derived budget depends on', () => {
   assert.deepEqual(build(), { status: 'pending', questions: [{ fieldId: 'c', widget: 'number' }] });
   assert.deepEqual(build({ c: 1 }), {
     status: 'rejected',
-    issues: [{ path: 'fields.total', code: 'out_of_range', message: 'must be between -∞ and 6' }],
+    issues: [{ path: 'fields.total', code: 'out_of_range', message: 'must be between -∞ and 6', max: 6 }],
   });
   const fits = buildCharacter({
     rules: customRules,

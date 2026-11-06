@@ -15,9 +15,9 @@ const builtInLabels = () => {
   return [
     ...genres.map(({ id, name }) => ['genre', id, name] as const),
     ...genres.map(({ id, name, examples }) => ['genre.blurb', id, examples[0] ?? name] as const),
-    ...genres.flatMap(({ archetypes }) => archetypes.map(({ name }) => ['archetype', name, name] as const)),
+    ...genres.flatMap(({ archetypes }) => archetypes.map(({ id, name }) => ['archetype', id, name] as const)),
     ...genres.flatMap(({ archetypes }) =>
-      archetypes.map(({ name, summary }) => ['archetype.summary', name, summary] as const),
+      archetypes.map(({ id, summary }) => ['archetype.summary', id, summary] as const),
     ),
     ...stats.map((label) => ['stat', label, label] as const),
   ];
@@ -32,7 +32,7 @@ for (const locale of TRANSLATED_LOCALES) {
 
   test(`rpg-42a.72 imported pack text stays unchanged in ${locale}`, () => {
     assert.equal(contentText(locale, 'genre', IMPORTED_ID, 'Acme noir'), 'Acme noir');
-    assert.equal(contentText(locale, 'archetype', 'Gumshoe', 'Gumshoe'), 'Gumshoe');
+    assert.equal(contentText(locale, 'archetype', 'gumshoe', 'Gumshoe'), 'Gumshoe');
     assert.equal(contentText(locale, 'stat', 'Grit', 'Grit'), 'Grit');
   });
 }
@@ -47,9 +47,9 @@ test('rpg-42a.53 built-in genre, character and stat names read in Brazilian Port
     contentText('pt-BR', 'genre.blurb', 'horror', 'x'),
     'O arranhar parou no instante em que você prendeu a respiração.',
   );
-  assert.equal(contentText('pt-BR', 'archetype', 'Hedge witch', 'Hedge witch'), 'Bruxa do campo');
+  assert.equal(contentText('pt-BR', 'archetype', 'hedge-witch', 'Hedge witch'), 'Bruxa do campo');
   assert.equal(
-    contentText('pt-BR', 'archetype.summary', 'Pilot', 'x'),
+    contentText('pt-BR', 'archetype.summary', 'pilot', 'x'),
     'Leva as pessoas para dentro e para fora quando as estradas fecham',
   );
   assert.equal(contentText('pt-BR', 'stat', 'Wits', 'Wits'), 'Raciocínio');

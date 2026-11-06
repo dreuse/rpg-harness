@@ -35,7 +35,7 @@ const OPTIONS: StartOptions = {
       id: 'fantasy',
       name: 'Fantasy',
       blurb: 'The standing stones hum.',
-      characters: [{ name: 'Hedge witch', summary: 'Trades remedies for secrets' }],
+      characters: [{ id: 'hedge-witch', name: 'Hedge witch', summary: 'Trades remedies for secrets' }],
     },
     { id: 'horror', name: 'Creeping horror', blurb: 'The scratching stopped.', characters: [] },
   ],
@@ -613,6 +613,17 @@ test('rpg-42a.53 built-in genre, character and stat names read in Brazilian Port
   assert.ok(character.text.includes('Suas regras acompanham Força.'));
   assert.equal(character.options[0]?.action.kind, 'choose');
   assert.deepEqual(character.options[0]?.action.value, 'Hedge witch');
+});
+
+test('rpg-42a.148 characters translate by archetype id, never by display name or for imported genres', () => {
+  const labelsFor = (genre: StartOptions['genres'][number]) =>
+    startScreen(run([...toRules, D20_CHOICE]), { ...OPTIONS, genres: [genre] }, undefined, 'pt-BR').options.map(
+      ({ label }) => label,
+    );
+  const [fantasy] = OPTIONS.genres;
+  assert.ok(fantasy);
+  assert.deepEqual(labelsFor({ ...fantasy, characters: [{ name: 'Hedge witch', summary: 'x' }] }), ['Hedge witch']);
+  assert.deepEqual(labelsFor({ ...fantasy, imported: true }), ['Hedge witch']);
 });
 
 test('rpg-42a.53 plan values read in Brazilian Portuguese while the saved values stay the ids', () => {

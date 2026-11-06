@@ -11,7 +11,7 @@ import {
   usesSheet,
 } from '../../domain/src/rules-usage.ts';
 import { isLocale } from '../../domain/src/voice.ts';
-import { contentText, hasContentNames } from './content-names.ts';
+import { type ContentKind, contentText, hasContentNames } from './content-names.ts';
 import { type Catalog, createTranslator, DEFAULT_LOCALE, safeLocale } from './locale.ts';
 import {
   type CampaignPlan,
@@ -546,6 +546,14 @@ const rulesetValue = (locale: string, value: string, { rulesets }: StartOptions)
   return ruleset === undefined ? value : rulesetLabel(locale, ruleset);
 };
 
+const archetypeText = (locale: string, kind: ContentKind, id: string | undefined, fallback: string) =>
+  id === undefined ? fallback : contentText(locale, kind, id, fallback);
+
+const characterLabel = (locale: string, value: string, { genres }: StartOptions) => {
+  const known = genres.flatMap(({ imported, characters }) => (imported === true ? [] : characters));
+  return archetypeText(locale, 'archetype', known.find(({ name }) => name === value)?.id, value);
+};
+
 const characterPage = (draft: StartDraft, options: StartOptions, locale: string): Page => {
   const { genres, rulesets } = options;
   const genre = genres.find(({ id }) => id === draft.choices.genre);
@@ -572,15 +580,16 @@ const characterPage = (draft: StartDraft, options: StartOptions, locale: string)
       text(locale, genre === undefined ? 'character.noGenre' : hidden ? 'character.noReadyMade' : 'character.pick'),
       ...sheet,
     ],
-    options: (hidden ? [] : (genre?.characters ?? [])).map(({ name, summary }) =>
-      choose(
+    options: (hidden ? [] : (genre?.characters ?? [])).map(({ id, name, summary }) => {
+      const key = genre?.imported === true ? undefined : id;
+      return choose(
         'character',
         name,
-        contentText(locale, 'archetype', name, name),
-        `${contentText(locale, 'archetype.summary', name, summary)}.`,
+        archetypeText(locale, 'archetype', key, name),
+        `${archetypeText(locale, 'archetype.summary', key, summary)}.`,
         draft,
-      ),
-    ),
+      );
+    }),
     entry: { label: text(locale, 'character.entry'), value },
   };
 };
@@ -603,7 +612,7 @@ const shown = (locale: string, field: string, value: string, options: StartOptio
       value,
       options.genres.some(({ id, imported }) => id === value && imported === true),
     );
-  if (field === 'character') return contentText(locale, 'archetype', value, value);
+  if (field === 'character') return characterLabel(locale, value, options);
   const key = VALUE_KEYS[value];
   return key === undefined ? value : text(locale, key);
 };

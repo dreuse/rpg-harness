@@ -263,7 +263,7 @@ test('rpg-42a.14 start options list only installed rulesets, recommend the light
   assert.equal(fantasy?.blurb, FANTASY_PACK.genre.examples[0]);
   assert.deepEqual(
     fantasy?.characters,
-    FANTASY_PACK.genre.archetypes.map(({ name, summary }) => ({ name, summary })),
+    FANTASY_PACK.genre.archetypes.map(({ id, name, summary }) => ({ id, name, summary })),
   );
 });
 

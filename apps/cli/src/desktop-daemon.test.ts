@@ -5,7 +5,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, w
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { describe, it, type TestContext } from 'node:test';
+import { describe, it, mock, type TestContext } from 'node:test';
 import { setImmediate } from 'node:timers/promises';
 import {
   createCommand,
@@ -718,6 +718,25 @@ describe('serve client-protocol commands over the desktop engine daemon', () => 
     );
   });
 
+  it('rpg-42a.148 applies a language change to the running engine without a restart', async (t) => {
+    const daemon = supervise(t, { env: { ...baseEnv(), [DATA_DIR_ENV]: tempDataDir(t), [LANGUAGE_ENV]: 'en' } });
+    const plan = async () => {
+      const planned = await daemon.command(lifecycle('PlanCampaign', { choices: { genre: 'noir' } }));
+      return String(planned.result?.ok === false && planned.result.error.message);
+    };
+    const pid = (await daemon.ready()).pid;
+    assert.match(await plan(), /^Genre noir is not installed/);
+    assert.equal((await daemon.language('pt-BR')).type, 'Localized');
+    assert.match(await plan(), /^O gênero noir não está/);
+    assert.equal((await daemon.ready()).pid, pid);
+    assert.equal(daemon.restarts(), NO_RESTARTS);
+  });
+
+  it('rpg-42a.148 rejects a language change without a language', async (t) => {
+    const daemon = supervise(t, { env: baseEnv() });
+    assert.equal((await daemon.language(undefined as never)).type, 'Error');
+  });
+
   it('rpg-42a.20: serves the campaign it just created and refuses to archive or delete it', async (t) => {
     const { env, campaignId } = await campaignEnv(t);
     const dataDir = String(env[DATA_DIR_ENV]);
@@ -1051,6 +1070,33 @@ describe('rpg-cm63.40 engine playback events', () => {
     assert.equal(await exits('en'), 'Engine 7 exited (1).');
   });
 
+  it('rpg-42a.148 reports an engine exit and restarts in the language chosen at runtime', async (t) => {
+    const spawned: (string | undefined)[] = [];
+    let exit: ((code: number | null, signal: NodeJS.Signals | null) => void) | undefined;
+    const daemon = startDaemon({
+      env: { ...baseEnv(), [LANGUAGE_ENV]: 'en' },
+      maxRestarts: 1,
+      spawnEngine: (env, on) => {
+        spawned.push(env[LANGUAGE_ENV]);
+        exit = on.exit;
+        queueMicrotask(() => on.message(READY_MESSAGE));
+        return {
+          pid: () => 7,
+          send: ({ type }) => (type === 'Shutdown' ? on.exit(0, null) : undefined),
+          kill: () => on.exit(null, KILL),
+        };
+      },
+    });
+    t.after(() => daemon.stop());
+    await daemon.ready();
+    daemon.language('es').catch(() => undefined);
+    const pending = daemon.request('Ping');
+    await setImmediate();
+    exit?.(1, null);
+    await assert.rejects(pending, { message: 'El motor 7 terminó (1).' });
+    assert.deepEqual(spawned, ['en', 'es']);
+  });
+
   it('does not report a release when the engine exits quietly', async (t) => {
     const { daemon, spoken, exit } = fakeEngine(t);
     await daemon.ready();
@@ -1194,6 +1240,34 @@ describe('desktop does not require unsupported reuse of consumer claude subscrip
     const after = await snapshotOf(daemon, campaignId);
     assert.ok(after.revision > before.revision);
     assert.equal(after.turns.at(-1)?.input, ACTION);
+  });
+
+  it('rpg-42a.148 writes a narration failure to stderr in the engine language', async (t) => {
+    const narrationFailureLine = async (language: string) => {
+      const provider = await startProviderServer([textReply(API_NARRATION)]);
+      const { env, campaignId } = await campaignEnv(t);
+      const database = new DatabaseSync(campaignFile(env[DATA_DIR_ENV] ?? '', CAMPAIGN));
+      database.exec(DROP_FACTS);
+      database.close();
+      const written: string[] = [];
+      const write = mock.method(process.stderr, 'write', (chunk: string | Uint8Array) => {
+        written.push(String(chunk));
+        return true;
+      });
+      const daemon = startDaemon({
+        env: { ...env, [API_KEY_ENV]: FAKE_API_KEY, [GM_API_URL_ENV]: provider.url, [LANGUAGE_ENV]: language },
+      });
+      try {
+        await daemon.command(actionCommand(await snapshotOf(daemon, campaignId), ACTION));
+      } finally {
+        await daemon.stop();
+        write.mock.restore();
+        await provider.close();
+      }
+      return written.join('');
+    };
+    assert.match(await narrationFailureLine('en'), /The game master could not narrate this turn: /);
+    assert.match(await narrationFailureLine('pt-BR'), /O mestre não conseguiu narrar este turno: /);
   });
 
   it('rpg-42a.101 reports a provider failure with the committed action pending, then narrates the retry', async (t) => {

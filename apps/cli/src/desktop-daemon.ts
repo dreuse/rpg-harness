@@ -3,7 +3,7 @@ import { createInterface } from 'node:readline';
 import { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
 import type { GmFailure } from '../../../packages/client-protocol/src/gm-failure.ts';
-import { localeOf } from '../../../packages/client-protocol/src/locale.ts';
+import { LANGUAGE_ENV, localeOf } from '../../../packages/client-protocol/src/locale.ts';
 import {
   type CampaignCommand,
   type ClientEvent,
@@ -56,6 +56,7 @@ import { dataDirFromEnv } from './setup-check.ts';
 
 const PLAYBACK = 'Playback';
 const DIAGNOSTICS = 'Diagnostics';
+const LANGUAGE = 'Language';
 
 const daemonLocale = () => localeOf(process.env, CLI_LOCALES);
 
@@ -351,6 +352,13 @@ const replier = ({ name, campaign, problem }: Served, gm: GameMaster) => {
   const diagnose = ({ id }: Request) =>
     send({ id, type: 'Diagnosed', summary: playbackFor(dataDirFromEnv()).diagnostics?.() });
 
+  const setLanguage = ({ id, language }: Request) => {
+    if (typeof language !== 'string')
+      return send({ id, type: 'Error', message: say(daemonLocale(), 'daemon.invalidLanguage') });
+    process.env[LANGUAGE_ENV] = language;
+    return send({ id, type: 'Localized' });
+  };
+
   const shutdown = () => {
     campaign?.close();
     exitDaemon();
@@ -361,6 +369,7 @@ const replier = ({ name, campaign, problem }: Served, gm: GameMaster) => {
       const request = requestOf(input);
       if (request?.type === PLAYBACK) return playback(request);
       if (request?.type === DIAGNOSTICS) return diagnose(request);
+      if (request?.type === LANGUAGE) return setLanguage(request);
       queue = queue.then(() => reply(input)).then(IGNORE, IGNORE);
     },
     { shutdown },
@@ -498,6 +507,11 @@ export const startDaemon = ({
 
   const diagnostics = () => call({ type: DIAGNOSTICS });
 
+  const language = (locale: string) => {
+    env = { ...env, [LANGUAGE_ENV]: locale };
+    return call({ type: LANGUAGE, language: locale });
+  };
+
   const subscribe = async (input: unknown, listener: (event: ClientEvent) => void) => {
     const id = nextId++;
     listeners.set(id, listener);
@@ -525,7 +539,17 @@ export const startDaemon = ({
   };
 
   startEngine();
-  return { ready: () => handshake, request, command, playback, diagnostics, subscribe, stop, restarts: () => restarts };
+  return {
+    ready: () => handshake,
+    request,
+    command,
+    playback,
+    diagnostics,
+    language,
+    subscribe,
+    stop,
+    restarts: () => restarts,
+  };
 };
 
 if (import.meta.main) await runDaemon();
