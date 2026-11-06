@@ -175,6 +175,20 @@ test('a pt-BR campaign without the mlx voice gets the player notice', () => {
   assert.match(prepareVoice([provider('kokoro')], PT_BR, ROUTE) ?? '', /not available on this computer/);
 });
 
+test('rpg-42a.117 voice notices read in the interface language', async () => {
+  assert.match(
+    prepareVoice([provider('kokoro')], PT_BR, ROUTE, 'pt-BR') ?? '',
+    /não estão disponíveis neste computador/,
+  );
+  const failing = withPreload(MLX_ID, () => Promise.reject(new Error('cold start failed')));
+  prepareVoice([failing], PT_BR, ROUTE);
+  await tick();
+  assert.match(
+    takePreloadFailureNotice([failing], PT_BR, ROUTE, 'pt-BR') ?? '',
+    /não estão disponíveis neste computador/,
+  );
+});
+
 test('dispose also disposes every provider', () => {
   const disposed: string[] = [];
   const hosted = { ...provider(MLX_ID), dispose: async () => void disposed.push(MLX_ID) };

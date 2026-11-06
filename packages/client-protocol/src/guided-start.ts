@@ -11,7 +11,7 @@ import {
   usesSheet,
 } from '../../domain/src/rules-usage.ts';
 import { isLocale } from '../../domain/src/voice.ts';
-import { contentText } from './content-names.ts';
+import { contentText, hasContentNames } from './content-names.ts';
 import { type Catalog, createTranslator, DEFAULT_LOCALE, safeLocale } from './locale.ts';
 import {
   type CampaignPlan,
@@ -500,7 +500,9 @@ type Page = Pick<StartScreen, 'title' | 'text' | 'options'> & Partial<StartScree
 const PACK_LANGUAGE = 'en';
 
 const packNotice = (locale: string) =>
-  new Intl.Locale(safeLocale(locale)).language === PACK_LANGUAGE ? [] : [text(locale, 'packs.english')];
+  new Intl.Locale(safeLocale(locale)).language === PACK_LANGUAGE || hasContentNames(locale)
+    ? []
+    : [text(locale, 'packs.english')];
 
 const RULES_SOURCE_USAGE: Readonly<Record<string, RulesUsage>> = { own: OWN_RULES_USAGE, none: NONE_RULES_USAGE };
 
@@ -574,11 +576,13 @@ const characterPage = (draft: StartDraft, options: StartOptions, locale: string)
   };
 };
 
+export const DICE_LABELS = { rulepack: 'as the ruleset decides', on: 'on', off: 'off' } as const;
+
 const VALUE_KEYS: Readonly<Record<string, string>> = {
   none: 'value.none',
-  on: 'value.on',
-  off: 'value.off',
-  'as the ruleset decides': 'value.rulepack',
+  [DICE_LABELS.on]: 'value.on',
+  [DICE_LABELS.off]: 'value.off',
+  [DICE_LABELS.rulepack]: 'value.rulepack',
 };
 
 const shown = (locale: string, field: string, value: string, options: StartOptions) => {

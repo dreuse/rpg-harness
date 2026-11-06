@@ -1,11 +1,14 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { type TestContext, test } from 'node:test';
 import { missingKeys } from '../../../packages/client-protocol/src/locale.ts';
+import { restoreArchive } from './campaign-archive.ts';
 import { createEngineGateway } from './engine-gateway.ts';
-import { CLI_CATALOG, errorText } from './messages.ts';
+import { launchClaude } from './gm-claude-code.ts';
+import { readInside } from './import-gateway.ts';
+import { CLI_CATALOG, errorText, say } from './messages.ts';
 import { describeConfig, planCampaign, planResult, startingCharacter } from './quickstart.ts';
 
 const PORTUGUESE = 'pt-BR';
@@ -92,6 +95,51 @@ test('rpg-42a.53 a character that lacks details names the sheet fields in Brazil
   );
 });
 
+test('rpg-42a.117 a character that does not fit explains each engine issue in Brazilian Portuguese', () => {
+  const config = planCampaign(undefined, { ruleset: D20, character: 'Might 99 Agility 3 Wits 3 Presence 3' });
+  const error = failure(() => startingCharacter(config));
+  assert.equal(errorText(PORTUGUESE, error), 'Seu personagem não se encaixa nas regras: deve estar entre 0 e 10.');
+  assert.equal(errorText('en', error), 'Your character does not fit the rules: must be between 0 and 10.');
+});
+
+test('rpg-42a.117 a config issue line reads in Brazilian Portuguese and stays English by default', () => {
+  const error = failure(() => planCampaign(undefined, { genre: 5 }));
+  assert.equal(errorText(PORTUGUESE, error), 'genre.value valor inválido.');
+  assert.equal(errorText('en', error), 'genre.value invalid value.');
+});
+
+test('rpg-42a.117 archive, import and Claude Code leaf errors read in Brazilian Portuguese', (t) => {
+  const dir = dataDirFor(t);
+  const junk = join(dir, 'junk.json');
+  writeFileSync(junk, '{}');
+  const rejected = failure(() => restoreArchive(junk, dir, (name) => join(dir, name)));
+  assert.equal(errorText(PORTUGUESE, rejected), 'Arquivo rejeitado: o arquivo não é um arquivo de campanha válido.');
+  assert.equal(errorText('en', rejected), 'Archive rejected: file is not a valid campaign archive.');
+  writeFileSync(join(dir, 'inside.txt'), 'x');
+  mkdirSync(join(dir, 'folder'));
+  assert.equal(
+    errorText(
+      PORTUGUESE,
+      failure(() => readInside(dir, 'folder')),
+    ),
+    'folder não é um arquivo comum.',
+  );
+  assert.equal(
+    errorText(
+      PORTUGUESE,
+      failure(() => launchClaude({ PATH: '' }, dir)),
+    ),
+    'O Claude Code não foi encontrado. Instale-o, rode claude uma vez para entrar na conta e tente de novo.',
+  );
+  assert.equal(
+    errorText(
+      'en',
+      failure(() => launchClaude({ PATH: '' }, dir)),
+    ),
+    'Claude Code was not found. Install it, run claude once to sign in, then try again.',
+  );
+});
+
 test('rpg-42a.53 the saved settings read in Brazilian Portuguese and the GM prompt text stays English', () => {
   const config = planCampaign(undefined, { ruleset: NARRATIVE, genre: 'horror' });
   assert.equal(
@@ -133,6 +181,26 @@ test('rpg-42a.53 gateway success messages read in Brazilian Portuguese', async (
     gateway.restore(backupFile, PORTUGUESE),
     'Campanha Ember restaurada. Rode rpg resume Ember para continuar.',
   );
+});
+
+test('rpg-42a.117 the read views and the recap read in Brazilian Portuguese and stay English by default', async (t) => {
+  const dataDir = dataDirFor(t);
+  const gateway = createEngineGateway(dataDir);
+  await collect(gateway.create(CAMPAIGN, undefined, async () => undefined, undefined, PORTUGUESE));
+  assert.equal(gateway.view(CAMPAIGN, 'sheet', PORTUGUESE), 'The Wanderer\nAinda não há ficha de personagem.');
+  assert.equal(gateway.view(CAMPAIGN, 'inventory', PORTUGUESE), 'Inventário:\nAinda não há itens.');
+  assert.equal(gateway.view(CAMPAIGN, 'quests', PORTUGUESE), 'Missões:\nAinda não há missões.');
+  assert.equal(gateway.view(CAMPAIGN, 'encounter', PORTUGUESE), 'Ainda não há encontro.');
+  assert.match(gateway.view(CAMPAIGN, 'journal', PORTUGUESE), /^Diário:\n/);
+  assert.match(gateway.view(CAMPAIGN, 'recap', PORTUGUESE), /^Regras: /);
+  assert.equal(gateway.view(CAMPAIGN, 'inventory'), 'Inventory:\nNo items yet.');
+  assert.match(gateway.view(CAMPAIGN, 'recap'), /^Ruleset: /);
+});
+
+test('rpg-42a.117 the incomplete import count uses singular and plural forms', () => {
+  assert.equal(say('en', 'import.incomplete', { count: 1 }), 'Import not completed: 1 gap left.');
+  assert.equal(say('en', 'import.incomplete', { count: 3 }), 'Import not completed: 3 gaps left.');
+  assert.equal(say(PORTUGUESE, 'import.incomplete', { count: 2 }), 'Importação não concluída: 2 lacunas restantes.');
 });
 
 test('rpg-42a.53 the new catalog keys exist in every CLI locale', () => {

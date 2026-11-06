@@ -11,13 +11,15 @@ import { applyPlaybackCommand } from '../../../packages/voice/src/playback-contr
 import { DEFAULT_VOICE_SETTINGS } from '../../../packages/voice/src/voice.ts';
 import type { VoiceDiagnosticsSummary } from '../../../packages/voice/src/voice-diagnostics.ts';
 import { routeVoiceInput, type VoiceSession } from '../../../packages/voice/src/voice-settings.ts';
-import { DEFAULT_LOCALE, say } from './messages.ts';
+import { DEFAULT_LOCALE, safeLocale, say } from './messages.ts';
 import type { TuiAudio, TuiPlayback } from './tui.ts';
 
 export type SaveVoice = (settings: SavedVoiceSettings) => string | undefined;
 
 const TYPED = 'typed';
-const YES = /^\s*(?:y(?:es)?|s(?:im)?)\s*$/i;
+const YES = /^\s*y(?:es)?\s*$/i;
+const PORTUGUESE_YES = /^\s*s(?:im)?\s*$/i;
+const PORTUGUESE = 'pt';
 const LIST = ', ';
 const COMMAND_PREFIX = '/';
 const DIAGNOSTICS_COMMAND = 'voice';
@@ -69,7 +71,7 @@ export const createTuiAudio = (
 
   const answer = (text: string, asked: NonNullable<typeof pending>) => {
     pending = undefined;
-    if (YES.test(text))
+    if (YES.test(text) || (new Intl.Locale(safeLocale(locale)).language === PORTUGUESE && PORTUGUESE_YES.test(text)))
       return commit(asked.session, new Date().toISOString(), withNotice(say(locale, 'audio.allowed'), asked.message));
     const preferences = { ...asked.session.preferences, microphone: MICROPHONE_OFF };
     return commit({ ...asked.session, preferences }, consentGrantedAt, say(locale, 'audio.declined'));

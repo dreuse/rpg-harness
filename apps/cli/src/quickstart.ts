@@ -1,4 +1,5 @@
 import { type ContentKind, contentText } from '../../../packages/client-protocol/src/content-names.ts';
+import { DICE_LABELS } from '../../../packages/client-protocol/src/guided-start.ts';
 import {
   type CampaignPlan,
   failure,
@@ -51,7 +52,7 @@ import {
   type RulesetResolution,
   resolveRuleset,
 } from '../../../packages/intent/src/resolver.ts';
-import { type BuildInput, buildCharacter } from '../../../packages/rules/src/character-builder.ts';
+import { type BuilderIssue, type BuildInput, buildCharacter } from '../../../packages/rules/src/character-builder.ts';
 import { D20_LITE_CREATION } from '../../../packages/rules/src/d20-lite.ts';
 import { DICE_POOL_LITE_CREATION } from '../../../packages/rules/src/dice-pool-lite.ts';
 import { NARRATIVE_CREATION } from '../../../packages/rules/src/narrative.ts';
@@ -89,7 +90,6 @@ const DICE_KEYS: Record<CapabilityMode, string> = {
 };
 const CHOSEN: Provenance = 'explicit';
 const DEFAULT: Provenance = 'default';
-const DICE_LABELS: Record<CapabilityMode, string> = { rulepack: 'as the ruleset decides', on: 'on', off: 'off' };
 const SWITCH_LABELS = { true: 'on', false: 'off' } as const;
 const PLAN_FIELDS = [
   'ruleset',
@@ -158,7 +158,8 @@ const rulesetError = (resolution: Exclude<RulesetResolution, { status: 'resolved
   });
 };
 
-const issueLine = ({ code, path }: ConfigIssue | IntentIssue) => `${path} ${code.replaceAll('_', ' ')}.`;
+const issueLine = ({ code, path }: ConfigIssue | IntentIssue) =>
+  new LocalizedError('quickstart.issue', { path, reason: new LocalizedError(`quickstart.code.${code}`) });
 
 const issueText = (intent: CampaignIntent, issue: ConfigIssue) =>
   issue.path === 'genre' && issue.code === 'not_installed'
@@ -367,6 +368,26 @@ export const creationRulesFor = (rulepack: CampaignConfig['rulepack']) =>
       pack.id === rulepack?.id && pack.edition === rulepack.edition && pack.revision === rulepack.revision,
   );
 
+const BOUNDS_MESSAGE = /^must be between (.+) and (.+)$/;
+const WIDGET_MESSAGE = /^must fit the (.+) widget$/;
+const LIST_MESSAGE = 'must be a list';
+const STATIC_BUILDER_CODES: readonly BuilderIssue['code'][] = [
+  'unknown_field',
+  'derived_field',
+  'override_not_permitted',
+  'unsupported_equipment',
+  'duplicate',
+];
+
+const builderIssueText = ({ code, message }: BuilderIssue): string | LocalizedError => {
+  const bounds = BOUNDS_MESSAGE.exec(message);
+  if (bounds !== null) return new LocalizedError('quickstart.builder.out_of_range', { min: bounds[1], max: bounds[2] });
+  const widget = WIDGET_MESSAGE.exec(message);
+  if (widget !== null) return new LocalizedError('quickstart.builder.invalid_value', { widget: widget[1] });
+  if (message === LIST_MESSAGE) return new LocalizedError('quickstart.builder.listRequired');
+  return STATIC_BUILDER_CODES.includes(code) ? new LocalizedError(`quickstart.builder.${code}`) : message;
+};
+
 export const startingCharacter = ({ rulepack, values: { character } }: CampaignConfig): BuildInput | undefined => {
   const rules = creationRulesFor(rulepack);
   if (typeof character !== 'string' || rules === undefined) return undefined;
@@ -382,7 +403,7 @@ export const startingCharacter = ({ rulepack, values: { character } }: CampaignC
       ),
     });
   throw new LocalizedError('quickstart.characterInvalid', {
-    issues: result.issues.map(({ message }) => message).join('; '),
+    issues: new ListParam(result.issues.map(builderIssueText), 'semicolon'),
   });
 };
 

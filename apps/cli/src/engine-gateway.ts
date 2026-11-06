@@ -698,6 +698,7 @@ const openSession = (
   rng: Rng = Math.random,
   speech?: SpeechSource,
   sessionId: string = randomUUID(),
+  uiLocale = DEFAULT_LOCALE,
 ): OpenSession => {
   const path = databasePath(dataDir, name);
   if (!existsSync(path)) throw missingCampaign(dataDir, name);
@@ -750,9 +751,10 @@ const openSession = (
         const chosenNarrator = withOptedInNarrator(narrator, optedInNarrator(dataDir, narrator.language));
         const entities = createEntityStore(database);
         const npcVoices = assignedNpcVoices({ entities, campaignId, narrator, assigned: settings.npcVoices ?? {} });
-        prepareVoice(runtime.providers, narrator.language, route);
+        prepareVoice(runtime.providers, narrator.language, route, uiLocale);
         const notice =
-          takePreloadFailureNotice(runtime.providers, narrator.language, route) ?? runtime.takeFailureNotice();
+          takePreloadFailureNotice(runtime.providers, narrator.language, route, uiLocale) ??
+          runtime.takeFailureNotice();
         const voice = createTurnSpeech({
           speech: runtime.speech,
           turnId,
@@ -849,8 +851,9 @@ export const openClientSession = (
   gm: GameMaster = FAKE_GAME_MASTER,
   rng: Rng = Math.random,
   speech?: SpeechSource,
+  uiLocale = DEFAULT_LOCALE,
 ) => {
-  const opened = openSession(dataDir, name, false, gm, rng, speech);
+  const opened = openSession(dataDir, name, false, gm, rng, speech, undefined, uiLocale);
   const { engine, campaignId, database, narrate, settle, close, sessionId, gmDefaults } = opened;
   try {
     const readWorld = worldOf(database);
@@ -952,9 +955,9 @@ export const playbackFor = (dataDir: string): TuiPlayback => ({
 
 const NOTICE_JOIN = ' ';
 
-const speechNotice = async (speech: SpeechSource, locale: string) => {
+const speechNotice = async (speech: SpeechSource, locale: string, uiLocale: string) => {
   const [{ prepareVoice }, runtime] = await Promise.all([import('./speech-runtime.ts'), speech()]);
-  return prepareVoice(runtime.providers, locale, runtime.route);
+  return prepareVoice(runtime.providers, locale, runtime.route, uiLocale);
 };
 
 const playTui = async (
@@ -972,10 +975,14 @@ const playTui = async (
     gm,
     rng,
     speech,
+    terminal.locale ?? DEFAULT_LOCALE,
   );
   try {
     const locale = voiceLocale();
-    const voiceNotice = locale === undefined ? undefined : await speechNotice(speech, locale).catch(() => undefined);
+    const voiceNotice =
+      locale === undefined
+        ? undefined
+        : await speechNotice(speech, locale, terminal.locale ?? DEFAULT_LOCALE).catch(() => undefined);
     const soundNotice = await startSound(dataDir, session, campaignId, terminal.locale ?? DEFAULT_LOCALE);
     const notice = [gm.notice, voiceNotice, soundNotice].filter((line) => line !== undefined).join(NOTICE_JOIN);
     await runTui(session, campaignId, terminal, narrate, notice || undefined, playbackFor(dataDir));
@@ -1238,14 +1245,14 @@ const recap = (characters: CampaignState['characters'], last: Turn | undefined) 
   return last.actionId === OPENING_ACTION_ID ? last.narration : narrate(actor.name, last);
 };
 
-const savedSettings = (events: CampaignState['events']) => {
+const savedSettings = (events: CampaignState['events'], locale: string) => {
   const saved = parseCampaignConfig(campaignConfigOf(events));
-  return saved.ok ? [describeConfig(saved.config)] : [];
+  return saved.ok ? [describeConfig(saved.config, locale)] : [];
 };
 
-const recapText = (name: string, state: CampaignState) =>
+const recapText = (name: string, state: CampaignState, locale: string) =>
   [
-    ...savedSettings(state.events),
+    ...savedSettings(state.events, locale),
     sceneText(state.currentScene?.title ?? name, recap(state.characters, playTurns(state).at(-1))),
   ].join('\n');
 
@@ -1258,14 +1265,14 @@ const viewSourceOf = (database: Session['database'], campaignId: CampaignId, sta
   ...worldOf(database)(campaignId, state.characters[0]?.id),
 });
 
-const readView = (dataDir: string, name: string, view: ViewName) =>
+const readView = (dataDir: string, name: string, view: ViewName, locale: string) =>
   withSession(
     dataDir,
     name,
     ({ engine, campaignId, database }) => {
       const state = engine.getState(campaignId);
-      if (view === RECAP_VIEW) return recapText(name, state);
-      return renderView(view, viewSourceOf(database, campaignId, state));
+      if (view === RECAP_VIEW) return recapText(name, state, locale);
+      return renderView(view, viewSourceOf(database, campaignId, state), undefined, locale);
     },
     true,
   );
@@ -1621,11 +1628,11 @@ export const createEngineGateway = (
     const character = await characterFor(dataDir, title, config, ask);
     if (character !== undefined) yield character;
   },
-  view: (name, view) => readView(dataDir, name, view),
+  view: (name, view, locale = DEFAULT_LOCALE) => readView(dataDir, name, view, locale),
   tui: (name, terminal) => playTui(dataDir, name, terminal, gm, rng, makeSpeech),
   start: (lines, locale) =>
     guidedStart(dataDir, lines, (target, command, client) => createCampaignFrom(target, command, client, gm), locale),
-  importRules: (files, lines) => importRules(process.cwd(), files, lines, dataDir),
+  importRules: (files, lines, locale) => importRules(process.cwd(), files, lines, dataDir, locale),
   claude: (name) => {
     if (name === undefined) return launchClaude(process.env, dataDir);
     const path = databasePath(dataDir, name);
@@ -1633,7 +1640,7 @@ export const createEngineGateway = (
     return launchClaude(process.env, dataDir, path);
   },
   open: async function* (name, _mode, lines, onTurnError, locale = DEFAULT_LOCALE) {
-    yield readView(dataDir, name, RECAP_VIEW);
+    yield readView(dataDir, name, RECAP_VIEW, locale);
     const sessionId = randomUUID();
     let warned = false;
     for await (const line of lines) {

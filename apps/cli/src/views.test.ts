@@ -11,6 +11,7 @@ import { CHARACTER_CREATED, commitCharacter } from '../../../packages/engine/src
 import { createEngine } from '../../../packages/engine/src/engine.ts';
 import { OOC_STATE_SAVED } from '../../../packages/engine/src/ooc.ts';
 import { CHECK_RESOLVED, openScene } from '../../../packages/engine/src/turn.ts';
+import { PLAYER_VIEWER } from '../../../packages/memory/src/knowledge.ts';
 import { createCampaignStore } from '../../../packages/persistence/src/campaign-store.ts';
 import { createCharacterStore } from '../../../packages/persistence/src/character-store.ts';
 import { MIGRATIONS, openDatabase } from '../../../packages/persistence/src/database.ts';
@@ -30,7 +31,7 @@ import { importSheet, SHEET_EXPORT_FORMAT } from '../../../packages/rules/src/sh
 import { EMPTY_LIVE_FOLDS, foldLive } from '../../../packages/timelines/src/live-folds.ts';
 import { createEngineGateway, FAKE_GAME_MASTER, openClientSession, readCampaignState } from './engine-gateway.ts';
 import { main } from './main.ts';
-import { editableSheet, panelsOf, printable, renderView, sheetComponents } from './views.ts';
+import { editableSheet, panelsOf, printable, renderView, sheetComponents, sheetFields } from './views.ts';
 
 const CAMPAIGN = 'Ember';
 const HIGH_DRAW = 0.95;
@@ -523,6 +524,53 @@ test('display trusted rolls, modifiers and encounter outcomes in readable text',
     assert.match(await run(dataDir, ['play', CAMPAIGN], ['/encounter']), /Roll: 2d6\+1 \[3, 4\] = 8/);
   }));
 
+test('rpg-42a.117 the encounter view reads in Brazilian Portuguese', () =>
+  withDataDir(async (dataDir) => {
+    await run(dataDir, ['new', CAMPAIGN]);
+    seedEncounter(
+      dataDir,
+      [
+        [
+          {
+            ruleId: 'strike',
+            modifiers: { flank: 2 },
+            resolution: {
+              ok: true,
+              changes: [{ id: 'stamina', from: 5, to: 3 }],
+              events: [{ actionId: 'a1', ruleId: 'strike', event: 'hit' }],
+              rolls: [roll('r1', 6, [3, 4], 1)],
+            },
+          },
+          PLAYER,
+        ],
+        [
+          {
+            ruleId: 'parry',
+            modifiers: {},
+            resolution: { ok: false, error: { code: 'RollFailed', issues: [] }, rolls: [roll('r2', 8, [2], 0)] },
+          },
+          PLAYER,
+        ],
+      ],
+      'The bandits flee.',
+    );
+    assert.equal(
+      renderView('encounter', sourceOf(dataDir), undefined, 'pt-BR'),
+      [
+        'Encontro (resolved, rodada 1):',
+        '  - The Wanderer: strike',
+        '    Rolagem: 2d6+1 [3, 4] = 8',
+        '    Modificadores: flank +2',
+        '    Resultado: hit',
+        '    Mudanças: stamina 5 -> 3',
+        '  - The Wanderer: parry',
+        '    Rolagem: 1d8 [2] = 2',
+        '    Resultado: falhou (RollFailed)',
+        'Desfecho: The bandits flee.',
+      ].join('\n'),
+    );
+  }));
+
 test('hidden gm rolls and narrative-only rulesets do not expose invented dice', () =>
   withDataDir(async (dataDir) => {
     await run(dataDir, ['new', CAMPAIGN]);
@@ -752,6 +800,17 @@ test('rpg-42a.38 the sheet view of a sheetless ruleset serves the character name
     } finally {
       close();
     }
+  }));
+
+test('rpg-42a.117 the sheetless identity fields are labelled in the campaign language', () =>
+  withDataDir(async (dataDir) => {
+    await run(dataDir, ['new', CAMPAIGN, 'A horror story using the Narrative rules']);
+    createHero(dataDir, 'Wren', NARRATIVE_CREATION, {});
+    const source = sourceOf(dataDir);
+    const labels = (locale?: string) => sheetFields(source, PLAYER_VIEWER, locale).map(({ label }) => label);
+    assert.deepEqual(labels('pt-BR'), ['Nome', 'Descrição']);
+    assert.deepEqual(labels('es'), ['Nombre', 'Descripción']);
+    assert.deepEqual(labels(), ['Name', 'Description']);
   }));
 
 test('panels read the projected quest log and fold the visible events once a turn is retconned', () => {

@@ -89,11 +89,11 @@ export type CampaignGateway = {
     onTurnError: (error: unknown) => void,
     locale?: string,
   ) => AsyncIterable<string>;
-  importRules: (files: readonly string[], lines: AsyncIterable<string>) => AsyncIterable<string>;
+  importRules: (files: readonly string[], lines: AsyncIterable<string>, locale?: string) => AsyncIterable<string>;
   exportCampaign: (campaign: string, file: string, locale?: string) => string;
   backup: (campaign: string, locale?: string) => string;
   restore: (file: string, locale?: string) => string;
-  view: (campaign: string, view: ViewName) => string;
+  view: (campaign: string, view: ViewName, locale?: string) => string;
   tui: (campaign: string, terminal: Terminal) => Promise<void>;
   start: (lines: AsyncIterable<string>, locale?: string) => AsyncIterable<string>;
   update: (request: UpdateRequest, locale?: string) => AsyncIterable<string>;
@@ -356,7 +356,7 @@ export const main = async (argv: readonly string[], io: Io, gateway: CampaignGat
         : gateway.open(
             name,
             command,
-            withControls(io, (view) => gateway.view(name, view)),
+            withControls(io, (view) => gateway.view(name, view, io.locale)),
             (error) => reportError(io, error),
             io.locale,
           ),
@@ -379,11 +379,11 @@ export const main = async (argv: readonly string[], io: Io, gateway: CampaignGat
     const [name, ...extra] = rest;
     if (name === undefined || name.trim() === '') return missingName(command);
     if (extra.length > 0) return unexpectedArgument(extra[0]);
-    return run(io, () => [gateway.view(name, command)]);
+    return run(io, () => [gateway.view(name, command, io.locale)]);
   }
   if (command === 'import') {
     if (rest.length === 0 || rest.some((file) => file.trim() === '')) return missingFile('import');
-    return run(io, () => gateway.importRules(rest, withControls(io)));
+    return run(io, () => gateway.importRules(rest, withControls(io), io.locale));
   }
   if (command === 'export') {
     const [name, file, ...extra] = rest;

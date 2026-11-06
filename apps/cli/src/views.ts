@@ -42,6 +42,7 @@ import {
   type SheetViewInput,
 } from '../../../packages/rules/src/sheet-view.ts';
 import { audienceOf, visibleFoldsOf } from '../../../packages/timelines/src/live-folds.ts';
+import { say } from './messages.ts';
 import { creationRulesFor, usageFor } from './quickstart.ts';
 
 export const VIEW_NAMES = ['sheet', 'sheet-export', 'inventory', 'journal', 'quests', 'encounter', 'recap'] as const;
@@ -67,13 +68,6 @@ const EDIT_TYPE_BY_VALUE: Readonly<Record<string, SheetValueType>> = {
   string: 'text',
 };
 const EDITABLE_FIELDS: readonly FieldVisibility[] = ['public', OWNER_FIELD];
-const NO_CHARACTER = 'No character yet.';
-const NO_SHEET = 'No character sheet yet.';
-const SHEETLESS = 'This game does not use character sheets.';
-const NO_ITEMS = 'No items yet.';
-const NO_QUESTS = 'No quests yet.';
-const NO_EVENTS = 'No events yet.';
-const NO_ENCOUNTER = 'No encounter yet.';
 const DONE = '[x]';
 const LIST_SEPARATOR = ', ';
 const REPLY_SEPARATOR = ' - ';
@@ -81,7 +75,7 @@ const JSON_INDENT = 2;
 const OPEN = '[ ]';
 const SHEET_COMPONENT = 'field';
 const EXPLANATION_SEPARATOR = '; ';
-const CONSTRAINT_NOTES: Readonly<Record<string, string>> = { clamped: 'limited from', violated: 'out of range at' };
+const CONSTRAINT_STATUSES: readonly string[] = ['clamped', 'violated'];
 const RULEPACK_KEYS = ['id', 'edition', 'revision'] as const;
 const ACTOR_SCOPE: Viewer['scope'] = 'actor';
 const UNPRINTABLE = /[^\P{Cc}\n]|\p{Cf}/gu;
@@ -92,6 +86,9 @@ export type Panels = Omit<CampaignPanels, 'version' | 'campaignId' | 'revision'>
 
 const section = (title: string, rows: readonly string[], empty: string) =>
   rows.length === 0 ? `${title}\n${empty}` : [title, ...rows].join('\n');
+
+const labelLocale = (rulepackId: string, locale: string) =>
+  rulepackId === D20_LITE_MANIFEST.id ? locale : DEFAULT_LOCALE;
 
 const storedProfile = ({ entities, state }: ViewSource, hero: Character) => {
   const entity = entities.find(({ id, kind }) => id === hero.id && kind === CHARACTER_KIND);
@@ -167,18 +164,23 @@ const description = (hero: Character, source: ViewSource) => {
   return parsed?.ok === true && parsed.profile.background.trim() !== '' ? [parsed.profile.background.trim()] : [];
 };
 
-const sheetlessText = (hero: Character, source: ViewSource) =>
-  [hero.name, ...description(hero, source), SHEETLESS].join('\n');
+const sheetlessText = (hero: Character, source: ViewSource, locale: string) =>
+  [hero.name, ...description(hero, source), say(locale, 'view.sheetless')].join('\n');
 
-const sheet = (hero: Character, source: ViewSource, viewer: SheetViewer) => {
-  if (sheetless(source)) return sheetlessText(hero, source);
+const sheet = (hero: Character, source: ViewSource, viewer: SheetViewer, locale: string) => {
+  if (sheetless(source)) return sheetlessText(hero, source, locale);
   const input = sheetInput(source, hero, viewer);
-  if (input === undefined) return `${hero.name}\n${NO_SHEET}`;
+  const noSheet = say(locale, 'view.noSheet');
+  if (input === undefined) return `${hero.name}\n${noSheet}`;
   const { rulepack } = input.schema;
+  const shownLocale = labelLocale(rulepack.id, locale);
   const rows = buildSheetView(input).groups.flatMap((group) =>
-    group.fields.map((field) => `  ${field.label ?? field.id}: ${field.value}`),
+    group.fields.map(
+      ({ id, label, value }) =>
+        `  ${label === undefined ? id : contentText(shownLocale, 'stat', label, label)}: ${value}`,
+    ),
   );
-  return section(`${hero.name} (${rulepack.id} ${rulepack.edition})`, rows, NO_SHEET);
+  return section(`${hero.name} (${rulepack.id} ${rulepack.edition})`, rows, noSheet);
 };
 
 const GM_SHEET_VIEWER: SheetViewer = { role: 'gm' };
@@ -210,19 +212,18 @@ export const editableSheet = (
   };
 };
 
-const explanationOf = ({ expression, bonuses, constraints }: ComputedDescriptor) =>
+const explanationOf = ({ expression, bonuses, constraints }: ComputedDescriptor, locale: string) =>
   [
     ...(expression === undefined ? [] : [`= ${expression}`]),
     ...bonuses.map(({ source, amount }) => `${signed(amount)} ${source}`),
     ...constraints.flatMap(({ status, raw }) => {
-      const note = CONSTRAINT_NOTES[status];
-      return note === undefined ? [] : [`${note} ${raw}`];
+      return CONSTRAINT_STATUSES.includes(status) ? [`${say(locale, `view.constraint.${status}`)} ${raw}`] : [];
     }),
   ].join(EXPLANATION_SEPARATOR);
 
 export const sheetComponents = ({ rulepack, groups, computed }: SheetView, locale: string = DEFAULT_LOCALE) => {
-  const sheetLocale = rulepack.id === D20_LITE_MANIFEST.id ? locale : DEFAULT_LOCALE;
-  const explained = new Map(computed.map((descriptor) => [descriptor.field, explanationOf(descriptor)]));
+  const sheetLocale = labelLocale(rulepack.id, locale);
+  const explained = new Map(computed.map((descriptor) => [descriptor.field, explanationOf(descriptor, locale)]));
   return groups.flatMap(({ id: group, fields }) =>
     fields.map(({ id, label, value, edit }) => {
       const explanation = explained.get(id);
@@ -241,31 +242,33 @@ export const sheetComponents = ({ rulepack, groups, computed }: SheetView, local
   );
 };
 
-const IDENTITY_FIELDS = [
-  { id: 'name', label: 'Name' },
-  { id: 'description', label: 'Description' },
-] as const;
+const IDENTITY_FIELDS = ['name', 'description'] as const;
 
-const identityComponents = (hero: Character, source: ViewSource) => {
+const identityComponents = (hero: Character, source: ViewSource, locale: string) => {
   const [text = ''] = description(hero, source);
-  return IDENTITY_FIELDS.flatMap(({ id, label }) => {
+  return IDENTITY_FIELDS.flatMap((id) => {
     const value = id === 'name' ? hero.name : text;
-    return value === '' ? [] : [{ kind: SHEET_COMPONENT, id, label, value, editable: false }];
+    return value === ''
+      ? []
+      : [{ kind: SHEET_COMPONENT, id, label: say(locale, `view.${id}`), value, editable: false }];
   });
 };
 
 export const sheetFields = (source: ViewSource, viewer: Viewer, locale: string = DEFAULT_LOCALE) => {
   const [hero] = source.state.characters;
   const sheetViewer = hero === undefined ? undefined : sheetViewerOf(viewer, hero);
-  if (hero !== undefined && sheetViewer !== undefined && sheetless(source)) return identityComponents(hero, source);
+  if (hero !== undefined && sheetViewer !== undefined && sheetless(source))
+    return identityComponents(hero, source, locale);
   const input = hero === undefined || sheetViewer === undefined ? undefined : sheetInput(source, hero, sheetViewer);
   return input === undefined ? [] : sheetComponents(buildSheetView(input), locale);
 };
 
-const sheetExport = (hero: Character, source: ViewSource, viewer: SheetViewer) => {
-  if (sheetless(source)) return sheetlessText(hero, source);
+const sheetExport = (hero: Character, source: ViewSource, viewer: SheetViewer, locale: string) => {
+  if (sheetless(source)) return sheetlessText(hero, source, locale);
   const input = sheetInput(source, hero, viewer);
-  return input === undefined ? `${hero.name}\n${NO_SHEET}` : JSON.stringify(exportSheet(input), null, JSON_INDENT);
+  return input === undefined
+    ? `${hero.name}\n${say(locale, 'view.noSheet')}`
+    : JSON.stringify(exportSheet(input), null, JSON_INDENT);
 };
 
 const heldItems = (hero: Character, { entities, relationships }: ViewSource) => {
@@ -273,11 +276,11 @@ const heldItems = (hero: Character, { entities, relationships }: ViewSource) => 
   return entities.filter(({ id, kind }) => kind === ITEM_KIND && held.has(id));
 };
 
-const inventory = (hero: Character, source: ViewSource) =>
+const inventory = (hero: Character, source: ViewSource, locale: string) =>
   section(
-    'Inventory:',
+    say(locale, 'view.inventory'),
     heldItems(hero, source).map(({ name }) => `  - ${name}`),
-    NO_ITEMS,
+    say(locale, 'view.noItems'),
   );
 
 const visibleEvents = ({ state, eventScopes }: ViewSource, viewer: Viewer) => {
@@ -293,42 +296,47 @@ export const encounterOf = (state: CampaignState) =>
 const foldsFor = (source: ViewSource, viewer: Viewer) =>
   isRetconned(source.state) ? visibleFoldsOf(visibleEvents(source, viewer)) : audienceOf(source.state.folds, viewer);
 
-const quests = (source: ViewSource) => {
+const quests = (source: ViewSource, locale: string) => {
   const rows = foldsFor(source, PLAYER_VIEWER).quests.flatMap((quest) => [
     `  - ${quest.title} (${quest.status})`,
     ...quest.objectives.map(({ done, summary }) => `    ${done ? DONE : OPEN} ${summary}`),
   ]);
-  return section('Quests:', rows, NO_QUESTS);
+  return section(say(locale, 'view.quests'), rows, say(locale, 'view.noQuests'));
 };
 
 const signed = (value: number) => (value < 0 ? `${value}` : `+${value}`);
 
-const rollText = ({ pool, draws, total }: RollEvent) => {
+const rollText = (locale: string, { pool, draws, total }: RollEvent) => {
   const dice = pool.dice.map(({ count, sides }) => `${count}d${sides}`).join('+');
   const modifier = pool.modifier === 0 ? '' : signed(pool.modifier);
-  return `    Roll: ${dice}${modifier} [${draws.flat().join(LIST_SEPARATOR)}] = ${total}`;
+  return `    ${say(locale, 'view.roll')} ${dice}${modifier} [${draws.flat().join(LIST_SEPARATOR)}] = ${total}`;
 };
 
-const actionRows = (name: string, { ruleId, modifiers, resolution }: EncounterAction) => {
+const actionRows = (locale: string, name: string, { ruleId, modifiers, resolution }: EncounterAction) => {
   const applied = Object.entries(modifiers).map(([id, value]) => `${id} ${signed(value)}`);
-  const results = resolution.ok ? resolution.events.map(({ event }) => event) : [`failed (${resolution.error.code})`];
+  const results = resolution.ok
+    ? resolution.events.map(({ event }) => event)
+    : [say(locale, 'view.failed', { code: resolution.error.code })];
   const changes = resolution.ok ? resolution.changes.map(({ id, from, to }) => `${id} ${from} -> ${to}`) : [];
   return [
     `  - ${name}: ${ruleId}`,
-    ...resolution.rolls.map(rollText),
-    ...(applied.length === 0 ? [] : [`    Modifiers: ${applied.join(LIST_SEPARATOR)}`]),
-    ...(results.length === 0 ? [] : [`    Result: ${results.join(LIST_SEPARATOR)}`]),
-    ...(changes.length === 0 ? [] : [`    Changes: ${changes.join(LIST_SEPARATOR)}`]),
+    ...resolution.rolls.map((roll) => rollText(locale, roll)),
+    ...(applied.length === 0 ? [] : [`    ${say(locale, 'view.modifiers')} ${applied.join(LIST_SEPARATOR)}`]),
+    ...(results.length === 0 ? [] : [`    ${say(locale, 'view.result')} ${results.join(LIST_SEPARATOR)}`]),
+    ...(changes.length === 0 ? [] : [`    ${say(locale, 'view.changes')} ${changes.join(LIST_SEPARATOR)}`]),
   ];
 };
 
-const encounter = (source: ViewSource) => {
+const encounter = (source: ViewSource, locale: string) => {
   const current = foldsFor(source, PLAYER_VIEWER).encounter;
-  if (current === undefined) return NO_ENCOUNTER;
+  if (current === undefined) return say(locale, 'view.noEncounter');
   const names = new Map(source.state.characters.map(({ id, name }) => [id, name]));
-  const rows = current.actions.flatMap((action) => actionRows(names.get(action.actorId) ?? action.actorId, action));
-  const outcome = current.outcome === undefined ? [] : [`Outcome: ${current.outcome}`];
-  return [`Encounter (${current.status}, round ${current.round}):`, ...rows, ...outcome].join('\n');
+  const rows = current.actions.flatMap((action) =>
+    actionRows(locale, names.get(action.actorId) ?? action.actorId, action),
+  );
+  const outcome = current.outcome === undefined ? [] : [say(locale, 'view.outcome', { value: current.outcome })];
+  const title = say(locale, 'view.encounter', { status: current.status, round: current.round });
+  return [title, ...rows, ...outcome].join('\n');
 };
 
 const turnText = (names: ReadonlyMap<string, string>, { actionId, actorId, input, narration }: Turn) => {
@@ -339,10 +347,10 @@ const turnText = (names: ReadonlyMap<string, string>, { actionId, actorId, input
 
 const namesOf = ({ characters }: CampaignState) => new Map(characters.map(({ id, name }) => [id, name]));
 
-const journal = (state: CampaignState) => {
+const journal = (state: CampaignState, locale: string) => {
   const names = namesOf(state);
   const rows = playTurns(state).map((turn, index) => `  ${index + 1}. ${turnText(names, turn)}`);
-  return section('Journal:', rows, NO_EVENTS);
+  return section(say(locale, 'view.journal'), rows, say(locale, 'view.noEvents'));
 };
 
 const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> =>
@@ -381,16 +389,20 @@ export const panelsOf = (source: ViewSource, viewer: Viewer): Panels => {
   };
 };
 
-const renderStored = (view: ReadView, source: ViewSource, viewer: SheetViewer): string => {
-  if (view === 'journal') return journal(source.state);
-  if (view === 'quests') return quests(source);
-  if (view === 'encounter') return encounter(source);
+const renderStored = (view: ReadView, source: ViewSource, viewer: SheetViewer, locale: string): string => {
+  if (view === 'journal') return journal(source.state, locale);
+  if (view === 'quests') return quests(source, locale);
+  if (view === 'encounter') return encounter(source, locale);
   const [hero] = source.state.characters;
-  if (hero === undefined) return NO_CHARACTER;
-  if (view === 'sheet') return sheet(hero, source, viewer);
-  if (view === 'sheet-export') return sheetExport(hero, source, viewer);
-  return inventory(hero, { ...source, entities: visibleTo(source.entities, PLAYER_VIEWER) });
+  if (hero === undefined) return say(locale, 'view.noCharacter');
+  if (view === 'sheet') return sheet(hero, source, viewer, locale);
+  if (view === 'sheet-export') return sheetExport(hero, source, viewer, locale);
+  return inventory(hero, { ...source, entities: visibleTo(source.entities, PLAYER_VIEWER) }, locale);
 };
 
-export const renderView = (view: ReadView, source: ViewSource, viewer: SheetViewer = PLAYER_OWNER): string =>
-  printable(renderStored(view, source, viewer));
+export const renderView = (
+  view: ReadView,
+  source: ViewSource,
+  viewer: SheetViewer = PLAYER_OWNER,
+  locale: string = DEFAULT_LOCALE,
+): string => printable(renderStored(view, source, viewer, locale));

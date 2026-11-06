@@ -429,14 +429,26 @@ test('rpg-42a.38 features step drops the dice animation for a diceless ruleset',
   );
 });
 
-test('rpg-42a.40 genre and rules pages tell non-English players that built-in packs are in English', () => {
+test('rpg-42a.117 genre and rules pages drop the English notice for languages with translated packs', () => {
+  const genre = run([{ kind: 'path', path: 'guide' }, { kind: 'next' }]);
+  const rules = run([{ kind: 'skip' }], genre);
+  for (const draft of [genre, rules])
+    for (const locale of ['pt-BR', 'es'])
+      for (const notice of ['en', 'pt-BR'])
+        assert.ok(
+          !startScreen(draft, OPTIONS, undefined, locale).text.includes(
+            String(START_CATALOG[notice]?.['packs.english']),
+          ),
+          `${locale} ${notice}`,
+        );
+});
+
+test('rpg-42a.40 genre and rules pages tell players without translated packs that built-in packs are in English', () => {
   const genre = run([{ kind: 'path', path: 'guide' }, { kind: 'next' }]);
   const rules = run([{ kind: 'skip' }], genre);
   assert.deepEqual([stepOf(genre), stepOf(rules)], ['genre', 'rules']);
   for (const draft of [genre, rules]) {
-    assert.ok(
-      startScreen(draft, OPTIONS, undefined, 'pt-BR').text.includes(String(START_CATALOG['pt-BR']?.['packs.english'])),
-    );
+    assert.ok(startScreen(draft, OPTIONS, undefined, 'fr').text.includes(String(START_CATALOG.en?.['packs.english'])));
     assert.ok(
       !startScreen(draft, OPTIONS, undefined, DEFAULT_LOCALE).text.includes(
         String(START_CATALOG.en?.['packs.english']),

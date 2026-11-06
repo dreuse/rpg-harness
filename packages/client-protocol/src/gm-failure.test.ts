@@ -48,3 +48,14 @@ test('rpg-42a.101 the exit code only shows when nothing better is known', () => 
 test('rpg-42a.101 an unknown locale falls back to English', () => {
   assert.match(gmFailureText('fr', { kind: 'auth' }), /sign in/i);
 });
+
+test('rpg-42a.117 a malformed Claude Code reply reads in Brazilian Portuguese', () => {
+  assert.equal(
+    gmFailureText('pt-BR', { kind: 'malformed' }),
+    'O GM de IA não está disponível: o Claude Code enviou uma resposta malformada.',
+  );
+  assert.equal(
+    gmFailureText('en', { kind: 'malformed' }),
+    'The AI game master is unavailable: Claude Code sent a malformed reply.',
+  );
+});

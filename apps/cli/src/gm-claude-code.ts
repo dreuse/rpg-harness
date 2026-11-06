@@ -22,6 +22,7 @@ import {
 } from './gm-api.ts';
 import { proposalsOf } from './gm-proposals.ts';
 import { narrationOf, SEGMENTS_SCHEMA, segmentsOf } from './gm-segments.ts';
+import { LocalizedError } from './messages.ts';
 import { userDataDir } from './setup-check.ts';
 
 export const GM_PROFILE_ENV = 'RPG_GM_PROFILE';
@@ -78,6 +79,8 @@ const AUTH_PATTERN = /not logged in|\/login|invalid api key|unauthorized|authent
 const RESET_GROUP = 1;
 const FINAL_FAILURE_KINDS: ReadonlySet<string> = new Set(['limit', 'auth', 'notInstalled']);
 const WORKSPACE_FAILED = 'The Claude Code workspace could not be prepared.';
+const MALFORMED_REPLY = 'Claude Code sent a malformed reply.';
+const REPORTED_ERROR = 'Claude Code reported an error. Run claude once in a terminal to check that it is signed in.';
 const SETTING_SOURCES = ['--setting-sources', 'project'];
 const PART_SEPARATOR = '\n';
 const NO_PROMPT_MODE = 'dontAsk';
@@ -143,7 +146,7 @@ export const preparedWorkspace = ({ workspace }: ClaudeCodeRoute): string => {
   try {
     return ensureClaudeWorkspace(workspace);
   } catch {
-    throw new ProviderError(WORKSPACE_FAILED);
+    throw claudeError({ kind: 'workspace' }, WORKSPACE_FAILED);
   }
 };
 
@@ -229,14 +232,12 @@ export const replyOf = ({ code, stdout, stderr = '' }: Exit, model: string | und
     throw failure === undefined
       ? claudeError({ kind: 'exit', detail: String(code) }, `Claude Code stopped with exit code ${code}.`)
       : claudeError(failure);
-  if (!isRecord(body)) throw new ProviderError('Claude Code sent a malformed reply.');
+  if (!isRecord(body)) throw claudeError({ kind: 'malformed' }, MALFORMED_REPLY);
   if (body.is_error !== false)
-    throw failure === undefined
-      ? new ProviderError('Claude Code reported an error. Run claude once in a terminal to check that it is signed in.')
-      : claudeError(failure);
+    throw failure === undefined ? claudeError({ kind: 'reported' }, REPORTED_ERROR) : claudeError(failure);
   const text = typeof body.result === 'string' ? body.result.trim() : '';
   const segments = segmentsOf(body.structured_output) ?? segmentsOf({ segments: [{ text }] });
-  if (segments === undefined) throw new ProviderError('Claude Code sent a malformed reply.');
+  if (segments === undefined) throw claudeError({ kind: 'malformed' }, MALFORMED_REPLY);
   const proposals = proposalsOf(body.structured_output);
   return {
     narration: narrationOf(segments),
@@ -299,12 +300,11 @@ export const requestClaudeSummary = async (
   return reply.narration;
 };
 
-const CLAUDE_MISSING = 'Claude Code was not found. Install it, run claude once to sign in, then try again.';
 const MCP_CONFIG_FLAG = '--mcp-config';
 
 export const launchClaude = (env: NodeJS.ProcessEnv, dataDir: string, campaignDatabase?: string): number => {
   const bin = claudeBinOf(env);
-  if (bin === undefined) throw new Error(CLAUDE_MISSING);
+  if (bin === undefined) throw new LocalizedError('claude.missing');
   const workspace = ensureClaudeWorkspace(join(dataDir, CLAUDE_WORKSPACE_DIR));
   const args = [
     ...SETTING_SOURCES,
@@ -315,6 +315,6 @@ export const launchClaude = (env: NodeJS.ProcessEnv, dataDir: string, campaignDa
     env: childEnvOf([...CHILD_ENV_KEYS, ...TERMINAL_ENV_KEYS], env),
     stdio: 'inherit',
   });
-  if (error !== undefined) throw new Error(CLAUDE_MISSING);
+  if (error !== undefined) throw new LocalizedError('claude.missing');
   return status ?? EXIT_INTERRUPTED;
 };

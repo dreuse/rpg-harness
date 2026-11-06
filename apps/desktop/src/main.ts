@@ -5,7 +5,7 @@ import {
   parseStartDraft,
   START_DRAFT_FILE,
 } from '../../../packages/client-protocol/src/guided-start.ts';
-import { localeOf } from '../../../packages/client-protocol/src/locale.ts';
+import { LANGUAGE_ENV, localeOf } from '../../../packages/client-protocol/src/locale.ts';
 import { type ClientCommand, failure } from '../../../packages/client-protocol/src/protocol.ts';
 import { NARRATION, NARRATION_FAILED } from '../../../packages/client-protocol/src/wire.ts';
 import { isPlaybackCommand } from '../../../packages/voice/src/playback-controls.ts';
@@ -221,6 +221,7 @@ export const startMain = ({
   const preferencesPath = join(dataDir, PREFERENCES_FILE);
   const systemLocale = localeOf(env, SUPPORTED_LOCALES);
   const startPath = join(dataDir, START_DRAFT_FILE);
+  const preferences = loadPreferences(() => fs.readFileSync(preferencesPath, TEXT), systemLocale);
   const window = new BrowserWindow({
     width: WINDOW_WIDTH,
     height: WINDOW_HEIGHT,
@@ -231,7 +232,7 @@ export const startMain = ({
     if (!window.isDestroyed()) window.webContents.send(channel, value);
   };
   const daemon = startDaemon({
-    env: engineEnv(env),
+    env: { ...engineEnv(env), [LANGUAGE_ENV]: preferences.locale },
     onCrash: () => push(CHANNELS.close, ENGINE_CRASHED),
     onSpeaking: (active) => push(CHANNELS.soundSpeaking, active),
   });
@@ -313,7 +314,6 @@ export const startMain = ({
     );
     handle(CHANNELS.soundFile, (kind, key) => sound.file(kind, key));
   }
-  const preferences = loadPreferences(() => fs.readFileSync(preferencesPath, TEXT), systemLocale);
   const url = new URL(page);
   url.searchParams.set(PREFERENCES_QUERY, JSON.stringify(preferences));
   url.searchParams.set(START_QUERY, JSON.stringify(loadStartDraft(() => fs.readFileSync(startPath, TEXT))));

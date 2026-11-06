@@ -79,7 +79,7 @@ test('rpg-42a.53: usage, settings and budget lines read in Brazilian Portuguese'
       { settings: {}, session: EMPTY_GM_USAGE_TOTALS, campaign: { ...SESSION, pricedTurns: 1 } },
       'pt-BR',
     ).join('\n'),
-    /para 1 turnos com preço|em 1 turno com preço/,
+    /em 1 turno com preço/,
   );
   assert.match(gmUsageLines({ ...gm, contextTight: true }, 'pt-BR').join('\n'), /memória rica/);
   assert.equal(

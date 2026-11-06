@@ -4,7 +4,12 @@ import { mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { INITIAL_DRAFT, nextDraft, planCommand } from '../../../packages/client-protocol/src/guided-start.ts';
+import {
+  DICE_LABELS,
+  INITIAL_DRAFT,
+  nextDraft,
+  planCommand,
+} from '../../../packages/client-protocol/src/guided-start.ts';
 import { PROTOCOL_VERSION } from '../../../packages/client-protocol/src/protocol.ts';
 import { FANTASY_PACK, HORROR_PACK } from '../../../packages/content/src/packs.ts';
 import { compileRule } from '../../../packages/rules/src/compile.ts';
@@ -166,7 +171,7 @@ const DOCUMENTED_DEFAULTS = [
   { field: 'ruleset', value: 'none', provenance: 'default' },
   { field: 'genre', value: 'none', provenance: 'default' },
   { field: 'character', value: 'none', provenance: 'default' },
-  { field: 'dice', value: 'as the ruleset decides', provenance: 'default' },
+  { field: 'dice', value: DICE_LABELS.rulepack, provenance: 'default' },
   { field: 'diceVisualization', value: 'off', provenance: 'default' },
   { field: 'voiceOutput', value: 'off', provenance: 'default' },
   { field: 'simulation', value: 'off', provenance: 'default' },

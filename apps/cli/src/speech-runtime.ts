@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { DEFAULT_LOCALE } from '../../../packages/client-protocol/src/locale.ts';
 import type { AudioCache } from '../../../packages/voice/src/audio-budget.ts';
 import { audioCacheKey } from '../../../packages/voice/src/audio-budget.ts';
 import {
@@ -206,17 +207,24 @@ const disposable = (provider: TtsProvider): provider is KokoroProvider => 'dispo
 const failedPreloads = new WeakSet<TtsProvider>();
 const announcedFailures = new WeakSet<TtsProvider>();
 
-const unavailableNotice = (providers: readonly TtsProvider[], language: string, route: PtBrRoute) =>
+const unavailableNotice = (
+  providers: readonly TtsProvider[],
+  language: string,
+  route: PtBrRoute,
+  uiLocale = DEFAULT_LOCALE,
+) =>
   noVoiceNotice(
     language,
     providers.filter((provider) => !failedPreloads.has(provider)),
     route,
+    uiLocale,
   );
 
 export const prepareVoice = (
   providers: readonly TtsProvider[],
   language: string,
   route: PtBrRoute,
+  uiLocale = DEFAULT_LOCALE,
 ): string | undefined => {
   const preloaded = voicesFor(language, route)?.providerId;
   if (preloaded === MLX_KOKORO_PROVIDER_ID || preloaded === KOKORO_ONNX_PROVIDER_ID) {
@@ -227,17 +235,18 @@ export const prepareVoice = (
         .then(() => failedPreloads.delete(provider))
         .catch(() => failedPreloads.add(provider));
   }
-  return unavailableNotice(providers, language, route);
+  return unavailableNotice(providers, language, route, uiLocale);
 };
 
 export const takePreloadFailureNotice = (
   providers: readonly TtsProvider[],
   language: string,
   route: PtBrRoute,
+  uiLocale = DEFAULT_LOCALE,
 ): string | undefined => {
   const failed = providers.filter((provider) => failedPreloads.has(provider) && !announcedFailures.has(provider));
   for (const provider of failed) announcedFailures.add(provider);
-  return failed.length === 0 ? undefined : unavailableNotice(providers, language, route);
+  return failed.length === 0 ? undefined : unavailableNotice(providers, language, route, uiLocale);
 };
 
 export const createLiveSpeechRuntime = (

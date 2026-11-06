@@ -17,6 +17,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { createEngine } from '../../../packages/engine/src/engine.ts';
 import { createCampaignStore } from '../../../packages/persistence/src/campaign-store.ts';
 import { MIGRATIONS, openDatabase } from '../../../packages/persistence/src/database.ts';
+import { LocalizedError } from './messages.ts';
 
 export const ARCHIVE_FORMAT = 'rpg-campaign-archive';
 export const ARCHIVE_FORMAT_VERSION = 1;
@@ -60,14 +61,14 @@ export type CampaignArchive = {
   readonly database: string;
 };
 
-export class InvalidArchiveError extends Error {
-  constructor(reason: string) {
-    super(`Archive rejected: ${reason}.`);
+export class InvalidArchiveError extends LocalizedError {
+  constructor(reason: string, params: Readonly<Record<string, string>> = {}) {
+    super('archive.rejected', { reason: new LocalizedError(`archive.reason.${reason}`, params) });
   }
 }
 
-const reject = (reason: string): never => {
-  throw new InvalidArchiveError(reason);
+const reject = (reason: string, params?: Readonly<Record<string, string>>): never => {
+  throw new InvalidArchiveError(reason, params);
 };
 
 const digest = (bytes: Buffer) => createHash(CHECKSUM).update(bytes).digest('hex');
@@ -84,20 +85,20 @@ const readPins = (database: DatabaseSync): RulesetPin[] =>
 
 const readCampaigns = (database: DatabaseSync) => database.prepare(SELECT_CAMPAIGNS).all();
 
-const linkExclusive = (from: string, to: string, exists: string) => {
+const linkExclusive = (from: string, to: string, exists: LocalizedError) => {
   try {
     linkSync(from, to);
   } catch (error) {
-    if (isFileExists(error)) throw new Error(exists);
+    if (isFileExists(error)) throw exists;
     throw error;
   }
 };
 
-const writeNew = (path: string, content: string, exists: string) => {
+const writeNew = (path: string, content: string, exists: LocalizedError) => {
   try {
     writeFileSync(path, content, { flag: CREATE_EXCLUSIVE });
   } catch (error) {
-    if (isFileExists(error)) throw new Error(exists);
+    if (isFileExists(error)) throw exists;
     rmSync(path, { force: true });
     throw error;
   }
@@ -116,13 +117,13 @@ const snapshot = (database: DatabaseSync, databaseFile: string) => {
 const readBounded = (file: string) => {
   const fd = openSync(file, READ_ONLY);
   try {
-    if (!fstatSync(fd).isFile()) reject('file is not a valid campaign archive');
+    if (!fstatSync(fd).isFile()) reject('notArchive');
     const buffer = Buffer.allocUnsafe(MAX_ARCHIVE_BYTES + 1);
     let total = 0;
     for (let read = -1; read !== 0 && total < buffer.length; total += read) {
       read = readSync(fd, buffer, total, buffer.length - total, null);
     }
-    if (total > MAX_ARCHIVE_BYTES) reject(`archive is too large; the limit is ${MAX_ARCHIVE_BYTES} bytes`);
+    if (total > MAX_ARCHIVE_BYTES) reject('tooLarge', { limit: String(MAX_ARCHIVE_BYTES) });
     return buffer.subarray(0, total).toString(TEXT_ENCODING);
   } finally {
     closeSync(fd);
@@ -136,7 +137,7 @@ export const exportArchive = (databaseFile: string, archiveFile: string): Campai
   let bytes: Buffer;
   try {
     const [row] = readCampaigns(connection.database);
-    if (row === undefined) throw new Error('Campaign has no saved state.');
+    if (row === undefined) throw new LocalizedError('archive.noState');
     campaign = String(row.name);
     rulesets = readPins(connection.database);
     bytes = snapshot(connection.database, databaseFile);
@@ -152,7 +153,7 @@ export const exportArchive = (databaseFile: string, archiveFile: string): Campai
     sha256: digest(bytes),
     database: bytes.toString(BINARY_ENCODING),
   };
-  writeNew(archiveFile, JSON.stringify(archive), `An archive file ${archiveFile} already exists.`);
+  writeNew(archiveFile, JSON.stringify(archive), new LocalizedError('archive.fileExists', { file: archiveFile }));
   return archive;
 };
 
@@ -170,22 +171,22 @@ const parseArchive = (file: string): CampaignArchive => {
   try {
     value = JSON.parse(text);
   } catch {
-    reject('file is not a valid campaign archive');
+    reject('notArchive');
   }
-  if (!isRecord(value) || value.format !== ARCHIVE_FORMAT) return reject('file is not a valid campaign archive');
+  if (!isRecord(value) || value.format !== ARCHIVE_FORMAT) return reject('notArchive');
   if (value.formatVersion !== ARCHIVE_FORMAT_VERSION)
-    reject(`unsupported archive format ${String(value.formatVersion)}`);
+    reject('unsupportedFormat', { version: String(value.formatVersion) });
   const { campaign, schemaVersion, rulesets, sha256, database } = value;
-  if (typeof campaign !== 'string' || campaign.trim() === '') reject('campaign name is not allowed');
+  if (typeof campaign !== 'string' || campaign.trim() === '') reject('badName');
   if (
     !Number.isInteger(schemaVersion) ||
     Number(schemaVersion) < FIRST_VERSION ||
     Number(schemaVersion) > knownVersion()
   )
-    reject(`unsupported schema version ${String(schemaVersion)}`);
-  if (!Array.isArray(rulesets) || !rulesets.every(isPin)) reject('rulesets must list rulepack pins');
-  if (typeof sha256 !== 'string' || !SHA256_HEX.test(sha256)) reject('checksum is missing');
-  if (typeof database !== 'string') reject('database is missing');
+    reject('unsupportedSchema', { version: String(schemaVersion) });
+  if (!Array.isArray(rulesets) || !rulesets.every(isPin)) reject('pinsMissing');
+  if (typeof sha256 !== 'string' || !SHA256_HEX.test(sha256)) reject('checksumMissing');
+  if (typeof database !== 'string') reject('databaseMissing');
   return value as CampaignArchive;
 };
 
@@ -205,14 +206,14 @@ const inspectSchema = (file: string, { schemaVersion }: CampaignArchive) => {
   let database: DatabaseSync | undefined;
   try {
     database = new Sqlite(file, { readOnly: true });
-    if (database.prepare(INTEGRITY_CHECK).get()?.integrity_check !== INTEGRITY_OK) reject('database is corrupt');
+    if (database.prepare(INTEGRITY_CHECK).get()?.integrity_check !== INTEGRITY_OK) reject('corrupt');
     const journal = plain(database.prepare(SELECT_JOURNAL).all());
-    if (!isDeepStrictEqual(journal, expectedJournal(schemaVersion))) reject('schema version does not match database');
+    if (!isDeepStrictEqual(journal, expectedJournal(schemaVersion))) reject('schemaMismatch');
     if (!isDeepStrictEqual(plain(database.prepare(SELECT_SCHEMA).all()), referenceSchema(schemaVersion)))
-      reject('database schema is not a campaign schema');
+      reject('notCampaignSchema');
   } catch (error) {
     if (error instanceof InvalidArchiveError) throw error;
-    reject('database schema is not readable');
+    reject('notReadable');
   } finally {
     database?.close();
   }
@@ -222,12 +223,11 @@ const inspectContent = (file: string, { campaign, rulesets }: CampaignArchive) =
   const connection = openDatabase(file);
   try {
     const { database } = connection;
-    if (database.prepare(FOREIGN_KEY_CHECK).all().length > 0) reject('database has broken references');
+    if (database.prepare(FOREIGN_KEY_CHECK).all().length > 0) reject('brokenReferences');
     const campaigns = readCampaigns(database);
     const [row] = campaigns;
-    if (campaigns.length !== SINGLE_CAMPAIGN || row === undefined || row.name !== campaign)
-      reject('campaign name does not match database');
-    if (!isDeepStrictEqual(readPins(database), rulesets)) reject('rulepack pins do not match database');
+    if (campaigns.length !== SINGLE_CAMPAIGN || row === undefined || row.name !== campaign) reject('nameMismatch');
+    if (!isDeepStrictEqual(readPins(database), rulesets)) reject('pinsMismatch');
     createEngine(createCampaignStore(database)).getState(String(row?.id));
   } finally {
     connection.close();
@@ -237,8 +237,8 @@ const inspectContent = (file: string, { campaign, rulesets }: CampaignArchive) =
 const readArchive = (archiveFile: string) => {
   const archive = parseArchive(archiveFile);
   const bytes = Buffer.from(archive.database, BINARY_ENCODING);
-  if (bytes.length > MAX_ARCHIVE_BYTES) reject('database is too large');
-  if (digest(bytes) !== archive.sha256) reject('checksum does not match');
+  if (bytes.length > MAX_ARCHIVE_BYTES) reject('databaseTooLarge');
+  if (digest(bytes) !== archive.sha256) reject('checksumMismatch');
   return { archive, bytes };
 };
 
@@ -269,13 +269,13 @@ export const restoreArchive = (
 ): CampaignArchive => {
   const { archive, bytes } = readArchive(archiveFile);
   const target = resolve(campaignPath(archive.campaign));
-  if (dirname(target) !== resolve(dataDir)) reject('campaign name is not allowed');
+  if (dirname(target) !== resolve(dataDir)) reject('badName');
   const temp = resolve(dataDir, `.${randomUUID()}${TEMP_SUFFIX}`);
   writeFileSync(temp, bytes, { flag: CREATE_EXCLUSIVE });
   try {
     inspectSchema(temp, archive);
     inspectContent(temp, archive);
-    linkExclusive(temp, target, `A campaign named ${archive.campaign} already exists.`);
+    linkExclusive(temp, target, new LocalizedError('campaign.exists', { name: archive.campaign }));
   } finally {
     rmSync(temp, { force: true });
     rmSync(`${temp}${JOURNAL_SUFFIX}`, { force: true });

@@ -98,6 +98,9 @@ const ES: Readonly<Record<string, string>> = {
 
 const TABLES: Readonly<Record<string, Readonly<Record<string, string>>>> = { es: ES, 'pt-BR': PT_BR };
 
+export const hasContentNames = (locale: string): boolean =>
+  matchLocale(locale, Object.keys(TABLES), DEFAULT_LOCALE) !== DEFAULT_LOCALE;
+
 export const contentText = (locale: string, kind: ContentKind, id: string, fallback: string): string => {
   const table = TABLES[matchLocale(locale, Object.keys(TABLES), DEFAULT_LOCALE)];
   return table?.[`${kind}${KEY_SEPARATOR}${id}`] ?? fallback;

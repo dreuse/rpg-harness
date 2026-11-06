@@ -453,6 +453,17 @@ test('rpg-42a.39 main follows the system locale until the player saves a languag
   assert.equal(JSON.parse(preferencesOf(saved) ?? '').locale, 'es');
 });
 
+test('rpg-42a.117 the engine runs in the saved language, not the system locale', () => {
+  const saved = fakeElectron({ [join(DATA_DIR, PREFERENCES_FILE)]: JSON.stringify({ language: 'es' }) });
+  const { options } = start(saved, fakeDaemon(), undefined, { [LANGUAGE_ENV]: 'pt-BR' });
+  assert.equal(options[0]?.env?.[LANGUAGE_ENV], 'es');
+  const system = fakeElectron();
+  assert.equal(
+    start(system, fakeDaemon(), undefined, { [LANGUAGE_ENV]: 'pt-BR' }).options[0]?.env?.[LANGUAGE_ENV],
+    'pt-BR',
+  );
+});
+
 test('UI08 main persists only valid preferences from its window', () => {
   const electron = fakeElectron();
   start(electron);

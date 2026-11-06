@@ -490,6 +490,11 @@ test('rpg-cm63.24 prepare notes a language without a voice and skips preload', (
   assert.equal(preloads(), 0);
 });
 
+test('rpg-42a.117 prepare words its notices in the interface language', () => {
+  const { host } = preloadHost();
+  assert.match(host.prepare(NO_VOICE_LANGUAGE, 'pt-BR') ?? '', /^Ainda não existe voz falada/);
+});
+
 test('rpg-cm63.24 prepare notes an unhealthy or missing provider', () => {
   const unhealthy = preloadHost({ healthy: false });
   assert.match(unhealthy.host.prepare(MLX_LANGUAGE) ?? '', /not available on this computer/);

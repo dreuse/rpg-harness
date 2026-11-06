@@ -3,6 +3,7 @@ import { createInterface } from 'node:readline';
 import { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
 import type { GmFailure } from '../../../packages/client-protocol/src/gm-failure.ts';
+import { localeOf } from '../../../packages/client-protocol/src/locale.ts';
 import {
   type CampaignCommand,
   type ClientEvent,
@@ -49,17 +50,18 @@ import {
 } from './engine-gateway.ts';
 import { API_KEY_ENV, gmRouteOf, ProviderError, failureOf as providerFailureOf } from './gm-api.ts';
 import { writeGmDefaults } from './gm-defaults.ts';
+import { CLI_LOCALES, errorText, LocalizedError, say } from './messages.ts';
 import { failureOf, packsIn, planResult } from './quickstart.ts';
 import { dataDirFromEnv } from './setup-check.ts';
 
 const PLAYBACK = 'Playback';
-const UNKNOWN_PLAYBACK = 'Unknown playback command.';
 const DIAGNOSTICS = 'Diagnostics';
-const INVALID_GM_DEFAULTS = 'GM defaults name an invalid model or budget';
+
+const daemonLocale = () => localeOf(process.env, CLI_LOCALES);
 
 const saveGmDefaults = ({ model, summaryModel, sessionBudgetTokens, rulesStrictness }: SaveGmDefaults) => {
   const settings = toGmSettings({ model, summaryModel, sessionBudgetTokens, rulesStrictness });
-  if (settings === undefined) return failure('Rejected', INVALID_GM_DEFAULTS);
+  if (settings === undefined) return failure('Rejected', say(daemonLocale(), 'daemon.invalidGmDefaults'));
   writeGmDefaults(dataDirFromEnv(), settings);
   return { ok: true, value: settings } as const;
 };
@@ -150,7 +152,7 @@ const send = (message: object, done?: () => void) => {
   return true;
 };
 
-const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
+const messageOf = (error: unknown) => errorText(daemonLocale(), error);
 
 const narrationFailureOf = (error: unknown): GmFailure | undefined => {
   if (error instanceof ProviderError) return providerFailureOf(error);
@@ -170,7 +172,7 @@ const serve = (env: NodeJS.ProcessEnv, gm: GameMaster): Served => {
   try {
     return {
       name,
-      campaign: openClientSession(dataDirFromEnv(), name, gm, undefined, daemonSpeech()),
+      campaign: openClientSession(dataDirFromEnv(), name, gm, undefined, daemonSpeech(), daemonLocale()),
       problem: NO_CAMPAIGN,
     };
   } catch (error) {
@@ -210,7 +212,7 @@ const changeCampaign = async (
   }
   const archived = command.type === 'DeleteCampaign' && command.archived === true;
   if (!archived && served !== undefined && isSameCampaignFile(dataDir, command.name, served))
-    throw new Error(`Campaign ${command.name} is open in this engine.`);
+    throw new LocalizedError('daemon.campaignOpen', { name: command.name });
   if (command.type === 'RenameCampaign') {
     renameCampaign(dataDir, command.name, command.newName);
     return summaryOf(dataDir, command.newName.trim());
@@ -232,7 +234,7 @@ const replyChange = async (
     const value = await changeCampaign(command, served, serveCampaign, gm);
     return send({ id, type: 'Result', result: { ok: true, value } });
   } catch (error) {
-    return send({ id, type: 'Result', result: failureOf(error) });
+    return send({ id, type: 'Result', result: failureOf(error, daemonLocale()) });
   }
 };
 
@@ -246,7 +248,7 @@ const replier = ({ name, campaign, problem }: Served, gm: GameMaster) => {
   let queue = Promise.resolve();
 
   const serveCampaign = (next: string) => {
-    const opened = openClientSession(dataDirFromEnv(), next, gm, undefined, daemonSpeech());
+    const opened = openClientSession(dataDirFromEnv(), next, gm, undefined, daemonSpeech(), daemonLocale());
     playbackFor(dataDirFromEnv()).stop();
     for (const unsubscribe of subscriptions.values()) unsubscribe();
     subscriptions.clear();
@@ -264,13 +266,13 @@ const replier = ({ name, campaign, problem }: Served, gm: GameMaster) => {
       return send({
         id,
         type: 'Result',
-        result: planResult(command, DESKTOP_CLIENT, undefined, packsIn(dataDirFromEnv())),
+        result: planResult(command, DESKTOP_CLIENT, daemonLocale(), packsIn(dataDirFromEnv())),
       });
     if (!('campaignId' in command)) return replyChange(id, command, name, serveCampaign, gm);
     if (campaign === undefined) return send({ id, type: 'Error', message: problem });
     const { session, campaignId, narrate } = campaign;
     if (command.campaignId !== campaignId)
-      return send({ id, type: 'Error', message: `Campaign ${command.campaignId} is not served by this engine.` });
+      return send({ id, type: 'Error', message: say(daemonLocale(), 'daemon.notServed', { id: command.campaignId }) });
     if (command.type === 'GetCampaignSnapshot')
       return send({ id, type: 'Result', result: session.getSnapshot(command) });
     if (command.type === 'GetCampaignPanels') return send({ id, type: 'Result', result: session.getPanels(command) });
@@ -327,7 +329,7 @@ const replier = ({ name, campaign, problem }: Served, gm: GameMaster) => {
         campaign?.close();
         return send({ id, type: 'Stopped' }, exitDaemon);
       }
-      return send({ id, type: 'Error', message: `Unknown request ${type}.` });
+      return send({ id, type: 'Error', message: say(daemonLocale(), 'daemon.unknownRequest', { type }) });
     } catch (error) {
       return send({ id, type: 'Error', message: messageOf(error) });
     }
@@ -344,7 +346,7 @@ const replier = ({ name, campaign, problem }: Served, gm: GameMaster) => {
   const playback = ({ id, command }: Request) =>
     applyPlaybackCommand(playbackFor(dataDirFromEnv()), command)
       ? send({ id, type: 'Played' })
-      : send({ id, type: 'Error', message: UNKNOWN_PLAYBACK });
+      : send({ id, type: 'Error', message: say(daemonLocale(), 'daemon.unknownPlayback') });
 
   const diagnose = ({ id }: Request) =>
     send({ id, type: 'Diagnosed', summary: playbackFor(dataDirFromEnv()).diagnostics?.() });

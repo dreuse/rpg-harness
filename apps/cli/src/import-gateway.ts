@@ -8,6 +8,7 @@ import { DICE_POOL_LITE_MANIFEST } from '../../../packages/rules/src/dice-pool-l
 import { parseRuleDsl } from '../../../packages/rules/src/dsl.ts';
 import { NARRATIVE_MANIFEST } from '../../../packages/rules/src/narrative.ts';
 import { installRuleset } from './installed-rulesets.ts';
+import { DEFAULT_LOCALE, LocalizedError, say } from './messages.ts';
 
 export const BUILT_IN_PACKS = [D20_LITE_MANIFEST, DICE_POOL_LITE_MANIFEST, NARRATIVE_MANIFEST];
 const TEXT_FORMATS: readonly IngestFormat[] = ['text', 'markdown', 'yaml'];
@@ -17,7 +18,7 @@ const FULL_CONFIDENCE = 1;
 const NO_CONFIDENCE = 0;
 
 const readPages = (bytes: Uint8Array, format: IngestFormat) => {
-  if (format !== 'json' && !TEXT_FORMATS.includes(format)) throw new Error(`No reader for ${format} files yet.`);
+  if (format !== 'json' && !TEXT_FORMATS.includes(format)) throw new LocalizedError('import.noReader', { format });
   const text = new TextDecoder().decode(bytes);
   const passages = format === 'json' ? [text] : text.split(PARAGRAPH_BREAK);
   const blocks = passages
@@ -52,18 +53,18 @@ export const readInside = (root: string, file: string) => {
     fromRoot.startsWith(PARENT_SEGMENT + sep) ||
     isAbsolute(fromRoot)
   ) {
-    throw new Error(`${file} is outside the import folder.`);
+    throw new LocalizedError('import.outside', { file });
   }
   const stats = statSync(path);
-  if (!stats.isFile()) throw new Error(`${file} is not a regular file.`);
+  if (!stats.isFile()) throw new LocalizedError('import.notFile', { file });
   if (stats.size > MAX_IMPORT_BYTES)
-    throw new Error(`${file} is larger than the ${MAX_IMPORT_BYTES} byte import limit.`);
+    throw new LocalizedError('import.tooLarge', { file, limit: String(MAX_IMPORT_BYTES) });
   return { fileName: basename(path), bytes: readFileSync(path) };
 };
 
 const baseOf = ({ id, edition, revision }: { id: string; edition: string; revision: string }) => {
   const base = BUILT_IN_PACKS.find((pack) => pack.id === id && pack.edition === edition && pack.revision === revision);
-  if (base === undefined) throw new Error(`Rule pack ${id} is not installed.`);
+  if (base === undefined) throw new LocalizedError('import.notInstalled', { id });
   return base;
 };
 
@@ -72,6 +73,7 @@ export async function* importRules(
   files: readonly string[],
   lines: AsyncIterable<string>,
   dataDir: string,
+  locale = DEFAULT_LOCALE,
 ) {
   const conversation = runImportConversation(
     {
@@ -89,11 +91,11 @@ export async function* importRules(
       continue;
     }
     if (step.value.status === 'incomplete') {
-      throw new Error(`Import not completed: ${step.value.gaps.length} gap(s) left.`);
+      throw new LocalizedError('import.incomplete', { count: step.value.gaps.length });
     }
     if (step.value.status === 'activated') {
       const { id, edition } = installRuleset(dataDir, baseOf(step.value.rulePack), step.value.rules);
-      yield `Installed ruleset ${id} (edition ${edition}). It now appears in the start options.`;
+      yield say(locale, 'import.installed', { id, edition });
     }
     return;
   }

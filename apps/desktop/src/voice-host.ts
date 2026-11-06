@@ -116,7 +116,7 @@ export type VoiceHost = {
   remove(providerId: unknown): Promise<void>;
   preview(request: unknown): Promise<PreviewAudio>;
   clearCache(): void;
-  prepare(language: string): string | undefined;
+  prepare(language: string, uiLocale?: string): string | undefined;
 };
 
 const PREVIEW_EVENT = 'voice-preview';
@@ -299,7 +299,7 @@ export const createVoiceHost = ({
       rmSync(cacheDir, { recursive: true, force: true });
       cache = createFileAudioCache(cacheDir, cacheLimit);
     },
-    prepare: (language) => {
+    prepare: (language, uiLocale) => {
       const hosted = providers.find(({ id }) => id === voicesFor(language, route)?.providerId);
       if (hosted !== undefined && hosted.provider.healthy())
         hosted.provider
@@ -312,6 +312,7 @@ export const createVoiceHost = ({
           .filter(({ id }) => !failedPreloads.has(id))
           .map(({ id, provider }) => ({ id, healthy: () => provider.healthy() })),
         route,
+        uiLocale,
       );
     },
   };

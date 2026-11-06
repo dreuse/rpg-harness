@@ -1,8 +1,16 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { missingKeys } from '../../client-protocol/src/locale.ts';
 import { KOKORO_ONNX_PROVIDER_ID } from './kokoro-onnx-engine.ts';
 import { KOKORO_PROVIDER_ID } from './kokoro-provider.ts';
-import { languageVoicesFor, narratorFallback, noVoiceNotice, voiceLocaleFor, voicesFor } from './language-voices.ts';
+import {
+  languageVoicesFor,
+  narratorFallback,
+  noVoiceNotice,
+  VOICE_NOTICE_CATALOG,
+  voiceLocaleFor,
+  voicesFor,
+} from './language-voices.ts';
 import { MLX_KOKORO_PROVIDER_ID } from './mlx-audio-engine.ts';
 import type { TtsProvider } from './tts.ts';
 
@@ -44,6 +52,25 @@ test('tells the player when the voice for their language is not available on thi
   const notice = 'Brazilian Portuguese voices are not available on this computer. The story stays in text.';
   assert.equal(noVoiceNotice('pt-BR', [], ROUTE), notice);
   assert.equal(noVoiceNotice('pt-BR', [provider(PT_BR_PROVIDER_ID, false)], ROUTE), notice);
+});
+
+test('rpg-42a.117 the no-voice notices read in Brazilian Portuguese and Spanish', () => {
+  assert.equal(
+    noVoiceNotice('pt-PT', [provider(PT_BR_PROVIDER_ID, true)], ROUTE, 'pt-BR'),
+    'Ainda não existe voz falada para português (Portugal). A história continua em texto.',
+  );
+  assert.equal(
+    noVoiceNotice('pt-BR', [], ROUTE, 'pt-BR'),
+    'As vozes em português (Brasil) não estão disponíveis neste computador. A história continua em texto.',
+  );
+  assert.equal(
+    noVoiceNotice('pt-BR', [], ROUTE, 'es'),
+    'Las voces en portugués de Brasil no están disponibles en este equipo. La historia sigue en texto.',
+  );
+});
+
+test('rpg-42a.117 the notice catalog covers every locale with the same keys', () => {
+  assert.deepEqual(missingKeys(VOICE_NOTICE_CATALOG), []);
 });
 
 test('says nothing when a voice for the language is ready', () => {

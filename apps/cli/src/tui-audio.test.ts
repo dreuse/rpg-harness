@@ -202,6 +202,23 @@ test('rpg-42a.53 tui voice messages read in Brazilian Portuguese', () => {
   assert.equal(declining.input('não', act), 'O microfone continua desligado. Digite para jogar.');
 });
 
+test('rpg-42a.117 sim and s only grant microphone consent in Brazilian Portuguese', () => {
+  const { act } = recorder();
+  for (const answer of ['sim', 's'])
+    for (const locale of ['en', 'es']) {
+      const { saved, save } = saver();
+      const audio = createTuiAudio(session, SUPPORTED_LOCALES, save, undefined, undefined, locale);
+      audio.input('set mic to push-to-talk', act);
+      audio.input(answer, act);
+      assert.equal(saved.at(-1)?.consentGrantedAt, undefined, `${locale} ${answer}`);
+    }
+  const { saved, save } = saver();
+  const audio = createTuiAudio(session, SUPPORTED_LOCALES, save, undefined, undefined, PORTUGUESE);
+  audio.input('set mic to push-to-talk', act);
+  audio.input('s', act);
+  assert.ok(saved.at(-1)?.consentGrantedAt);
+});
+
 test('rpg-42a.53 tui speech diagnostics read in Brazilian Portuguese', () => {
   const diagnostics = () => ({
     samples: 3,

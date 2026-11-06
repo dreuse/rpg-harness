@@ -14,6 +14,7 @@ import {
   planCommand,
   type StartAction,
 } from '../../../packages/client-protocol/src/guided-start.ts';
+import { LANGUAGE_ENV } from '../../../packages/client-protocol/src/locale.ts';
 import {
   type Accepted,
   type CampaignList,
@@ -700,6 +701,21 @@ describe('serve client-protocol commands over the desktop engine daemon', () => 
     const chosen = lifecycle('PlanCampaign', { choices: { ruleset: { id: 'd20-lite', edition: '5e' } } });
     assert.equal(rejectionOf(await daemon.command(chosen)), 'UnknownEdition');
     assert.deepEqual(await campaignNames(daemon), []);
+  });
+
+  it('rpg-42a.117: plan and create failures read in the language the engine runs in', async (t) => {
+    const dataDir = tempDataDir(t);
+    const daemon = supervise(t, { env: { ...baseEnv(), [DATA_DIR_ENV]: dataDir, [LANGUAGE_ENV]: 'pt-BR' } });
+    const planned = await daemon.command(lifecycle('PlanCampaign', { choices: { genre: 'noir' } }));
+    assert.match(String(planned.result?.ok === false && planned.result.error.message), /^O gênero noir não está/);
+    const created = await daemon.command(lifecycle('CreateCampaign', { name: CAMPAIGN, choices: { genre: 'noir' } }));
+    assert.match(String(created.result?.ok === false && created.result.error.message), /^O gênero noir não está/);
+    acceptedValue(await daemon.command(lifecycle('CreateCampaign', { name: CAMPAIGN })));
+    const open = await daemon.command(lifecycle('ArchiveCampaign', { name: CAMPAIGN }));
+    assert.equal(
+      String(open.result?.ok === false && open.result.error.message),
+      `A campanha ${CAMPAIGN} está aberta neste motor.`,
+    );
   });
 
   it('rpg-42a.20: serves the campaign it just created and refuses to archive or delete it', async (t) => {
