@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import type { CampaignStore } from '../../domain/src/campaign.ts';
+import { type CampaignStore, SYSTEM_TURN } from '../../domain/src/campaign.ts';
 import type { CampaignEntity, EntityStore } from '../../domain/src/entity.ts';
 import { type Fact, PLAYER_VIEWER } from '../../memory/src/knowledge.ts';
 import { retrieveContext } from '../../memory/src/retrieval.ts';
@@ -167,6 +167,7 @@ test('learning a fact commits an event and persists the learned fact', () =>
   withNpc((store, entities) => {
     const learning = { ...actionFor(store, 'overhear'), npcId: WARDEN.id, fact: GATE, learning: OVERHEARD };
     const committed = recordNpcLearning(store, entities, learning);
+    assert.equal(committed.turn.kind, SYSTEM_TURN);
     assert.deepEqual(
       committed.events.map(({ type }) => type),
       ['PlayerActionSubmitted', 'ActionValidated', NPC_LEARNED_FACT],

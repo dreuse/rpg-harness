@@ -1086,7 +1086,18 @@ const createCampaign = async (
     });
     if (usage !== undefined)
       recordGmUsage(store, { campaignId: campaign.id, turnId: committed.turn.id, sessionId: randomUUID(), usage });
-    commitProposals(store, createEntityStore(database), createFactStore(database), committed, proposals);
+    const state = engine.getState(campaign.id);
+    const strictness = rulesStrictnessFor(state, readGmDefaults(dataDir));
+    commitProposals(
+      store,
+      createEntityStore(database),
+      createFactStore(database),
+      committed,
+      proposals,
+      checkRulesFor(state.events, strictness),
+      modifierPolicyOf(state.events, strictness),
+      combatRulesOf(state.events),
+    );
     connection.close();
     return generic
       ? `${sceneText(opening.title, opening.narration)}\n${GENERIC_OPENING_NOTICE}`

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { type CampaignStore, MAIN_BRANCH } from '../../domain/src/campaign.ts';
+import { type CampaignStore, MAIN_BRANCH, SYSTEM_TURN } from '../../domain/src/campaign.ts';
 import { pendingOf } from '../../memory/src/graph.ts';
 import { summariesOf } from '../../memory/src/history.ts';
 import { DEFAULT_CONTEXT_BUDGET } from '../../memory/src/packet.ts';
@@ -217,7 +217,8 @@ test('rpg-42a.36 pending promises open and resolve as committed events', () => {
     () => resolvePending(store, { ...actionFor(store, 'resolve-unknown'), pendingId: 'nope' }),
     InvalidActionError,
   );
-  resolvePending(store, { ...actionFor(store, 'resolve'), pendingId: 'promise-1' });
+  const resolved = resolvePending(store, { ...actionFor(store, 'resolve'), pendingId: 'promise-1' });
+  assert.equal(resolved.turn.kind, SYSTEM_TURN);
   assert.deepEqual(pendingOf(events()), []);
   connection.close();
 });

@@ -37,7 +37,6 @@ import { CONTEXT_BUDGETS, type ContextBudgetPreset, DEFAULT_CONTEXT_BUDGET } fro
 import { normalize } from '../../narrative/src/consistency.ts';
 import { type CombatRules, combatantOf, NPC_SHEET_FIELD } from './damage.ts';
 import {
-  commit,
   commitSystem,
   loadState,
   type PlayerAction,
@@ -258,7 +257,7 @@ export const resolvePending = (store: CampaignStore, input: PendingResolution): 
   validate(state, input);
   const open = pendingOf(state.events).find(({ id }) => id === pendingId);
   requireValid(actionId, open !== undefined, `pending ${pendingId} is not open`);
-  return commit(store, input, [[PENDING_RESOLVED, { pendingId }, turnVisibility(open?.visibility ?? GM_ONLY)]]);
+  return commitSystem(store, input, [[PENDING_RESOLVED, { pendingId }, turnVisibility(open?.visibility ?? GM_ONLY)]]);
 };
 
 export const recordChange = (

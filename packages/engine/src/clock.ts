@@ -16,7 +16,7 @@ import {
   type WorldTime,
   worldOf,
 } from '../../timelines/src/live-folds.ts';
-import { commit, loadState, type PlayerAction, requireValid, storedTurnOf, validate } from './turn.ts';
+import { commitSystem, loadState, type PlayerAction, requireValid, storedTurnOf, validate } from './turn.ts';
 
 export const GAME_TIME_TRIGGERS = ['time-passage', 'clock-tick'] as const;
 export const EFFECT_DUE_KINDS = ['time', 'clock'] as const;
@@ -56,7 +56,7 @@ const run = (store: CampaignStore, action: PlayerAction, steps: (state: State) =
   const stored = storedTurnOf(store, state, action.actionId);
   if (stored !== undefined) return stored;
   validate(state, action);
-  return commit(store, action, steps(stateOf(state.folds.world)));
+  return commitSystem(store, action, steps(stateOf(state.folds.world)));
 };
 
 export const defineClock = (store: CampaignStore, definition: ClockDefinitionAction): CommittedTurn =>

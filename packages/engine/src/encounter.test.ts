@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import type { CampaignEvent, CampaignStore } from '../../domain/src/campaign.ts';
+import { type CampaignEvent, type CampaignStore, SYSTEM_TURN } from '../../domain/src/campaign.ts';
 import { createCampaignStore } from '../../persistence/src/campaign-store.ts';
 import { openDatabase } from '../../persistence/src/database.ts';
 import { replayRoll } from '../../rules/src/dice.ts';
@@ -184,6 +184,7 @@ test('persist encounter initiation, transitions, mechanical turns and resolution
   try {
     setup(store);
     const started = start(store);
+    assert.equal(started.turn.kind, SYSTEM_TURN);
     assert.deepEqual(types(started.events), ['PlayerActionSubmitted', 'ActionValidated', 'EncounterStarted']);
     assertCausalChain(started.events);
     const opened = currentEncounter(loaded(store).events);

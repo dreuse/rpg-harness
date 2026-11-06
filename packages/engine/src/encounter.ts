@@ -24,7 +24,7 @@ import {
   type EncounterStatus,
   visibleFoldsOf,
 } from '../../timelines/src/live-folds.ts';
-import { commit, loadState, type PlayerAction, recorded, replayOf, requireValid, validate } from './turn.ts';
+import { commitSystem, loadState, type PlayerAction, recorded, replayOf, requireValid, validate } from './turn.ts';
 
 export type { Encounter, EncounterAction, EncounterId, EncounterResolution, EncounterRules, EncounterStatus };
 
@@ -103,7 +103,7 @@ export const startEncounter = (store: CampaignStore, start: EncounterStart): Com
   );
   requireSheets(actionId, participants, sheets);
   if (rules !== undefined) requireRules(actionId, rules);
-  return commit(store, start, [
+  return commitSystem(store, start, [
     [ENCOUNTER_STARTED, { encounterId: randomUUID(), participants: [...participants], rules, sheets: [...sheets] }],
   ]);
 };
@@ -142,7 +142,7 @@ export const actInEncounter = (store: CampaignStore, move: EncounterMove): Commi
     ? { ok: true, changes: result.changes, events: result.events, rolls: result.rolls }
     : result;
   const { id: encounterId, round } = encounter;
-  return commit(store, move, [
+  return commitSystem(store, move, [
     [ENCOUNTER_ACTION_RESOLVED, { encounterId, actorId, round, ruleId, dslVersion, modifiers: applied, resolution }],
     [ENCOUNTER_TURN_ADVANCED, { encounterId, ...seatAfter(encounter) }],
   ]);
@@ -156,5 +156,5 @@ export const resolveEncounter = (store: CampaignStore, end: EncounterEnd): Commi
   const { actionId, outcome } = end;
   const { id: encounterId } = activeEncounter(state, actionId);
   requireValid(actionId, outcome.trim() !== '', 'outcome is blank');
-  return commit(store, end, [[ENCOUNTER_RESOLVED, { encounterId, outcome }]]);
+  return commitSystem(store, end, [[ENCOUNTER_RESOLVED, { encounterId, outcome }]]);
 };

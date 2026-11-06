@@ -8,7 +8,7 @@ import {
   resolveModifiers,
   summarizeModifiers,
 } from '../../rules/src/modifiers.ts';
-import type { ModifierPolicy } from './conditions.ts';
+import { conditionModifiersOf, type ModifierPolicy, mergeModifiers } from './conditions.ts';
 import { commitSystem, loadState, type PlayerAction, recorded, replayOf, requireValid, validate } from './turn.ts';
 
 export const GM_ROLLER = 'gm';
@@ -79,7 +79,13 @@ export const rollForGm = (
     policy?.cites,
   );
   requireValid(actionId, resolved.ok, resolved.ok ? '' : resolved.issues.map(({ message }) => message).join('; '));
-  const applied = resolved.ok ? resolved.applied : [];
+  const fromConditions =
+    policy === undefined || section === undefined
+      ? []
+      : conditionModifiersOf(state.events, roller === PLAYER_ROLLER ? input.actorId : roller, section).filter(
+          ({ effect }) => effect.kind === 'flat',
+        );
+  const applied = mergeModifiers(resolved.ok ? resolved.applied : [], fromConditions);
   const summary = summarizeModifiers(applied);
   requireValid(
     actionId,

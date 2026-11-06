@@ -6,7 +6,7 @@ import { type EffectiveMechanic, GM_ADJUDICATED } from '../../rules/src/dsl.ts';
 import { resolveAction } from '../../rules/src/resolve.ts';
 import type { TraitSheet } from '../../rules/src/traits.ts';
 import {
-  commit,
+  commitSystem,
   InvalidActionError,
   loadState,
   type PlayerAction,
@@ -72,12 +72,14 @@ export const resolveCitedRule = (store: CampaignStore, move: CitedRuleMove): Com
   if (mechanic.kind === GM_ADJUDICATED || !mechanic.rule.deterministic) {
     const { reason, issues } =
       mechanic.kind === GM_ADJUDICATED ? mechanic : { reason: 'AdjudicatedCapability', issues: [] };
-    return commit(store, move, [[ADJUDICATED, { mode: GM_ADJUDICATED, citation, rulePack, source, reason, issues }]]);
+    return commitSystem(store, move, [
+      [ADJUDICATED, { mode: GM_ADJUDICATED, citation, rulePack, source, reason, issues }],
+    ]);
   }
   const result = resolveAction({ actionId, rule: mechanic.rule.rule, sheet, rng, modifiers });
   requireValid(actionId, result.ok || result.error.code !== INVALID_ACTION, 'sheet or modifiers are invalid');
   const resolution = result.ok
     ? { ok: true, changes: result.changes, events: result.events, rolls: result.rolls }
     : result;
-  return commit(store, move, [[RESOLVED, { citation, rulePack, source, modifiers, resolution }]]);
+  return commitSystem(store, move, [[RESOLVED, { citation, rulePack, source, modifiers, resolution }]]);
 };

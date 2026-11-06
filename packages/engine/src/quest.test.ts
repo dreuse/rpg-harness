@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import type { CampaignEvent, CampaignStore } from '../../domain/src/campaign.ts';
+import { type CampaignEvent, type CampaignStore, SYSTEM_TURN } from '../../domain/src/campaign.ts';
 import { createCampaignStore } from '../../persistence/src/campaign-store.ts';
 import { openDatabase } from '../../persistence/src/database.ts';
 import { resolveEncounter, startEncounter } from './encounter.ts';
@@ -88,6 +88,7 @@ test('track active/completed/failed quests and prerequisites linked to events', 
   try {
     setup(store);
     const defined = defineQuest(store, { ...actionFor(store, 'define-ferry'), ...FERRY });
+    assert.equal(defined.turn.kind, SYSTEM_TURN);
     assert.deepEqual(
       defined.events.map(({ type }) => type),
       ['PlayerActionSubmitted', 'ActionValidated', 'QuestDefined'],

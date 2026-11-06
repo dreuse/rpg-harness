@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it, type TestContext } from 'node:test';
 import { PROTOCOL_VERSION } from '../../../packages/client-protocol/src/protocol.ts';
+import { CONDITION_APPLIED } from '../../../packages/domain/src/campaign.ts';
 import { ledgerTotals } from '../../../packages/domain/src/gm.ts';
 import { campaignPitchOf } from '../../../packages/engine/src/turn.ts';
 import { CONTEXT_BUDGETS, type ContextPacket, packetParts } from '../../../packages/memory/src/packet.ts';
@@ -26,6 +27,8 @@ const TITLE = 'a short fantasy adventure';
 const CHAPEL = 'The Drowned Chapel';
 const OPENING_NARRATION = 'Water laps at the pews of the drowned chapel. A sexton named Orrin waves you in.';
 const PLAYER_NAME = 'Ashfall';
+const TUI_CLIENT = 'tui';
+const D20_PITCH = 'A fantasy story using the d20-lite rules with dice animation';
 const NO_CHARACTER = async () => undefined;
 const GENERIC_NOTICE = 'opening is generic';
 const MAX_NAME = 40;
@@ -208,5 +211,30 @@ describe('rpg-42a.46 pitch opening', () => {
     const summary = await createCampaignFrom(dataDir, command, undefined, scriptedGm());
     assert.equal(summary.name, PLAYER_NAME);
     assert.ok(entityNames(dataDir, PLAYER_NAME).includes('Orrin'));
+  });
+  it('applies a condition proposed in the opening scene', async (t) => {
+    const dataDir = tempDataDir(t);
+    writeGmDefaults(dataDir, { rulesStrictness: 'relaxed' });
+    const gm: GameMaster = {
+      request: async () => ({
+        narration: OPENING_NARRATION,
+        segments: [{ text: OPENING_NARRATION }],
+        proposals: [
+          {
+            kind: 'condition',
+            id: 'lantern-out',
+            conditionId: 'darkened',
+            reason: 'the lantern gutters out',
+            duration: { unit: 'scenes', count: 1 },
+          },
+        ],
+      }),
+      summarizer: FAKE_GAME_MASTER.summarizer,
+    };
+    for await (const _ of createEngineGateway(dataDir, gm).create(PLAYER_NAME, D20_PITCH, NO_CHARACTER, TUI_CLIENT));
+    const connection = openDatabase(fileOf(dataDir, PLAYER_NAME));
+    const applied = loadState(connection.database).events.filter(({ type }) => type === CONDITION_APPLIED);
+    connection.close();
+    assert.equal(applied.length, 1);
   });
 });

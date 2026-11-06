@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { mock, test } from 'node:test';
-import type { CampaignEvent, CampaignStore } from '../../domain/src/campaign.ts';
+import { type CampaignEvent, type CampaignStore, SYSTEM_TURN } from '../../domain/src/campaign.ts';
 import { createCampaignStore } from '../../persistence/src/campaign-store.ts';
 import { openDatabase } from '../../persistence/src/database.ts';
 import { advanceGameTime, defineClock, GAME_TIME_TRIGGERS, scheduleEffect, worldTime } from './clock.ts';
@@ -87,6 +87,7 @@ test('advance event clocks and delayed effects only on approved game-time trigge
       ...actionFor(store, 'rest'),
       trigger: { kind: 'time-passage', units: 4, reason: 'Mara rests.' },
     });
+    assert.equal(rest.turn.kind, SYSTEM_TURN);
     assert.deepEqual(
       rest.events.map(({ type }) => type),
       ['PlayerActionSubmitted', 'ActionValidated', 'GameTimeAdvanced'],

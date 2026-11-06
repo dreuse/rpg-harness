@@ -15,7 +15,7 @@ import {
   type TerminalQuestStatus,
   visibleFoldsOf,
 } from '../../timelines/src/live-folds.ts';
-import { commit, loadState, type PlayerAction, recorded, replayOf, requireValid, validate } from './turn.ts';
+import { commitSystem, loadState, type PlayerAction, recorded, replayOf, requireValid, validate } from './turn.ts';
 
 export type { Quest, QuestId, QuestObjective, QuestPrerequisite, QuestStatus, TerminalQuestStatus };
 export { QUEST_STATUSES, TERMINAL_QUEST_STATUSES };
@@ -74,7 +74,7 @@ const run = (
   const stored = replayOf(store, state, action, recorded(type, fields));
   if (stored !== undefined) return stored;
   validate(state, action);
-  return commit(store, action, steps(state.events, questMapOf(state.folds.gm.quests)));
+  return commitSystem(store, action, steps(state.events, questMapOf(state.folds.gm.quests)));
 };
 
 const questIn = (quests: Quests, { actionId, questId }: QuestTarget, status: QuestStatus): Quest => {

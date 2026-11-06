@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import type { CampaignStore } from '../../../packages/domain/src/campaign.ts';
+import { type CampaignStore, SYSTEM_TURN } from '../../../packages/domain/src/campaign.ts';
 import type { RuleCitation } from '../../../packages/domain/src/character.ts';
 import { type CitedRuleMove, RuleCitationError, resolveCitedRule } from '../../../packages/engine/src/mechanics.ts';
 import { effectiveMechanics } from '../../../packages/imports/src/effective-mechanics.ts';
@@ -233,6 +233,7 @@ test('unsupported mechanics use visibly designated adjudication, never a fake de
   });
   const ritual = resolveCitedRule(store, { ...move('ritual-1', cited(RITUAL), neverRolls), expectedRevision: 2 });
   const payload = ritual.events.at(-1)?.payload ?? {};
+  assert.equal(ritual.turn.kind, SYSTEM_TURN);
   assert.equal(ritual.events.at(-1)?.type, ADJUDICATED);
   assert.equal(payload.mode, GM_ADJUDICATED);
   assert.equal(payload.reason, 'InvalidRuleDsl');

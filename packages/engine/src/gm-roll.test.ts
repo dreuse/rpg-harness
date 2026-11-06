@@ -5,8 +5,10 @@ import { createCampaignStore } from '../../persistence/src/campaign-store.ts';
 import { openDatabase } from '../../persistence/src/database.ts';
 import { createEntityStore } from '../../persistence/src/entity-store.ts';
 import { listScopedEvents } from '../../persistence/src/event-store.ts';
+import { D20_LITE_VOCABULARY } from '../../rules/src/d20-lite.ts';
 import { createSeededRng, replayRoll } from '../../rules/src/dice.ts';
 import { playTurns } from './character.ts';
+import { applyCondition } from './conditions.ts';
 import {
   GM_ROLLER,
   type GmRollRequest,
@@ -204,6 +206,49 @@ test('rpg-42a.82: a player roll is never secret and a rule section has a length 
     );
     const { events } = roll('fine', { ...player, section: 'x'.repeat(MAX_ROLL_SECTION_LENGTH) })();
     assert.equal(events.find(({ type }) => type === GM_ROLLED)?.payload.roller, PLAYER_ROLLER);
+  } finally {
+    close();
+  }
+});
+
+const MELEE_SECTION = 'attack.melee';
+const DARKENED_FLAT = -2;
+const relaxed = { vocabulary: D20_LITE_VOCABULARY, strictness: 'relaxed' } as const;
+
+test('rpg-42a.104: a roll takes the conditions of the rolling actor that apply to its section', () => {
+  const { store, entities, close } = seeded();
+  try {
+    applyCondition(store, {
+      ...actionFor(store, 'dark'),
+      condition: { conditionId: 'darkened', reason: 'the lantern gutters out', appliesTo: [MELEE_SECTION] },
+      ...relaxed,
+    });
+    const roll = (actionId: string, section?: string, policy?: typeof relaxed) =>
+      rollForGm(
+        store,
+        entities,
+        {
+          ...actionFor(store, actionId),
+          gmRoll: { ...ATTACK, roller: PLAYER_ROLLER, ...(section === undefined ? {} : { section }) },
+        },
+        createSeededRng(SEED),
+        policy,
+      );
+    const resolutionOf = (events: readonly { type: string; payload: Record<string, unknown> }[]) =>
+      events.find(({ type }) => type === GM_ROLLED)?.payload.resolution as {
+        modifiers?: { id: string }[];
+        rolls: unknown[];
+      };
+    const hit = resolutionOf(roll('hit', MELEE_SECTION, relaxed).events);
+    assert.deepEqual(
+      hit.modifiers?.map(({ id }) => id),
+      ['darkness'],
+    );
+    const replayed = replayRoll(hit.rolls[0]);
+    assert.ok(replayed.ok);
+    assert.equal(replayed.event.pool.modifier, 3 + DARKENED_FLAT);
+    assert.equal(resolutionOf(roll('other', 'check.wits', relaxed).events).modifiers, undefined);
+    assert.equal(resolutionOf(roll('no-policy', MELEE_SECTION).events).modifiers, undefined);
   } finally {
     close();
   }
