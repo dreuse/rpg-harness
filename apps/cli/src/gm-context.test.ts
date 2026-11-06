@@ -730,10 +730,22 @@ it('rpg-42a.73 an imported style with no entries adds no style line', () => {
   fixture.connection.close();
 });
 
-const rejectedHarbour = (fixture: ReturnType<typeof campaign>, committed: CommittedTurn) =>
-  commitProposals(fixture.store, fixture.entities, fixture.facts, committed, [
-    { kind: 'entity', id: HARBOUR, entityKind: 'location', name: 'Second Harbour', visibility: 'public' },
+const LOOKALIKE_ID = 'ilse-again';
+const LOOKALIKE_NAME = 'Ilse Marren';
+
+const rejectedHarbour = (fixture: ReturnType<typeof campaign>, committed: CommittedTurn) => {
+  fixture.entities.saveEntity({
+    id: ILSE,
+    campaignId: CAMPAIGN.id,
+    kind: 'npc',
+    name: LOOKALIKE_NAME,
+    data: {},
+    ...PUBLIC,
+  });
+  return commitProposals(fixture.store, fixture.entities, fixture.facts, committed, [
+    { kind: 'entity', id: LOOKALIKE_ID, entityKind: 'npc', name: LOOKALIKE_NAME, visibility: 'public' },
   ] as never);
+};
 
 const rejectionItemOf = (fixture: ReturnType<typeof campaign>, committed: CommittedTurn) =>
   (instructionsOf(fixture, committed) ?? []).find((item) => item.includes('rejected'));
@@ -750,7 +762,7 @@ it('rpg-42a.138 a rejected entity proposal reaches the next gm context with its 
     false,
   );
   const rejected = rejectionItemOf(fixture, play(fixture.store, 'turn-2'));
-  assert.ok(rejected?.includes(HARBOUR));
+  assert.ok(rejected?.includes(LOOKALIKE_ID));
   assert.equal(rejectionItemOf(fixture, play(fixture.store, 'turn-3')), undefined);
   fixture.connection.close();
 });
@@ -760,6 +772,6 @@ it('rpg-42a.138 a system turn between the rejection and the next play turn does 
   const first = play(fixture.store, 'turn-1');
   rejectedHarbour(fixture, first);
   commitSystem(fixture.store, actionFor(fixture.store, 'system-1', 'sheet edit'), []);
-  assert.ok(rejectionItemOf(fixture, play(fixture.store, 'turn-2'))?.includes(HARBOUR));
+  assert.ok(rejectionItemOf(fixture, play(fixture.store, 'turn-2'))?.includes(LOOKALIKE_ID));
   fixture.connection.close();
 });
