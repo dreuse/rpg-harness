@@ -20,6 +20,7 @@ import {
 import { SMOKE_ENV, SMOKE_STATUS, startMain, utilityEngine } from './main.ts';
 import { PLATFORMS } from './packaging.ts';
 import { APP_ROOT, APP_SCHEME, bundlePreload, PAGE_URL, PRELOAD_SOURCE, serveAsset } from './serve.ts';
+import { guardSmokeProcess } from './smoke-guard.ts';
 import { createSoundHost } from './sound-host.ts';
 import { offerDesktopUpdate, UPDATE_CHOICES } from './update.ts';
 import { voiceHostFromEnv } from './voice-host.ts';
@@ -115,6 +116,9 @@ const offerUpdate = async (dataDir: string) => {
 const ACCESSORY_POLICY = 'accessory';
 const SCALE_SWITCH = 'force-device-scale-factor';
 const CAPTURE_SCALE = '1';
+
+if (process.env[SMOKE_ENV] || process.env[CAPTURE_ENV] || process.env[JOURNEY_ENV])
+  guardSmokeProcess(process, (code) => app.exit(code));
 
 if (process.env[CAPTURE_ENV] || process.env[JOURNEY_ENV]) app.commandLine.appendSwitch(SCALE_SWITCH, CAPTURE_SCALE);
 
