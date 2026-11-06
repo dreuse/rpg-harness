@@ -44,10 +44,16 @@ const tempDataDir = (t: TestContext) => {
   return dataDir;
 };
 
-const hollowLantern = async (t: TestContext, script: Script, pitch = D20_PITCH) => {
+const hollowLantern = async (
+  t: TestContext,
+  script: Script,
+  pitch = D20_PITCH,
+  settings: Parameters<ReturnType<typeof createEngineGateway>['settings']>[1] = {},
+) => {
   const dataDir = tempDataDir(t);
   const describe = async () => 'Wren, a scout. Might 3, Agility 2, Wits 2, Presence 1';
   for await (const _ of createEngineGateway(dataDir).create(CAMPAIGN, pitch, describe));
+  createEngineGateway(dataDir).settings(CAMPAIGN, settings);
   const packets: ContextPacket[] = [];
   const gm: GameMaster = {
     request: async (packet) => {
@@ -226,5 +232,87 @@ describe('rpg-42a.77 an action that cannot roll says why', () => {
       ),
     );
     assert.ok(sections.some(({ name, items }) => name === 'results' && items.some((i) => i.includes('CheckSkipped'))));
+  });
+});
+
+describe('rpg-42a.94 a check the GM marks as needed rolls without a listed verb', () => {
+  const MARKED_OFFER: GmProposal = { ...ATTACK_OFFER, needsCheck: true };
+  const FREE_FORM_INPUTS = ['I slash my sword at his head', 'corto a cabeça dele com a espada'];
+
+  for (const input of FREE_FORM_INPUTS)
+    it(`rolls a d20 for "${input}" in the same exchange`, async (t) => {
+      const { say, snapshot, packets, eventsOfType } = await hollowLantern(t, [
+        { narration: SETUP, proposals: [MARKED_OFFER] },
+        { narration: AFTER_ROLL, proposals: [OUTCOME] },
+      ]);
+      await say(input);
+      assert.equal(rolledSides(eventsOfType(CHECK_RESOLVED)), D20_SIDES);
+      assert.equal(snapshot().rollOffer, undefined);
+      assert.equal(packets.length, 2);
+      assert.equal(snapshot().turns.at(-1)?.narration, AFTER_ROLL);
+    });
+
+  it('leaves an offer the GM did not mark waiting for the player', async (t) => {
+    const { say, snapshot, eventsOfType } = await hollowLantern(t, [{ narration: SETUP, proposals: [ATTACK_OFFER] }]);
+    await say(FREE_FORM_INPUTS[0] ?? '');
+    assert.equal(eventsOfType(CHECK_RESOLVED).length, 0);
+    assert.ok(snapshot().rollOffer);
+  });
+
+  it('does not roll for "I look around" when the GM marks nothing', async (t) => {
+    const { say, eventsOfType, packets } = await hollowLantern(t, [{ narration: SETUP }]);
+    await say('I look around');
+    assert.equal(eventsOfType(CHECK_RESOLVED).length, 0);
+    assert.equal(packets.length, 1);
+  });
+
+  it('never rolls a marked check when the campaign has no rulebook', async (t) => {
+    const { say, eventsOfType } = await hollowLantern(
+      t,
+      [{ narration: SETUP, proposals: [MARKED_OFFER] }],
+      'A fantasy story with no rulebook',
+    );
+    await say(FREE_FORM_INPUTS[0] ?? '');
+    assert.equal(eventsOfType(CHECK_RESOLVED).length, 0);
+    assert.equal(eventsOfType(CHECK_OFFERED).length, 0);
+  });
+
+  it('rolls once for a listed verb and leaves the marked follow-up offer pending', async (t) => {
+    const { say, snapshot, eventsOfType } = await hollowLantern(t, [{ narration: SETUP, proposals: [MARKED_OFFER] }]);
+    await say('I attack Old Tam');
+    assert.equal(eventsOfType(CHECK_RESOLVED).length, 1);
+    assert.equal(snapshot().rollOffer?.offerId, MARKED_OFFER.id);
+  });
+
+  it('leaves a marked offer pending when the player rolls their own dice', async (t) => {
+    const { say, snapshot, eventsOfType } = await hollowLantern(
+      t,
+      [{ narration: SETUP, proposals: [MARKED_OFFER] }],
+      D20_PITCH,
+      { whoRolls: 'me' },
+    );
+    await say(FREE_FORM_INPUTS[0] ?? '');
+    assert.equal(eventsOfType(CHECK_RESOLVED).length, 0);
+    assert.equal(snapshot().rollOffer?.offerId, MARKED_OFFER.id);
+  });
+
+  it('never offers or rolls a marked check when strictness is off', async (t) => {
+    const { say, eventsOfType } = await hollowLantern(t, [{ narration: SETUP, proposals: [MARKED_OFFER] }], D20_PITCH, {
+      rulesStrictness: 'off',
+    });
+    await say(FREE_FORM_INPUTS[0] ?? '');
+    assert.equal(eventsOfType(CHECK_OFFERED).length, 0);
+    assert.equal(eventsOfType(CHECK_RESOLVED).length, 0);
+  });
+
+  it('does not roll an older pending offer when the marked proposal that reuses its id is refused', async (t) => {
+    const { say, snapshot, eventsOfType } = await hollowLantern(t, [
+      { narration: SETUP, proposals: [ATTACK_OFFER] },
+      { narration: 'Tam waits.', proposals: [{ ...MARKED_OFFER, ruleId: 'attack.vorpal' } as GmProposal] },
+    ]);
+    await say('I look at the bar');
+    await say('I look at the door');
+    assert.equal(eventsOfType(CHECK_RESOLVED).length, 0);
+    assert.equal(snapshot().rollOffer?.offerId, ATTACK_OFFER.id);
   });
 });

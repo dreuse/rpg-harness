@@ -25,6 +25,7 @@ import {
 } from '../../../packages/domain/src/campaign.ts';
 import { EMPTY_GM_USAGE_TOTALS, type GmSettings, type GmUsage, toGmSettings } from '../../../packages/domain/src/gm.ts';
 import { commitCharacter, editSheetField, playTurns } from '../../../packages/engine/src/character.ts';
+import { pendingCheckOffer } from '../../../packages/engine/src/check-offer.ts';
 import { campaignLanguageOf, createEngine, type Engine } from '../../../packages/engine/src/engine.ts';
 import {
   type GameplayOutcome,
@@ -110,6 +111,7 @@ import {
 import { readGmDefaults, writeGmDefaults } from './gm-defaults.ts';
 import { requestFitting, TOO_LONG_MESSAGE } from './gm-limits.ts';
 import {
+  CHECK_PROPOSAL,
   commitGmRolls,
   commitProposals,
   ENTITY_PROPOSAL,
@@ -411,8 +413,47 @@ const streamOf = (voice: TurnSpeech | undefined, listener: StreamedSegment | und
   };
 };
 
+const acceptMarkedCheck = (
+  { engine, campaignId, database }: Session,
+  committed: CommittedTurn,
+  proposals: readonly GmProposal[],
+  offeredNow: readonly CommittedTurn[],
+  defaults: GmSettings,
+): boolean => {
+  const state = engine.getState(campaignId);
+  const offer = pendingCheckOffer(state.events);
+  const marked =
+    offeredNow.some(({ events }) => pendingCheckOffer(events)?.offerId === offer?.offerId) &&
+    proposals.some(
+      (proposal) => proposal.kind === CHECK_PROPOSAL && proposal.needsCheck === true && proposal.id === offer?.offerId,
+    );
+  const whoRolls = whoRollsFor(state, defaults);
+  if (!marked || offer === undefined || whoRolls === 'me') return false;
+  if (committed.events.some(({ type }) => type === CHECK_RESOLVED)) return false;
+  const { sceneId, actorId } = committed.turn;
+  engine.submitAction(
+    {
+      campaignId,
+      actionId: randomUUID(),
+      expectedRevision: state.revision,
+      sceneId,
+      actorId,
+      input: offer.label,
+      intent: offer.label,
+    },
+    checkForAction(
+      state.events,
+      { input: offer.label, rollOfferId: offer.offerId, whoRolls },
+      actorId,
+      worldOf(database)(campaignId, actorId).entities,
+      rulesStrictnessFor(state, defaults),
+    ),
+  );
+  return true;
+};
+
 const narrateLatest = async (
-  { engine, store, campaignId, database, rng }: Session,
+  session: Session,
   request: (packet: ContextPacket, onSegment?: (segment: GmSegment) => void) => Promise<GmTurnReply>,
   sessionId: string,
   speak: SpeakTurn,
@@ -420,6 +461,7 @@ const narrateLatest = async (
   defaults: GmSettings,
   listener?: StreamedSegment,
 ): Promise<readonly GmSegment[]> => {
+  const { engine, store, campaignId, database, rng } = session;
   const state = engine.getState(campaignId);
   const latest = playTurns(state).at(-1);
   const committed = latest === undefined ? undefined : storedTurn(state, latest.actionId);
@@ -512,12 +554,13 @@ const narrateLatest = async (
     voice?.abandon();
     throw error;
   });
+  let offeredNow: readonly CommittedTurn[] = [];
   if ('inconsistent' in outcome) {
     voice?.abandon();
     store.recordNarration(campaignId, committed.turn.id, FAKE_GM_REPLY);
   } else {
     if ('narration' in outcome && reply !== undefined) voice?.settle(reply);
-    commitProposals(
+    offeredNow = commitProposals(
       store,
       createEntityStore(database),
       createFactStore(database),
@@ -543,6 +586,8 @@ const narrateLatest = async (
       sessionId,
       usage,
     });
+  if (acceptMarkedCheck(session, committed, proposals, offeredNow, defaults))
+    return narrateLatest(session, request, sessionId, speak, calibrates, defaults, listener);
   return 'inconsistent' in outcome ? narratorSegments(FAKE_GM_REPLY) : segments;
 };
 

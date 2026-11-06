@@ -78,6 +78,7 @@ const ID_REGEX = new RegExp(ID_PATTERN);
 const RULE_ID_PATTERN = '^[a-z0-9][a-z0-9.-]*$';
 const RULE_ID_REGEX = new RegExp(RULE_ID_PATTERN);
 const NO_RULES: readonly string[] = [];
+export const NEEDS_CHECK_FIELD = 'needsCheck';
 const DEFAULT_VISIBILITY = 'player';
 const FACT_LAYER = 'canon';
 const PROPOSAL_KEYS = {
@@ -93,7 +94,7 @@ const PROPOSAL_KEYS = {
     VOICE_TRAITS_FIELD,
   ],
   [PENDING_PROPOSAL]: ['kind', 'id', 'pendingKind', 'text', 'entityIds', 'visibility'],
-  [CHECK_PROPOSAL]: ['kind', 'id', 'ruleId', 'target', 'label', 'difficulty', 'modifiers'],
+  [CHECK_PROPOSAL]: ['kind', 'id', 'ruleId', 'target', 'label', 'difficulty', 'modifiers', NEEDS_CHECK_FIELD],
   [OUTCOME_PROPOSAL]: ['kind', 'id', 'text'],
   [VOICE_TRAITS_PROPOSAL]: ['kind', 'id', 'entityId', VOICE_TRAITS_FIELD],
   [GM_ROLL_PROPOSAL]: ['kind', 'id', 'roller', 'reason', 'visibility', 'ruleId', 'expression', 'modifiers'],
@@ -132,6 +133,7 @@ export type CheckProposal = {
   readonly label: string;
   readonly difficulty?: string;
   readonly modifiers?: readonly ModifierRequest[];
+  readonly needsCheck?: boolean;
 };
 
 export type OutcomeProposal = {
@@ -266,6 +268,7 @@ export const PROPOSALS_SCHEMA = {
           label: { type: 'string', maxLength: MAX_LABEL_LENGTH },
           difficulty: idSchema,
           modifiers: modifiersSchema,
+          [NEEDS_CHECK_FIELD]: { type: 'boolean' },
         },
         required: ['kind', 'id', 'ruleId', 'target', 'label'],
         additionalProperties: false,
@@ -432,6 +435,8 @@ const checkOf = (value: Record<string, unknown>): CheckProposal | undefined => {
   const modifiers = modifiersOf(value.modifiers);
   if (id === undefined || ruleId === undefined || target === undefined || label === undefined) return undefined;
   if ((value.difficulty !== undefined && difficulty === undefined) || modifiers === null) return undefined;
+  const needsCheck = value[NEEDS_CHECK_FIELD];
+  if (needsCheck !== undefined && typeof needsCheck !== 'boolean') return undefined;
   return {
     kind: CHECK_PROPOSAL,
     id,
@@ -440,6 +445,7 @@ const checkOf = (value: Record<string, unknown>): CheckProposal | undefined => {
     label,
     ...(difficulty === undefined ? {} : { difficulty }),
     ...(modifiers === undefined ? {} : { modifiers }),
+    ...(needsCheck === undefined ? {} : { needsCheck }),
   };
 };
 

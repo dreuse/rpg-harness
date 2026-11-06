@@ -79,7 +79,7 @@ export const noCheckPrompt = (reason: string): string =>
 export const repetitionRetryPrompt = (lines: readonly string[]): string =>
   `Your previous reply repeated earlier narration: ${lines.map((line) => JSON.stringify(line)).join(' ')}. Write it again with a new closing line and a new beat.`;
 export const checkRulesPrompt = (ruleIds: readonly string[]): string =>
-  `A check proposal has kind "check", a lowercase id, a ruleId from this list, the target and a short label for the roll offer: ${ruleIds.join(', ')}.`;
+  `A check proposal has kind "check", a lowercase id, a ruleId from this list, the target and a short label for the roll offer: ${ruleIds.join(', ')}. When the player's action itself is a risky attempt, set needsCheck to true on that proposal and the engine rolls it at once; leave it out for an optional or later check.`;
 export const voiceTraitsPrompt = (npcIds: readonly string[]): string =>
   `These npcs have no voice traits yet: ${npcIds.join(', ')}. Add one voice-traits proposal for each, with kind "voice-traits", a lowercase id, the npc as entityId and voiceTraits holding gender, age and manner.`;
 const effectText = (effect: ModifierEffect): string => {

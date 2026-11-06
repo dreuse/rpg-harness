@@ -309,6 +309,12 @@ describe('rpg-42a.90 modifier and condition proposals', () => {
       assert.equal(parse({ ...check, modifiers: [modifier] }), undefined);
   });
 
+  it('accepts a boolean needsCheck on a check and refuses anything else', () => {
+    assert.equal(parse({ ...check, needsCheck: true })?.length, 1);
+    for (const needsCheck of ['yes', 1, null, {}]) assert.equal(parse({ ...check, needsCheck }), undefined);
+    assert.ok(JSON.stringify(PROPOSALS_SCHEMA).includes('needsCheck'));
+  });
+
   it('refuses a bad condition duration', () => {
     for (const duration of [
       { unit: 'years', count: 1 },
