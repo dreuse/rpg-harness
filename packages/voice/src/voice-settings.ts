@@ -76,6 +76,30 @@ const SETTING_PHRASES: readonly (readonly [VoiceSettingField, RegExp])[] = [
   ['locale', /^(?:locale|language)\s+(?:to\s+)?(\S+)$/i],
   ['speed', /^speed\s+(?:to\s+)?(\d*[.,]?\d+)x?$/i],
 ];
+const ACCENTS = /\p{M}/gu;
+const LOCALIZED_TERMS: readonly (readonly [RegExp, string])[] = [
+  [/\b(?:pulsar|presione|pressione|apertar|aperte)\s+para\s+(?:hablar|falar)\b/g, 'push-to-talk'],
+  [/\b(?:manos\s+libres|maos\s+livres)\b/g, 'hands-free'],
+  [/\b(?:apaga|apague|apagar|desactiva|desactivar|desliga|desligue|desligar)\b/g, 'turn off'],
+  [/\b(?:nunca|jamas)\b/g, 'never'],
+  [/\bnao\b/g, 'not'],
+  [/\b(?:pon|pongas?|poner|cambia|cambiar|activa|usa|definir|configura|configurar)\b/g, 'set'],
+  [/\b(?:defina|mude|mudar|muda|ajuste|ajustar|troque|trocar|coloque|colocar|use|usar)\b/g, 'set'],
+  [/\b(?:microfono|microfone)\b/g, 'mic'],
+  [/\b(?:salida|saida)\b/g, 'output'],
+  [/\b(?:velocidad|velocidade)\b/g, 'speed'],
+  [/\bidioma\b/g, 'language'],
+  [/\bnarrador\b/g, 'narrator'],
+  [/\bdialogo\b/g, 'dialogue'],
+  [/\bcomplet[oa]\b/g, 'full'],
+  [/\bcinematografic[oa]\b/g, 'cinematic'],
+  [/\b(?:apagado|apagada|desligado|desligada|desactivado|desactivada)\b/g, 'off'],
+  [/\b(?:en|em|para|a)\b/g, 'to'],
+  [/\b(?:el|la|o)\b/g, 'the'],
+  [/\b[ye]\b/g, 'and'],
+];
+const LOCALE_VALUE =
+  /((?<=\b(?:language|locale|idioma)\s+(?:(?:to|en|em|para|a)\s+)?)(?!(?:to|en|em|para|a)\s)[^\s,;]+)/;
 const WORD_GAP = /[ -]/g;
 const HYPHEN = '-';
 const DECIMAL_COMMA = ',';
@@ -118,8 +142,21 @@ const readClause = (clause: string, inheritedNegation: boolean): [VoiceSettingFi
   return undefined;
 };
 
+const translate = (text: string): string =>
+  LOCALIZED_TERMS.reduce((current, [pattern, english]) => current.replace(pattern, english), text);
+
+const toEnglish = (sentence: string): string =>
+  sentence
+    .normalize('NFD')
+    .replace(ACCENTS, '')
+    .toLowerCase()
+    .split(LOCALE_VALUE)
+    .map((part, index) => (index % 2 === 1 ? part : translate(part)))
+    .join('');
+
 const requested = (text: string): Mentions | undefined => {
-  const [sentence = ''] = text.split(SENTENCE_END);
+  const [first = ''] = text.split(SENTENCE_END);
+  const sentence = toEnglish(first);
   const command = COMMAND.exec(sentence);
   if (!command) return undefined;
   const clauses = sentence

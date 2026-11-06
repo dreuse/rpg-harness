@@ -118,6 +118,73 @@ describe('A14 conversational voice settings', () => {
     }
   });
 
+  it('accepts Spanish and Brazilian Portuguese phrasing with or without accents', () => {
+    const cases: [string, Partial<VoicePreferences>][] = [
+      ['pon el micrófono en pulsar para hablar', { microphone: 'push-to-talk' }],
+      ['Pon el microfono en pulsar para hablar.', { microphone: 'push-to-talk' }],
+      ['cambia el micrófono a manos libres', { microphone: 'hands-free' }],
+      ['pon la salida en narrador', { spokenOutput: 'narrator' }],
+      ['pon la salida en cinematográfica', { spokenOutput: 'cinematic' }],
+      ['pon la velocidad en 1,5', { speed: 1.5 }],
+      ['pon el idioma en pt-BR', { locale: 'pt-BR' }],
+      ['definir microfone para pressione para falar', { microphone: 'push-to-talk' }],
+      ['definir microfone para mãos livres', { microphone: 'hands-free' }],
+      ['definir saída para narrador', { spokenOutput: 'narrator' }],
+      ['definir saida para cinematográfico', { spokenOutput: 'cinematic' }],
+      ['definir velocidade para 1.5', { speed: 1.5 }],
+      ['defina o idioma para fr-FR', { locale: 'fr-FR' }],
+      ['pon el micrófono en pulsar para hablar y la velocidad en 1.5', { microphone: 'push-to-talk', speed: 1.5 }],
+    ];
+    for (const [text, expected] of cases) {
+      const result = changeVoiceSettings(
+        session({ preferences: { ...preferences, microphone: 'off', spokenOutput: 'dialogue' } }),
+        { source: 'typed', text },
+        SUPPORTED_LOCALES,
+      );
+      assert.equal(result.ok, true, text);
+      if (!result.ok) continue;
+      assert.deepEqual(
+        result.session.preferences,
+        { ...preferences, microphone: 'off', spokenOutput: 'dialogue', ...expected },
+        text,
+      );
+    }
+    const negated = changeVoiceSettings(
+      session(),
+      { source: 'typed', text: 'nunca pongas el micrófono en pulsar para hablar' },
+      SUPPORTED_LOCALES,
+    );
+    assert.equal(negated.ok, false);
+    const narrative = changeVoiceSettings(
+      session(),
+      { source: 'typed', text: 'pongo la mano en la puerta' },
+      SUPPORTED_LOCALES,
+    );
+    assert.deepEqual(narrative, { ok: false, issues: [{ code: 'unrecognized', path: '' }] });
+  });
+
+  it('keeps locale values out of the localized word mapping', () => {
+    const locales = ['en-US', 'en', 'en-GB', 'el-GR', 'pt-BR'];
+    const cases: [string, string][] = [
+      ['set language to en-US', 'en-US'],
+      ['set language to en', 'en'],
+      ['set locale to en-GB', 'en-GB'],
+      ['pon el idioma en en-US', 'en-US'],
+      ['pon el idioma en el-GR', 'el-GR'],
+      ['definir idioma para en-GB, velocidad para 1.5', 'en-GB'],
+    ];
+    for (const [text, locale] of cases) {
+      const result = changeVoiceSettings(
+        session({ preferences: { ...preferences, locale: 'pt-BR' } }),
+        { source: 'typed', text },
+        locales,
+      );
+      assert.equal(result.ok, true, text);
+      if (!result.ok) continue;
+      assert.equal(result.session.preferences.locale, locale, text);
+    }
+  });
+
   it('rejects non-string requests at the boundary', () => {
     const result = changeVoiceSettings(
       session(),

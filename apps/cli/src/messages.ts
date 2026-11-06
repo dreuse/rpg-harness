@@ -309,7 +309,7 @@ export const CLI_CATALOG: Catalog = {
     'tui.help': 'Ajuda',
     'tui.hint': 'Tab próximo painel, 1-4 escolhe o painel, i digita, ? ajuda, q sai',
     'tui.audioHelp':
-      "Digite 'set mic to push-to-talk', 'set output to narrator', 'set output to cinematic' ou 'set speed to 1.5' para mudar a voz.",
+      "Digite 'definir microfone para pressione para falar', 'definir saída para narrador', 'definir saída para cinematográfico' ou 'definir velocidade para 1.5' para mudar a voz.",
     'tui.noScene': 'Ainda não há uma cena para agir.',
     'tui.noReply': 'Nenhuma resposta foi registrada neste turno.',
     'tui.scene': 'Cena: {title}',
@@ -601,7 +601,7 @@ export const CLI_CATALOG: Catalog = {
     'tui.help': 'Ayuda',
     'tui.hint': 'Tab siguiente panel, 1-4 elige el panel, i escribe, ? ayuda, q sale',
     'tui.audioHelp':
-      "Escribe 'set mic to push-to-talk', 'set output to narrator', 'set output to cinematic' o 'set speed to 1.5' para cambiar la voz.",
+      "Escribe 'pon el micrófono en pulsar para hablar', 'pon la salida en narrador', 'pon la salida en cinematográfica' o 'pon la velocidad en 1.5' para cambiar la voz.",
     'tui.noScene': 'Aún no hay una escena en la que actuar.',
     'tui.noReply': 'No se registró ninguna respuesta para este turno.',
     'tui.scene': 'Escena: {title}',
