@@ -260,6 +260,31 @@ const FIRST_TURN = steps(
   `await ${until(`document.querySelector('[data-rolls] [data-roll]') && ${GM_REPLIED} && ${SETTLED}`)};`,
 );
 
+const OOC_NOTE = 'Please keep the tone light.';
+const OOC_PANEL_SELECTOR = '[data-ooc-panel]';
+const OOC_TOGGLE = '#ooc-toggle';
+const OPEN_OOC = steps(
+  `document.querySelector('[data-settings]').open = false;`,
+  click(OOC_TOGGLE),
+  `await ${until(`document.querySelector(${JSON.stringify(OOC_PANEL_SELECTOR)}) && document.querySelector('${OOC_TOGGLE}[aria-pressed="true"]')`)};`,
+);
+const ASK_OOC = steps(
+  `document.querySelector('#action-input').value = ${JSON.stringify(OOC_NOTE)};`,
+  `document.querySelector('#action-form').requestSubmit();`,
+  `await ${until(`document.querySelector('[data-speaker="ooc-gm"]') && document.querySelector('[data-ooc="confirm"]') && ${SETTLED}`)};`,
+);
+const APPLY_OOC = steps(
+  click('[data-ooc="confirm"]'),
+  `await ${until(`document.querySelector('[data-ooc-status="applied"]') && ${SETTLED}`)};`,
+  click(OOC_TOGGLE),
+  `await ${until(`document.querySelector('${OOC_TOGGLE}[aria-pressed="false"]')`)};`,
+);
+const oocSteps = (prefix: string): readonly JourneyStep[] => [
+  { script: OPEN_OOC, shot: `${prefix}ooc-toggle` },
+  { script: ASK_OOC, shot: `${prefix}ooc-proposal` },
+  { script: APPLY_OOC, shot: `${prefix}ooc-applied` },
+];
+
 const COLLAPSED_ROLL = steps(`await ${until(`document.querySelector('[data-roll-badge]') && ${SETTLED}`)};`);
 
 const DICELESS_TO_RULES = steps(
@@ -426,6 +451,7 @@ export const JOURNEY: Readonly<
         `document.querySelector('[data-settings]').open = false;`,
       ),
     },
+    ...oocSteps(''),
   ],
   reopen: [
     { script: until(`${CONNECTED} && document.querySelector('#home-continue-0')`), shot: 'reopen-home' },
@@ -471,6 +497,7 @@ export const JOURNEY: Readonly<
     { script: OPEN_ADVANCED_VOICE, shot: 'pt-BR-voice-settings' },
     { script: OPEN_GM_SETTINGS, shot: 'pt-BR-gm-settings' },
     { script: CHOOSE_STORY_LANGUAGE, shot: 'pt-BR-story-language' },
+    ...oocSteps('pt-BR-'),
   ],
 };
 

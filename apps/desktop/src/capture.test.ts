@@ -9,6 +9,7 @@ import {
   captureJourney,
   captureScreens,
   headlessRun,
+  JOURNEY,
 } from './capture.ts';
 import { SMOKE_ENV } from './main.ts';
 import { layoutFor } from './renderer.ts';
@@ -219,4 +220,12 @@ test('rpg-42a.63 smoke runs hide the window and drop the Dock icon on macOS', ()
 
 test('rpg-42a.63 a normal launch keeps the window shown and the default activation policy', () => {
   assert.deepEqual(headlessRun({}, 'darwin'), { hidden: false, accessory: false });
+});
+
+const OOC_SHOTS = ['ooc-toggle', 'ooc-proposal', 'ooc-applied'];
+
+test('rpg-42a.105 the English and Portuguese journeys capture the out-of-character GM channel', () => {
+  const shotsOf = (phase: 'first' | 'portuguese') => JOURNEY[phase].map(({ shot }) => shot);
+  for (const shot of OOC_SHOTS) assert.ok(shotsOf('first').includes(shot), shot);
+  for (const shot of OOC_SHOTS) assert.ok(shotsOf('portuguese').includes(`pt-BR-${shot}`), shot);
 });
