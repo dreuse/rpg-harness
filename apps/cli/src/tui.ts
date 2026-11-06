@@ -79,7 +79,12 @@ export type TuiAudio = {
 
 export type Terminal = {
   readonly capabilities: Capabilities;
-  readonly audio?: (session: ClientSession, campaignId: CampaignId, playback?: TuiPlayback) => TuiAudio;
+  readonly audio?: (
+    session: ClientSession,
+    campaignId: CampaignId,
+    playback?: TuiPlayback,
+    locale?: string,
+  ) => TuiAudio;
   readonly keys?: AsyncIterable<Key>;
   readonly motion?: boolean;
   readonly schedule?: (run: () => void, ms: number) => void;
@@ -173,14 +178,14 @@ const helpLines = (data: TuiData) => {
     say(locale, 'help.toggle', { key: HELP_KEY }),
     say(locale, 'help.quit', { key: QUIT_KEY }),
     ...(data.audio === undefined ? [] : [say(locale, 'tui.audioHelp')]),
-    ...(gm === undefined ? [] : [...gmUsageLines(gm), say(locale, 'tui.gmSettings')]),
+    ...(gm === undefined ? [] : [...gmUsageLines(gm, locale), say(locale, 'tui.gmSettings')]),
   ];
 };
 
 const onceOverBudget = (data: () => TuiData) => {
   let warned = false;
   return () => {
-    const warning = warned ? undefined : budgetWarning(data().snapshot.gm);
+    const warning = warned ? undefined : budgetWarning(data().snapshot.gm, localeOf(data()));
     warned ||= warning !== undefined;
     return warning;
   };
@@ -772,7 +777,7 @@ export const runTui = async (
     { version: PROTOCOL_VERSION, type: 'SubscribeEvents', campaignId },
     (event) => events.push(event),
   );
-  const audio = terminal.audio?.(session, campaignId, playback);
+  const audio = terminal.audio?.(session, campaignId, playback, terminal.locale);
   const data = () => read(session, campaignId, events, audio, terminal.locale ?? DEFAULT_LOCALE);
   const held: OocProposal[] = [];
   const canonical = (typed: string) => {

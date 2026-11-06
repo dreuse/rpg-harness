@@ -172,7 +172,7 @@ test('rpg-42a.39 desktop guided start follows the player language and names the 
   await desktop.settled();
   assert.equal(desktop.client.startScreen()?.title, 'Nova aventura');
   const summary = await desktop.act(DESCRIBE);
-  assert.ok(summary?.text.includes('Gênero: horror (escolhido)'));
+  assert.ok(summary?.text.includes('Gênero: Terror crescente (escolhido)'));
   await desktop.act([{ kind: 'start' }]);
   assert.ok(desktop.client.state().campaigns.some(({ name }) => name === 'Minha aventura'));
 });

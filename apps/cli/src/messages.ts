@@ -1,14 +1,16 @@
+import { type ContentKind, contentText } from '../../../packages/client-protocol/src/content-names.ts';
 import { gmFailureText } from '../../../packages/client-protocol/src/gm-failure.ts';
 import {
   type Catalog,
   createTranslator,
   DEFAULT_LOCALE,
   type Params,
+  safeLocale,
 } from '../../../packages/client-protocol/src/locale.ts';
 import { RollReportError } from '../../../packages/engine/src/roll-report.ts';
 import { failureOf, ProviderError } from './gm-api.ts';
 
-export { DEFAULT_LOCALE, safeLocale } from '../../../packages/client-protocol/src/locale.ts';
+export { DEFAULT_LOCALE, safeLocale };
 
 export const CLI_CATALOG: Catalog = {
   en: {
@@ -205,6 +207,77 @@ export const CLI_CATALOG: Catalog = {
     'command.claude':
       'Open Claude Code in the RPG workspace, with the game tools for a campaign if you name one. It never loads your other projects, global instructions or hooks.',
     'command.help': 'Show this help.',
+    'quickstart.none': 'none',
+    'quickstart.importHint': 'Run rpg import <file> to add its rule files, or name an installed ruleset.',
+    'quickstart.rulesetAmbiguous':
+      'Ruleset {requested} matches more than one installed ruleset: {candidates}. Name one of them.',
+    'quickstart.rulesetMissing': 'Ruleset {requested} is not installed. Installed rulesets: {available}. {hint}',
+    'quickstart.genreMissing': 'Genre {genre} is not installed. Installed genres: {available}.',
+    'quickstart.needsDice': 'diceVisualization needs a ruleset with dice.',
+    'quickstart.intentTooLong': 'Campaign intent must be at most {max} characters.',
+    'quickstart.intentConflict': 'Your intent gives conflicting choices for {fields}.',
+    'quickstart.useClient': 'Use the {clients} client for {fields}.',
+    'quickstart.lines': '{lines}',
+    'quickstart.characterNeeds': 'Your character needs {fields}. Add them to your description, or skip this step.',
+    'quickstart.characterInvalid': 'Your character does not fit the rules: {issues}.',
+    'config.ruleset': 'Ruleset: {value} ({provenance})',
+    'config.genre': 'Genre: {value} ({provenance})',
+    'config.dice': 'Dice: {value} ({provenance})',
+    'config.dice.rulepack': 'as the ruleset decides',
+    'config.dice.on': 'on',
+    'config.dice.off': 'off',
+    'provenance.default': 'default',
+    'provenance.explicit': 'explicit',
+    'provenance.derived': 'derived',
+    'campaign.created': 'Campaign: {title}',
+    'campaign.keepName': 'To keep a long name as it is, add a pitch: rpg new "<name>" "<pitch>".',
+    'campaign.savedSettings': 'Saved settings:',
+    'campaign.exported.one': 'Exported campaign {name} with {count} rulepack pin(s) to {file}.',
+    'campaign.exported.other': 'Exported campaign {name} with {count} rulepack pin(s) to {file}.',
+    'campaign.backedUp': 'Backed up campaign {name} to {file}.',
+    'campaign.restored': 'Restored campaign {name}. Run rpg resume {name} to continue.',
+    'settings.appDefaults': 'App defaults for every campaign:',
+    'settings.invalid':
+      'Choose a model name without spaces or a leading dash, a session budget that is a whole number of tokens, and a rules strictness of as-written, relaxed or off.',
+    'update.available': 'Version {version} is available. You have {current}.',
+    'update.current': 'rpg {version} is up to date.',
+    'update.checkOffline': 'Could not check for updates: you seem to be offline.',
+    'update.checkRateLimited': 'Could not check for updates: GitHub asked to wait. Try again later.',
+    'update.checkFailed': 'Could not check for updates right now.',
+    'update.rejected': 'Update rejected: {reason}. The download was deleted.',
+    'update.downloadOffline': 'Could not download the update: you seem to be offline.',
+    'update.downloadRateLimited': 'Could not download the update: GitHub asked to wait. Try again later.',
+    'update.autoOn': 'Automatic update checks are on.',
+    'update.autoOff': 'Automatic update checks are off.',
+    'update.preRelease': 'Pre-release versions are included.',
+    'update.stableOnly': 'Only stable versions are offered.',
+    'update.sourceCheckout': 'This copy runs from source. Update it with git.',
+    'update.ready': 'Version {version} is ready. It installs the next time you start rpg.',
+    'update.done': 'Updated to version {version}.',
+    'update.migrateFailed':
+      'The update could not migrate your campaigns: {reason}. Restored version {version} and your campaign backups.',
+    'update.rollbackFailed': 'The update to version {version} failed and could not restore everything: {reason}.',
+    'update.backups': 'Your campaign backups:',
+    'update.waitForOthers': 'Version {version} installs when no other rpg session is running.',
+    'update.installFailed': 'Could not install version {version}: {reason}. Keeping version {current}.',
+    'update.installing': 'Installing version {version}. Your campaigns are backed up.',
+    'update.startupAvailable': 'Version {version} is available. Run rpg update --check to read the release notes.',
+    'update.skipped': 'Skipped the update step: {reason}',
+    'audio.status': 'Voice: mic {microphone}, output {output}, {locale}, {speed}x',
+    'audio.changed': 'Voice settings changed: {changes}',
+    'audio.notChanged': 'Voice settings not changed: {issues}',
+    'audio.notSaved': 'Voice settings not saved: {error}',
+    'audio.consent': 'Allow microphone capture for this campaign? Type yes or no.',
+    'audio.allowed': 'Microphone allowed.',
+    'audio.declined': 'Microphone stays off. Type to play.',
+    'audio.playback': 'Playback: {command}',
+    'audio.noSpeech': 'Speech: no spoken turn yet.',
+    'audio.speech': 'Speech: {parts}',
+    'audio.samples': '{count} samples',
+    'audio.firstAudio': 'first audio {ms} ms',
+    'audio.synthesis': 'synthesis {ms} ms',
+    'audio.peakQueue': 'peak queue {depth}',
+    'audio.errors': 'errors {count}',
   },
   'pt-BR': {
     'choice.unknown': 'Digite uma das opções acima.',
@@ -404,11 +477,124 @@ export const CLI_CATALOG: Catalog = {
     'command.claude':
       'Abre o Claude Code no espaço de trabalho do RPG, com as ferramentas do jogo se você indicar uma campanha. Nunca carrega seus outros projetos, instruções globais ou hooks.',
     'command.help': 'Mostra esta ajuda.',
+    'quickstart.none': 'nenhum',
+    'quickstart.importHint':
+      'Rode rpg import <arquivo> para adicionar os arquivos de regras ou use um livro de regras instalado.',
+    'quickstart.rulesetAmbiguous':
+      'O livro de regras {requested} corresponde a mais de um livro de regras instalado: {candidates}. Escolha um deles.',
+    'quickstart.rulesetMissing':
+      'O livro de regras {requested} não está instalado. Livros de regras instalados: {available}. {hint}',
+    'quickstart.genreMissing': 'O gênero {genre} não está instalado. Gêneros instalados: {available}.',
+    'quickstart.needsDice': 'diceVisualization precisa de um livro de regras com dados.',
+    'quickstart.intentTooLong': 'A intenção da campanha pode ter no máximo {max} caracteres.',
+    'quickstart.intentConflict': 'Sua intenção traz escolhas conflitantes para {fields}.',
+    'quickstart.useClient': 'Use o cliente {clients} para {fields}.',
+    'quickstart.lines': '{lines}',
+    'quickstart.characterNeeds': 'Seu personagem precisa de {fields}. Inclua isso na descrição ou pule esta etapa.',
+    'quickstart.characterInvalid': 'Seu personagem não se encaixa nas regras: {issues}.',
+    'config.ruleset': 'Regras: {value} ({provenance})',
+    'config.genre': 'Gênero: {value} ({provenance})',
+    'config.dice': 'Dados: {value} ({provenance})',
+    'config.dice.rulepack': 'como as regras decidem',
+    'config.dice.on': 'ligados',
+    'config.dice.off': 'desligados',
+    'provenance.default': 'padrão',
+    'provenance.explicit': 'escolhido',
+    'provenance.derived': 'deduzido',
+    'campaign.created': 'Campanha: {title}',
+    'campaign.keepName': 'Para manter um nome longo como está, acrescente uma ideia: rpg new "<nome>" "<ideia>".',
+    'campaign.savedSettings': 'Configurações salvas:',
+    'campaign.exported.one': 'Campanha {name} exportada com {count} versão de regras fixada em {file}.',
+    'campaign.exported.other': 'Campanha {name} exportada com {count} versões de regras fixadas em {file}.',
+    'campaign.backedUp': 'Backup da campanha {name} salvo em {file}.',
+    'campaign.restored': 'Campanha {name} restaurada. Rode rpg resume {name} para continuar.',
+    'settings.appDefaults': 'Padrões do app para todas as campanhas:',
+    'settings.invalid':
+      'Escolha um nome de modelo sem espaços nem traço no início, um limite de sessão que seja um número inteiro de tokens e um rigor das regras entre as-written, relaxed ou off.',
+    'update.available': 'A versão {version} está disponível. Você tem a {current}.',
+    'update.current': 'O rpg {version} está atualizado.',
+    'update.checkOffline': 'Não foi possível verificar atualizações: você parece estar sem conexão.',
+    'update.checkRateLimited':
+      'Não foi possível verificar atualizações: o GitHub pediu para esperar. Tente de novo mais tarde.',
+    'update.checkFailed': 'Não foi possível verificar atualizações agora.',
+    'update.rejected': 'Atualização rejeitada: {reason}. O download foi apagado.',
+    'update.downloadOffline': 'Não foi possível baixar a atualização: você parece estar sem conexão.',
+    'update.downloadRateLimited':
+      'Não foi possível baixar a atualização: o GitHub pediu para esperar. Tente de novo mais tarde.',
+    'update.autoOn': 'A verificação automática de atualizações está ligada.',
+    'update.autoOff': 'A verificação automática de atualizações está desligada.',
+    'update.preRelease': 'As versões de pré-lançamento estão incluídas.',
+    'update.stableOnly': 'Só as versões estáveis são oferecidas.',
+    'update.sourceCheckout': 'Esta cópia roda a partir do código-fonte. Atualize com git.',
+    'update.ready': 'A versão {version} está pronta. Ela é instalada na próxima vez que você abrir o rpg.',
+    'update.done': 'Atualizado para a versão {version}.',
+    'update.migrateFailed':
+      'A atualização não conseguiu migrar suas campanhas: {reason}. A versão {version} e os backups das suas campanhas foram restaurados.',
+    'update.rollbackFailed': 'A atualização para a versão {version} falhou e não conseguiu restaurar tudo: {reason}.',
+    'update.backups': 'Backups das suas campanhas:',
+    'update.waitForOthers': 'A versão {version} é instalada quando nenhuma outra sessão do rpg estiver aberta.',
+    'update.installFailed': 'Não foi possível instalar a versão {version}: {reason}. Mantendo a versão {current}.',
+    'update.installing': 'Instalando a versão {version}. Os backups das suas campanhas estão feitos.',
+    'update.startupAvailable':
+      'A versão {version} está disponível. Rode rpg update --check para ler as notas da versão.',
+    'update.skipped': 'A etapa de atualização foi ignorada: {reason}',
+    'audio.status': 'Voz: microfone {microphone}, saída {output}, {locale}, {speed}x',
+    'audio.changed': 'Configurações de voz alteradas: {changes}',
+    'audio.notChanged': 'Configurações de voz não alteradas: {issues}',
+    'audio.notSaved': 'Configurações de voz não salvas: {error}',
+    'audio.consent': 'Permitir a captura do microfone nesta campanha? Digite sim ou não.',
+    'audio.allowed': 'Microfone permitido.',
+    'audio.declined': 'O microfone continua desligado. Digite para jogar.',
+    'audio.playback': 'Reprodução: {command}',
+    'audio.noSpeech': 'Fala: ainda não há turno falado.',
+    'audio.speech': 'Fala: {parts}',
+    'audio.samples': '{count} amostras',
+    'audio.firstAudio': 'primeiro áudio {ms} ms',
+    'audio.synthesis': 'síntese {ms} ms',
+    'audio.peakQueue': 'pico da fila {depth}',
+    'audio.errors': 'erros {count}',
   },
 };
 
 export const CLI_LOCALES = Object.keys(CLI_CATALOG);
-export const say = createTranslator(CLI_CATALOG);
+const translate = createTranslator(CLI_CATALOG);
+
+const LIST_TYPES = ['conjunction', 'disjunction', 'plain'] as const;
+const PLAIN_SEPARATOR = ', ';
+const LINE_SEPARATOR = '\n';
+
+export class ListParam {
+  readonly items: readonly string[];
+  readonly type: (typeof LIST_TYPES)[number];
+  readonly kind?: ContentKind;
+
+  constructor(items: readonly string[], type: (typeof LIST_TYPES)[number], kind?: ContentKind) {
+    this.items = items;
+    this.type = type;
+    if (kind !== undefined) this.kind = kind;
+  }
+}
+
+const listText = (locale: string, { items, type, kind }: ListParam) => {
+  const shown = kind === undefined ? items : items.map((item) => contentText(locale, kind, item, item));
+  if (type === 'plain') return shown.length === 0 ? say(locale, 'quickstart.none') : shown.join(PLAIN_SEPARATOR);
+  const language = CLI_LOCALES.includes(locale) ? safeLocale(locale) : DEFAULT_LOCALE;
+  return new Intl.ListFormat(language, { type }).format(shown);
+};
+
+const resolved = (locale: string, value: unknown): unknown => {
+  if (value instanceof LocalizedError) return say(locale, value.key, value.params);
+  if (value instanceof ListParam) return listText(locale, value);
+  if (Array.isArray(value)) return value.map((item) => resolved(locale, item)).join(LINE_SEPARATOR);
+  return value;
+};
+
+export const say = (locale: string, key: string, params: Params = {}): string =>
+  translate(
+    locale,
+    key,
+    Object.fromEntries(Object.entries(params).map(([name, value]) => [name, resolved(locale, value)])),
+  );
 
 export class LocalizedError extends Error {
   readonly key: string;

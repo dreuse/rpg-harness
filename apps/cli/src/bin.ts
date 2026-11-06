@@ -68,14 +68,14 @@ if (problem !== undefined) {
     import('./views.ts'),
   ]);
   process.on('exit', holdSession(dataDir));
+  const locale = localeOf(process.env, CLI_LOCALES);
   const startup = await startupUpdate(
-    defaultUpdateContext(dataDir, () => campaignDatabases(dataDir)),
+    defaultUpdateContext(dataDir, () => campaignDatabases(dataDir), locale),
     { check: process.argv[2] !== UPDATE_COMMAND },
   );
   for (const message of startup.messages) process.stderr.write(`${printable(message)}\n`);
   const capabilities = capabilitiesOf(process.env, process.stdin, process.stdout);
   const { gm } = await gameMasterFor(process.env);
-  const locale = localeOf(process.env, CLI_LOCALES);
   process.exitCode = startup.restart
     ? (spawnSync(process.execPath, [...process.execArgv, ...process.argv.slice(1)], { stdio: 'inherit' }).status ??
       EXIT_SETUP_FAILURE)

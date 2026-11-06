@@ -11,38 +11,37 @@ import { applyPlaybackCommand } from '../../../packages/voice/src/playback-contr
 import { DEFAULT_VOICE_SETTINGS } from '../../../packages/voice/src/voice.ts';
 import type { VoiceDiagnosticsSummary } from '../../../packages/voice/src/voice-diagnostics.ts';
 import { routeVoiceInput, type VoiceSession } from '../../../packages/voice/src/voice-settings.ts';
+import { DEFAULT_LOCALE, say } from './messages.ts';
 import type { TuiAudio, TuiPlayback } from './tui.ts';
 
 export type SaveVoice = (settings: SavedVoiceSettings) => string | undefined;
 
 const TYPED = 'typed';
-const CHANGED = 'Voice settings changed: ';
-const NOT_CHANGED = 'Voice settings not changed: ';
-const NOT_SAVED = 'Voice settings not saved: ';
-const CONSENT_PROMPT = 'Allow microphone capture for this campaign? Type yes or no.';
-const ALLOWED = 'Microphone allowed.';
-const DECLINED = 'Microphone stays off. Type to play.';
-const YES = /^\s*y(?:es)?\s*$/i;
+const YES = /^\s*(?:y(?:es)?|s(?:im)?)\s*$/i;
 const LIST = ', ';
 const COMMAND_PREFIX = '/';
-const PLAYBACK = 'Playback: ';
 const DIAGNOSTICS_COMMAND = 'voice';
-const NO_SPEECH = 'Speech: no spoken turn yet.';
 const NEWLINE = '\n';
 const FIRST_TURN = 0;
 const { microphone: MICROPHONE_OFF } = DEFAULT_VOICE_SETTINGS;
 
-const speechLine = (summary: VoiceDiagnosticsSummary | undefined) => {
-  if (summary === undefined || summary.samples === 0) return NO_SPEECH;
+const speechLine = (summary: VoiceDiagnosticsSummary | undefined, locale: string) => {
+  if (summary === undefined || summary.samples === 0) return say(locale, 'audio.noSpeech');
   const errors = Object.values(summary.errors).reduce((sum, count) => sum + (count ?? 0), 0);
   const parts = [
-    `${summary.samples} samples`,
-    ...(summary.firstAudioMs === undefined ? [] : [`first audio ${summary.firstAudioMs} ms`]),
-    ...(summary.stages.synthesis === undefined ? [] : [`synthesis ${summary.stages.synthesis} ms`]),
-    ...(summary.peakQueueDepth === undefined ? [] : [`peak queue ${summary.peakQueueDepth}`]),
-    `errors ${errors}`,
+    say(locale, 'audio.samples', { count: String(summary.samples) }),
+    ...(summary.firstAudioMs === undefined
+      ? []
+      : [say(locale, 'audio.firstAudio', { ms: String(summary.firstAudioMs) })]),
+    ...(summary.stages.synthesis === undefined
+      ? []
+      : [say(locale, 'audio.synthesis', { ms: String(summary.stages.synthesis) })]),
+    ...(summary.peakQueueDepth === undefined
+      ? []
+      : [say(locale, 'audio.peakQueue', { depth: String(summary.peakQueueDepth) })]),
+    say(locale, 'audio.errors', { count: String(errors) }),
   ];
-  return `Speech: ${parts.join(LIST)}`;
+  return say(locale, 'audio.speech', { parts: parts.join(LIST) });
 };
 
 const withNotice = (message: string, notice: string | undefined) =>
@@ -54,6 +53,7 @@ export const createTuiAudio = (
   save: SaveVoice,
   grantedAt?: string,
   playback?: TuiPlayback,
+  locale = DEFAULT_LOCALE,
 ): TuiAudio => {
   let session = initial;
   let consentGrantedAt = grantedAt;
@@ -61,7 +61,7 @@ export const createTuiAudio = (
 
   const commit = (next: VoiceSession, granted: string | undefined, message: string) => {
     const error = save({ ...next.preferences, ...(granted === undefined ? {} : { consentGrantedAt: granted }) });
-    if (error !== undefined) return `${NOT_SAVED}${error}`;
+    if (error !== undefined) return say(locale, 'audio.notSaved', { error });
     session = next;
     consentGrantedAt = granted;
     return message;
@@ -69,39 +69,50 @@ export const createTuiAudio = (
 
   const answer = (text: string, asked: NonNullable<typeof pending>) => {
     pending = undefined;
-    if (YES.test(text)) return commit(asked.session, new Date().toISOString(), withNotice(ALLOWED, asked.message));
+    if (YES.test(text))
+      return commit(asked.session, new Date().toISOString(), withNotice(say(locale, 'audio.allowed'), asked.message));
     const preferences = { ...asked.session.preferences, microphone: MICROPHONE_OFF };
-    return commit({ ...asked.session, preferences }, consentGrantedAt, DECLINED);
+    return commit({ ...asked.session, preferences }, consentGrantedAt, say(locale, 'audio.declined'));
   };
 
   return {
     status: () => {
-      const { microphone, spokenOutput, locale, speed } = session.preferences;
-      return `Voice: mic ${microphone}, output ${spokenOutput}, ${locale}, ${speed}x`;
+      const { microphone, spokenOutput, locale: voiceLocale, speed } = session.preferences;
+      return say(locale, 'audio.status', { microphone, output: spokenOutput, locale: voiceLocale, speed });
     },
     input: (text, act) => {
       if (pending !== undefined) return answer(text, pending);
       const command = text.trim().slice(COMMAND_PREFIX.length);
       if (playback !== undefined && text.trim().startsWith(COMMAND_PREFIX)) {
         if (command === DIAGNOSTICS_COMMAND && playback.diagnostics !== undefined)
-          return speechLine(playback.diagnostics());
-        if (applyPlaybackCommand(playback, command)) return `${PLAYBACK}${command}`;
+          return speechLine(playback.diagnostics(), locale);
+        if (applyPlaybackCommand(playback, command)) return say(locale, 'audio.playback', { command });
       }
       const route = routeVoiceInput(session, { source: TYPED, text }, supportedLocales, act);
       if (route.kind === 'action') return route.result;
       if (route.kind === 'settings-rejected')
-        return withNotice(`${NOT_CHANGED}${route.issues.map(({ code }) => code).join(LIST)}`, route.action);
-      const message = `${CHANGED}${route.event.payload.changes.map(({ field, to }) => `${field} ${to}`).join(LIST)}`;
+        return withNotice(
+          say(locale, 'audio.notChanged', { issues: route.issues.map(({ code }) => code).join(LIST) }),
+          route.action,
+        );
+      const message = say(locale, 'audio.changed', {
+        changes: route.event.payload.changes.map(({ field, to }) => `${field} ${to}`).join(LIST),
+      });
       if (consentGrantedAt === undefined && route.session.preferences.microphone !== MICROPHONE_OFF) {
         pending = { session: route.session, message };
-        return withNotice(CONSENT_PROMPT, route.action);
+        return withNotice(say(locale, 'audio.consent'), route.action);
       }
       return withNotice(commit(route.session, consentGrantedAt, message), route.action);
     },
   };
 };
 
-export const defaultTuiAudio = (client: ClientSession, campaignId: CampaignId, playback?: TuiPlayback): TuiAudio => {
+export const defaultTuiAudio = (
+  client: ClientSession,
+  campaignId: CampaignId,
+  playback?: TuiPlayback,
+  uiLocale = DEFAULT_LOCALE,
+): TuiAudio => {
   const snapshot = () => client.getSnapshot({ version: PROTOCOL_VERSION, type: 'GetCampaignSnapshot', campaignId });
   const current = snapshot();
   const saved = current.ok ? current.value.voice : undefined;
@@ -134,5 +145,6 @@ export const defaultTuiAudio = (client: ClientSession, campaignId: CampaignId, p
     save,
     consentGrantedAt,
     playback,
+    uiLocale,
   );
 };

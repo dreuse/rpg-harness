@@ -180,3 +180,51 @@ test('rpg-cm63.17 tui /voice shows speech diagnostics as numbers only', () => {
   });
   assert.equal(idle.input('/voice', act), 'Speech: no spoken turn yet.');
 });
+
+test('rpg-42a.53 tui voice messages read in Brazilian Portuguese', () => {
+  const { saved, save } = saver();
+  const audio = createTuiAudio(session, SUPPORTED_LOCALES, save, undefined, undefined, PORTUGUESE);
+  const { act } = recorder();
+  assert.equal(audio.status(), 'Voz: microfone off, saída off, en-US, 1x');
+  assert.equal(audio.input('set output to narrator', act), 'Configurações de voz alteradas: spokenOutput narrator');
+  assert.equal(audio.input('set speed to 9', act), 'Configurações de voz não alteradas: speed_out_of_range');
+  assert.match(
+    audio.input('set mic to push-to-talk', act) ?? '',
+    /Permitir a captura do microfone nesta campanha\? Digite sim ou não\./,
+  );
+  assert.match(
+    audio.input('sim', act) ?? '',
+    /^Microfone permitido\.\nConfigurações de voz alteradas: microphone push-to-talk/,
+  );
+  assert.ok(saved.at(-1)?.consentGrantedAt);
+  const declining = createTuiAudio(session, SUPPORTED_LOCALES, saver().save, undefined, undefined, PORTUGUESE);
+  declining.input('set mic to hands-free', act);
+  assert.equal(declining.input('não', act), 'O microfone continua desligado. Digite para jogar.');
+});
+
+test('rpg-42a.53 tui speech diagnostics read in Brazilian Portuguese', () => {
+  const diagnostics = () => ({
+    samples: 3,
+    firstAudioMs: 412,
+    cacheHitRate: 0,
+    errors: { timeout: 1 },
+    stages: { synthesis: 300 },
+    peakQueueDepth: 2,
+  });
+  const playback = { pause() {}, resume() {}, skip() {}, stop() {}, diagnostics };
+  const { act } = recorder();
+  const audio = createTuiAudio(session, SUPPORTED_LOCALES, saver().save, undefined, playback, PORTUGUESE);
+  assert.equal(
+    audio.input('/voice', act),
+    'Fala: 3 amostras, primeiro áudio 412 ms, síntese 300 ms, pico da fila 2, erros 1',
+  );
+  const idle = createTuiAudio(
+    session,
+    SUPPORTED_LOCALES,
+    saver().save,
+    undefined,
+    { ...playback, diagnostics: () => undefined },
+    PORTUGUESE,
+  );
+  assert.equal(idle.input('/voice', act), 'Fala: ainda não há turno falado.');
+});

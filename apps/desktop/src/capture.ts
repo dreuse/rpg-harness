@@ -223,11 +223,11 @@ const OPEN_START = steps(
   click('[data-start-open]'),
   `await ${until(`document.querySelector('[data-start-title="path"]')`)};`,
 );
-const guideToRules = (guideOption: string) => [
+const guideToRules = (guideOption: string, genre = 'fantasy') => [
   clickOption(guideOption),
   `await ${until(`document.querySelector('[data-start-title="primer"]')`)};`,
   nextStep('genre'),
-  `${clickOption('fantasy')} await ${until(`document.querySelector('[data-start-title="rules"]')`)};`,
+  `${clickOption(genre)} await ${until(`document.querySelector('[data-start-title="rules"]')`)};`,
 ];
 const guideFromRules = (feature: string, ruleset: string) => [
   `${clickOption(ruleset)} await ${until(`document.querySelector('[data-start-title="character"]')`)};`,
@@ -248,7 +248,7 @@ const BEGIN_TO_SUMMARY = steps(
 );
 const guide = (guideOption: string, feature: string, ruleset: string) =>
   steps(...guideToRules(guideOption), ...guideFromRules(feature, ruleset));
-const PORTUGUESE_TO_RULES = steps(...guideToRules(PORTUGUESE_GUIDE));
+const PORTUGUESE_TO_RULES = steps(...guideToRules(PORTUGUESE_GUIDE, 'fantasia'));
 const FIRST_TURN = steps(
   JOURNEY_LISTENER,
   click('[data-start-control="start"]'),

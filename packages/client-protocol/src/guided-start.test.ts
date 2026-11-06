@@ -362,7 +362,7 @@ test('rpg-42a.39 guided start reads in Brazilian Portuguese and names the defaul
     ['Só história: sem dados, sem ficha', 'Recomendado'],
   );
   const summary = startScreen(skipAll, OPTIONS, PLAN, 'pt-BR');
-  assert.deepEqual(summary.text, ['Regras: Só história: sem dados, sem ficha (escolhido)', 'Gênero: none (padrão)']);
+  assert.deepEqual(summary.text, ['Regras: Só história: sem dados, sem ficha (escolhido)', 'Gênero: nenhum (padrão)']);
   assert.equal(summary.entry?.value, 'Minha aventura');
   assert.deepEqual(
     summary.review?.map(({ title }) => title),
@@ -574,4 +574,53 @@ test('rpg-42a.88 saved progress rejects tampered play settings', () => {
   assert.deepEqual(parseStartDraft(JSON.parse(JSON.stringify(draft))), draft);
   for (const choices of [{ whoRolls: 'god' }, { rulesStrictness: 'chaos' }, { language: 7 }, { narratorVoice: '' }])
     assert.deepEqual(parseStartDraft({ ...draft, choices }), INITIAL_DRAFT, JSON.stringify(choices));
+});
+
+test('rpg-42a.53 built-in genre, character and stat names read in Brazilian Portuguese', () => {
+  const genre = run([{ kind: 'path', path: 'guide' }, { kind: 'next' }]);
+  const genres = startScreen(genre, OPTIONS, undefined, 'pt-BR');
+  assert.deepEqual(
+    genres.options.map(({ label, detail }) => [label, detail]),
+    [
+      ['Fantasia', 'As pedras eretas zumbem quando a lua passa da serra, e esta noite ela está cheia.'],
+      ['Terror crescente', 'O arranhar parou no instante em que você prendeu a respiração.'],
+    ],
+  );
+  const character = startScreen(run([...toRules, D20_CHOICE]), OPTIONS, undefined, 'pt-BR');
+  assert.equal(character.step, 'character');
+  assert.deepEqual(
+    character.options.map(({ label }) => label),
+    ['Bruxa do campo'],
+  );
+  assert.ok(character.text.includes('Suas regras acompanham Força.'));
+  assert.equal(character.options[0]?.action.kind, 'choose');
+  assert.deepEqual(character.options[0]?.action.value, 'Hedge witch');
+});
+
+test('rpg-42a.53 plan values read in Brazilian Portuguese while the saved values stay the ids', () => {
+  const plan: Result<CampaignPlan> = {
+    ok: true,
+    value: {
+      ...(PLAN.ok ? PLAN.value : { version: PROTOCOL_VERSION, options: OPTIONS }),
+      entries: [
+        { field: 'genre', value: 'fantasy', provenance: 'explicit' },
+        { field: 'character', value: 'Hedge witch', provenance: 'explicit' },
+        { field: 'dice', value: 'as the ruleset decides', provenance: 'default' },
+        { field: 'voiceOutput', value: 'off', provenance: 'default' },
+        { field: 'simulation', value: 'none', provenance: 'default' },
+      ],
+    },
+  };
+  assert.deepEqual(startScreen(skipAll, OPTIONS, plan, 'pt-BR').text, [
+    'Gênero: Fantasia (escolhido)',
+    'Personagem: Bruxa do campo (escolhido)',
+    'Dados: como as regras decidem (padrão)',
+    'Narração por voz: desligado (padrão)',
+    'Mundo vivo: nenhum (padrão)',
+  ]);
+  assert.deepEqual(startScreen(skipAll, OPTIONS, plan).text.slice(0, 3), [
+    'Genre: fantasy (chosen)',
+    'Character: Hedge witch (chosen)',
+    'Dice: as the ruleset decides (default)',
+  ]);
 });

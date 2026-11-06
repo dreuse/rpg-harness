@@ -84,16 +84,17 @@ export type CampaignGateway = {
     mode: CampaignMode,
     lines: AsyncIterable<string>,
     onTurnError: (error: unknown) => void,
+    locale?: string,
   ) => AsyncIterable<string>;
   importRules: (files: readonly string[], lines: AsyncIterable<string>) => AsyncIterable<string>;
-  exportCampaign: (campaign: string, file: string) => string;
-  backup: (campaign: string) => string;
-  restore: (file: string) => string;
+  exportCampaign: (campaign: string, file: string, locale?: string) => string;
+  backup: (campaign: string, locale?: string) => string;
+  restore: (file: string, locale?: string) => string;
   view: (campaign: string, view: ViewName) => string;
   tui: (campaign: string, terminal: Terminal) => Promise<void>;
   start: (lines: AsyncIterable<string>, locale?: string) => AsyncIterable<string>;
-  update: (request: UpdateRequest) => AsyncIterable<string>;
-  settings: (campaign: string | undefined, changes: GmSettingsChanges) => string;
+  update: (request: UpdateRequest, locale?: string) => AsyncIterable<string>;
+  settings: (campaign: string | undefined, changes: GmSettingsChanges, locale?: string) => string;
   claude: (campaign: string | undefined) => number;
   sound: (request: SoundRequest, locale?: string) => AsyncIterable<string>;
 };
@@ -343,6 +344,7 @@ export const main = async (argv: readonly string[], io: Io, gateway: CampaignGat
             command,
             withControls(io, (view) => gateway.view(name, view)),
             (error) => reportError(io, error),
+            io.locale,
           ),
     );
   }
@@ -374,23 +376,26 @@ export const main = async (argv: readonly string[], io: Io, gateway: CampaignGat
     if (name === undefined || name.trim() === '') return missingName('export');
     if (file === undefined || file.trim() === '') return missingFile('export');
     if (extra.length > 0) return unexpectedArgument(extra[0]);
-    return run(io, () => [gateway.exportCampaign(name, file)]);
+    return run(io, () => [gateway.exportCampaign(name, file, locale)]);
   }
   if (command === 'backup' || command === 'restore') {
     const [value, ...extra] = rest;
     if (value === undefined || value.trim() === '')
       return command === 'backup' ? missingName(command) : missingFile(command);
     if (extra.length > 0) return unexpectedArgument(extra[0]);
-    return run(io, () => [command === 'backup' ? gateway.backup(value) : gateway.restore(value)]);
+    return run(io, () => [command === 'backup' ? gateway.backup(value, locale) : gateway.restore(value, locale)]);
   }
   if (command === UPDATE_COMMAND) {
     if (rest.length > 0) return unexpectedArgument(rest[0]);
     return run(io, () =>
-      gateway.update({
-        check: check === true,
-        ...(autoCheck !== undefined && { autoCheck }),
-        ...(preRelease !== undefined && { preRelease }),
-      }),
+      gateway.update(
+        {
+          check: check === true,
+          ...(autoCheck !== undefined && { autoCheck }),
+          ...(preRelease !== undefined && { preRelease }),
+        },
+        locale,
+      ),
     );
   }
   if (command === SETTINGS_COMMAND) {
@@ -402,7 +407,7 @@ export const main = async (argv: readonly string[], io: Io, gateway: CampaignGat
         ([, value]) => value !== undefined,
       ),
     );
-    return run(io, () => [gateway.settings(name, changes)]);
+    return run(io, () => [gateway.settings(name, changes, locale)]);
   }
   if (command === CLAUDE_COMMAND) {
     const [name, ...extra] = rest;

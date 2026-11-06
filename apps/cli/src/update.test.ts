@@ -300,3 +300,32 @@ test('leaves an update that belongs to another install alone', async (t) => {
   assert.deepEqual(await startupUpdate({ ...other, version: NEXT }, NO_CHECK), { restart: false, messages: [] });
   assert.equal(readState(stateFile).applied?.installDir, installDir);
 });
+
+test('rpg-42a.53 update messages read in Brazilian Portuguese', async (t) => {
+  const { server, context } = await setup(t);
+  const pt: UpdateContext = { ...context, locale: 'pt-BR' };
+  const check = await collect(updateCommand(pt, CHECK));
+  assert.match(check, /A versão 1\.3\.0 está disponível\. Você tem a 1\.2\.0\./);
+  assert.match(check, new RegExp(NOTES));
+  const settings = await collect(updateCommand(pt, { check: false, autoCheck: false, preRelease: true }));
+  assert.match(settings, /A verificação automática de atualizações está desligada\./);
+  assert.match(settings, /As versões de pré-lançamento estão incluídas\./);
+  assert.match(
+    await collect(updateCommand(pt, INSTALL)),
+    /A versão 1\.3\.0 está pronta\. Ela é instalada na próxima vez que você abrir o rpg\./,
+  );
+  assert.match(
+    await collect(updateCommand({ ...pt, releasesUrl: CLOSED_PORT_URL }, CHECK)),
+    /Não foi possível verificar atualizações: você parece estar sem conexão\./,
+  );
+  server.serve(RELEASES_PATH, { status: 403 });
+  assert.match(await collect(updateCommand(pt, CHECK)), /o GitHub pediu para esperar\. Tente de novo mais tarde\./);
+});
+
+test('rpg-42a.53 the startup update notice reads in Brazilian Portuguese', async (t) => {
+  const { context } = await setup(t);
+  const first = await startupUpdate({ ...context, locale: 'pt-BR' }, { check: true });
+  assert.deepEqual(first.messages, [
+    'A versão 1.3.0 está disponível. Rode rpg update --check para ler as notas da versão.',
+  ]);
+});

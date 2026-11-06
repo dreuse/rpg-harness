@@ -1,3 +1,4 @@
+import { type ContentKind, contentText } from '../../../packages/client-protocol/src/content-names.ts';
 import {
   type CampaignPlan,
   failure,
@@ -56,6 +57,7 @@ import { NARRATIVE_CREATION } from '../../../packages/rules/src/narrative.ts';
 import { rulesUsageOf } from '../../../packages/rules/src/rulepack.ts';
 import { describedBuild } from './character-creation.ts';
 import { BUILT_IN_PACKS } from './import-gateway.ts';
+import { DEFAULT_LOCALE, errorText, ListParam, LocalizedError, say } from './messages.ts';
 
 export const CREATION_RULES = [D20_LITE_CREATION, DICE_POOL_LITE_CREATION, NARRATIVE_CREATION];
 const GENRE_PACKS: readonly {
@@ -80,7 +82,11 @@ const REGISTRY: Registry = {
   })),
 };
 const NONE = 'none';
-const IMPORT_HINT = 'Run rpg import <file> to add its rule files, or name an installed ruleset.';
+const DICE_KEYS: Record<CapabilityMode, string> = {
+  rulepack: 'config.dice.rulepack',
+  on: 'config.dice.on',
+  off: 'config.dice.off',
+};
 const CHOSEN: Provenance = 'explicit';
 const DEFAULT: Provenance = 'default';
 const DICE_LABELS: Record<CapabilityMode, string> = { rulepack: 'as the ruleset decides', on: 'on', off: 'off' };
@@ -98,21 +104,19 @@ const LIGHT_RULES = 'Light rules. The GM decides what happens from your story.';
 const DICELESS_SHEETLESS = 'No dice and no character sheet. The GM decides what happens from your story.';
 const DICE_FIELDS: readonly (typeof PLAN_FIELDS)[number][] = ['dice', 'diceVisualization'];
 const LIST = new Intl.ListFormat('en', { type: 'conjunction' });
-const ALTERNATIVES = new Intl.ListFormat('en', { type: 'disjunction' });
 const CONFLICT = 'conflict';
 const REQUIRES_DICE = 'requires_dice';
 const CLIENT_UNSUPPORTED = 'client_unsupported';
-const NEEDS_DICE = 'diceVisualization needs a ruleset with dice.';
 const NO_MECHANICS: CapabilityReport = { advertised: [], supported: [], unsupported: [...MECHANICAL_FIELDS] };
 
 type Choices = Readonly<Record<string, unknown>>;
 
-export class UnknownEdition extends Error {}
+export class UnknownEdition extends LocalizedError {}
 
-export class ClientUnsupported extends Error {
+export class ClientUnsupported extends LocalizedError {
   readonly client: Client;
-  constructor(message: string, client: Client) {
-    super(message);
+  constructor(lines: readonly (string | LocalizedError)[], client: Client) {
+    super('quickstart.lines', { lines });
     this.client = client;
   }
 }
@@ -128,9 +132,11 @@ const reportFor = ({ ruleset }: CampaignIntent): CapabilityReport => {
 };
 
 const conflictText = ({ code, entries: [entry] }: IntentConflict) =>
-  code === REQUIRES_DICE ? NEEDS_DICE : issueLine({ code: CONFLICT, path: entry?.field ?? '' });
+  code === REQUIRES_DICE
+    ? new LocalizedError('quickstart.needsDice')
+    : issueLine({ code: CONFLICT, path: entry?.field ?? '' });
 
-const listed = (items: readonly string[]) => (items.length === 0 ? NONE : items.join(', '));
+const listed = (items: readonly string[], kind?: ContentKind) => new ListParam(items, 'plain', kind);
 const rulesets = (candidates: readonly RulesetCandidate[]) =>
   listed(candidates.map(({ id, edition }) => `${id} ${edition}`));
 
@@ -138,15 +144,25 @@ const rulesetError = (resolution: Exclude<RulesetResolution, { status: 'resolved
   const { id, edition } = resolution.requested;
   const requested = edition === null ? id : `${id} ${edition}`;
   if (resolution.status === 'ambiguous')
-    return `Ruleset ${requested} matches more than one installed ruleset: ${rulesets(resolution.candidates)}. Name one of them.`;
-  return `Ruleset ${requested} is not installed. Installed rulesets: ${rulesets(resolution.available)}. ${IMPORT_HINT}`;
+    return new UnknownEdition('quickstart.rulesetAmbiguous', {
+      requested,
+      candidates: rulesets(resolution.candidates),
+    });
+  return new UnknownEdition('quickstart.rulesetMissing', {
+    requested,
+    available: rulesets(resolution.available),
+    hint: new LocalizedError('quickstart.importHint'),
+  });
 };
 
 const issueLine = ({ code, path }: ConfigIssue | IntentIssue) => `${path} ${code.replaceAll('_', ' ')}.`;
 
 const issueText = (intent: CampaignIntent, issue: ConfigIssue) =>
   issue.path === 'genre' && issue.code === 'not_installed'
-    ? `Genre ${intent.genre.value} is not installed. Installed genres: ${listed(REGISTRY.genres.map(({ id }) => id))}.`
+    ? new LocalizedError('quickstart.genreMissing', {
+        genre: intent.genre.value,
+        available: listed(REGISTRY.genres.map(({ id }) => id)),
+      })
     : issueLine(issue);
 
 const canonicalGenre = (intent: CampaignIntent): CampaignIntent => {
@@ -158,16 +174,16 @@ const canonicalGenre = (intent: CampaignIntent): CampaignIntent => {
 const chosenIntent = (choices: Choices, derived: CampaignIntentInput = {}): CampaignIntent => {
   const chosen = Object.entries(choices).map(([field, value]) => [field, { value, provenance: CHOSEN }]);
   const parsed = parseCampaignIntent({ ...derived, ...Object.fromEntries(chosen) });
-  if (!parsed.ok) throw new Error(parsed.issues.map(issueLine).join('\n'));
+  if (!parsed.ok) throw new LocalizedError('quickstart.lines', { lines: parsed.issues.map(issueLine) });
   return resolvedIntent(parsed.intent);
 };
 
 const intentFrom = (text: string, choices: Choices): CampaignIntent => {
   const proposed = proposeCampaignIntent(text);
-  if (!proposed.ok) throw new Error(`Campaign intent must be at most ${MAX_INTENT_TEXT_LENGTH} characters.`);
+  if (!proposed.ok) throw new LocalizedError('quickstart.intentTooLong', { max: MAX_INTENT_TEXT_LENGTH });
   const { conflicts, input } = proposed.proposal;
   if (conflicts.length > 0)
-    throw new Error(`Your intent gives conflicting choices for ${listed(conflicts.map(({ field }) => field))}.`);
+    throw new LocalizedError('quickstart.intentConflict', { fields: listed(conflicts.map(({ field }) => field)) });
   return chosenIntent(choices, input);
 };
 
@@ -175,7 +191,7 @@ const resolvedIntent = (choices: CampaignIntent): CampaignIntent => {
   const intent = canonicalGenre(choices);
   if (intent.ruleset.value === null) return intent;
   const resolution = resolveRuleset(REGISTRY, intent.ruleset.value);
-  if (resolution.status !== 'resolved') throw new UnknownEdition(rulesetError(resolution));
+  if (resolution.status !== 'resolved') throw rulesetError(resolution);
   const { id, edition } = resolution.rulepack;
   return { ...intent, ruleset: { value: { id, edition }, provenance: intent.ruleset.provenance } };
 };
@@ -195,9 +211,12 @@ const configFor = (intent: CampaignIntent): CampaignConfig => {
   ];
   const clients = CLIENTS.filter((client) => unsupported.every((field) => supports(client, field)));
   const [client] = clients;
-  if (unsupported.length === 0 || client === undefined) throw new Error(lines.join('\n'));
-  const advice = `Use the ${ALTERNATIVES.format(clients)} client for ${LIST.format(unsupported)}.`;
-  throw new ClientUnsupported([...lines, advice].join('\n'), client);
+  if (unsupported.length === 0 || client === undefined) throw new LocalizedError('quickstart.lines', { lines });
+  const advice = new LocalizedError('quickstart.useClient', {
+    clients: new ListParam(clients, 'disjunction'),
+    fields: new ListParam(unsupported, 'conjunction'),
+  });
+  throw new ClientUnsupported([...lines, advice], client);
 };
 
 export const planCampaign = (text?: string, choices: Choices = {}): CampaignConfig =>
@@ -245,12 +264,24 @@ export const styleLinesOf = ({ rulepack, genre }: CampaignConfig): string[] => [
   ),
 ];
 
-export const describeConfig = ({ rulepack, genre, values, provenance }: CampaignConfig): string =>
-  [
-    `Ruleset: ${rulepack === null ? NONE : `${rulepack.id} ${rulepack.edition}`} (${provenance.ruleset})`,
-    `Genre: ${genre === null ? NONE : `${genre.id} ${genre.version}`} (${provenance.genre})`,
-    `Dice: ${DICE_LABELS[values.dice]} (${provenance.dice})`,
+export const describeConfig = (
+  { rulepack, genre, values, provenance }: CampaignConfig,
+  locale = DEFAULT_LOCALE,
+): string => {
+  const none = say(locale, 'quickstart.none');
+  const how = (field: string) => say(locale, `provenance.${field}`);
+  return [
+    say(locale, 'config.ruleset', {
+      value: rulepack === null ? none : `${rulepack.id} ${rulepack.edition}`,
+      provenance: how(provenance.ruleset),
+    }),
+    say(locale, 'config.genre', {
+      value: genre === null ? none : `${contentText(locale, 'genre', genre.id, genre.id)} ${genre.version}`,
+      provenance: how(provenance.genre),
+    }),
+    say(locale, 'config.dice', { value: say(locale, DICE_KEYS[values.dice]), provenance: how(provenance.dice) }),
   ].join('\n');
+};
 
 const featuresOf = ({ capabilities }: (typeof BUILT_IN_PACKS)[number]) =>
   Object.entries(capabilities)
@@ -326,10 +357,16 @@ export const startingCharacter = ({ rulepack, values: { character } }: CampaignC
   const result = buildCharacter(build);
   if (result.status === 'created') return build;
   if (result.status === 'pending')
-    throw new Error(
-      `Your character needs ${LIST.format(result.questions.map(({ label, fieldId }) => label ?? fieldId))}. Add them to your description, or skip this step.`,
-    );
-  throw new Error(`Your character does not fit the rules: ${result.issues.map(({ message }) => message).join('; ')}.`);
+    throw new LocalizedError('quickstart.characterNeeds', {
+      fields: new ListParam(
+        result.questions.map(({ label, fieldId }) => label ?? fieldId),
+        'conjunction',
+        'stat',
+      ),
+    });
+  throw new LocalizedError('quickstart.characterInvalid', {
+    issues: result.issues.map(({ message }) => message).join('; '),
+  });
 };
 
 export const commandConfig = (
@@ -361,16 +398,13 @@ export const planStart = (command: PlanCampaign, client?: string): CampaignPlan 
   return { version: PROTOCOL_VERSION, options: startOptions(), entries };
 };
 
-export const failureOf = (error: unknown) =>
-  failure(
-    error instanceof UnknownEdition ? 'UnknownEdition' : 'Rejected',
-    error instanceof Error ? error.message : String(error),
-  );
+export const failureOf = (error: unknown, locale = DEFAULT_LOCALE) =>
+  failure(error instanceof UnknownEdition ? 'UnknownEdition' : 'Rejected', errorText(locale, error));
 
-export const planResult = (command: PlanCampaign, client?: string): Result<CampaignPlan> => {
+export const planResult = (command: PlanCampaign, client?: string, locale = DEFAULT_LOCALE): Result<CampaignPlan> => {
   try {
     return { ok: true, value: planStart(command, client) };
   } catch (error) {
-    return failureOf(error);
+    return failureOf(error, locale);
   }
 };

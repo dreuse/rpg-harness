@@ -88,7 +88,7 @@ export const guidedStart = async function* (
     startScreen(
       draft,
       options,
-      stepOf(draft) === 'summary' ? planResult(planCommand(draft, TUI_CLIENT), TUI_CLIENT) : undefined,
+      stepOf(draft) === 'summary' ? planResult(planCommand(draft, TUI_CLIENT), TUI_CLIENT, locale) : undefined,
       locale,
     );
   let screen = screenOf();

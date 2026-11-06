@@ -402,10 +402,10 @@ const whoRollsControl = (locale: string, chosen: WhoRolls | undefined) =>
 const gmInputs = (locale: string, values: GmSettings, placeholders: GmSettings) =>
   `${gmInput(locale, 'model', values, placeholders)}${gmInput(locale, 'summaryModel', values, placeholders)}${gmInput(locale, 'sessionBudgetTokens', values, placeholders)}`;
 
-const gmUsage = (gm: GmSnapshot | undefined) => {
+const gmUsage = (gm: GmSnapshot | undefined, locale: string) => {
   if (gm === undefined) return '';
-  const warning = budgetWarning(gm);
-  return gmUsageLines(gm)
+  const warning = budgetWarning(gm, locale);
+  return gmUsageLines(gm, locale)
     .map((line) => `<p${line === warning ? ' role="status"' : ''}>${escapeHtml(line)}</p>`)
     .join('');
 };
@@ -417,7 +417,7 @@ const gmSettings = (gm: GmSnapshot | undefined, locale: string) => {
     (choice) =>
       `<option value="${choice}">${escapeHtml(translate(locale, `gmModel.hint.${modelHintOf(choice)}`))}</option>`,
   ).join('');
-  return `<form ${GM_FORM}><fieldset><legend>${escapeHtml(translate(locale, 'gmModel.legend'))}</legend>${gmInputs(locale, campaign, defaults)}${strictnessControl(locale, campaign.rulesStrictness)}${whoRollsControl(locale, campaign.whoRolls)}<datalist id="${GM_MODELS_LIST}">${options}</datalist><p id="${GM_HELP_ID}">${escapeHtml(translate(locale, 'gmModel.help'))}</p><button type="submit">${escapeHtml(translate(locale, 'gmModel.save'))}</button></fieldset></form>${gmUsage(gm)}<form ${GM_DEFAULTS_FORM}><fieldset><legend>${escapeHtml(translate(locale, 'gmModel.defaultsLegend'))}</legend>${gmInputs(locale, defaults, {})}<button type="submit">${escapeHtml(translate(locale, 'gmModel.saveDefaults'))}</button></fieldset></form>`;
+  return `<form ${GM_FORM}><fieldset><legend>${escapeHtml(translate(locale, 'gmModel.legend'))}</legend>${gmInputs(locale, campaign, defaults)}${strictnessControl(locale, campaign.rulesStrictness)}${whoRollsControl(locale, campaign.whoRolls)}<datalist id="${GM_MODELS_LIST}">${options}</datalist><p id="${GM_HELP_ID}">${escapeHtml(translate(locale, 'gmModel.help'))}</p><button type="submit">${escapeHtml(translate(locale, 'gmModel.save'))}</button></fieldset></form>${gmUsage(gm, locale)}<form ${GM_DEFAULTS_FORM}><fieldset><legend>${escapeHtml(translate(locale, 'gmModel.defaultsLegend'))}</legend>${gmInputs(locale, defaults, {})}<button type="submit">${escapeHtml(translate(locale, 'gmModel.saveDefaults'))}</button></fieldset></form>`;
 };
 
 const SETTINGS_HEADING_ID = 'settings-heading';

@@ -55,3 +55,40 @@ test('rpg-42a.58: a chosen rules strictness shows in the settings and usage line
   assert.match(gmSettingsLines(gm.settings).join('\n'), /Rules strictness: relaxed/);
   assert.doesNotMatch(gmUsageLines({ ...gm, settings: {} }).join('\n'), /Rules strictness/);
 });
+
+test('rpg-42a.53: usage, settings and budget lines read in Brazilian Portuguese', () => {
+  const gm = {
+    settings: { model: 'haiku', sessionBudgetTokens: 1500, rulesStrictness: 'relaxed' as const },
+    session: SESSION,
+    campaign: SESSION,
+  };
+  const text = gmUsageLines(gm, 'pt-BR').join('\n');
+  assert.match(text, /Modelo do mestre: haiku \(mais barato e rápido\)\. Modelo de resumo: um padrão barato\./);
+  assert.match(text, /Rigor das regras: relaxed\./);
+  assert.match(
+    text,
+    /Esta sessão: 2 turnos do mestre, 1\.700 tokens \(1\.000 de entrada, 400 de leitura de cache, 100 de escrita de cache, 200 de saída\), US\$\s0,0123\./,
+  );
+  assert.match(
+    budgetWarning(gm, 'pt-BR') ?? '',
+    /Esta sessão usou mais do que o limite de 1\.500 tokens\. O jogo continua\./,
+  );
+  assert.match(gmSettingsLines(gm.settings, 'pt-BR').join('\n'), /Limite da sessão: 1\.500 tokens, só um aviso\./);
+  assert.match(
+    gmUsageLines(
+      { settings: {}, session: EMPTY_GM_USAGE_TOTALS, campaign: { ...SESSION, pricedTurns: 1 } },
+      'pt-BR',
+    ).join('\n'),
+    /para 1 turnos com preço|em 1 turno com preço/,
+  );
+  assert.match(gmUsageLines({ ...gm, contextTight: true }, 'pt-BR').join('\n'), /memória rica/);
+  assert.equal(
+    gmUsageLines(gm, 'pt-BR', false).some((line) => line.startsWith('Esta sessão:')),
+    false,
+  );
+});
+
+test('rpg-42a.53: the English usage lines stay as they were for the default and unknown locales', () => {
+  const gm = { settings: { model: 'haiku' }, session: SESSION, campaign: SESSION };
+  assert.deepEqual(gmUsageLines(gm, 'es'), gmUsageLines(gm));
+});

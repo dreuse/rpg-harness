@@ -187,12 +187,10 @@ const DEFAULT_OPENING: Opening = {
 };
 const PITCH_ENTITY_ID = 'campaign-pitch';
 const SETTING_KIND = 'location';
-const KEEP_NAME_HINT = 'To keep a long name as it is, add a pitch: rpg new "<name>" "<pitch>".';
 export const GENERIC_OPENING_NOTICE =
   'This opening is generic: no AI game master is available to build one from your pitch.';
 const ARCHIVE_DIR = 'archive';
 const NONE = 'none';
-const SAVED_SETTINGS = 'Saved settings:';
 const CHARACTER_PROMPT = `Describe your character, or press Enter to play as ${HERO_NAME}.`;
 const CREATE_CHARACTER_INTENT = 'create character';
 const SUMMARY_SETTLE_MS = 10_000;
@@ -1051,6 +1049,7 @@ const act = async (
   gm: GameMaster,
   rng: Rng,
   sessionId: string,
+  locale: string,
 ): Promise<Acted> => {
   const session = openSession(dataDir, name, false, gm, rng, undefined, sessionId);
   try {
@@ -1079,7 +1078,7 @@ const act = async (
     );
     await session.narrate();
     const narrated = engine.getState(campaignId).turns.find(({ id }) => id === committed.turn.id);
-    const warning = budgetWarning(gmSnapshotFor(session, session.gmDefaults(), sessionId));
+    const warning = budgetWarning(gmSnapshotFor(session, session.gmDefaults(), sessionId), locale);
     return {
       narration: narrate(actor.name, narrated ?? committed.turn),
       warning,
@@ -1285,17 +1284,17 @@ const remove = async function* (dataDir: string, name: string, lines: AsyncItera
   yield `Deleted campaign ${name}.`;
 };
 
-const exportCampaign = (dataDir: string, name: string, file: string) => {
+const exportCampaign = (dataDir: string, name: string, file: string, locale: string) => {
   const path = databasePath(dataDir, name);
   if (!existsSync(path)) throw missingCampaign(dataDir, name);
   const { rulesets } = exportArchive(path, file);
-  return `Exported campaign ${name} with ${rulesets.length} rulepack pin(s) to ${file}.`;
+  return say(locale, 'campaign.exported', { name, count: rulesets.length, file });
 };
 
-const backup = (dataDir: string, name: string) => {
+const backup = (dataDir: string, name: string, locale: string) => {
   const path = databasePath(dataDir, name);
   if (!existsSync(path)) throw missingCampaign(dataDir, name);
-  return `Backed up campaign ${name} to ${backupArchive(dataDir, name, path)}.`;
+  return say(locale, 'campaign.backedUp', { name, file: backupArchive(dataDir, name, path) });
 };
 
 export const campaignDatabases = (dataDir: string): CampaignFile[] => [
@@ -1309,23 +1308,27 @@ export const campaignDatabases = (dataDir: string): CampaignFile[] => [
   })),
 ];
 
+const ADD_CLIENT_KEY = 'campaign.addClient';
+
 const newCampaignConfig = (intent: string | undefined, client: string | undefined) => {
   try {
     return planCampaign(intent, client === undefined ? {} : { client });
   } catch (error) {
     if (!(error instanceof ClientUnsupported)) throw error;
-    throw new LocalizedError('campaign.addClient', {
-      message: error.message,
+    throw new LocalizedError(ADD_CLIENT_KEY, {
+      message: error,
       client: error.client,
     });
   }
 };
 
+const isAddClient = (error: unknown) => error instanceof LocalizedError && error.key === ADD_CLIENT_KEY;
+
 const pitchConfig = (pitch: string | undefined, derived: boolean, client: string | undefined) => {
   try {
     return newCampaignConfig(pitch, client);
   } catch (error) {
-    if (!derived || error instanceof LocalizedError || error instanceof UnknownEdition) throw error;
+    if (!derived || error instanceof UnknownEdition || isAddClient(error)) throw error;
     return newCampaignConfig(undefined, client);
   }
 };
@@ -1337,19 +1340,16 @@ const uniqueName = (dataDir: string, title: string) => {
   }
 };
 
-const restore = (dataDir: string, file: string) => {
+const restore = (dataDir: string, file: string, locale: string) => {
   mkdirSync(dataDir, { recursive: true });
   const { campaign } = restoreArchive(file, dataDir, (name) => databasePath(dataDir, name));
-  return `Restored campaign ${campaign}. Run rpg resume ${campaign} to continue.`;
+  return say(locale, 'campaign.restored', { name: campaign });
 };
 
 export type GmSettingsChanges = Partial<Record<keyof GmSettings, string>>;
 
 const UNSET = 'unset';
 const BUDGET_KEY = 'sessionBudgetTokens';
-const INVALID_GM_SETTINGS =
-  'Choose a model name without spaces or a leading dash, a session budget that is a whole number of tokens, and a rules strictness of as-written, relaxed or off.';
-const APP_DEFAULTS_TITLE = 'App defaults for every campaign:';
 
 const changedSettings = (current: GmSettings, changes: GmSettingsChanges): GmSettings => {
   const next: Record<string, unknown> = { ...current };
@@ -1359,15 +1359,20 @@ const changedSettings = (current: GmSettings, changes: GmSettingsChanges): GmSet
     else next[key] = key === BUDGET_KEY ? Number(value) : value;
   }
   const valid = toGmSettings(next);
-  if (valid === undefined) throw new Error(INVALID_GM_SETTINGS);
+  if (valid === undefined) throw new LocalizedError('settings.invalid');
   return valid;
 };
 
-const gmSettingsCommand = (dataDir: string, name: string | undefined, changes: GmSettingsChanges): string => {
+const gmSettingsCommand = (
+  dataDir: string,
+  name: string | undefined,
+  changes: GmSettingsChanges,
+  locale: string,
+): string => {
   if (name === undefined) {
     const defaults = changedSettings(readGmDefaults(dataDir), changes);
     writeGmDefaults(dataDir, defaults);
-    return [APP_DEFAULTS_TITLE, ...gmSettingsLines(defaults)].join('\n');
+    return [say(locale, 'settings.appDefaults'), ...gmSettingsLines(defaults, locale)].join('\n');
   }
   const defaults = readGmDefaults(dataDir);
   return withSession(dataDir, name, (session) => {
@@ -1385,9 +1390,7 @@ const gmSettingsCommand = (dataDir: string, name: string | undefined, changes: G
       session: EMPTY_GM_USAGE_TOTALS,
       campaign: EMPTY_GM_USAGE_TOTALS,
     };
-    return gmUsageLines(gm)
-      .filter((line) => !line.startsWith('This session'))
-      .join('\n');
+    return gmUsageLines(gm, locale, false).join('\n');
   });
 };
 
@@ -1419,15 +1422,16 @@ export const createEngineGateway = (
   list: () => list(dataDir),
   archive: (name) => archiveCampaign(dataDir, name),
   remove: (name, lines) => remove(dataDir, name, lines),
-  exportCampaign: (name, file) => exportCampaign(dataDir, name, file),
-  backup: (name) => backup(dataDir, name),
-  restore: (file) => restore(dataDir, file),
-  update: (request) =>
+  exportCampaign: (name, file, locale = DEFAULT_LOCALE) => exportCampaign(dataDir, name, file, locale),
+  backup: (name, locale = DEFAULT_LOCALE) => backup(dataDir, name, locale),
+  restore: (file, locale = DEFAULT_LOCALE) => restore(dataDir, file, locale),
+  update: (request, locale = DEFAULT_LOCALE) =>
     updateCommand(
-      defaultUpdateContext(dataDir, () => campaignDatabases(dataDir)),
+      defaultUpdateContext(dataDir, () => campaignDatabases(dataDir), locale),
       request,
     ),
   create: async function* (name, intent, ask, client, language) {
+    const shown = language ?? DEFAULT_LOCALE;
     const derived = intent === undefined && isPitch(name);
     const pitch = derived ? name : intent;
     const title = derived ? uniqueName(dataDir, titleOf(name)) : name;
@@ -1439,7 +1443,7 @@ export const createEngineGateway = (
       starterFor(gm, { name: title, pitch, config, language }),
       language,
     );
-    yield `${derived ? `Campaign: ${title}\n${KEEP_NAME_HINT}\n` : ''}${SAVED_SETTINGS}\n${describeConfig(config)}\n${scene}`;
+    yield `${derived ? `${say(shown, 'campaign.created', { title })}\n${say(shown, 'campaign.keepName')}\n` : ''}${say(shown, 'campaign.savedSettings')}\n${describeConfig(config, shown)}\n${scene}`;
     const character = await characterFor(dataDir, title, config, ask);
     if (character !== undefined) yield character;
   },
@@ -1454,7 +1458,7 @@ export const createEngineGateway = (
     if (!existsSync(path)) throw missingCampaign(dataDir, name);
     return launchClaude(process.env, dataDir, path);
   },
-  open: async function* (name, _mode, lines, onTurnError) {
+  open: async function* (name, _mode, lines, onTurnError, locale = DEFAULT_LOCALE) {
     yield readView(dataDir, name, RECAP_VIEW);
     const sessionId = randomUUID();
     let warned = false;
@@ -1462,7 +1466,7 @@ export const createEngineGateway = (
       if (line.trim() === '') continue;
       let acted: Acted;
       try {
-        acted = await act(dataDir, name, line.trim(), gm, rng, sessionId);
+        acted = await act(dataDir, name, line.trim(), gm, rng, sessionId, locale);
       } catch (error) {
         onTurnError(error);
         continue;
@@ -1472,7 +1476,7 @@ export const createEngineGateway = (
       warned ||= acted.warning !== undefined;
     }
   },
-  settings: (name, changes) => gmSettingsCommand(dataDir, name, changes),
+  settings: (name, changes, locale = DEFAULT_LOCALE) => gmSettingsCommand(dataDir, name, changes, locale),
   sound: async function* (request: SoundRequest, locale?: string) {
     yield* (await import('./sound-command.ts')).soundCommand(dataDir, request, locale === undefined ? {} : { locale });
   },

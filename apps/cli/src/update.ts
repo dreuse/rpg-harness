@@ -31,6 +31,7 @@ import {
   updateState,
 } from '../../../packages/updater/src/schedule.ts';
 import { backupArchive, replaceFromArchive } from './campaign-archive.ts';
+import { DEFAULT_LOCALE, say } from './messages.ts';
 
 const INSTALL_DIR = resolve(import.meta.dirname, '..', '..', '..');
 
@@ -42,7 +43,6 @@ const SESSION_PREFIX = 'session-';
 const SESSION_SUFFIX = '.lock';
 const ALIVE_SIGNAL = 0;
 const NO_SUCH_PROCESS = 'ESRCH';
-const SOURCE_CHECKOUT = 'This copy runs from source. Update it with git.';
 
 const cliVersion = (): string => JSON.parse(readFileSync(PACKAGE_FILE, TEXT)).version;
 
@@ -60,12 +60,17 @@ export type UpdateContext = {
   readonly now: () => number;
   readonly campaigns: () => readonly CampaignFile[];
   readonly migrate: (database: string) => void;
+  readonly locale?: string;
 };
 export type StartupResult = { readonly restart: boolean; readonly messages: readonly string[] };
 
 const migrateDatabase = (database: string) => openDatabase(database).close();
 
-export const defaultUpdateContext = (dataDir: string, campaigns: () => readonly CampaignFile[]): UpdateContext => ({
+export const defaultUpdateContext = (
+  dataDir: string,
+  campaigns: () => readonly CampaignFile[],
+  locale = DEFAULT_LOCALE,
+): UpdateContext => ({
   dataDir,
   installDir: INSTALL_DIR,
   version: cliVersion(),
@@ -75,6 +80,7 @@ export const defaultUpdateContext = (dataDir: string, campaigns: () => readonly 
   now: Date.now,
   campaigns,
   migrate: migrateDatabase,
+  locale,
 });
 
 const stateFile = ({ dataDir }: UpdateContext) => join(dataDir, UPDATE_STATE_FILE);
@@ -120,27 +126,31 @@ const check = (context: UpdateContext, signal?: AbortSignal) =>
     ...(signal && { signal }),
   });
 
-const checkText = (result: CheckResult) => {
+const localeOf = ({ locale = DEFAULT_LOCALE }: UpdateContext) => locale;
+
+const checkText = (result: CheckResult, locale: string) => {
   if (result.status === 'available') {
     const { release, current } = result;
-    return [`Version ${release.version} is available. You have ${current}.`, release.notes].filter(Boolean).join('\n');
+    return [say(locale, 'update.available', { version: release.version, current }), release.notes]
+      .filter(Boolean)
+      .join('\n');
   }
-  if (result.status === 'current') return `rpg ${result.version} is up to date.`;
-  if (result.status === 'offline') return 'Could not check for updates: you seem to be offline.';
-  if (result.status === 'rate-limited') return 'Could not check for updates: GitHub asked to wait. Try again later.';
-  return 'Could not check for updates right now.';
+  if (result.status === 'current') return say(locale, 'update.current', { version: result.version });
+  if (result.status === 'offline') return say(locale, 'update.checkOffline');
+  if (result.status === 'rate-limited') return say(locale, 'update.checkRateLimited');
+  return say(locale, 'update.checkFailed');
 };
 
-const downloadText = (result: Exclude<DownloadResult, { status: 'verified' }>) => {
-  if (result.status === 'rejected') return `Update rejected: ${result.reason}. The download was deleted.`;
-  if (result.status === 'offline') return 'Could not download the update: you seem to be offline.';
-  return 'Could not download the update: GitHub asked to wait. Try again later.';
+const downloadText = (result: Exclude<DownloadResult, { status: 'verified' }>, locale: string) => {
+  if (result.status === 'rejected') return say(locale, 'update.rejected', { reason: result.reason });
+  if (result.status === 'offline') return say(locale, 'update.downloadOffline');
+  return say(locale, 'update.downloadRateLimited');
 };
 
-const settingsText = ({ autoCheck, channel }: UpdateState) =>
+const settingsText = ({ autoCheck, channel }: UpdateState, locale: string) =>
   [
-    autoCheck ? 'Automatic update checks are on.' : 'Automatic update checks are off.',
-    channel === PRE_RELEASE_CHANNEL ? 'Pre-release versions are included.' : 'Only stable versions are offered.',
+    say(locale, autoCheck ? 'update.autoOn' : 'update.autoOff'),
+    say(locale, channel === PRE_RELEASE_CHANNEL ? 'update.preRelease' : 'update.stableOnly'),
   ].join('\n');
 
 const saveSettings = (context: UpdateContext, { autoCheck, preRelease }: UpdateRequest) =>
@@ -156,15 +166,15 @@ const withoutApplied = ({ applied: _, ...state }: UpdateState): UpdateState => s
 export const updateCommand = async function* (context: UpdateContext, request: UpdateRequest): AsyncGenerator<string> {
   if (request.autoCheck !== undefined || request.preRelease !== undefined) {
     saveSettings(context, request);
-    yield settingsText(readState(stateFile(context)));
+    yield settingsText(readState(stateFile(context)), localeOf(context));
     if (!request.check) return;
   }
   const result = await check(context);
   updateState(stateFile(context), (state) => ({ ...state, lastCheckAt: context.now() }));
-  yield checkText(result);
+  yield checkText(result, localeOf(context));
   if (result.status !== 'available' || request.check) return;
   if (isSourceCheckout(context)) {
-    yield SOURCE_CHECKOUT;
+    yield say(localeOf(context), 'update.sourceCheckout');
     return;
   }
   const { version } = result.release;
@@ -176,7 +186,7 @@ export const updateCommand = async function* (context: UpdateContext, request: U
     dir: join(context.dataDir, UPDATES_DIR),
   });
   if (download.status !== 'verified') {
-    yield downloadText(download);
+    yield downloadText(download, localeOf(context));
     return;
   }
   try {
@@ -185,13 +195,13 @@ export const updateCommand = async function* (context: UpdateContext, request: U
     rmSync(download.file, { force: true });
   }
   updateState(stateFile(context), (state) => ({ ...state, staged: { version, installDir: context.installDir } }));
-  yield `Version ${version} is ready. It installs the next time you start rpg.`;
+  yield say(localeOf(context), 'update.ready', { version });
 };
 
-const finishText = (result: FinishResult) =>
+const finishText = (result: FinishResult, locale: string) =>
   result.status === 'updated'
-    ? `Updated to version ${result.version}.`
-    : `The update could not migrate your campaigns: ${result.reason}. Restored version ${result.version} and your campaign backups.`;
+    ? say(locale, 'update.done', { version: result.version })
+    : say(locale, 'update.migrateFailed', { reason: result.reason, version: result.version });
 
 const finish = (context: UpdateContext, applied: Applied): StartupResult => {
   try {
@@ -203,15 +213,15 @@ const finish = (context: UpdateContext, applied: Applied): StartupResult => {
       },
       restore: ({ archive, database }) => replaceFromArchive(archive, database),
     });
-    return { restart: result.status === 'rolled-back', messages: [finishText(result)] };
+    return { restart: result.status === 'rolled-back', messages: [finishText(result, localeOf(context))] };
   } catch (error) {
     const archives = applied.backups.map(({ archive }) => archive);
     return {
       restart: false,
       messages: [
         [
-          `The update to version ${applied.to} failed and could not restore everything: ${reasonOf(error)}.`,
-          'Your campaign backups:',
+          say(localeOf(context), 'update.rollbackFailed', { version: applied.to, reason: reasonOf(error) }),
+          say(localeOf(context), 'update.backups'),
           ...archives,
         ].join('\n'),
       ],
@@ -226,7 +236,7 @@ export const backupCampaigns = (dataDir: string, campaigns: readonly CampaignFil
 
 const install = (context: UpdateContext, version: string): StartupResult => {
   if (otherSessionRunning(context.dataDir))
-    return { restart: false, messages: [`Version ${version} installs when no other rpg session is running.`] };
+    return { restart: false, messages: [say(localeOf(context), 'update.waitForOthers', { version })] };
   const file = stateFile(context);
   try {
     const backups = backupCampaigns(context.dataDir, context.campaigns());
@@ -238,10 +248,16 @@ const install = (context: UpdateContext, version: string): StartupResult => {
     updateState(file, withoutApplied);
     return {
       restart: false,
-      messages: [`Could not install version ${version}: ${reasonOf(error)}. Keeping version ${context.version}.`],
+      messages: [
+        say(localeOf(context), 'update.installFailed', {
+          version,
+          reason: reasonOf(error),
+          current: context.version,
+        }),
+      ],
     };
   }
-  return { restart: true, messages: [`Installing version ${version}. Your campaigns are backed up.`] };
+  return { restart: true, messages: [say(localeOf(context), 'update.installing', { version })] };
 };
 
 const discardStaged = (context: UpdateContext) => {
@@ -267,12 +283,12 @@ const runStartup = async (context: UpdateContext, options: { readonly check: boo
   if (result?.status !== 'available') return { restart: false, messages: [] };
   return {
     restart: false,
-    messages: [`Version ${result.release.version} is available. Run rpg update --check to read the release notes.`],
+    messages: [say(localeOf(context), 'update.startupAvailable', { version: result.release.version })],
   };
 };
 
 export const startupUpdate = (context: UpdateContext, options: { readonly check: boolean }): Promise<StartupResult> =>
   runStartup(context, options).catch((error: unknown) => ({
     restart: false,
-    messages: [`Skipped the update step: ${reasonOf(error)}`],
+    messages: [say(localeOf(context), 'update.skipped', { reason: reasonOf(error) })],
   }));

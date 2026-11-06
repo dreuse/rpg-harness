@@ -8,6 +8,7 @@ import {
   usesSheet,
 } from '../../domain/src/rules-usage.ts';
 import { isLocale } from '../../domain/src/voice.ts';
+import { contentText } from './content-names.ts';
 import { type Catalog, createTranslator, DEFAULT_LOCALE, safeLocale } from './locale.ts';
 import {
   type CampaignPlan,
@@ -104,6 +105,10 @@ export const START_CATALOG: Catalog = {
     'field.genre': 'Genre',
     'field.character': 'Character',
     'field.dice': 'Dice',
+    'value.none': 'none',
+    'value.on': 'on',
+    'value.off': 'off',
+    'value.rulepack': 'as the ruleset decides',
     'group.story': 'Your story',
     'group.extras': 'Extras',
     'character.title': 'Pick your character',
@@ -186,6 +191,10 @@ export const START_CATALOG: Catalog = {
     'field.genre': 'Gênero',
     'field.character': 'Personagem',
     'field.dice': 'Dados',
+    'value.none': 'nenhum',
+    'value.on': 'ligado',
+    'value.off': 'desligado',
+    'value.rulepack': 'como as regras decidem',
     'group.story': 'Sua história',
     'group.extras': 'Extras',
     'character.title': 'Escolha seu personagem',
@@ -487,7 +496,9 @@ const characterPage = (draft: StartDraft, options: StartOptions, locale: string)
       ? []
       : [
           text(locale, 'character.sheet', {
-            fields: new Intl.ListFormat(safeLocale(locale), LIST_STYLE).format(ruleset.sheet),
+            fields: new Intl.ListFormat(safeLocale(locale), LIST_STYLE).format(
+              ruleset.sheet.map((label) => contentText(locale, 'stat', label, label)),
+            ),
           }),
         ];
   const value = typeof draft.choices.character === 'string' ? draft.choices.character : '';
@@ -499,14 +510,32 @@ const characterPage = (draft: StartDraft, options: StartOptions, locale: string)
       ...sheet,
     ],
     options: (hidden ? [] : (genre?.characters ?? [])).map(({ name, summary }) =>
-      choose('character', name, name, `${summary}.`, draft),
+      choose(
+        'character',
+        name,
+        contentText(locale, 'archetype', name, name),
+        `${contentText(locale, 'archetype.summary', name, summary)}.`,
+        draft,
+      ),
     ),
     entry: { label: text(locale, 'character.entry'), value },
   };
 };
 
-const shown = (locale: string, field: string, value: string, options: StartOptions) =>
-  field === 'ruleset' ? rulesetValue(locale, value, options) : value;
+const VALUE_KEYS: Readonly<Record<string, string>> = {
+  none: 'value.none',
+  on: 'value.on',
+  off: 'value.off',
+  'as the ruleset decides': 'value.rulepack',
+};
+
+const shown = (locale: string, field: string, value: string, options: StartOptions) => {
+  if (field === 'ruleset') return rulesetValue(locale, value, options);
+  if (field === 'genre' && value !== 'none') return contentText(locale, 'genre', value, value);
+  if (field === 'character') return contentText(locale, 'archetype', value, value);
+  const key = VALUE_KEYS[value];
+  return key === undefined ? value : text(locale, key);
+};
 
 const reviewOf = (
   draft: StartDraft,
@@ -584,7 +613,9 @@ const PAGES: Readonly<
   genre: (draft, { genres }, _plan, locale) => ({
     title: text(locale, 'genre.title'),
     text: [text(locale, 'genre.text'), ...packNotice(locale)],
-    options: genres.map(({ id, name, blurb }) => choose('genre', id, name, blurb, draft)),
+    options: genres.map(({ id, name, blurb }) =>
+      choose('genre', id, contentText(locale, 'genre', id, name), contentText(locale, 'genre.blurb', id, blurb), draft),
+    ),
   }),
   rules: (draft, { rulesets }, _plan, locale) => ({
     title: text(locale, 'rules.title'),
