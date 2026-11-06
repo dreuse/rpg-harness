@@ -104,9 +104,17 @@ const costOf = (name: SectionName, item: string) =>
     ? estimateTokens(`${item}${INSTRUCTION_SEPARATOR}`)
     : estimateTokens(`${encoded(item)}${ITEM_SEPARATOR}`);
 
+const LAST_CHAR = -1;
+const HIGH_SURROGATE = /[\uD800-\uDBFF]/;
+
+export const sliced = (text: string, length: number) => {
+  const head = text.slice(NO_TOKENS, length);
+  return HIGH_SURROGATE.test(head.slice(LAST_CHAR)) ? head.slice(NO_TOKENS, LAST_CHAR) : head;
+};
+
 const shortened = (name: SectionName, item: string, cap: number) => {
-  let text = item.slice(NO_TOKENS, cap * CHARS_PER_TOKEN);
-  while (text !== '' && costOf(name, text) > cap) text = text.slice(NO_TOKENS, Math.floor(text.length * CAP_SHRINK));
+  let text = sliced(item, cap * CHARS_PER_TOKEN);
+  while (text !== '' && costOf(name, text) > cap) text = sliced(text, Math.floor(text.length * CAP_SHRINK));
   return text;
 };
 

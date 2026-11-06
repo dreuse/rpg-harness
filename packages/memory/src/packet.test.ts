@@ -205,3 +205,14 @@ test('rpg-42a.58 the style section is capped so imported text cannot crowd out t
   const [kept] = packet.sections.find(({ name }) => name === 'style')?.items ?? [];
   assert.ok(estimateTokens(kept ?? '') <= REQUIRED_SECTION_CAPS.style);
 });
+
+test('rpg-42a.65 shortening a capped item never leaves half a surrogate pair', () => {
+  const emoji = '\u{1F409}';
+  const packet = buildContextPacket(
+    { ...emptyInput(), setting: [`a${emoji.repeat(2_000)}`] },
+    CONTEXT_BUDGETS.standard,
+  );
+  const text = packet.sections.find(({ name }) => name === 'setting')?.items[0] ?? '';
+  assert.ok(text.length > 0);
+  assert.equal(text, text.toWellFormed());
+});
