@@ -76,6 +76,7 @@ export type TuiState = {
 };
 
 type Act = (input: string) => string | undefined;
+type AsyncAct = (input: string) => string | undefined | Promise<string | undefined>;
 type Immediate = (input: string) => boolean;
 
 export type TuiAudio = {
@@ -555,7 +556,7 @@ const editField = (session: ClientSession, data: TuiData, name: string, text: st
   return accepted.ok ? undefined : accepted.error.message;
 };
 
-const talkToGm = (session: ClientSession, data: () => TuiData, held: OocProposal[], input: string) => {
+const talkToGm = async (session: ClientSession, data: () => TuiData, held: OocProposal[], input: string) => {
   const { snapshot } = data();
   const locale = localeOf(data());
   const envelope = { version: PROTOCOL_VERSION, campaignId: snapshot.campaignId } as const;
@@ -590,7 +591,7 @@ const talkToGm = (session: ClientSession, data: () => TuiData, held: OocProposal
     });
     return undone.ok ? say(locale, 'tui.oocUndone', { summary: undone.value.summary }) : undone.error.message;
   }
-  const reply = session.submitOocMessage({ ...envelope, type: 'SubmitOocMessage', actionId: randomUUID(), text });
+  const reply = await session.submitOocMessage({ ...envelope, type: 'SubmitOocMessage', actionId: randomUUID(), text });
   if (!reply.ok) return reply.error.message;
   held.splice(0, held.length, ...reply.value.proposals);
   return [
@@ -690,7 +691,7 @@ const serial = () => {
 
 const interactive = async (
   data: () => TuiData,
-  act: Act,
+  act: AsyncAct,
   immediate: Immediate,
   narrate: Narrate,
   terminal: Terminal,
@@ -748,7 +749,9 @@ const interactive = async (
       const { submitted } = state;
       if (submitted !== undefined && !immediate(submitted))
         narration.start(async () => {
-          state = { ...state, notice: act(submitted) };
+          const result = act(submitted);
+          const notice = result instanceof Promise ? await result : result;
+          state = { ...state, notice };
           let failed: string | undefined;
           try {
             await narrate();
@@ -760,7 +763,11 @@ const interactive = async (
           refresh();
         });
       else {
-        if (submitted !== undefined) state = { ...state, notice: act(submitted) };
+        if (submitted !== undefined) {
+          const result = act(submitted);
+          const notice = result instanceof Promise ? await result : result;
+          state = { ...state, notice };
+        }
         refresh();
       }
     }
@@ -769,7 +776,7 @@ const interactive = async (
 
 const linear = async (
   data: () => TuiData,
-  act: Act,
+  act: AsyncAct,
   immediate: Immediate,
   narrate: Narrate,
   terminal: Terminal,
@@ -801,10 +808,13 @@ const linear = async (
         const current = data();
         print(section(`${helpLabel(localeOf(current))}:`, helpLines(current), capabilities));
       } else if (pane !== undefined) show(pane);
-      else if (immediate(text)) respond(act(text));
-      else
+      else if (immediate(text)) {
+        const result = act(text);
+        respond(result instanceof Promise ? await result : result);
+      } else
         narration.start(async () => {
-          const notice = act(text);
+          const result = act(text);
+          const notice = result instanceof Promise ? await result : result;
           let failed: string | undefined;
           try {
             await narrate();
@@ -844,7 +854,6 @@ export const runTui = async (
     const slash = resolveSlash(locale, SLASH_CLIENT, typed);
     if (slash.kind === 'unknown') return slashText(locale, 'slash.unknown', { name: printable(slash.name) });
     const input = canonical(typed);
-    if (parseOocInput(input) !== undefined) return talkToGm(session, data, held, input);
     const [, language] = LANGUAGE_PATTERN.exec(input.trim()) ?? [];
     if (language !== undefined) return setLanguage(session, data(), language);
     if (ROLL_PATTERN.test(input.trim())) return roll(session, data());
@@ -859,7 +868,11 @@ export const runTui = async (
       ? slashText(locale, 'slash.unknown', { name: `${SLASH_PREFIX}${slash.id}` })
       : say(locale, usage);
   };
-  const act: Act = audio === undefined ? send : (input) => audio.input(canonical(input), send);
+  const act: AsyncAct = (input) => {
+    const typed = canonical(input);
+    if (parseOocInput(typed) !== undefined) return talkToGm(session, data, held, typed);
+    return audio === undefined ? send(input) : audio.input(typed, send);
+  };
   const immediate: Immediate = (input) => {
     const text = canonical(input.trim());
     if (parseOocInput(text) !== undefined) return true;

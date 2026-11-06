@@ -58,6 +58,7 @@ import { playTurns, SHEET_FIELD_EDITED } from '../../../packages/engine/src/char
 import { pendingCheckOffer } from '../../../packages/engine/src/check-offer.ts';
 import { campaignLanguageOf, type Engine } from '../../../packages/engine/src/engine.ts';
 import { contextDroppedOften, gmSettingsOf } from '../../../packages/engine/src/gm-settings.ts';
+import { oocStateOf } from '../../../packages/engine/src/ooc.ts';
 import { RollReportError } from '../../../packages/engine/src/roll-report.ts';
 import type { StoryCorrection } from '../../../packages/engine/src/story-memory.ts';
 import { campaignConfigOf } from '../../../packages/engine/src/turn.ts';
@@ -68,6 +69,7 @@ import { createEntityStore } from '../../../packages/persistence/src/entity-stor
 import { type EventQuery, listScopedEvents } from '../../../packages/persistence/src/event-store.ts';
 import { rangeIssue } from '../../../packages/rules/src/character-builder.ts';
 import { correctD20Roll, fakeOocReply, houseRuleOf } from './gm-ooc.ts';
+import type { OocReplier } from './gm-ooc-model.ts';
 import { DEFAULT_LOCALE, errorText, LocalizedError, say } from './messages.ts';
 import { creationRulesFor, usageFor } from './quickstart.ts';
 import {
@@ -214,12 +216,24 @@ const localizedFailure = (error: unknown, language: string | undefined) =>
     ? new Error(errorText(language ?? DEFAULT_LOCALE, error), { cause: error })
     : error;
 
+const failedWith = (error: unknown) =>
+  error instanceof StaleRevisionError
+    ? failure('StaleRevision', error.message)
+    : failure('Rejected', error instanceof Error ? error.message : String(error));
+
 const attempt = <T>(run: () => T): Result<T> => {
   try {
     return { ok: true, value: run() };
   } catch (error) {
-    if (error instanceof StaleRevisionError) return failure('StaleRevision', error.message);
-    return failure('Rejected', error instanceof Error ? error.message : String(error));
+    return failedWith(error);
+  }
+};
+
+const attemptAsync = async <T>(run: () => Promise<T>): Promise<Result<T>> => {
+  try {
+    return { ok: true, value: await run() };
+  } catch (error) {
+    return failedWith(error);
   }
 };
 
@@ -233,6 +247,7 @@ export type GmSessionContext = {
   readonly defaults?: () => GmSettings;
   readonly logWindow?: number;
   readonly story?: StoryPort;
+  readonly oocReply?: OocReplier | undefined;
 };
 
 export const gmSnapshotOf = (
@@ -297,7 +312,7 @@ export const createClientSessions = (
   readEvents: EventSource,
   readWorld: WorldSource = NO_WORLD,
   sheets?: SheetPort,
-  { sessionId, defaults = () => ({}), logWindow = EVENT_LOG_WINDOW, story }: GmSessionContext = {},
+  { sessionId, defaults = () => ({}), logWindow = EVENT_LOG_WINDOW, story, oocReply }: GmSessionContext = {},
 ) => {
   const log = createEventLog({ campaignId, branchId: MAIN_BRANCH }, logWindow);
   const scopes = new Map<EventId, Scoped & { readonly seq: number }>();
@@ -607,17 +622,19 @@ export const createClientSessions = (
           return { revision: engine.getState(campaignId).revision };
         });
       },
-      submitOocMessage: (command) => {
+      submitOocMessage: async (command) => {
         const accepted = accept<typeof command>(command, 'SubmitOocMessage');
         if (!accepted.ok) return accepted;
-        return attempt(() =>
-          deepFreeze(
-            fakeOocReply(
-              parseOocInput(accepted.value.text) ?? accepted.value.text,
-              campaignLanguageOf(engine.getState(campaignId).changes) ?? DEFAULT_LOCALE,
-            ),
-          ),
-        );
+        return attemptAsync(async () => {
+          const { changes } = engine.getState(campaignId);
+          const text = parseOocInput(accepted.value.text) ?? accepted.value.text;
+          const locale = campaignLanguageOf(changes) ?? DEFAULT_LOCALE;
+          return deepFreeze(
+            oocReply === undefined
+              ? fakeOocReply(text, locale)
+              : await oocReply(text, locale, oocStateOf(changes).notes),
+          );
+        });
       },
       confirmOocProposal: (command) => {
         const accepted = accept<typeof command>(command, 'ConfirmOocProposal');

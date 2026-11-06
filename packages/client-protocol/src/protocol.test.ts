@@ -174,7 +174,7 @@ const inMemorySession = (): ClientSession & { commit(event: DomainEvent): void }
     saveVoiceSettings: () => ({ ok: true, value: { revision } }),
     saveGmSettings: () => ({ ok: true, value: { revision } }),
     setCampaignLanguage: () => ({ ok: true, value: { revision } }),
-    submitOocMessage: () => ({ ok: true, value: { reply: '', proposals: [] } }),
+    submitOocMessage: async () => ({ ok: true, value: { reply: '', proposals: [] } }),
     confirmOocProposal: () => ({ ok: true, value: { revision, summary: '' } }),
     undoOocChange: () => ({ ok: true, value: { revision, summary: '' } }),
   };

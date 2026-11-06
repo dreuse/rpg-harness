@@ -17,4 +17,4 @@
 - The retcon hides turns in `Engine.getState` and in the GM packet and scene-summary reads (`summarizeCampaign`, the narrating engine). Readers that go straight to the event store, such as the visualization replay, still see them. Summaries written before a retcon keep the text of the turn they covered.
 - House rules are stored, validated and shown to the GM as notes. Live roll resolution does not read the overlay yet, and built-in RulePacks declare no primitives, so most rules are refused until a pack allows them.
 - Retcon does not re-narrate. The player sends a new action.
-- Only the fake GM maps text to proposals. A model-backed OOC reply is a follow-up.
+- The fake route maps text to proposals with fixed patterns. The `api` and `claude-code` routes ask the model for one JSON object `{ reply, proposals }` (`gm-ooc-model.ts`). The CLI parses it as untrusted text, validates each proposal with the engine's `validOocProposal`, drops invalid ones, and keeps at most 3. Unparseable output or a model error gives a reply-only answer. `SubmitOocMessage` is async for this reason.

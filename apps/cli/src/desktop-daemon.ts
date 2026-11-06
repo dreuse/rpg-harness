@@ -294,7 +294,7 @@ const replier = ({ name, campaign, problem }: Served, gm: GameMaster) => {
     if (command.type === 'SetCampaignLanguage')
       return send({ id, type: 'Result', result: session.setCampaignLanguage(command) });
     if (command.type === 'SubmitOocMessage')
-      return send({ id, type: 'Result', result: session.submitOocMessage(command) });
+      return send({ id, type: 'Result', result: await session.submitOocMessage(command) });
     if (command.type === 'ConfirmOocProposal')
       return send({ id, type: 'Result', result: session.confirmOocProposal(command) });
     if (command.type === 'UndoOocChange') return send({ id, type: 'Result', result: session.undoOocChange(command) });

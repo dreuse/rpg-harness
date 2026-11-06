@@ -26,6 +26,7 @@ import {
 } from './engine-gateway.ts';
 import { TABLE_NOTES_PROMPT } from './gm-context.ts';
 import { correctD20Roll, fakeOocReply } from './gm-ooc.ts';
+import type { OocReplier } from './gm-ooc-model.ts';
 
 const CAMPAIGN = 'hollow-lantern';
 const D20_PITCH = 'A fantasy story using the d20-lite rules with dice animation';
@@ -36,6 +37,7 @@ const FACE = 11;
 const ACTION = 'I try to climb the wall';
 const ROLL_FIX_TEXT = '/gm you forgot my +2 for high ground';
 const NOTE_TEXT = '(( NPCs speak modern English ))';
+const MODEL_REPLY = 'Noted, the innkeeper will drop the thees.';
 const SECRET_PHRASE = 'xyzzy-ooc-secret';
 const HOUSE_RULE = {
   kind: 'house_rule',
@@ -43,7 +45,7 @@ const HOUSE_RULE = {
   rule: { id: 'noisy-strikes', rule: { dslVersion: 1, id: 'check.noisy', effects: [] } },
 };
 
-const campaign = async (t: TestContext) => {
+const campaign = async (t: TestContext, oocReply?: OocReplier) => {
   const dataDir = mkdtempSync(join(tmpdir(), 'rpg-ooc-'));
   t.after(() => rmSync(dataDir, { recursive: true, force: true }));
   const describeHero = async () => 'Wren, a scout. Might 3, Agility 2, Wits 2, Presence 1';
@@ -57,6 +59,7 @@ const campaign = async (t: TestContext) => {
       return { narration: FAKE_GM_REPLY, segments: [{ text: FAKE_GM_REPLY }] };
     },
     summarizer: FAKE_GAME_MASTER.summarizer,
+    ...(oocReply === undefined ? {} : { oocReply }),
   };
   const open = () => {
     const opened = openClientSession(dataDir, CAMPAIGN, gm, createScriptedRng([(FACE - 1 + HALF) / D20]));
@@ -81,8 +84,8 @@ const campaign = async (t: TestContext) => {
       assert.ok(submitted.ok, submitted.ok ? '' : submitted.error.message);
       await opened.narrate();
     };
-    const talk = (text: string) => {
-      const reply = opened.session.submitOocMessage({
+    const talk = async (text: string) => {
+      const reply = await opened.session.submitOocMessage({
         ...envelope,
         type: 'SubmitOocMessage',
         actionId: randomUUID(),
@@ -160,7 +163,7 @@ describe('rpg-42a.91 out-of-character channel', () => {
     const { open, state } = await campaign(t);
     const game = open();
     await game.say(ACTION);
-    const [fix] = game.talk(ROLL_FIX_TEXT).proposals;
+    const [fix] = (await game.talk(ROLL_FIX_TEXT)).proposals;
     assert.equal(fix?.kind, 'roll_fix');
     const before = state();
     assert.equal(
@@ -190,7 +193,7 @@ describe('rpg-42a.91 out-of-character channel', () => {
   it('keeps a table note across sessions and frames it as player-authored data in the packet', async (t) => {
     const { open, packets } = await campaign(t);
     const first = open();
-    const [note] = first.talk(NOTE_TEXT).proposals;
+    const [note] = (await first.talk(NOTE_TEXT)).proposals;
     assert.equal(note?.kind, 'table_note');
     assert.ok(first.confirm(note as OocProposal).ok);
     first.close();
@@ -227,7 +230,7 @@ describe('rpg-42a.91 out-of-character channel', () => {
     const before = game.snapshot().turns.map(({ id, input, narration }) => ({ id, input, narration }));
     await game.say(ACTION);
     assert.equal(game.snapshot().turns.length, before.length + 1);
-    const [retcon] = game.talk('/gm undo that').proposals;
+    const [retcon] = (await game.talk('/gm undo that')).proposals;
     assert.equal(retcon?.kind, 'retcon_last_turn');
     assert.ok(game.confirm(retcon as OocProposal).ok);
     assert.deepEqual(
@@ -246,7 +249,7 @@ describe('rpg-42a.91 out-of-character channel', () => {
     const asked = requests();
     const turns = game.snapshot().turns.length;
     const events = state().events.length;
-    const reply = game.talk(`/gm ${SECRET_PHRASE} you forgot my +1 for luck`);
+    const reply = await game.talk(`/gm ${SECRET_PHRASE} you forgot my +1 for luck`);
     assert.ok(reply.reply.length > 0);
     assert.equal(requests(), asked);
     assert.equal(game.snapshot().turns.length, turns);
@@ -312,5 +315,40 @@ describe('rpg-42a.91 out-of-character channel', () => {
     assert.equal(state().revision, before);
     assert.ok(game.undo().ok);
     assert.deepEqual(oocStateOf(state().changes).houseRules, []);
+  });
+
+  it('answers from the model route and keeps its proposals unapplied until confirmed', async (t) => {
+    const asked: { text: string; locale: string; notes: readonly string[] }[] = [];
+    const modelProposal: OocProposal = { kind: 'table_note', summary: 'Table note: modern', note: 'modern English' };
+    const { open, state } = await campaign(t, async (text, locale, notes) => {
+      asked.push({ text, locale, notes });
+      return { reply: MODEL_REPLY, proposals: [modelProposal] };
+    });
+    const game = open();
+    const before = state().revision;
+    const reply = await game.talk('/gm the innkeeper should speak modern English');
+    assert.deepEqual(reply, { reply: MODEL_REPLY, proposals: [modelProposal] });
+    assert.deepEqual(asked, [{ text: 'the innkeeper should speak modern English', locale: 'en', notes: [] }]);
+    assert.equal(state().revision, before);
+    const applied = game.confirm(reply.proposals[0] as OocProposal);
+    assert.ok(applied.ok, applied.ok ? '' : applied.error.message);
+    await game.talk('another note');
+    assert.deepEqual(asked.at(-1)?.notes, ['modern English']);
+  });
+
+  it('turns a throwing model reply into a failure result without changing state', async (t) => {
+    const { open, state } = await campaign(t, async () => {
+      throw new Error('boom');
+    });
+    const game = open();
+    const before = state().revision;
+    const result = await game.session.submitOocMessage({
+      ...game.envelope,
+      type: 'SubmitOocMessage',
+      actionId: randomUUID(),
+      text: 'hello',
+    });
+    assert.equal(result.ok, false);
+    assert.equal(state().revision, before);
   });
 });

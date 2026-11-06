@@ -127,6 +127,7 @@ import {
 import { modelContinuityCheckOf } from './gm-continuity.ts';
 import { readGmDefaults, writeGmDefaults } from './gm-defaults.ts';
 import { requestFitting, TOO_LONG_MESSAGE } from './gm-limits.ts';
+import { modelOocReplyOf, type OocReplier } from './gm-ooc-model.ts';
 import {
   CHECK_PROPOSAL,
   commitGmRolls,
@@ -312,6 +313,7 @@ export type GameMaster = ({ readonly narrator: PacketNarrator } | { readonly req
   readonly notice?: string;
   readonly calibratesContext?: boolean;
   readonly continuityCheck?: ModelContinuityCheck;
+  readonly oocReply?: OocReplier;
 };
 
 const narratorReply = (narration: string): GmTurnReply => ({
@@ -349,6 +351,7 @@ export const apiGameMaster = (route: ApiRoute, summaryRoute: ApiRoute = route): 
     requestSummary({ ...summaryRoute, model: chosen(model) ?? summaryRoute.model }, level, texts, language),
   calibratesContext: true,
   continuityCheck: modelContinuityCheckOf((system, content) => requestText(summaryRoute, system, content)),
+  oocReply: modelOocReplyOf((system, content) => requestText(summaryRoute, system, content)),
 });
 
 export const claudeCodeGameMaster = (route: ClaudeCodeRoute): GameMaster => ({
@@ -365,6 +368,7 @@ export const claudeCodeGameMaster = (route: ClaudeCodeRoute): GameMaster => ({
   summarizer: (level, texts, language, model) =>
     requestClaudeSummary({ ...route, summaryModel: chosen(model) ?? route.summaryModel }, level, texts, language),
   continuityCheck: modelContinuityCheckOf((system, content) => requestClaudeText(route, system, content)),
+  oocReply: modelOocReplyOf((system, content) => requestClaudeText(route, system, content)),
 });
 
 const chosenGameMaster = async (env: NodeJS.ProcessEnv): Promise<{ gm: GameMaster; route: GmRoute }> => {
@@ -810,7 +814,7 @@ export const openClientSession = (
       scopedEventsOf(database),
       readWorld,
       sheetsOf(opened, readWorld),
-      { sessionId, defaults: gmDefaults, story: storyOf(opened, database) },
+      { sessionId, defaults: gmDefaults, story: storyOf(opened, database), oocReply: gm.oocReply },
     );
     const voiceLocale = () => {
       const settings = voiceSettingsOf(engine.getState(campaignId).changes);

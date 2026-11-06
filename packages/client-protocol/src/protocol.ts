@@ -393,7 +393,7 @@ export interface ClientSession {
   saveVoiceSettings(command: SaveVoiceSettings): Result<Accepted>;
   saveGmSettings(command: SaveGmSettings): Result<Accepted>;
   setCampaignLanguage(command: SetCampaignLanguage): Result<Accepted>;
-  submitOocMessage(command: SubmitOocMessage): Result<OocReply>;
+  submitOocMessage(command: SubmitOocMessage): Promise<Result<OocReply>>;
   confirmOocProposal(command: ConfirmOocProposal): Result<OocApplied>;
   undoOocChange(command: UndoOocChange): Result<OocApplied>;
 }

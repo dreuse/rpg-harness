@@ -136,6 +136,17 @@ const proposalOf = (actionId: string, input: unknown): OocProposal => {
   throw invalid('unknown proposal kind');
 };
 
+const MODEL_PROPOSAL_ACTION = 'ooc-model-proposal';
+
+export const validOocProposal = (input: unknown): OocProposal | undefined => {
+  try {
+    return proposalOf(MODEL_PROPOSAL_ACTION, input);
+  } catch (error) {
+    if (error instanceof InvalidActionError) return undefined;
+    throw error;
+  }
+};
+
 const lastPlayTurn = (state: CampaignState, actionId: string) => {
   const index = state.turns.findLastIndex(({ kind, actionId: id }) => kind !== SYSTEM_TURN && id !== OPENING_ACTION_ID);
   if (index === NOT_FOUND) throw new InvalidActionError(actionId, 'there is no turn to correct');

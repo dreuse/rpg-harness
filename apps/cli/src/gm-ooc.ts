@@ -1,6 +1,11 @@
 import type { CampaignState } from '../../../packages/domain/src/campaign.ts';
 import type { OocProposal, OocReply } from '../../../packages/domain/src/ooc.ts';
-import { MAX_TABLE_NOTE_LENGTH, oocStateOf, type RollCorrector } from '../../../packages/engine/src/ooc.ts';
+import {
+  MAX_OOC_SUMMARY_LENGTH,
+  MAX_TABLE_NOTE_LENGTH,
+  oocStateOf,
+  type RollCorrector,
+} from '../../../packages/engine/src/ooc.ts';
 import { campaignConfigOf } from '../../../packages/engine/src/turn.ts';
 import {
   applyHouseRule,
@@ -68,6 +73,26 @@ export const correctD20Roll: RollCorrector = (resolution, { value, reason }) => 
 
 const oneLine = (text: string) => text.replace(SPACES, ' ').trim();
 
+const signedValue = (value: number) => (value > 0 ? `+${value}` : String(value));
+
+const ruleBodyOf = ({ id: _id, source: _source, ...body }: Readonly<Record<string, unknown>>) =>
+  oneLine(JSON.stringify(body));
+
+export const summaryOf = (locale: string, proposal: OocProposal): string => {
+  if (proposal.kind === 'roll_fix')
+    return say(locale, 'ooc.summary.rollFix', {
+      value: signedValue(proposal.value),
+      reason: oneLine(proposal.reason),
+    });
+  if (proposal.kind === 'table_note') return say(locale, 'ooc.summary.note', { note: oneLine(proposal.note) });
+  if (proposal.kind === 'house_rule')
+    return say(locale, 'ooc.summary.houseRule', {
+      id: oneLine(String(proposal.rule.id)),
+      rule: ruleBodyOf(proposal.rule),
+    });
+  return say(locale, 'ooc.summary.retcon');
+};
+
 export const fakeOocReply = (text: string, locale: string): OocReply => {
   const line = oneLine(text);
   if (line === '') return { reply: say(locale, 'ooc.empty'), proposals: [] };
@@ -75,7 +100,7 @@ export const fakeOocReply = (text: string, locale: string): OocReply => {
   if (fix !== null) {
     const value = Number((fix[VALUE_GROUP] as string).replace(SIGN, ''));
     const reason = (fix[REASON_GROUP] ?? '').replace(TRAILING_PUNCTUATION, '').trim() || say(locale, 'ooc.fixReason');
-    const params = { value: value > 0 ? `+${value}` : String(value), reason };
+    const params = { value: signedValue(value), reason };
     const proposal: OocProposal = {
       kind: 'roll_fix',
       summary: say(locale, 'ooc.summary.rollFix', params),
@@ -89,12 +114,10 @@ export const fakeOocReply = (text: string, locale: string): OocReply => {
       reply: say(locale, 'ooc.reply.retcon'),
       proposals: [{ kind: 'retcon_last_turn', summary: say(locale, 'ooc.summary.retcon') }],
     };
-  if (line.length > MAX_TABLE_NOTE_LENGTH)
+  const summary = say(locale, 'ooc.summary.note', { note: line });
+  if (line.length > MAX_TABLE_NOTE_LENGTH || summary.length > MAX_OOC_SUMMARY_LENGTH)
     return { reply: say(locale, 'ooc.tooLong', { max: MAX_TABLE_NOTE_LENGTH }), proposals: [] };
-  return {
-    reply: say(locale, 'ooc.reply.note'),
-    proposals: [{ kind: 'table_note', summary: say(locale, 'ooc.summary.note', { note: line }), note: line }],
-  };
+  return { reply: say(locale, 'ooc.reply.note'), proposals: [{ kind: 'table_note', summary, note: line }] };
 };
 
 const PACKS: readonly RulePackManifest[] = [D20_LITE_MANIFEST, DICE_POOL_LITE_MANIFEST];

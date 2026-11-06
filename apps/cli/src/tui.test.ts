@@ -1161,7 +1161,7 @@ test('rpg-42a.91: /gm and (( )) go to the GM out of character; yes confirms, no 
       sent.push(command.input);
       return { ok: true, value: { revision: 3 } };
     },
-    submitOocMessage: ({ text }) => {
+    submitOocMessage: async ({ text }) => {
       sent.push(`ooc:${text}`);
       return { ok: true, value: { reply: 'I can keep this.', proposals: [proposal] } };
     },
