@@ -8,6 +8,9 @@ import { FANTASY_PACK } from '../../../packages/content/src/packs.ts';
 import { campaignLanguageOf } from '../../../packages/engine/src/engine.ts';
 import { gmSettingsOf } from '../../../packages/engine/src/gm-settings.ts';
 import { voiceSettingsOf } from '../../../packages/engine/src/voice-settings.ts';
+import { compileRule } from '../../../packages/rules/src/compile.ts';
+import { D20_LITE_MANIFEST } from '../../../packages/rules/src/d20-lite.ts';
+import { RULE_DSL_VERSION } from '../../../packages/rules/src/dsl.ts';
 import {
   createCampaignFrom,
   createEngineGateway,
@@ -16,6 +19,7 @@ import {
   listCampaignSummaries,
   readCampaignState,
 } from './engine-gateway.ts';
+import { installRuleset } from './installed-rulesets.ts';
 import { visualizationPreferenceOf } from './roll-visualization.ts';
 import { guidedStart } from './tui-start.ts';
 
@@ -234,4 +238,33 @@ test('rpg-42a.88 tui begin step lists each question with its default marked in E
   const out: string[] = [];
   for await (const text of guidedStart(dataDir, lines([]), createCampaignFrom, 'pt-BR')) out.push(text);
   assert.match(out[0] ?? '', /Antes de começar/);
+});
+
+const INSTALLED_OPTION = '4';
+
+test('rpg-42a.122 tui guided start lists an installed ruleset and the campaign pins the one chosen', async (t) => {
+  const dataDir = tempDataDir(t);
+  const compiled = compileRule({
+    rule: { dslVersion: RULE_DSL_VERSION, id: 'house-rule', effects: [] },
+    rulePack: D20_LITE_MANIFEST,
+    sourceRefs: ['sha256-house'],
+  });
+  assert.ok(compiled.ok);
+  const installed = installRuleset(dataDir, D20_LITE_MANIFEST, [compiled.rule]);
+  const out = await answer(dataDir, [
+    GUIDE,
+    CONTINUE,
+    FIRST,
+    INSTALLED_OPTION,
+    FIRST,
+    CONTINUE,
+    CONTINUE,
+    GUIDED_NAME,
+    START,
+  ]);
+  assert.match(out[3] ?? '', new RegExp(`${INSTALLED_OPTION}\\. ${installed.id} ${installed.edition}`));
+  assert.deepEqual(
+    [summaryOf(dataDir, GUIDED_NAME)?.ruleset?.id, summaryOf(dataDir, GUIDED_NAME)?.ruleset?.provenance],
+    [installed.id, 'explicit'],
+  );
 });

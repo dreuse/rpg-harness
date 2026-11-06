@@ -14,7 +14,7 @@ import {
 } from '../../../packages/client-protocol/src/guided-start.ts';
 import type { CampaignSummary, CreateCampaign } from '../../../packages/client-protocol/src/protocol.ts';
 import { DEFAULT_LOCALE, errorText, safeLocale, say } from './messages.ts';
-import { planResult, startOptions } from './quickstart.ts';
+import { packsIn, planResult, startOptions } from './quickstart.ts';
 
 const TUI_CLIENT = 'tui';
 const TEXT = 'utf8';
@@ -82,13 +82,14 @@ export const guidedStart = async function* (
   createCampaignFrom: (dataDir: string, command: CreateCampaign, client?: string) => Promise<CampaignSummary>,
   locale = DEFAULT_LOCALE,
 ): AsyncGenerator<string> {
-  const options = startOptions();
+  const packs = packsIn(dataDir);
+  const options = startOptions(packs);
   let draft = loadStartDraft(() => readFileSync(draftPath(dataDir), TEXT));
   const screenOf = () =>
     startScreen(
       draft,
       options,
-      stepOf(draft) === 'summary' ? planResult(planCommand(draft, TUI_CLIENT), TUI_CLIENT, locale) : undefined,
+      stepOf(draft) === 'summary' ? planResult(planCommand(draft, TUI_CLIENT), TUI_CLIENT, locale, packs) : undefined,
       locale,
     );
   let screen = screenOf();

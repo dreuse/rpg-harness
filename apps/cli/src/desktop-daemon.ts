@@ -49,7 +49,7 @@ import {
 } from './engine-gateway.ts';
 import { API_KEY_ENV, gmRouteOf, ProviderError, failureOf as providerFailureOf } from './gm-api.ts';
 import { writeGmDefaults } from './gm-defaults.ts';
-import { failureOf, planResult } from './quickstart.ts';
+import { failureOf, packsIn, planResult } from './quickstart.ts';
 import { dataDirFromEnv } from './setup-check.ts';
 
 const PLAYBACK = 'Playback';
@@ -261,7 +261,11 @@ const replier = ({ name, campaign, problem }: Served, gm: GameMaster) => {
     const command = parsed.value;
     if (command.type === 'ListCampaigns') return replyCampaigns(id);
     if (command.type === 'PlanCampaign')
-      return send({ id, type: 'Result', result: planResult(command, DESKTOP_CLIENT) });
+      return send({
+        id,
+        type: 'Result',
+        result: planResult(command, DESKTOP_CLIENT, undefined, packsIn(dataDirFromEnv())),
+      });
     if (!('campaignId' in command)) return replyChange(id, command, name, serveCampaign, gm);
     if (campaign === undefined) return send({ id, type: 'Error', message: problem });
     const { session, campaignId, narrate } = campaign;

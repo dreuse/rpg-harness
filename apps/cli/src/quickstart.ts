@@ -54,9 +54,10 @@ import { type BuildInput, buildCharacter } from '../../../packages/rules/src/cha
 import { D20_LITE_CREATION } from '../../../packages/rules/src/d20-lite.ts';
 import { DICE_POOL_LITE_CREATION } from '../../../packages/rules/src/dice-pool-lite.ts';
 import { NARRATIVE_CREATION } from '../../../packages/rules/src/narrative.ts';
-import { rulesUsageOf } from '../../../packages/rules/src/rulepack.ts';
+import { type RulePackManifest, rulesUsageOf } from '../../../packages/rules/src/rulepack.ts';
 import { describedBuild } from './character-creation.ts';
 import { BUILT_IN_PACKS } from './import-gateway.ts';
+import { installedRulesets } from './installed-rulesets.ts';
 import { DEFAULT_LOCALE, errorText, ListParam, LocalizedError, say } from './messages.ts';
 
 export const CREATION_RULES = [D20_LITE_CREATION, DICE_POOL_LITE_CREATION, NARRATIVE_CREATION];
@@ -72,15 +73,13 @@ const GENRE_ALIASES: Readonly<Record<string, readonly string[]>> = {
   [MODERN_ADVENTURE_PACK.genre.id]: ['modern', 'moderna'],
   [BLANK_WORLD_PACK.genre.id]: ['blank', 'mundo em branco'],
 };
-const REGISTRY: Registry = {
-  rulepacks: BUILT_IN_PACKS,
-  genres: GENRE_PACKS.map(({ genre }) => ({
-    id: genre.id,
-    version: genre.version,
-    name: genre.name,
-    aliases: [...(GENRE_ALIASES[genre.id] ?? [])],
-  })),
-};
+const GENRE_REGISTRY: Registry['genres'] = GENRE_PACKS.map(({ genre }) => ({
+  id: genre.id,
+  version: genre.version,
+  name: genre.name,
+  aliases: [...(GENRE_ALIASES[genre.id] ?? [])],
+}));
+const registryOf = (packs: Packs): Registry => ({ rulepacks: packs, genres: GENRE_REGISTRY });
 const NONE = 'none';
 const DICE_KEYS: Record<CapabilityMode, string> = {
   rulepack: 'config.dice.rulepack',
@@ -110,6 +109,9 @@ const CLIENT_UNSUPPORTED = 'client_unsupported';
 const NO_MECHANICS: CapabilityReport = { advertised: [], supported: [], unsupported: [...MECHANICAL_FIELDS] };
 
 type Choices = Readonly<Record<string, unknown>>;
+type Packs = readonly RulePackManifest[];
+
+export const packsIn = (dataDir: string): Packs => [...BUILT_IN_PACKS, ...installedRulesets(dataDir)];
 
 export class UnknownEdition extends LocalizedError {}
 
@@ -126,8 +128,8 @@ const supports = (client: Client, field: IntentField) =>
     ([required, capability]) => required === field && CLIENT_CAPABILITIES[client].includes(capability),
   );
 
-const reportFor = ({ ruleset }: CampaignIntent): CapabilityReport => {
-  const rules = ruleset.value === null ? null : matchRuleset(REGISTRY, ruleset.value, MECHANICAL_FIELDS);
+const reportFor = ({ ruleset }: CampaignIntent, registry: Registry): CapabilityReport => {
+  const rules = ruleset.value === null ? null : matchRuleset(registry, ruleset.value, MECHANICAL_FIELDS);
   return rules?.ok === true ? rules.capabilities : NO_MECHANICS;
 };
 
@@ -161,46 +163,46 @@ const issueText = (intent: CampaignIntent, issue: ConfigIssue) =>
   issue.path === 'genre' && issue.code === 'not_installed'
     ? new LocalizedError('quickstart.genreMissing', {
         genre: intent.genre.value,
-        available: listed(REGISTRY.genres.map(({ id }) => id)),
+        available: listed(GENRE_REGISTRY.map(({ id }) => id)),
       })
     : issueLine(issue);
 
-const canonicalGenre = (intent: CampaignIntent): CampaignIntent => {
+const canonicalGenre = (registry: Registry, intent: CampaignIntent): CampaignIntent => {
   if (intent.genre.value === null) return intent;
-  const match = matchGenre(REGISTRY, { id: intent.genre.value, version: null });
+  const match = matchGenre(registry, { id: intent.genre.value, version: null });
   return match.ok ? { ...intent, genre: { value: match.genre.id, provenance: intent.genre.provenance } } : intent;
 };
 
-const chosenIntent = (choices: Choices, derived: CampaignIntentInput = {}): CampaignIntent => {
+const chosenIntent = (registry: Registry, choices: Choices, derived: CampaignIntentInput = {}): CampaignIntent => {
   const chosen = Object.entries(choices).map(([field, value]) => [field, { value, provenance: CHOSEN }]);
   const parsed = parseCampaignIntent({ ...derived, ...Object.fromEntries(chosen) });
   if (!parsed.ok) throw new LocalizedError('quickstart.lines', { lines: parsed.issues.map(issueLine) });
-  return resolvedIntent(parsed.intent);
+  return resolvedIntent(registry, parsed.intent);
 };
 
-const intentFrom = (text: string, choices: Choices): CampaignIntent => {
+const intentFrom = (registry: Registry, text: string, choices: Choices): CampaignIntent => {
   const proposed = proposeCampaignIntent(text);
   if (!proposed.ok) throw new LocalizedError('quickstart.intentTooLong', { max: MAX_INTENT_TEXT_LENGTH });
   const { conflicts, input } = proposed.proposal;
   if (conflicts.length > 0)
     throw new LocalizedError('quickstart.intentConflict', { fields: listed(conflicts.map(({ field }) => field)) });
-  return chosenIntent(choices, input);
+  return chosenIntent(registry, choices, input);
 };
 
-const resolvedIntent = (choices: CampaignIntent): CampaignIntent => {
-  const intent = canonicalGenre(choices);
+const resolvedIntent = (registry: Registry, choices: CampaignIntent): CampaignIntent => {
+  const intent = canonicalGenre(registry, choices);
   if (intent.ruleset.value === null) return intent;
-  const resolution = resolveRuleset(REGISTRY, intent.ruleset.value);
+  const resolution = resolveRuleset(registry, intent.ruleset.value);
   if (resolution.status !== 'resolved') throw rulesetError(resolution);
   const { id, edition } = resolution.rulepack;
   return { ...intent, ruleset: { value: { id, edition }, provenance: intent.ruleset.provenance } };
 };
 
-const configFor = (intent: CampaignIntent): CampaignConfig => {
-  const result = generateCampaignConfig(intent, REGISTRY);
+const configFor = (registry: Registry, intent: CampaignIntent): CampaignConfig => {
+  const result = generateCampaignConfig(intent, registry);
   if (result.ok) return result.config;
   const conflicts = result.issues.some(({ code }) => code === CONFLICT)
-    ? detectConflicts(intent, reportFor(intent))
+    ? detectConflicts(intent, reportFor(intent, registry))
     : [];
   const unsupported = conflicts.flatMap(({ code, entries: [entry] }) =>
     code === CLIENT_UNSUPPORTED && entry !== undefined ? [entry.field] : [],
@@ -219,8 +221,13 @@ const configFor = (intent: CampaignIntent): CampaignConfig => {
   throw new ClientUnsupported([...lines, advice], client);
 };
 
-export const planCampaign = (text?: string, choices: Choices = {}): CampaignConfig =>
-  configFor(text === undefined ? chosenIntent(choices) : intentFrom(text, choices));
+export const planCampaign = (text?: string, choices: Choices = {}, packs: Packs = BUILT_IN_PACKS): CampaignConfig => {
+  const registry = registryOf(packs);
+  return configFor(
+    registry,
+    text === undefined ? chosenIntent(registry, choices) : intentFrom(registry, text, choices),
+  );
+};
 
 const MAX_TITLE_WORDS = 4;
 const MAX_TITLE_LENGTH = 40;
@@ -283,12 +290,12 @@ export const describeConfig = (
   ].join('\n');
 };
 
-const featuresOf = ({ capabilities }: (typeof BUILT_IN_PACKS)[number]) =>
+const featuresOf = ({ capabilities }: RulePackManifest) =>
   Object.entries(capabilities)
     .filter(([, mode]) => mode === true)
     .map(([feature]) => feature);
 
-const sheetOf = ({ id, edition }: (typeof BUILT_IN_PACKS)[number]) =>
+const sheetOf = ({ id, edition }: RulePackManifest) =>
   (
     CREATION_RULES.find(({ schema: { rulepack } }) => rulepack.id === id && rulepack.edition === edition)?.schema
       .fields ?? []
@@ -296,13 +303,13 @@ const sheetOf = ({ id, edition }: (typeof BUILT_IN_PACKS)[number]) =>
     .filter(({ derived }) => derived === undefined)
     .map(({ id: field, label }) => label ?? field);
 
-const blurbOf = (pack: (typeof BUILT_IN_PACKS)[number], features: readonly string[]) => {
+const blurbOf = (pack: RulePackManifest, features: readonly string[]) => {
   const { resolution, sheet } = rulesUsageOf(pack);
   if (resolution !== 'dice' && sheet === 'none') return DICELESS_SHEETLESS;
   return features.length === 0 ? LIGHT_RULES : `Rules for ${LIST.format(features)}.`;
 };
 
-const readyMadeOn = (pack: (typeof BUILT_IN_PACKS)[number]) => {
+const readyMadeOn = (pack: RulePackManifest) => {
   const rules = creationRulesFor(pack);
   return (
     rules === undefined ||
@@ -312,7 +319,7 @@ const readyMadeOn = (pack: (typeof BUILT_IN_PACKS)[number]) => {
   );
 };
 
-export const startOptions = (): StartOptions => {
+export const startOptions = (packs: Packs = BUILT_IN_PACKS): StartOptions => {
   const lightest = Math.min(...BUILT_IN_PACKS.map((pack) => featuresOf(pack).length));
   return {
     genres: GENRE_PACKS.map(({ genre }) => ({
@@ -321,13 +328,13 @@ export const startOptions = (): StartOptions => {
       blurb: genre.examples[0] ?? genre.name,
       characters: genre.archetypes.map(({ name, summary }) => ({ name, summary })),
     })),
-    rulesets: BUILT_IN_PACKS.map((pack) => {
+    rulesets: packs.map((pack) => {
       const features = featuresOf(pack);
       return {
         id: pack.id,
         edition: pack.edition,
         blurb: blurbOf(pack, features),
-        recommended: features.length === lightest,
+        recommended: BUILT_IN_PACKS.includes(pack) && features.length === lightest,
         readyMade: readyMadeOn(pack),
         sheet: sheetOf(pack),
         usage: rulesUsageOf(pack),
@@ -372,20 +379,21 @@ export const startingCharacter = ({ rulepack, values: { character } }: CampaignC
 export const commandConfig = (
   { intent, choices }: Pick<PlanCampaign, 'intent' | 'choices'>,
   client?: string,
-): CampaignConfig => planCampaign(intent, client === undefined ? choices : { ...choices, client });
+  packs: Packs = BUILT_IN_PACKS,
+): CampaignConfig => planCampaign(intent, client === undefined ? choices : { ...choices, client }, packs);
 
-export const usageFor = (rulepack: CampaignConfig['rulepack']) => {
-  const pack = BUILT_IN_PACKS.find(
+export const usageFor = (rulepack: CampaignConfig['rulepack'], packs: Packs = BUILT_IN_PACKS) => {
+  const pack = packs.find(
     ({ id, edition, revision }) =>
       id === rulepack?.id && edition === rulepack.edition && revision === rulepack.revision,
   );
   return pack === undefined ? DEFAULT_RULES_USAGE : rulesUsageOf(pack);
 };
 
-export const planStart = (command: PlanCampaign, client?: string): CampaignPlan => {
-  const config = commandConfig(command, client);
+export const planStart = (command: PlanCampaign, client?: string, packs: Packs = BUILT_IN_PACKS): CampaignPlan => {
+  const config = commandConfig(command, client, packs);
   const character = startingCharacter(config);
-  const diceless = !usesDice(usageFor(config.rulepack));
+  const diceless = !usesDice(usageFor(config.rulepack, packs));
   const entries: PlanEntry[] = PLAN_FIELDS.filter((field) => !(diceless && DICE_FIELDS.includes(field))).map((field) =>
     field === 'character'
       ? {
@@ -395,15 +403,20 @@ export const planStart = (command: PlanCampaign, client?: string): CampaignPlan 
         }
       : { field, value: planValue(config, field), provenance: config.provenance[field] },
   );
-  return { version: PROTOCOL_VERSION, options: startOptions(), entries };
+  return { version: PROTOCOL_VERSION, options: startOptions(packs), entries };
 };
 
 export const failureOf = (error: unknown, locale = DEFAULT_LOCALE) =>
   failure(error instanceof UnknownEdition ? 'UnknownEdition' : 'Rejected', errorText(locale, error));
 
-export const planResult = (command: PlanCampaign, client?: string, locale = DEFAULT_LOCALE): Result<CampaignPlan> => {
+export const planResult = (
+  command: PlanCampaign,
+  client?: string,
+  locale = DEFAULT_LOCALE,
+  packs: Packs = BUILT_IN_PACKS,
+): Result<CampaignPlan> => {
   try {
-    return { ok: true, value: planStart(command, client) };
+    return { ok: true, value: planStart(command, client, packs) };
   } catch (error) {
     return failureOf(error, locale);
   }

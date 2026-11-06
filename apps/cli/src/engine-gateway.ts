@@ -151,6 +151,7 @@ import {
   isPitch,
   type Opening,
   openingFor,
+  packsIn,
   planCampaign,
   startingCharacter,
   titleOf,
@@ -1352,7 +1353,7 @@ export const createCampaignFrom = async (
   gm: GameMaster = FAKE_GAME_MASTER,
 ): Promise<CampaignSummary> => {
   const { name, language, intent, play } = command;
-  const config = commandConfig(command, client);
+  const config = commandConfig(command, client, packsIn(dataDir));
   const character = startingCharacter(config);
   await createCampaign(
     dataDir,
@@ -1557,7 +1558,7 @@ export const createEngineGateway = (
   tui: (name, terminal) => playTui(dataDir, name, terminal, gm, rng, makeSpeech),
   start: (lines, locale) =>
     guidedStart(dataDir, lines, (target, command, client) => createCampaignFrom(target, command, client, gm), locale),
-  importRules: (files, lines) => importRules(process.cwd(), files, lines),
+  importRules: (files, lines) => importRules(process.cwd(), files, lines, dataDir),
   claude: (name) => {
     if (name === undefined) return launchClaude(process.env, dataDir);
     const path = databasePath(dataDir, name);

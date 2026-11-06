@@ -90,7 +90,7 @@ const converse = async (conversation: AsyncGenerator<string, ImportOutcome>) => 
 };
 
 const collectImport = async (root: string, files: readonly string[]) => {
-  for await (const _ of importRules(root, files, replies([]))) {
+  for await (const _ of importRules(root, files, replies([]), root)) {
   }
 };
 

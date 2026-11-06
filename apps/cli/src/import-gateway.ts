@@ -7,6 +7,7 @@ import { D20_LITE_MANIFEST } from '../../../packages/rules/src/d20-lite.ts';
 import { DICE_POOL_LITE_MANIFEST } from '../../../packages/rules/src/dice-pool-lite.ts';
 import { parseRuleDsl } from '../../../packages/rules/src/dsl.ts';
 import { NARRATIVE_MANIFEST } from '../../../packages/rules/src/narrative.ts';
+import { installRuleset } from './installed-rulesets.ts';
 
 export const BUILT_IN_PACKS = [D20_LITE_MANIFEST, DICE_POOL_LITE_MANIFEST, NARRATIVE_MANIFEST];
 const TEXT_FORMATS: readonly IngestFormat[] = ['text', 'markdown', 'yaml'];
@@ -60,7 +61,18 @@ const readInside = (root: string, file: string) => {
   return { fileName: basename(path), bytes: readFileSync(path) };
 };
 
-export async function* importRules(root: string, files: readonly string[], lines: AsyncIterable<string>) {
+const baseOf = ({ id, edition, revision }: { id: string; edition: string; revision: string }) => {
+  const base = BUILT_IN_PACKS.find((pack) => pack.id === id && pack.edition === edition && pack.revision === revision);
+  if (base === undefined) throw new Error(`Rule pack ${id} is not installed.`);
+  return base;
+};
+
+export async function* importRules(
+  root: string,
+  files: readonly string[],
+  lines: AsyncIterable<string>,
+  dataDir: string,
+) {
   const conversation = runImportConversation(
     {
       files: files.map((file) => readInside(root, file)),
@@ -78,6 +90,10 @@ export async function* importRules(root: string, files: readonly string[], lines
     }
     if (step.value.status === 'incomplete') {
       throw new Error(`Import not completed: ${step.value.gaps.length} gap(s) left.`);
+    }
+    if (step.value.status === 'activated') {
+      const { id, edition } = installRuleset(dataDir, baseOf(step.value.rulePack), step.value.rules);
+      yield `Installed ruleset ${id} (edition ${edition}). It now appears in the start options.`;
     }
     return;
   }

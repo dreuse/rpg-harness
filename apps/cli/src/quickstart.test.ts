@@ -7,10 +7,14 @@ import { test } from 'node:test';
 import { INITIAL_DRAFT, nextDraft, planCommand } from '../../../packages/client-protocol/src/guided-start.ts';
 import { PROTOCOL_VERSION } from '../../../packages/client-protocol/src/protocol.ts';
 import { FANTASY_PACK, HORROR_PACK } from '../../../packages/content/src/packs.ts';
-import { readCampaignState } from './engine-gateway.ts';
+import { compileRule } from '../../../packages/rules/src/compile.ts';
+import { D20_LITE_MANIFEST } from '../../../packages/rules/src/d20-lite.ts';
+import { RULE_DSL_VERSION } from '../../../packages/rules/src/dsl.ts';
+import { createCampaignFrom, readCampaignState, summaryOf } from './engine-gateway.ts';
 import { hermeticGmEnv } from './gm-test-env.ts';
 import { BUILT_IN_PACKS } from './import-gateway.ts';
-import { planCampaign, planResult, planStart, startOptions, UnknownEdition } from './quickstart.ts';
+import { installRuleset } from './installed-rulesets.ts';
+import { packsIn, planCampaign, planResult, planStart, startOptions, UnknownEdition } from './quickstart.ts';
 
 const BIN = join(import.meta.dirname, 'bin.ts');
 const EXIT_OK = 0;
@@ -23,10 +27,10 @@ const HORROR_OPENING = `${HORROR_PACK.story.openingScenes[0]}.`;
 const FANTASY_OPENING = `${FANTASY_PACK.story.openingScenes[0]}.`;
 const UNDECODABLE_FILE = '%E0%A4%A.sqlite';
 
-const withDataDir = (run: (dataDir: string) => void) => {
+const withDataDir = async (run: (dataDir: string) => void | Promise<void>) => {
   const dataDir = mkdtempSync(join(tmpdir(), 'rpg-quickstart-'));
   try {
-    run(dataDir);
+    await run(dataDir);
   } finally {
     rmSync(dataDir, { recursive: true, force: true });
   }
@@ -293,3 +297,53 @@ test('rpg-42a.38 the plan of a diceless ruleset has no dice entries', () => {
   assert.deepEqual(fields(NARRATIVE_RULES), ['ruleset', 'genre', 'character', 'voiceOutput', 'simulation']);
   assert.ok(fields(D20_RULES).includes('dice'));
 });
+
+const installedHouseRules = (dataDir: string) => {
+  const compiled = compileRule({
+    rule: { dslVersion: RULE_DSL_VERSION, id: 'house-rule', effects: [] },
+    rulePack: D20_LITE_MANIFEST,
+    sourceRefs: ['sha256-house'],
+  });
+  assert.ok(compiled.ok);
+  return installRuleset(dataDir, D20_LITE_MANIFEST, [compiled.rule]);
+};
+
+test('rpg-42a.122 start options list installed rulesets next to the built-in ones without recommending them', () =>
+  withDataDir((dataDir) => {
+    const installed = installedHouseRules(dataDir);
+    const { rulesets } = startOptions(packsIn(dataDir));
+    assert.deepEqual(
+      rulesets.map(({ id }) => id),
+      [...BUILT_IN_PACKS.map(({ id }) => id), installed.id],
+    );
+    const entry = rulesets.find(({ id }) => id === installed.id);
+    assert.deepEqual(entry?.usage, { resolution: 'dice', sheet: 'full' });
+    assert.equal(entry?.recommended, false);
+    assert.deepEqual(
+      startOptions().rulesets.map(({ id }) => id),
+      BUILT_IN_PACKS.map(({ id }) => id),
+    );
+  }));
+
+test('rpg-42a.122 a new campaign pins an installed ruleset and a missing one is never substituted', () =>
+  withDataDir(async (dataDir) => {
+    const installed = installedHouseRules(dataDir);
+    const choices = { ruleset: { id: installed.id, edition: installed.edition } };
+    await createCampaignFrom(dataDir, { version: PROTOCOL_VERSION, type: 'CreateCampaign', name: 'Imported', choices });
+    assert.deepEqual(summaryOf(dataDir, 'Imported').ruleset, {
+      id: installed.id,
+      edition: installed.edition,
+      revision: installed.revision,
+      provenance: 'explicit',
+    });
+    assert.throws(() => planStart({ ...PLAN, choices }), UnknownEdition);
+    assert.throws(
+      () =>
+        planStart(
+          { ...PLAN, choices: { ruleset: { id: 'd20-lite-import-000000000000', edition: 'original' } } },
+          undefined,
+          packsIn(dataDir),
+        ),
+      UnknownEdition,
+    );
+  }));
