@@ -19,6 +19,7 @@ import {
   keptFace,
   proficiencyOf,
   rollInitiative,
+  steppedSides,
   XP_PER_LEVEL,
 } from './d20-lite.ts';
 import { createSeededRng, type Rng, verifyRollClaim } from './dice.ts';
@@ -410,4 +411,30 @@ test('advantage keeps the higher of two d20 and disadvantage the lower', () => {
     );
   assert.deepEqual(outcome('highest'), ['check.success']);
   assert.deepEqual(outcome('lowest'), ['check.failure']);
+});
+
+test('a die step moves the size along the ladder and stops at both ends', () => {
+  assert.equal(steppedSides(8, 1), 10);
+  assert.equal(steppedSides(8, -2), 4);
+  assert.equal(steppedSides(12, 5), 20);
+  assert.equal(steppedSides(20, 1), 20);
+  assert.equal(steppedSides(4, -1), 4);
+  assert.equal(steppedSides(7, 1), 7);
+});
+
+test('a die step changes the size of the damage die', () => {
+  const target = hero({}, 'foe');
+  const stepped = 8;
+  const result = attack({
+    actionId: ACTION_ID,
+    attacker: hero(),
+    target,
+    attribute: 'might',
+    damageSides: DAMAGE_SIDES,
+    rng: faces([HIGH_FACE, D20], [stepped, stepped]),
+    step: 1,
+  });
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(numberIn(result.sheet, 'hp'), (numberIn(target, 'hp') as number) - stepped);
 });

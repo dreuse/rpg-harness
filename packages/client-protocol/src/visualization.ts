@@ -16,7 +16,7 @@ export type MechanicReveal =
 export type RollModifierLine = {
   readonly id: string;
   readonly reason: string;
-  readonly kind: 'flat' | 'dice' | 'keep';
+  readonly kind: 'flat' | 'dice' | 'keep' | 'step';
   readonly value?: number;
   readonly which?: 'highest' | 'lowest';
 };

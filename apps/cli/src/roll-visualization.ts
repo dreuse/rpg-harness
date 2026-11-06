@@ -77,6 +77,7 @@ import {
 import {
   type AppliedModifier,
   applicableModifiers,
+  type EffectKind,
   type KeepMode,
   type ModifierVocabulary,
   NO_VOCABULARY,
@@ -217,10 +218,11 @@ const modifiersFor = (
   ruleId: string,
   vocabulary: ModifierVocabulary,
   offered?: OfferedRoll,
+  applicable: readonly EffectKind[] = vocabulary.effects,
 ) =>
   applicableModifiers(
     mergeModifiers(offered?.modifiers ?? [], conditionModifiersOf(events, actorId, ruleId)),
-    vocabulary.effects,
+    applicable,
   );
 
 const ATTACK_RULES: readonly string[] = D20_LITE_COMBAT.rules;
@@ -235,11 +237,22 @@ type Strike = {
   readonly attribute: Attribute;
   readonly flat: number;
   readonly keep: KeepMode | undefined;
+  readonly step: number | undefined;
   readonly modifiers: readonly AppliedModifier[];
   readonly defender: Combatant;
 };
 
-const strike = ({ actionId, rng, sheet, attribute, flat, keep, modifiers, defender }: Strike): CheckResolution => {
+const strike = ({
+  actionId,
+  rng,
+  sheet,
+  attribute,
+  flat,
+  keep,
+  step,
+  modifiers,
+  defender,
+}: Strike): CheckResolution => {
   const { npcId, defense, current, max } = defender;
   const struck = attack({
     actionId,
@@ -250,6 +263,7 @@ const strike = ({ actionId, rng, sheet, attribute, flat, keep, modifiers, defend
     rng,
     edge: flat,
     ...(keep === undefined ? {} : { keep }),
+    ...(step === undefined ? {} : { step }),
   });
   if (!struck.ok) throw new RangeError(struck.error.issues.map(({ message }) => message).join(ISSUE_SEPARATOR));
   const lost = struck.changes.find(({ id }) => id === D20_LITE_COMBAT.hitPoints);
@@ -282,12 +296,20 @@ const d20Check: CheckSource = (events, actorId, input, worldProfile, ruleId, off
   const sheet = createSheet({ characterId: actorId, attributes: attributes as Record<Attribute, number> });
   const attribute = ruleId === undefined ? attributeOf(input) : D20_LITE_CHECK_RULES[ruleId];
   if (attribute === undefined) return undefined;
-  const modifiers = modifiersFor(events, actorId, ruleId ?? `check.${attribute}`, D20_LITE_VOCABULARY, offered);
-  const { flat, keep } = summarizeModifiers(modifiers);
-  const dc = D20_LITE_VOCABULARY.difficulties[offered?.difficulty ?? ''] ?? DEFAULT_CHECK_DC;
   const defender = ATTACK_RULES.includes(ruleId ?? '') ? offered?.defender : undefined;
+  const applicable = D20_LITE_VOCABULARY.effects.filter((kind) => kind !== 'step' || defender !== undefined);
+  const modifiers = modifiersFor(
+    events,
+    actorId,
+    ruleId ?? `check.${attribute}`,
+    D20_LITE_VOCABULARY,
+    offered,
+    applicable,
+  );
+  const { flat, keep, step } = summarizeModifiers(modifiers);
+  const dc = D20_LITE_VOCABULARY.difficulties[offered?.difficulty ?? ''] ?? DEFAULT_CHECK_DC;
   if (defender !== undefined)
-    return (actionId, rng) => strike({ actionId, rng, sheet, attribute, flat, keep, modifiers, defender });
+    return (actionId, rng) => strike({ actionId, rng, sheet, attribute, flat, keep, step, modifiers, defender });
   return (actionId, rng) => {
     const check = attemptCheck({
       actionId,
@@ -406,8 +428,17 @@ export const modifierPolicyOf = (
   events: readonly CampaignEvent[],
   strictness: RulesStrictness,
 ): ModifierPolicy | undefined => {
+  if (strictness === 'off') return undefined;
+  if (usesOwnRules(events)) {
+    const documents = rulesDocumentsOf(events);
+    return {
+      vocabulary: NO_VOCABULARY,
+      strictness,
+      cites: (rule) => citesOwnRulesSection(documents, rule),
+    };
+  }
   const saved = parseCampaignConfig(campaignConfigOf(events));
-  if (!saved.ok || strictness === 'off' || !rollsDice(saved.config)) return undefined;
+  if (!saved.ok || !rollsDice(saved.config)) return undefined;
   return { vocabulary: checkEntryOf(events, strictness)?.[4] ?? NO_VOCABULARY, strictness };
 };
 
@@ -582,6 +613,9 @@ const modifierLineOf = (entry: unknown): RollModifierLine[] => {
   }
   if (effect.kind === 'dice' && Number.isFinite(effect.count)) {
     return [{ id, reason, kind: 'dice', value: Number(effect.count) }];
+  }
+  if (effect.kind === 'step' && Number.isFinite(effect.steps)) {
+    return [{ id, reason, kind: 'step', value: Number(effect.steps) }];
   }
   const which = KEEP_MODES.find((known) => known === effect.which);
   return effect.kind === 'keep' && which !== undefined ? [{ id, reason, kind: 'keep', which }] : [];

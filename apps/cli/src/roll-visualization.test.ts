@@ -605,3 +605,23 @@ test('rpg-42a.89: a GM roll carries its roller label into the mechanic result', 
   assert.equal(resultsOf({ resolution, roller: 'gm' }, 'gm').length, 1);
   assert.deepEqual(emitVisualizations(resultsOf({ resolution, roller: 'gm' }, 'gm'), 'player', ENABLED), []);
 });
+
+test('rpg-42a.103: an offered die-step modifier changes the damage die of an attack', () => {
+  const stepped = 8;
+  const STEP_TEST_HP = 50;
+  const empowered = { id: 'empowered', reason: 'a blessed blade', effect: { kind: 'step', steps: 1 } } as const;
+  const offer = { ...OFFER, modifiers: [empowered] };
+  const result = offeredCheckFor(strongHero(), offer, HERO, [tam(foeSheet(STEP_TEST_HP))])?.(
+    'a',
+    drawing([HIT_FACE, D20_SIDES], [stepped, stepped]),
+  );
+  assert.deepEqual(result?.damage, { targetId: 'npc-tam', amount: MIGHT_MOD + stepped, defeated: false });
+  assert.ok(result?.modifiers?.some(({ id }) => id === 'empowered'));
+});
+
+test('rpg-42a.103: a die-step modifier on a plain check is not applied or shown', () => {
+  const empowered = { id: 'empowered', reason: 'a blessed blade', effect: { kind: 'step', steps: 1 } } as const;
+  const offer = { ...OFFER, ruleId: 'check.might', modifiers: [empowered] };
+  const result = offeredCheckFor(strongHero(), offer, HERO, [tam(foeSheet())])?.('a', drawing([HIT_FACE, D20_SIDES]));
+  assert.equal(result?.modifiers, undefined);
+});

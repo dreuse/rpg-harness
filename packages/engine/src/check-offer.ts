@@ -48,6 +48,8 @@ const withModifiers = ({ actionId, offer, requested = [], policy }: CheckOfferin
     (policy as ModifierPolicy).vocabulary,
     requested,
     (policy as ModifierPolicy).strictness,
+    undefined,
+    (policy as ModifierPolicy).cites,
   );
   requireValid(actionId, resolved.ok, resolved.ok ? '' : resolved.issues.map(({ message }) => message).join('; '));
   return { ...offer, modifiers: resolved.ok ? resolved.applied : [] };

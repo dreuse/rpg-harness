@@ -76,6 +76,7 @@ export const rollForGm = (
     modifiers,
     policy?.strictness ?? 'as-written',
     GM_ROLL_EFFECTS,
+    policy?.cites,
   );
   requireValid(actionId, resolved.ok, resolved.ok ? '' : resolved.issues.map(({ message }) => message).join('; '));
   const applied = resolved.ok ? resolved.applied : [];

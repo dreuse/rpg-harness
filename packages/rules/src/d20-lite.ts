@@ -40,6 +40,13 @@ export const DRAUGHT = 'draught';
 export const DRAUGHT_COST = 1;
 export const DRAUGHT_SIDES = 4;
 export const WEAPON_DAMAGE_SIDES = 6;
+const DIE_LADDER = [4, 6, 8, 10, 12, 20] as const;
+
+export const steppedSides = (sides: number, steps: number): number => {
+  const at = DIE_LADDER.findIndex((size) => size === sides);
+  if (at < 0) return sides;
+  return DIE_LADDER[Math.min(DIE_LADDER.length - 1, Math.max(0, at + steps))] as number;
+};
 
 const FIRST_LEVEL = 1;
 const KEEP_DICE = 2;
@@ -149,6 +156,8 @@ export const D20_LITE_VOCABULARY: ModifierVocabulary = {
     { id: 'darkness', label: 'Darkness', effect: { kind: 'flat', value: -2 } },
     { id: 'wounded', label: 'Wounded', effect: { kind: 'flat', value: -1 } },
     { id: 'exhausted', label: 'Exhausted', effect: { kind: 'flat', value: -2 } },
+    { id: 'weakened', label: 'Weakened', effect: { kind: 'step', steps: -1 } },
+    { id: 'empowered', label: 'Empowered', effect: { kind: 'step', steps: 1 } },
     { id: 'advantage', label: 'Advantage', effect: { kind: 'keep', which: 'highest' } },
     { id: 'disadvantage', label: 'Disadvantage', effect: { kind: 'keep', which: 'lowest' } },
   ],
@@ -158,7 +167,7 @@ export const D20_LITE_VOCABULARY: ModifierVocabulary = {
     { id: 'exhausted', label: 'Exhausted', modifiers: ['exhausted'], duration: { unit: 'scenes', count: 2 } },
   ],
   difficulties: { easy: 5, standard: DEFAULT_CHECK_DC, hard: 15, 'very-hard': 20 },
-  effects: ['flat', 'keep'],
+  effects: ['flat', 'keep', 'step'],
 };
 
 export const D20_LITE_CHECK_RULES: Readonly<Record<string, Attribute>> = {
@@ -315,13 +324,24 @@ export type AttackInput = {
   rng: Rng;
   edge?: number;
   keep?: KeepMode;
+  step?: number;
 };
 
-export const attack = ({ actionId, attacker, target, attribute, damageSides, rng, edge = 0, keep }: AttackInput) => {
+export const attack = ({
+  actionId,
+  attacker,
+  target,
+  attribute,
+  damageSides,
+  rng,
+  edge = 0,
+  keep,
+  step = 0,
+}: AttackInput) => {
   const modifier = numberOf(attacker, modId(attribute));
   return resolveTable({
     actionId,
-    table: attackTable(damageSides),
+    table: attackTable(steppedSides(damageSides, step)),
     sheet: target,
     rng,
     modifiers: { [ATTACK_BONUS]: modifier + proficiencyOf(attacker) + edge, [DAMAGE_BONUS]: modifier },

@@ -93,3 +93,42 @@ test('refuses an effect kind the rulepack checks cannot apply', () => {
   assert.ok(resolveModifiers(DICE_POOL_LITE_VOCABULARY, [{ id: 'help', reason: 'an ally' }], 'as-written').ok);
   assert.ok(resolveModifiers(DICE_POOL_LITE_VOCABULARY, [LABELLED], 'relaxed', ['flat']).ok);
 });
+
+test('a step effect is summed, declared by d20-lite and refused where checks cannot apply it', () => {
+  const resolved = resolveModifiers(
+    D20_LITE_VOCABULARY,
+    ['empowered', 'empowered', 'weakened'].map((id) => ({ id, reason: 'because' })),
+    'as-written',
+  );
+  assert.ok(resolved.ok);
+  assert.deepEqual(summarizeModifiers(resolved.applied), { flat: 0, dice: 0, step: 1 });
+  assert.ok(D20_LITE_VOCABULARY.effects.includes('step'));
+  const refused = resolveModifiers(D20_LITE_VOCABULARY, [{ id: 'empowered', reason: 'because' }], 'as-written', [
+    'flat',
+  ]);
+  assert.ok(!refused.ok);
+  assert.match(refused.issues[0]?.message ?? '', /step effect these checks cannot apply/);
+  const oversized: ModifierVocabulary = {
+    ...EMPTY,
+    modifiers: [{ id: 'huge', label: 'Huge', effect: { kind: 'step', steps: MAX_MODIFIER_VALUE + 1 } }],
+  };
+  assert.ok(!resolveModifiers(oversized, [{ id: 'huge', reason: 'because' }], 'as-written', ['step']).ok);
+});
+
+test('a citation check refuses a modifier whose source rule is not known and keeps the citation optional', () => {
+  const cites = (rule: string) => rule === 'Melee Attacks';
+  const request = { id: 'high-ground', reason: 'higher ground', value: 1 };
+  const run = (sourceRule?: string) =>
+    resolveModifiers(
+      EMPTY,
+      [{ ...request, ...(sourceRule === undefined ? {} : { sourceRule }) }],
+      'relaxed',
+      ['flat'],
+      cites,
+    );
+  assert.ok(run('Melee Attacks').ok);
+  assert.ok(run().ok);
+  const refused = run('Dragon Breath');
+  assert.ok(!refused.ok);
+  assert.match(refused.issues[0]?.message ?? '', /Dragon Breath/);
+});

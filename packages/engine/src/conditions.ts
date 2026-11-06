@@ -22,7 +22,11 @@ import {
 import { isRecord } from '../../rules/src/rulepack.ts';
 import { commitSystem, loadState, type PlayerAction, recorded, replayOf, requireValid, validate } from './turn.ts';
 
-export type ModifierPolicy = { readonly vocabulary: ModifierVocabulary; readonly strictness: RulesStrictness };
+export type ModifierPolicy = {
+  readonly vocabulary: ModifierVocabulary;
+  readonly strictness: RulesStrictness;
+  readonly cites?: (rule: string) => boolean;
+};
 
 export type ConditionRequest = {
   readonly conditionId: string;
@@ -61,7 +65,7 @@ const isDuration = (value: unknown): value is ConditionDuration =>
   Number(value.count) <= MAX_CONDITION_DURATION;
 
 export const applyCondition = (store: CampaignStore, input: ConditionApplying): CommittedTurn => {
-  const { actionId, actorId, condition, vocabulary, strictness } = input;
+  const { actionId, actorId, condition, vocabulary, strictness, cites } = input;
   const { conditionId, reason } = condition;
   const state = loadState(store, input.campaignId);
   const stored = replayOf(store, state, input, recorded(CONDITION_APPLIED, { conditionId, actorId }));
@@ -83,7 +87,7 @@ export const applyCondition = (store: CampaignStore, input: ConditionApplying): 
       ? (condition.modifiers ?? [])
       : declared.modifiers.map((id): ModifierRequest => ({ id, reason }));
   requireValid(actionId, requests.length > NONE, 'condition has no modifiers');
-  const resolved = resolveModifiers(vocabulary, requests, strictness);
+  const resolved = resolveModifiers(vocabulary, requests, strictness, vocabulary.effects, cites);
   requireValid(actionId, resolved.ok, resolved.ok ? '' : resolved.issues.map(({ message }) => message).join('; '));
   const asWritten = strictness === 'as-written' && declared !== undefined;
   const duration = asWritten ? declared.duration : (condition.duration ?? declared?.duration);

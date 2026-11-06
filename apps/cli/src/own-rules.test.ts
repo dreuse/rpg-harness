@@ -136,6 +136,8 @@ describe('rpg-42a.82 GM-only mode runs the rules from the player files', () => {
     const instructions = packetParts(packets[0] as ContextPacket).instructions;
     assert.ok(instructions.includes(OWN_RULES_PROMPT));
     assert.ok(instructions.includes(OWN_RULES_STRICTNESS_PROMPTS['as-written']));
+    assert.match(instructions, /Write the bonus the rules name into the expression, such as 2d6\+2/);
+    assert.doesNotMatch(instructions, /base dice only/);
     assert.doesNotMatch(instructions, /engine made no roll/);
     assert.ok(!instructions.includes(GM_ROLL_PROMPT));
     assert.match(sectionOf(packets[0] as ContextPacket, 'ruleset').join('\n'), /roll 2d6 and add your Might/);
@@ -175,6 +177,36 @@ describe('rpg-42a.82 GM-only mode runs the rules from the player files', () => {
     );
     await say(ATTACK_INPUT);
     assert.equal(rolled().length, 1);
+  });
+
+  it('checks the source rule of a relaxed modifier against the imported sections', async (t) => {
+    const withRule = (id: string, sourceRule?: string): GmProposal => ({
+      ...UNCITED_ATTACK,
+      id,
+      modifiers: [
+        { id: 'high-ground', reason: 'higher ground', value: 1, ...(sourceRule === undefined ? {} : { sourceRule }) },
+      ],
+    });
+    const { say, rolled, packets } = await ownRulesCampaign(
+      t,
+      [
+        {
+          narration: 'The goblin lunges.',
+          proposals: [withRule('invented', 'Dragon Breath'), withRule('real', SECTION), withRule('plain')],
+        },
+        { narration: 'Done.' },
+      ],
+      RULES_TEXT,
+      'relaxed',
+    );
+    await say(ATTACK_INPUT);
+    assert.equal(rolled().length, 2);
+    const relaxed = packetParts(packets[0] as ContextPacket).instructions;
+    assert.match(
+      relaxed,
+      /Write the base dice only in the expression, such as 2d6, and put any bonus or penalty in the modifiers list/,
+    );
+    assert.doesNotMatch(relaxed, /into the expression, such as 2d6\+2/);
   });
 
   it('keeps imported text that says to ignore instructions inside the data frame', async (t) => {

@@ -17,5 +17,5 @@
 - The player does not accept a roll first. In this mode the GM calling for a roll rolls it at once, as for GM rolls.
 - A player-reported roll (`whoRolls` `me`) is not wired to `gm-roll` yet. The engine rolls.
 - The section title check matches heading text of the stored files. Files without headings use their first line per paragraph.
-- Modifiers, conditions and difficulty need a RulePack vocabulary, so the GM writes the modifier into the expression.
+- Modifiers, conditions and difficulty need a RulePack vocabulary, so the GM writes the modifier into the expression. Relaxed mode is superseded by the ADR 0028 amendment (rpg-42a.103): the expression holds base dice only and modifiers go in `modifiers` with a `sourceRule`. As-written keeps the bonus in the expression.
 - A rules file the GM misreads is not detected. The citation proves the GM named a real section, not that it applied it right.
