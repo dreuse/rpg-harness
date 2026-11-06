@@ -31,6 +31,7 @@ const ATTACK_OFFER: GmProposal = {
   label: 'Attack Old Tam with your sword',
 };
 const REPORTED = 17;
+const NEW_CHECK_ATTRIBUTE = 'agility';
 
 const physicalTable = async (t: TestContext, whoRolls: string, pitch = D20_PITCH, offer = true) => {
   const dataDir = mkdtempSync(join(tmpdir(), 'rpg-roll-report-'));
@@ -84,6 +85,9 @@ const physicalTable = async (t: TestContext, whoRolls: string, pitch = D20_PITCH
 const drawsOf = (events: readonly { readonly payload: Readonly<Record<string, unknown>> }[]) =>
   (events[0]?.payload.resolution as { rolls: { draws: number[][] }[] } | undefined)?.rolls[0]?.draws;
 
+const attributeOf = (events: readonly { readonly payload: Readonly<Record<string, unknown>> }[]) =>
+  (events[0]?.payload.resolution as { attribute?: { id: string } } | undefined)?.attribute?.id;
+
 describe('rpg-42a.83 physical dice', () => {
   it('shows the dice expression on the pending offer when the player rolls', async (t) => {
     const { say, snapshot } = await physicalTable(t, 'me');
@@ -117,6 +121,32 @@ describe('rpg-42a.83 physical dice', () => {
     const { say, eventsOfType } = await physicalTable(t, 'me');
     await say(FIRST_INPUT);
     const done = await say('I rolled 17');
+    assert.ok(done.ok, done.ok ? '' : done.error.message);
+    assert.deepEqual(drawsOf(eventsOfType(CHECK_RESOLVED)), [[REPORTED]]);
+  });
+
+  it('resolves a new action with its own check from an embedded report', async (t) => {
+    const { say, eventsOfType } = await physicalTable(t, 'me');
+    await say(FIRST_INPUT);
+    const done = await say('I shoot the goblin, I rolled 14');
+    assert.ok(done.ok, done.ok ? '' : done.error.message);
+    assert.deepEqual(drawsOf(eventsOfType(CHECK_RESOLVED)), [[14]]);
+    assert.equal(attributeOf(eventsOfType(CHECK_RESOLVED)), NEW_CHECK_ATTRIBUTE);
+  });
+
+  it('does not resolve the offer from an attempt word in a new action with a report', async (t) => {
+    const { say, eventsOfType } = await physicalTable(t, 'me');
+    await say(FIRST_INPUT);
+    const done = await say('I try to sneak past the goblin, I rolled 14');
+    assert.ok(done.ok, done.ok ? '' : done.error.message);
+    assert.deepEqual(drawsOf(eventsOfType(CHECK_RESOLVED)), [[14]]);
+    assert.equal(attributeOf(eventsOfType(CHECK_RESOLVED)), NEW_CHECK_ATTRIBUTE);
+  });
+
+  it('binds a non-bare report with no check of its own to the offer', async (t) => {
+    const { say, eventsOfType } = await physicalTable(t, 'me');
+    await say(FIRST_INPUT);
+    const done = await say('ok, I rolled 17');
     assert.ok(done.ok, done.ok ? '' : done.error.message);
     assert.deepEqual(drawsOf(eventsOfType(CHECK_RESOLVED)), [[REPORTED]]);
   });

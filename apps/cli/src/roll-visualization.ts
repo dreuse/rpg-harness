@@ -486,7 +486,9 @@ export const offeredCheckFor = (
 
 const acceptsOffer = (input: string) => wordsOf(input).some((word) => ATTEMPT_WORDS.has(word));
 
-const TYPED_REPORT = /\b(?:i\s+rolled|rolled|rolei|tirei|saiu)\s+(?:a\s+|um\s+)?(\d{1,4})\b/iu;
+const REPORT_PHRASE = String.raw`(?:i\s+rolled|rolled|rolei|tirei|saiu)\s+(?:a\s+|um\s+)?(\d{1,4})`;
+const TYPED_REPORT = new RegExp(String.raw`\b${REPORT_PHRASE}\b`, 'iu');
+const BARE_REPORT = new RegExp(String.raw`^${REPORT_PHRASE}[\s.!?]*$`, 'iu');
 const FIRST_GROUP = 1;
 const NEEDS_REPORT = 'rollReport.needed';
 
@@ -517,7 +519,7 @@ export type ActionRoll = {
 
 const appCheckFor = (
   events: readonly CampaignEvent[],
-  { input, rollOfferId }: ActionRoll,
+  { input, rollOfferId, whoRolls = DEFAULT_WHO_ROLLS }: ActionRoll,
   actorId: CharacterId,
   entities: readonly CampaignEntity[],
   strictness: RulesStrictness,
@@ -530,10 +532,11 @@ const appCheckFor = (
     return offered;
   }
   const textAccepts = offer !== undefined && acceptsOffer(input) && !offerFollowsPlayerAction(events);
-  return (
-    (textAccepts ? offeredCheckFor(events, offer, actorId, entities) : undefined) ??
-    checkFor(events, input, actorId, entities, strictness)
-  );
+  const own = () => checkFor(events, input, actorId, entities, strictness);
+  const offered = () => (textAccepts ? offeredCheckFor(events, offer, actorId, entities) : undefined);
+  const embedsReport =
+    whoRolls !== DEFAULT_WHO_ROLLS && typedReportOf(input) !== undefined && !BARE_REPORT.test(input.trim());
+  return embedsReport ? (own() ?? offered()) : (offered() ?? own());
 };
 
 export const checkForAction = (
@@ -548,6 +551,7 @@ export const checkForAction = (
   const offerOpen = offer !== undefined && !offerFollowsPlayerAction(events);
   const base = appCheckFor(events, action, actorId, entities, strictness);
   const typed = whoRolls === DEFAULT_WHO_ROLLS ? undefined : typedReportOf(input);
+  const bareReport = BARE_REPORT.test(input.trim());
   const usableTyped = typed !== undefined && (offerOpen || typeof base === 'function') ? typed : undefined;
   const reported = action.reportedRoll ?? usableTyped;
   if (reported === undefined) {
@@ -556,7 +560,8 @@ export const checkForAction = (
     return base;
   }
   const offered =
-    offer !== undefined && (offerOpen || action.reportedRoll !== undefined)
+    offer !== undefined &&
+    (action.reportedRoll !== undefined || (offerOpen && (bareReport || typeof base !== 'function')))
       ? offeredCheckFor(events, offer, actorId, entities)
       : undefined;
   const check = offered ?? (typeof base === 'function' ? base : undefined);
