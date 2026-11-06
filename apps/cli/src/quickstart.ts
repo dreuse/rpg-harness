@@ -453,7 +453,7 @@ const STATIC_BUILDER_CODES: readonly BuilderIssue['code'][] = [
   'duplicate',
 ];
 
-const builderIssueText = ({ code, message }: BuilderIssue): string | LocalizedError => {
+export const builderIssueText = ({ code, message }: BuilderIssue): string | LocalizedError => {
   const bounds = BOUNDS_MESSAGE.exec(message);
   if (bounds !== null) return new LocalizedError('quickstart.builder.out_of_range', { min: bounds[1], max: bounds[2] });
   const widget = WIDGET_MESSAGE.exec(message);

@@ -148,9 +148,10 @@ export { FAKE_GM_REPLY } from './gm-api.ts';
 import { importRules } from './import-gateway.ts';
 import { type InstalledRuleset, installedRulesetIn } from './installed-rulesets.ts';
 import type { CampaignGateway } from './main.ts';
-import { DEFAULT_LOCALE, LocalizedError, say } from './messages.ts';
+import { DEFAULT_LOCALE, ListParam, LocalizedError, say } from './messages.ts';
 import { loadOwnRules } from './own-rules-files.ts';
 import {
+  builderIssueText,
   ClientUnsupported,
   commandConfig,
   creationRulesFor,
@@ -219,7 +220,6 @@ export const GENERIC_OPENING_NOTICE =
   'This opening is generic: no AI game master is available to build one from your pitch.';
 const ARCHIVE_DIR = 'archive';
 const NONE = 'none';
-const CHARACTER_PROMPT = `Describe your character, or press Enter to play as ${HERO_NAME}.`;
 const CREATE_CHARACTER_INTENT = 'create character';
 const SUMMARY_SETTLE_MS = 10_000;
 export const NO_KEY_NOTICE = `No AI game master is set up, so the built-in narrator tells the story. Install Claude Code or set ${API_KEY_ENV} to play with one.`;
@@ -1178,14 +1178,26 @@ type StartRequest = {
   readonly model?: string | undefined;
 };
 
-const unfinishedText = (result: Exclude<BuildResult, { status: 'created' }>) =>
-  `Character not created, you play as ${HERO_NAME}: ${
-    result.status === 'pending'
-      ? `no answer for ${result.questions.map(({ label, fieldId }) => label ?? fieldId).join(', ')}`
-      : result.issues.map(({ path, message }) => `${path} ${message}`).join('; ')
-  }.`;
+const unfinishedText = (result: Exclude<BuildResult, { status: 'created' }>, locale: string) =>
+  say(locale, 'character.unfinished', {
+    hero: HERO_NAME,
+    reason:
+      result.status === 'pending'
+        ? new LocalizedError('character.noAnswer', {
+            fields: new ListParam(
+              result.questions.map(({ label, fieldId }) => label ?? fieldId),
+              'plain',
+            ),
+          })
+        : new ListParam(
+            result.issues.map(
+              (issue) => new LocalizedError('character.issue', { path: issue.path, message: builderIssueText(issue) }),
+            ),
+            'semicolon',
+          ),
+  });
 
-const addCharacter = (dataDir: string, name: string, build: BuildInput): string =>
+const addCharacter = (dataDir: string, name: string, build: BuildInput, locale: string): string =>
   withSession(dataDir, name, ({ engine, store, campaignId }) => {
     const state = engine.getState(campaignId);
     const [actor] = state.characters;
@@ -1201,16 +1213,18 @@ const addCharacter = (dataDir: string, name: string, build: BuildInput): string 
       intent: CREATE_CHARACTER_INTENT,
       build,
     });
-    return `Created ${build.proposal.name}.`;
+    return say(locale, 'character.created', { name: build.proposal.name });
   });
 
-const characterFor = async (dataDir: string, name: string, config: CampaignConfig, ask: Ask) => {
+const characterFor = async (dataDir: string, name: string, config: CampaignConfig, ask: Ask, locale: string) => {
   const rules = creationRulesFor(config.rulepack);
   const description =
-    rules === undefined ? undefined : (await ask(CHARACTER_PROMPT))?.trim().slice(0, MAX_INPUT_LENGTH);
+    rules === undefined
+      ? undefined
+      : (await ask(say(locale, 'character.prompt', { hero: HERO_NAME })))?.trim().slice(0, MAX_INPUT_LENGTH);
   if (rules === undefined || !description) return undefined;
   const { build, result } = await createCharacter(rules, description, ask);
-  return result.status === 'created' ? addCharacter(dataDir, name, build) : unfinishedText(result);
+  return result.status === 'created' ? addCharacter(dataDir, name, build, locale) : unfinishedText(result, locale);
 };
 
 type Acted = {
@@ -1484,7 +1498,7 @@ export const createCampaignFrom = async (
     documents,
   );
   try {
-    if (character !== undefined) addCharacter(dataDir, name, character);
+    if (character !== undefined) addCharacter(dataDir, name, character, language ?? DEFAULT_LOCALE);
   } catch (error) {
     rmSync(databasePath(dataDir, name), { force: true });
     throw error;
@@ -1674,7 +1688,7 @@ export const createEngineGateway = (
       .map((note) => `${note}\n`)
       .join('');
     yield `${derived ? `${say(shown, 'campaign.created', { title })}\n${say(shown, 'campaign.keepName')}\n` : ''}${notes}${say(shown, 'campaign.savedSettings')}\n${describeConfig(config, shown)}\n${scene}`;
-    const character = await characterFor(dataDir, title, config, ask);
+    const character = await characterFor(dataDir, title, config, ask, shown);
     if (character !== undefined) yield character;
   },
   view: (name, view, locale = DEFAULT_LOCALE) => readView(dataDir, name, view, locale),

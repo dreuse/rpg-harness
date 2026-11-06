@@ -156,7 +156,7 @@ const messageOf = (error: unknown) => errorText(daemonLocale(), error);
 
 const narrationFailureOf = (error: unknown): GmFailure | undefined => {
   if (error instanceof ProviderError) return providerFailureOf(error);
-  process.stderr.write(`The game master could not narrate this turn: ${messageOf(error)}${NEWLINE}`);
+  process.stderr.write(`${say(daemonLocale(), 'daemon.narrateFailed', { reason: messageOf(error) })}${NEWLINE}`);
   return undefined;
 };
 
@@ -370,9 +370,7 @@ const replier = ({ name, campaign, problem }: Served, gm: GameMaster) => {
 const runDaemon = async () => {
   const found = consumerKeys(process.env);
   if (found.length > 0) {
-    process.stderr.write(
-      `The desktop engine does not take Claude Code session variables (${found.join(', ')}). Start it from the desktop app, or unset them.${NEWLINE}`,
-    );
+    process.stderr.write(`${say(daemonLocale(), 'daemon.consumerVariables', { names: found.join(', ') })}${NEWLINE}`);
     process.exit(EXIT_CONSUMER_CREDENTIALS);
   }
   const { gm, route } = await gameMasterFor(process.env);
@@ -457,7 +455,9 @@ export const startDaemon = ({
       exit: (code, signal) => {
         running = false;
         exit.resolve(code);
-        const error = new Error(`Engine ${engine.pid()} exited (${code ?? signal}).`);
+        const error = new Error(
+          say(localeOf(env, CLI_LOCALES), 'daemon.engineExited', { pid: engine.pid(), status: code ?? signal }),
+        );
         ready.reject(error);
         for (const request of pending.values()) request.reject(error);
         pending.clear();

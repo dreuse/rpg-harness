@@ -1032,6 +1032,25 @@ describe('rpg-cm63.40 engine playback events', () => {
     assert.deepEqual(spoken, [true, false]);
   });
 
+  it('rpg-42a.140 reports an engine exit in the engine language', async () => {
+    const exits = (language: string) => {
+      const daemon = startDaemon({
+        env: { ...baseEnv(), [LANGUAGE_ENV]: language },
+        maxRestarts: 0,
+        spawnEngine: (_env, on) => {
+          queueMicrotask(() => on.exit(1, null));
+          return { pid: () => 7, send: () => undefined, kill: () => undefined };
+        },
+      });
+      return daemon.ready().then(
+        () => '',
+        (error: Error) => error.message,
+      );
+    };
+    assert.equal(await exits('pt-BR'), 'O motor 7 encerrou (1).');
+    assert.equal(await exits('en'), 'Engine 7 exited (1).');
+  });
+
   it('does not report a release when the engine exits quietly', async (t) => {
     const { daemon, spoken, exit } = fakeEngine(t);
     await daemon.ready();
@@ -1204,5 +1223,13 @@ describe('desktop does not require unsupported reuse of consumer claude subscrip
     assert.match(String(run.stderr), new RegExp(CONSUMER_CREDENTIAL_PREFIX));
     assert.doesNotMatch(String(run.stderr), /does not use a Claude login/);
     assert.match(String(run.stderr), /Claude Code session variables/);
+  });
+
+  it('rpg-42a.140 explains the refused consumer variables in the engine language', () => {
+    const run = spawnSync(process.execPath, [DAEMON_ENTRY], {
+      env: { ...baseEnv(), [OAUTH_ENV]: FAKE_SECRET, [LANGUAGE_ENV]: 'pt-BR' },
+    });
+    assert.equal(run.status, EXIT_CONSUMER_CREDENTIALS);
+    assert.match(String(run.stderr), /variáveis de sessão do Claude Code/);
   });
 });

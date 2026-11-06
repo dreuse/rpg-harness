@@ -206,3 +206,36 @@ test('rpg-42a.117 the incomplete import count uses singular and plural forms', (
 test('rpg-42a.53 the new catalog keys exist in every CLI locale', () => {
   assert.deepEqual(missingKeys(CLI_CATALOG), []);
 });
+
+const D20_PITCH = 'A fantasy adventure using the D20-Lite rules';
+const PROMPT_ENGLISH = 'Describe your character, or press Enter to play as The Wanderer.';
+
+const createWith = async (t: TestContext, description: string, locale: string) => {
+  const asked: string[] = [];
+  const ask = async (prompt: string) => {
+    asked.push(prompt);
+    return description;
+  };
+  const text = await collect(createEngineGateway(dataDirFor(t)).create(CAMPAIGN, D20_PITCH, ask, undefined, locale));
+  return { asked, text };
+};
+
+test('rpg-42a.140 a created character, an unfinished one and the prompt read in Brazilian Portuguese', async (t) => {
+  const done = await createWith(t, 'A scout named Wren with might 6, agility 5, wits 7 and presence 4.', PORTUGUESE);
+  assert.match(done.text, /Wren criado\./);
+  assert.notEqual(done.asked[0], PROMPT_ENGLISH);
+  const pending = await createWith(t, 'A scout named Wren.', PORTUGUESE);
+  assert.match(pending.text, /Personagem não criado, você joga como The Wanderer: sem resposta para /);
+  const english = await createWith(t, 'A scout named Wren.', 'en');
+  assert.match(english.text, /Character not created, you play as The Wanderer: no answer for /);
+  assert.equal(english.asked[0], PROMPT_ENGLISH);
+});
+
+test('rpg-42a.140 invalid builder values in an unfinished character read in Brazilian Portuguese', async (t) => {
+  const invalid = await createWith(
+    t,
+    'A scout named Wren with might 99, agility 5, wits 7 and presence 4.',
+    PORTUGUESE,
+  );
+  assert.match(invalid.text, /Personagem não criado, você joga como The Wanderer: .*deve estar entre 0 e 10/);
+});
