@@ -42,7 +42,12 @@ import {
 } from '../../../packages/engine/src/gm-settings.ts';
 import { contextBudgetOf } from '../../../packages/engine/src/memory.ts';
 import { withoutRetconned } from '../../../packages/engine/src/ooc.ts';
-import { correctStoryFact, readStoryMemory } from '../../../packages/engine/src/story-memory.ts';
+import {
+  correctStoryFact,
+  directoryOf,
+  readStoryMemory,
+  recordContinuityConflict,
+} from '../../../packages/engine/src/story-memory.ts';
 import {
   CHECK_RESOLVED,
   CHECK_SKIPPED,
@@ -55,7 +60,13 @@ import {
 import { voiceSettingsOf } from '../../../packages/engine/src/voice-settings.ts';
 import { type CampaignConfig, parseCampaignConfig } from '../../../packages/intent/src/config.ts';
 import { PLAYER_VIEWER } from '../../../packages/memory/src/knowledge.ts';
+import { buildLedger } from '../../../packages/memory/src/ledger.ts';
 import type { ContextPacket } from '../../../packages/memory/src/packet.ts';
+import {
+  type ContinuityLogRecord,
+  enforceContinuity,
+  type ModelContinuityCheck,
+} from '../../../packages/narrative/src/continuity.ts';
 import { createCampaignStore } from '../../../packages/persistence/src/campaign-store.ts';
 import { MIGRATIONS, openDatabase } from '../../../packages/persistence/src/database.ts';
 import { createEntityStore, createFactStore } from '../../../packages/persistence/src/entity-store.ts';
@@ -90,6 +101,7 @@ import {
   ProviderError,
   requestNarration,
   requestSummary,
+  requestText,
   storedApiKey,
   streamNarration,
   summaryRouteOf,
@@ -100,6 +112,7 @@ import {
   launchClaude,
   requestClaudeNarration,
   requestClaudeSummary,
+  requestClaudeText,
 } from './gm-claude-code.ts';
 import { MalformedStreamReply, requestClaudeStream } from './gm-claude-stream.ts';
 import {
@@ -110,6 +123,7 @@ import {
   type Summarizer,
   summarizeCampaign,
 } from './gm-context.ts';
+import { modelContinuityCheckOf } from './gm-continuity.ts';
 import { readGmDefaults, writeGmDefaults } from './gm-defaults.ts';
 import { requestFitting, TOO_LONG_MESSAGE } from './gm-limits.ts';
 import {
@@ -211,7 +225,9 @@ const NO_FACTS: NarrationContext = {
 const PENDING_NARRATION = '';
 const NO_SEGMENTS: readonly GmSegment[] = [];
 const NO_REPEATS = 0;
+const NO_CONFLICTS: readonly string[] = [];
 const NO_GM_ROLLS: readonly string[] = [];
+const NO_LEDGER_ENTRIES = 0;
 
 const databasePath = (dataDir: string, name: string) =>
   join(dataDir, `${encodeURIComponent(name)}${DATABASE_EXTENSION}`);
@@ -293,6 +309,7 @@ export type GameMaster = ({ readonly narrator: PacketNarrator } | { readonly req
   readonly summarizer: ModelSummarizer;
   readonly notice?: string;
   readonly calibratesContext?: boolean;
+  readonly continuityCheck?: ModelContinuityCheck;
 };
 
 const narratorReply = (narration: string): GmTurnReply => ({
@@ -329,6 +346,7 @@ export const apiGameMaster = (route: ApiRoute, summaryRoute: ApiRoute = route): 
   summarizer: (level, texts, language, model) =>
     requestSummary({ ...summaryRoute, model: chosen(model) ?? summaryRoute.model }, level, texts, language),
   calibratesContext: true,
+  continuityCheck: modelContinuityCheckOf((system, content) => requestText(summaryRoute, system, content)),
 });
 
 export const claudeCodeGameMaster = (route: ClaudeCodeRoute): GameMaster => ({
@@ -344,6 +362,7 @@ export const claudeCodeGameMaster = (route: ClaudeCodeRoute): GameMaster => ({
   },
   summarizer: (level, texts, language, model) =>
     requestClaudeSummary({ ...route, summaryModel: chosen(model) ?? route.summaryModel }, level, texts, language),
+  continuityCheck: modelContinuityCheckOf((system, content) => requestClaudeText(route, system, content)),
 });
 
 const chosenGameMaster = async (env: NodeJS.ProcessEnv): Promise<{ gm: GameMaster; route: GmRoute }> => {
@@ -437,6 +456,7 @@ const narrateLatest = async (
   speak: SpeakTurn,
   calibrates: boolean,
   defaults: GmSettings,
+  modelCheck: ModelContinuityCheck | undefined,
   listener?: StreamedSegment,
 ): Promise<readonly GmSegment[]> => {
   const { engine, store, campaignId, database, rng } = session;
@@ -460,12 +480,16 @@ const narrateLatest = async (
   const forward = streamOf(checkPending ? undefined : voice, listener, committed.turn.id);
   const strictness = rulesStrictnessFor(state, defaults);
   const rolling = gmRollsAllowed(state.events, strictness);
+  const ledger = buildLedger(state.events);
+  const guarded = ledger.length > NO_LEDGER_ENTRIES;
   const generate = async (
     retried: readonly unknown[] | undefined,
     repeated: readonly string[],
     gmRolls: readonly string[] = NO_GM_ROLLS,
     streamed = true,
+    contradicted: readonly string[] = NO_CONFLICTS,
   ) => {
+    const live = streamed && !guarded;
     const fitted = await requestFitting({
       first: preset,
       packetOf: (chosenPreset) =>
@@ -473,11 +497,12 @@ const narrateLatest = async (
           defaults,
           retry: retried !== undefined,
           repeated,
+          contradicted,
           gmRolls,
         }),
       send: (packet) => {
-        if (streamed) voice?.restart();
-        return request(packet, streamed ? forward : undefined);
+        if (live) voice?.restart();
+        return request(packet, live ? forward : undefined);
       },
       ratio,
     }).catch((error: unknown) => {
@@ -517,6 +542,32 @@ const narrateLatest = async (
       let final = first;
       if (repeated.length > NO_REPEATS) {
         final = await generate(retried, repeated, rolled);
+      }
+      if (guarded) {
+        const logs: ContinuityLogRecord[] = [];
+        const continuity = await enforceContinuity({
+          ledger,
+          directory: directoryOf(state, createEntityStore(database)),
+          ...(modelCheck === undefined ? {} : { modelCheck }),
+          generate: async (conflicts) => {
+            if (conflicts.length === NO_CONFLICTS.length) return final.narration;
+            const facts = conflicts.filter(({ hidden }) => hidden !== true).map(({ fact }) => fact);
+            final = await generate(retried, repeated, rolled, false, facts);
+            return final.narration;
+          },
+          log: (record) => logs.push(record),
+        });
+        if (continuity.narration !== final.narration) {
+          final = { ...final, narration: continuity.narration, segments: narratorSegments(continuity.narration) };
+          reply = final;
+        }
+        for (const record of logs)
+          recordContinuityConflict(store, {
+            campaignId,
+            actionId: randomUUID(),
+            expectedRevision: loadState(store, campaignId).revision,
+            record,
+          });
       }
       segments = voiceNotice === undefined ? final.segments : [{ text: voiceNotice }, ...final.segments];
       proposals = final.proposals ?? [];
@@ -568,7 +619,7 @@ const narrateLatest = async (
       usage,
     });
   if (acceptMarkedCheck(session, committed, proposals, offeredNow, defaults))
-    return narrateLatest(session, request, sessionId, speak, calibrates, defaults, listener);
+    return narrateLatest(session, request, sessionId, speak, calibrates, defaults, modelCheck, listener);
   return 'inconsistent' in outcome ? narratorSegments(FAKE_GM_REPLY) : segments;
 };
 
@@ -689,6 +740,7 @@ const openSession = (
               speakTurn,
               gm.calibratesContext === true,
               gmDefaults(),
+              gm.continuityCheck,
               onSegment,
             )
           : NO_SEGMENTS;

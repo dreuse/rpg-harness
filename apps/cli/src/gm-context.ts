@@ -57,6 +57,7 @@ import { touchesOf, walkGraph } from '../../../packages/persistence/src/graph.ts
 import { scopedEventsOf, scopeLookupOf, worldOf } from './client-session.ts';
 import {
   checkRulesPrompt,
+  continuityRetryPrompt,
   GM_ROLL_PROMPT,
   languageInstruction,
   modifiersPrompt,
@@ -176,6 +177,7 @@ export type PacketOptions = {
   readonly defaults?: GmSettings;
   readonly retry?: boolean;
   readonly repeated?: readonly string[];
+  readonly contradicted?: readonly string[];
   readonly gmRolls?: readonly string[];
 };
 
@@ -201,7 +203,7 @@ export const contextPacketOf = (
   viewer: Viewer = PLAYER_VIEWER,
   preset: ContextBudgetPreset = contextBudgetOf(state.changes),
   ratio = 1,
-  { defaults = {}, retry = false, repeated = [], gmRolls = [] }: PacketOptions = {},
+  { defaults = {}, retry = false, repeated = [], contradicted = [], gmRolls = [] }: PacketOptions = {},
 ): ContextPacket => {
   const campaignId = state.campaign.id;
   const scoped = eventsOfTypes(database, campaignId, MEMORY_EVENT_TYPES);
@@ -275,6 +277,7 @@ export const contextPacketOf = (
         ...(untraited.length === NONE ? [] : [voiceTraitsPrompt(untraited)]),
         ...(retry ? [RULES_RETRY_PROMPT] : []),
         ...(repeated.length === NONE ? [] : [repetitionRetryPrompt(repeated)]),
+        ...(contradicted.length === NONE ? [] : [continuityRetryPrompt(contradicted)]),
       ],
       ruleset: config === undefined ? [] : [describeConfig(config)],
       setting: [state.currentScene?.title ?? state.campaign.name],

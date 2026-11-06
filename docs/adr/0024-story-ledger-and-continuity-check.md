@@ -38,5 +38,5 @@
 ## Consequences
 
 - The desktop daemon answers both commands with a rejection until a session port serves them (follow-up bead). No TUI or desktop panel exists yet (follow-up bead).
-- No real GM route emits `claims` yet. The GM route needs structured claim output, then it calls `proposeClaims` (follow-up bead). The scripted fake GM already does (`GameMasterReply.claims`, `runGuardedScript`).
+- Real GM routes emit `claim` proposals (rpg-42a.62). The CLI commits each through `proposeClaims`. Once the ledger has entries, `narrateLatest` runs `enforceContinuity` before the narration is stored or shown, and it stops streaming for that turn. A retry prompt lists only player-visible conflict facts, so GM-only facts never reach the live GM. The API and Claude Code routes pass a cheap-model `ModelContinuityCheck` (`gm-continuity.ts`).
 - `scripts/eval-continuity.ts` runs N turns against the real `claude` CLI and prints the first-pass contradiction rate. It is not part of the gate.

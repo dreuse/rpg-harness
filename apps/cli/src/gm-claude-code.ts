@@ -276,6 +276,9 @@ export const requestClaudeNarration = (
   return request(route, instructions, [stable, variable].join(PART_SEPARATOR), databasePath);
 };
 
+export const requestClaudeText = async (route: ClaudeCodeRoute, system: string, content: string): Promise<string> =>
+  (await request({ ...route, model: route.summaryModel, effort: CHEAP_EFFORT }, system, content)).narration;
+
 export const requestClaudeSummary = async (
   route: ClaudeCodeRoute,
   level: SummaryLevel,

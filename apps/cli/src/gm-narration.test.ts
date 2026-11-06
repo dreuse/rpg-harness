@@ -502,3 +502,92 @@ describe('rpg-42a.58 rules strictness in the GM path', () => {
     });
   }
 });
+
+describe('rpg-42a.62 continuity on the real GM route', () => {
+  const MARA = { kind: 'entity', id: 'mara', entityKind: 'npc', name: 'Mara', visibility: 'player' } as const;
+  const DEAD = { kind: 'claim', id: 'mara-dead', entityId: 'mara', claimKind: 'alive', value: 'dead' } as const;
+  const SECRET = {
+    kind: 'claim',
+    id: 'mara-plot',
+    entityId: 'mara',
+    claimKind: 'secret',
+    key: 'plot',
+    value: 'poisoned the well',
+  } as const;
+  const INTRO = 'Mara lies still beside the well.';
+  const WAKES = 'Mara says hello to you.';
+  const QUIET = 'The yard is silent.';
+  const LEAK = 'Everyone knows Mara poisoned the well.';
+
+  type Reply = { readonly narration: string; readonly proposals?: readonly GmProposal[] };
+
+  const gmOf = (replies: readonly Reply[], packets: ContextPacket[], continuityCheck?: GameMaster['continuityCheck']) =>
+    ({
+      request: async (packet: ContextPacket) => {
+        packets.push(packet);
+        const reply = replies[Math.min(packets.length, replies.length) - 1] ?? { narration: '' };
+        return { ...reply, segments: [{ text: reply.narration }] };
+      },
+      summarizer: FAKE_GAME_MASTER.summarizer,
+      ...(continuityCheck === undefined ? {} : { continuityCheck }),
+    }) as GameMaster;
+
+  const withClaims = async (t: TestContext, claims: readonly GmProposal[]) => {
+    const dataDir = tempDataDir(t);
+    for await (const _ of createEngineGateway(dataDir).create(CAMPAIGN, undefined, NO_CHARACTER));
+    await play(dataDir, gmOf([{ narration: INTRO, proposals: [MARA, ...claims] }], []), [ACTION]);
+    return dataDir;
+  };
+
+  const instructionsOf = (packet: ContextPacket | undefined) => packetParts(packet ?? { sections: [] }).instructions;
+
+  it('commits GM claims into the ledger', async (t) => {
+    const dataDir = await withClaims(t, [DEAD]);
+    const claims = readCampaignState(dataDir, CAMPAIGN).events.filter(({ type }) => type === 'ClaimRecorded');
+    assert.deepEqual(
+      claims.map(({ payload }) => [payload.entityId, payload.kind, payload.value]),
+      [['mara', 'alive', 'dead']],
+    );
+  });
+
+  it('regenerates once with the conflicting fact and records the clean narration', async (t) => {
+    const dataDir = await withClaims(t, [DEAD]);
+    const packets: ContextPacket[] = [];
+    await play(dataDir, gmOf([{ narration: WAKES }, { narration: QUIET }], packets), [SECOND_ACTION]);
+    assert.equal(packets.length, 2);
+    assert.ok(instructionsOf(packets[1]).includes('Mara alive: dead'));
+    assert.equal(lastNarration(dataDir), QUIET);
+  });
+
+  it('sends the player the canonical fact when the contradiction survives the retry', async (t) => {
+    const dataDir = await withClaims(t, [DEAD]);
+    const output = await play(dataDir, gmOf([{ narration: WAKES }], []), [SECOND_ACTION]);
+    assert.ok(!lastNarration(dataDir)?.includes(WAKES));
+    assert.ok(!output.join('').includes(WAKES));
+    assert.match(lastNarration(dataDir) ?? '', /Mara alive: dead/);
+  });
+
+  it('never lets a GM-only claim reach the player or the retry prompt', async (t) => {
+    const dataDir = await withClaims(t, [SECRET]);
+    const packets: ContextPacket[] = [];
+    const output = await play(dataDir, gmOf([{ narration: LEAK }], packets), [SECOND_ACTION]);
+    assert.ok(!output.join('').includes('poisoned'));
+    assert.ok(!(lastNarration(dataDir) ?? '').includes('poisoned'));
+    for (const packet of packets) assert.ok(!JSON.stringify(packet).includes('poisoned'));
+  });
+
+  it('applies conflicts found by the model check', async (t) => {
+    const dataDir = await withClaims(t, [DEAD]);
+    const modelFlags: GameMaster['continuityCheck'] = ({ narration }) =>
+      narration === 'Mara owes you a debt.'
+        ? [{ kind: 'model', entityId: null, fact: 'Mara alive: dead', excerpt: narration }]
+        : [];
+    const packets: ContextPacket[] = [];
+    await play(dataDir, gmOf([{ narration: 'Mara owes you a debt.' }, { narration: QUIET }], packets, modelFlags), [
+      ACTION,
+    ]);
+    assert.equal(packets.length, 2);
+    assert.ok(instructionsOf(packets[1]).includes('Mara alive: dead'));
+    assert.equal(lastNarration(dataDir), QUIET);
+  });
+});

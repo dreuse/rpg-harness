@@ -6,6 +6,7 @@ import {
   type EntityStore,
   type FactStore,
 } from '../../../packages/domain/src/entity.ts';
+import { CLAIM_KINDS, type ClaimKind } from '../../../packages/domain/src/story-memory.ts';
 import {
   toVoiceTraits,
   VOICE_AGES,
@@ -29,6 +30,7 @@ import {
   rollForGm,
 } from '../../../packages/engine/src/gm-roll.ts';
 import { introduceEntity, openPending } from '../../../packages/engine/src/memory.ts';
+import { type ClaimDraft, proposeClaims } from '../../../packages/engine/src/story-memory.ts';
 import {
   ActionIdConflictError,
   InvalidActionError,
@@ -72,6 +74,7 @@ export const GM_ROLL_PROPOSAL = 'gm-roll';
 export const VOICE_TRAITS_PROPOSAL = 'voice-traits';
 export const CONDITION_PROPOSAL = 'condition';
 export const CONDITION_END_PROPOSAL = 'condition-end';
+export const CLAIM_PROPOSAL = 'claim';
 
 const ID_PATTERN = '^[a-z0-9][a-z0-9-]*$';
 const ID_REGEX = new RegExp(ID_PATTERN);
@@ -100,6 +103,7 @@ const PROPOSAL_KEYS = {
   [GM_ROLL_PROPOSAL]: ['kind', 'id', 'roller', 'reason', 'visibility', 'ruleId', 'expression', 'modifiers'],
   [CONDITION_PROPOSAL]: ['kind', 'id', 'conditionId', 'reason', 'label', 'duration', 'appliesTo', 'modifiers'],
   [CONDITION_END_PROPOSAL]: ['kind', 'id', 'conditionId'],
+  [CLAIM_PROPOSAL]: ['kind', 'id', 'entityId', 'claimKind', 'key', 'value', 'visibility'],
 } as const;
 
 type ProposalVisibility = (typeof PROPOSAL_VISIBILITIES)[number];
@@ -177,6 +181,16 @@ export type ConditionEndProposal = {
   readonly conditionId: string;
 };
 
+export type ClaimProposal = {
+  readonly kind: typeof CLAIM_PROPOSAL;
+  readonly id: string;
+  readonly entityId: EntityId;
+  readonly claimKind: ClaimKind;
+  readonly key?: string;
+  readonly value: string;
+  readonly visibility?: ProposalVisibility;
+};
+
 export type GmProposal =
   | EntityProposal
   | PendingProposal
@@ -185,7 +199,8 @@ export type GmProposal =
   | GmRollProposal
   | VoiceTraitsProposal
   | ConditionProposal
-  | ConditionEndProposal;
+  | ConditionEndProposal
+  | ClaimProposal;
 
 const idSchema = { type: 'string', maxLength: MAX_ID_LENGTH, pattern: ID_PATTERN } as const;
 const visibilitySchema = { type: 'string', enum: PROPOSAL_VISIBILITIES } as const;
@@ -328,6 +343,20 @@ export const PROPOSALS_SCHEMA = {
         type: 'object',
         properties: { kind: { const: CONDITION_END_PROPOSAL }, id: idSchema, conditionId: idSchema },
         required: ['kind', 'id', 'conditionId'],
+        additionalProperties: false,
+      },
+      {
+        type: 'object',
+        properties: {
+          kind: { const: CLAIM_PROPOSAL },
+          id: idSchema,
+          entityId: idSchema,
+          claimKind: { type: 'string', enum: CLAIM_KINDS },
+          key: { type: 'string', maxLength: MAX_NAME_LENGTH },
+          value: { type: 'string', maxLength: MAX_FACT_LENGTH },
+          visibility: visibilitySchema,
+        },
+        required: ['kind', 'id', 'entityId', 'claimKind', 'value'],
         additionalProperties: false,
       },
     ],
@@ -514,6 +543,28 @@ const conditionEndOf = (value: Record<string, unknown>): ConditionEndProposal | 
   return id === undefined || conditionId === undefined ? undefined : { kind: CONDITION_END_PROPOSAL, id, conditionId };
 };
 
+const claimOf = (value: Record<string, unknown>): ClaimProposal | undefined => {
+  const id = idOf(value.id);
+  const entityId = idOf(value.entityId);
+  const claimKind = CLAIM_KINDS.find((kind) => kind === value.claimKind);
+  const claimValue = textOf(value.value, MAX_FACT_LENGTH);
+  const key = value.key === undefined ? undefined : textOf(value.key, MAX_NAME_LENGTH);
+  const visibility = value.visibility === undefined ? undefined : visibilityOf(value.visibility);
+  if (id === undefined || entityId === undefined || claimKind === undefined || claimValue === undefined)
+    return undefined;
+  if ((value.key !== undefined && key === undefined) || (value.visibility !== undefined && visibility === undefined))
+    return undefined;
+  return {
+    kind: CLAIM_PROPOSAL,
+    id,
+    entityId,
+    claimKind,
+    value: claimValue,
+    ...(key === undefined ? {} : { key }),
+    ...(visibility === undefined ? {} : { visibility }),
+  };
+};
+
 const PARSERS = {
   [ENTITY_PROPOSAL]: entityOf,
   [PENDING_PROPOSAL]: pendingOf,
@@ -523,6 +574,7 @@ const PARSERS = {
   [VOICE_TRAITS_PROPOSAL]: voiceTraitsOf,
   [CONDITION_PROPOSAL]: conditionOf,
   [CONDITION_END_PROPOSAL]: conditionEndOf,
+  [CLAIM_PROPOSAL]: claimOf,
 } as const;
 
 const proposalOf = (value: unknown): GmProposal | undefined => {
@@ -543,6 +595,14 @@ export const outcomeClaimsOf = (proposals: readonly GmProposal[]): NarrationClai
   proposals.flatMap((proposal) =>
     proposal.kind === OUTCOME_PROPOSAL ? [{ kind: 'outcome' as const, ref: proposal.id }] : [],
   );
+
+export const claimDraftOf = ({ entityId, claimKind, key, value, visibility }: ClaimProposal): ClaimDraft => ({
+  entityId,
+  kind: claimKind,
+  value,
+  ...(key === undefined ? {} : { key }),
+  ...(visibility === undefined ? {} : { visibility }),
+});
 
 const REFUSALS = [InvalidActionError, ActionIdConflictError, StaleRevisionError];
 
@@ -636,6 +696,10 @@ export const commitProposals = (
       }
       if (proposal.kind === CONDITION_END_PROPOSAL) {
         results.push(endCondition(store, { ...action, conditionId: proposal.conditionId }));
+        continue;
+      }
+      if (proposal.kind === CLAIM_PROPOSAL) {
+        results.push(proposeClaims(store, entities, { ...action, claims: [claimDraftOf(proposal)] }));
         continue;
       }
       const scope = { visibility: proposal.visibility, actorId: null };

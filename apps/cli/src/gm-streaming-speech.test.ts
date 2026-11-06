@@ -676,3 +676,50 @@ describe('rpg-42a.98 every paragraph is read, retried attempts restart, failures
     assert.ok(!narration.includes(KEY));
   });
 });
+
+describe('rpg-42a.62 spoken narration follows the continuity-corrected text', () => {
+  const MARA = { kind: 'entity', id: 'mara', entityKind: 'npc', name: 'Mara', visibility: 'player' } as const;
+  const DEAD = { kind: 'claim', id: 'mara-dead', entityId: 'mara', claimKind: 'alive', value: 'dead' } as const;
+  const SECRET = {
+    kind: 'claim',
+    id: 'mara-plot',
+    entityId: 'mara',
+    claimKind: 'secret',
+    key: 'plot',
+    value: 'poisoned the well',
+  } as const;
+  const LEAK = 'Everyone knows Mara poisoned the well.';
+  const WAKES = 'Mara says hello to you.';
+
+  const spokenAfter = async (t: TestContext, narration: string) => {
+    const { dataDir, played, runtime } = await setup(t);
+    const replies = [{ narration: FIRST, proposals: [MARA, DEAD, SECRET] }, { narration }];
+    let calls = 0;
+    const gm: GameMaster = {
+      request: async () => {
+        const next = replies[Math.min(calls, replies.length - 1)] ?? { narration: '' };
+        calls += 1;
+        return { ...next, segments: [{ text: next.narration }] };
+      },
+      summarizer: FAKE_GAME_MASTER.summarizer,
+    };
+    const opened = openWith(dataDir, gm, runtime);
+    t.after(() => opened.close());
+    submit(opened, {});
+    await opened.narrate();
+    await runtime.speech.idle();
+    played.length = 0;
+    submit(opened, undefined, 'typed-2');
+    await opened.narrate();
+    await runtime.speech.idle();
+    return played.join(' ');
+  };
+
+  it('never speaks a GM-only secret', async (t) => {
+    assert.ok(!(await spokenAfter(t, LEAK)).includes('poisoned'));
+  });
+
+  it('never speaks a contradiction that survives the retry', async (t) => {
+    assert.ok(!(await spokenAfter(t, WAKES)).includes(WAKES));
+  });
+});
