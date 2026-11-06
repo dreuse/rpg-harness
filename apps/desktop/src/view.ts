@@ -8,7 +8,7 @@ import { loadStartDraft, type StartScreen } from '../../../packages/client-proto
 import type { GmSnapshot } from '../../../packages/client-protocol/src/protocol.ts';
 import type { SlashOption } from '../../../packages/client-protocol/src/slash-commands.ts';
 import { MOTION_SETTINGS } from '../../../packages/client-protocol/src/visualization.ts';
-import type { GmSettings } from '../../../packages/domain/src/gm.ts';
+import { type GmSettings, WHO_ROLLS, type WhoRolls } from '../../../packages/domain/src/gm.ts';
 import { RULES_STRICTNESSES, type RulesStrictness } from '../../../packages/domain/src/rules-usage.ts';
 import { SPOKEN_OUTPUT_MODES } from '../../../packages/domain/src/voice.ts';
 import { MAX_CHANNEL_VOLUME, MIN_CHANNEL_VOLUME } from '../../../packages/voice/src/ambience.ts';
@@ -389,6 +389,12 @@ const strictnessOption = (locale: string, value: RulesStrictness | '', chosen: R
 const strictnessControl = (locale: string, chosen: RulesStrictness | undefined) =>
   `<label>${escapeHtml(translate(locale, 'gmModel.rulesStrictness'))} <select name="rulesStrictness">${['' as const, ...RULES_STRICTNESSES].map((value) => strictnessOption(locale, value, chosen)).join('')}</select></label>`;
 
+const whoRollsOption = (locale: string, value: WhoRolls | '', chosen: WhoRolls | undefined) =>
+  `<option value="${value}"${value !== '' && value === chosen ? ' selected' : ''}>${escapeHtml(translate(locale, `gmModel.whoRolls.${value === '' ? 'default' : value}`))}</option>`;
+
+const whoRollsControl = (locale: string, chosen: WhoRolls | undefined) =>
+  `<label>${escapeHtml(translate(locale, 'gmModel.whoRolls'))} <select name="whoRolls">${['' as const, ...WHO_ROLLS].map((value) => whoRollsOption(locale, value, chosen)).join('')}</select></label>`;
+
 const gmInputs = (locale: string, values: GmSettings, placeholders: GmSettings) =>
   `${gmInput(locale, 'model', values, placeholders)}${gmInput(locale, 'summaryModel', values, placeholders)}${gmInput(locale, 'sessionBudgetTokens', values, placeholders)}`;
 
@@ -407,7 +413,7 @@ const gmSettings = (gm: GmSnapshot | undefined, locale: string) => {
     (choice) =>
       `<option value="${choice}">${escapeHtml(translate(locale, `gmModel.hint.${modelHintOf(choice)}`))}</option>`,
   ).join('');
-  return `<form ${GM_FORM}><fieldset><legend>${escapeHtml(translate(locale, 'gmModel.legend'))}</legend>${gmInputs(locale, campaign, defaults)}${strictnessControl(locale, campaign.rulesStrictness)}<datalist id="${GM_MODELS_LIST}">${options}</datalist><p id="${GM_HELP_ID}">${escapeHtml(translate(locale, 'gmModel.help'))}</p><button type="submit">${escapeHtml(translate(locale, 'gmModel.save'))}</button></fieldset></form>${gmUsage(gm)}<form ${GM_DEFAULTS_FORM}><fieldset><legend>${escapeHtml(translate(locale, 'gmModel.defaultsLegend'))}</legend>${gmInputs(locale, defaults, {})}<button type="submit">${escapeHtml(translate(locale, 'gmModel.saveDefaults'))}</button></fieldset></form>`;
+  return `<form ${GM_FORM}><fieldset><legend>${escapeHtml(translate(locale, 'gmModel.legend'))}</legend>${gmInputs(locale, campaign, defaults)}${strictnessControl(locale, campaign.rulesStrictness)}${whoRollsControl(locale, campaign.whoRolls)}<datalist id="${GM_MODELS_LIST}">${options}</datalist><p id="${GM_HELP_ID}">${escapeHtml(translate(locale, 'gmModel.help'))}</p><button type="submit">${escapeHtml(translate(locale, 'gmModel.save'))}</button></fieldset></form>${gmUsage(gm)}<form ${GM_DEFAULTS_FORM}><fieldset><legend>${escapeHtml(translate(locale, 'gmModel.defaultsLegend'))}</legend>${gmInputs(locale, defaults, {})}<button type="submit">${escapeHtml(translate(locale, 'gmModel.saveDefaults'))}</button></fieldset></form>`;
 };
 
 const SETTINGS_HEADING_ID = 'settings-heading';
@@ -623,6 +629,28 @@ const rollOfferButton = ({ rollOffer }: ViewModel, locale: string) =>
         true,
       );
 
+export const ROLL_REPORT_FORM = 'data-roll-report-form';
+export const ROLL_REPORT_INPUT = 'roll-report-input';
+const DICE_TERM = /(\d+)d(\d+)/g;
+const COUNT_GROUP = 1;
+const SIDES_GROUP = 2;
+
+const reportBounds = (expression: string) => {
+  const terms = [...expression.matchAll(DICE_TERM)].map((term) => [
+    Number(term[COUNT_GROUP]),
+    Number(term[SIDES_GROUP]),
+  ]);
+  if (terms.length === 0) return '';
+  const min = terms.reduce((sum, [count = 0]) => sum + count, 0);
+  const max = terms.reduce((sum, [count = 0, sides = 0]) => sum + count * sides, 0);
+  return ` min="${min}" max="${max}"`;
+};
+
+const rollReportForm = ({ rollOffer }: ViewModel, locale: string) =>
+  rollOffer?.expression === undefined
+    ? ''
+    : `<form ${ROLL_REPORT_FORM} aria-label="${escapeHtml(translate(locale, 'roll.report.form'))}"><label for="${ROLL_REPORT_INPUT}">${escapeHtml(translate(locale, 'roll.report.label', { expression: rollOffer.expression }))}</label><input id="${ROLL_REPORT_INPUT}" name="total" type="number" step="1"${reportBounds(rollOffer.expression)} required><button type="submit">${escapeHtml(translate(locale, 'roll.report.submit'))}</button></form>`;
+
 export const SHEET_FORM = 'data-sheet-form';
 export const SHEET_ACTION = 'data-sheet-action';
 export const SHEET_INPUT = 'sheet-field-';
@@ -692,7 +720,7 @@ const REGION_BODIES: Readonly<Record<Region, (model: ViewModel, locale: string) 
       )
       .join(
         '',
-      )}</ol>${model.conversation.length === 0 ? empty(locale, 'conversation') : ''}${rollOfferButton(model, locale)}${rollTray(model, locale)}${oocPanel(model, locale)}`,
+      )}</ol>${model.conversation.length === 0 ? empty(locale, 'conversation') : ''}${rollOfferButton(model, locale)}${rollReportForm(model, locale)}${rollTray(model, locale)}${oocPanel(model, locale)}`,
   sheet: ({ sheetGroups, sheetEditing, character }, locale) => {
     const name = character === undefined ? '' : `<h3>${escapeHtml(character)}</h3>`;
     if (sheetGroups.length > 0) return sheetBody(sheetGroups, sheetEditing, name, locale);

@@ -1719,3 +1719,42 @@ test('rpg-cm63.49 page replays the stored delivery only in cinematic output', as
     ['af_heart', 'Easy.', undefined],
   ]);
 });
+
+const ROLL_REPORT_FORM = { 'data-roll-report-form': '' };
+const ROLL_REPORT_INPUT = '#roll-report-input';
+const PHYSICAL_OFFER = {
+  offerId: 'tam-attack',
+  ruleId: 'attack.melee',
+  target: 'Old Tam',
+  label: 'Attack',
+  expression: '1d20',
+};
+
+test('rpg-42a.96 page sends the typed total with the offer id and ignores an empty field', () => {
+  const page = playingSheet();
+  page.receive({ type: 'Snapshot', snapshot: { ...SNAPSHOT, rollOffer: PHYSICAL_OFFER } });
+  page.fields[ROLL_REPORT_INPUT] = '';
+  page.submit(ROLL_REPORT_FORM);
+  assert.equal(
+    page.sent.some((command) => 'reportedRoll' in command),
+    false,
+  );
+  page.fields[ROLL_REPORT_INPUT] = '14';
+  page.submit(ROLL_REPORT_FORM);
+  const command = page.sent.findLast(({ type }) => type === 'SubmitPlayerAction');
+  assert.ok(command && 'reportedRoll' in command);
+  assert.deepEqual(command.reportedRoll, [14]);
+  assert.equal(command.rollOfferId, 'tam-attack');
+});
+
+test('rpg-42a.96 page saves who rolls with the GM form and omits it when left on the default', () => {
+  const page = playingSheet();
+  page.fields[GM_FIELD('whoRolls')] = 'me';
+  page.submit(GM_FORM);
+  page.fields[GM_FIELD('whoRolls')] = '';
+  page.submit(GM_FORM);
+  const saves = page.sent.filter(({ type }) => type === 'SaveGmSettings');
+  assert.ok(saves[0]?.type === 'SaveGmSettings' && saves[1]?.type === 'SaveGmSettings');
+  assert.equal(saves[0].whoRolls, 'me');
+  assert.equal('whoRolls' in saves[1], false);
+});

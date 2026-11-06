@@ -821,7 +821,11 @@ export const createDesktopClient = ({
     });
   };
 
-  const submitAction = (input: string, rollOfferId?: string): Result<SubmitPlayerAction> => {
+  const submitAction = (
+    input: string,
+    rollOfferId?: string,
+    reportedRoll?: readonly number[],
+  ): Result<SubmitPlayerAction> => {
     const { snapshot } = state;
     const sceneId = snapshot?.currentScene?.id;
     const actorId = snapshot?.characters[0]?.id;
@@ -837,6 +841,7 @@ export const createDesktopClient = ({
       actorId,
       input,
       ...(rollOfferId === undefined ? {} : { rollOfferId }),
+      ...(reportedRoll === undefined ? {} : { reportedRoll }),
     });
     if (!parsed.ok) return parsed;
     const action = parsed.value as SubmitPlayerAction;
@@ -909,6 +914,12 @@ export const createDesktopClient = ({
       return offer === undefined
         ? failure('Rejected', 'no roll is offered right now')
         : submitAction(offer.label, offer.offerId);
+    },
+    reportRoll: (total: number): Result<SubmitPlayerAction> => {
+      const offer = state.snapshot?.rollOffer;
+      return offer?.expression === undefined
+        ? failure('Rejected', 'no physical roll is offered right now')
+        : submitAction(offer.label, offer.offerId, [total]);
     },
     submit: (input: string): Result<SubmitPlayerAction | SubmitOocMessage> => {
       if (state.ooc.active || parseOocInput(input) !== undefined) return talkToGm(input);

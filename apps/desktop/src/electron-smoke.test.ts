@@ -17,9 +17,17 @@ import { basename, dirname, join, sep } from 'node:path';
 import { type TestContext, test } from 'node:test';
 import { promisify } from 'node:util';
 import { DEFAULT_LOCALE, LANGUAGE_ENV } from '../../../packages/client-protocol/src/locale.ts';
+import { PROTOCOL_VERSION } from '../../../packages/client-protocol/src/protocol.ts';
 import { CAMPAIGN_ENV } from '../../cli/src/desktop-daemon.ts';
-import { createEngineGateway } from '../../cli/src/engine-gateway.ts';
+import {
+  createCampaignFrom,
+  createEngineGateway,
+  FAKE_GAME_MASTER,
+  type GameMaster,
+  openClientSession,
+} from '../../cli/src/engine-gateway.ts';
 import { FAKE_ROUTE, GM_ROUTE_ENV } from '../../cli/src/gm-api.ts';
+import type { GmProposal } from '../../cli/src/gm-proposals.ts';
 import { DATA_DIR_ENV } from '../../cli/src/setup-check.ts';
 import {
   CAPTURE_ENV,
@@ -250,4 +258,73 @@ test('rpg-42a.39 desktop journey in Brazilian Portuguese: home, guided start and
 
 test('rpg-42a.38 desktop journey of a diceless, sheetless campaign: rules, summary and play', { skip }, async (t) => {
   checkBaselines(t, await captureJourneys(t, ['diceless']));
+});
+
+const DESKTOP_CLIENT = 'desktop';
+const PHYSICAL_RULESET = { id: 'd20-lite', edition: 'original' };
+const PHYSICAL_ACTION = 'I slashed my sword on his head';
+const PHYSICAL_SETUP = 'Old Tam sets down his mug and stares at you.';
+const PHYSICAL_OFFER: GmProposal = {
+  kind: 'check',
+  id: 'tam-attack',
+  ruleId: 'attack.melee',
+  target: 'Old Tam',
+  label: 'Attack Old Tam with your sword',
+};
+const PHYSICAL_CHARACTER = 'A scout named Wren with might 3, agility 2, wits 2 and presence 1.';
+
+const seedPhysicalOffer = async (dataDir: string) => {
+  await createCampaignFrom(
+    dataDir,
+    {
+      version: PROTOCOL_VERSION,
+      type: 'CreateCampaign',
+      name: CAMPAIGN,
+      choices: { ruleset: PHYSICAL_RULESET, character: PHYSICAL_CHARACTER, diceVisualization: true },
+      play: { whoRolls: 'me' },
+    },
+    DESKTOP_CLIENT,
+  );
+  const gm: GameMaster = {
+    request: async () => ({
+      narration: PHYSICAL_SETUP,
+      proposals: [PHYSICAL_OFFER],
+      segments: [{ text: PHYSICAL_SETUP }],
+    }),
+    summarizer: FAKE_GAME_MASTER.summarizer,
+  };
+  const { session, campaignId, close, narrate } = openClientSession(dataDir, CAMPAIGN, gm);
+  try {
+    const envelope = { version: PROTOCOL_VERSION, campaignId } as const;
+    const snapshot = session.getSnapshot({ ...envelope, type: 'GetCampaignSnapshot' });
+    assert.ok(snapshot.ok);
+    const { revision, currentScene, characters } = snapshot.value;
+    const submitted = session.submitPlayerAction({
+      ...envelope,
+      type: 'SubmitPlayerAction',
+      actionId: 'seed-physical',
+      expectedRevision: revision,
+      sceneId: currentScene?.id ?? '',
+      actorId: characters[0]?.id ?? '',
+      input: PHYSICAL_ACTION,
+    });
+    assert.ok(submitted.ok);
+    await narrate();
+  } finally {
+    close();
+  }
+};
+
+test('rpg-42a.96 desktop journey of a physical roll: the report field and the player-rolled card', {
+  skip,
+}, async (t) => {
+  const dataDir = mkdtempSync(join(tmpdir(), 'rpg-desktop-physical-'));
+  t.after(() => rmSync(dataDir, { recursive: true, force: true }));
+  await seedPhysicalOffer(dataDir);
+  const dir = process.env[CAPTURE_ENV] || mkdtempSync(join(tmpdir(), 'rpg-desktop-physical-screens-'));
+  const stdout = await run(dataDir, { [CAPTURE_ENV]: dir, [JOURNEY_ENV]: 'physical' });
+  assert.doesNotMatch(stdout, new RegExp(JOURNEY_ERROR));
+  const files = journeyShots(dir, 'physical');
+  for (const file of files) assert.ok(stdout.includes(`${CAPTURE_STATUS}${file}`), file);
+  checkBaselines(t, files);
 });

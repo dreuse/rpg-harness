@@ -111,14 +111,17 @@ const rollBreakdown = ({ groups, final }: RollPlan, locale: string) => {
     : `<ul data-roll-breakdown>${lines.map((line) => `<li>${escapeHtml(line)}</li>`).join('')}</ul>`;
 };
 
+const rollReportedBadge = ({ source }: VisualizationFinal, locale: string) =>
+  source === undefined ? '' : `<span data-reported-badge>${escapeHtml(translate(locale, 'roll.reported'))}</span>`;
+
 export const renderRoll = (plan: RollPlan, locale: string) =>
-  `<figure data-roll data-animated="${plan.animated}"><div data-roll-result><div data-dice>${plan.groups
+  `<figure data-roll data-animated="${plan.animated}"${plan.final.source === undefined ? '' : ' data-reported'}><div data-roll-result><div data-dice>${plan.groups
     .map(
       ({ shape, sides, dice }) => `<div data-dice-group="${shape}">${dice.map(dieHtml(shape, sides)).join('')}</div>`,
     )
     .join(
       '',
-    )}${plan.tokens.map((label) => `<span data-token>${escapeHtml(label)}</span>`).join('')}</div>${rollTotal(plan.final)}${rollOutcome(plan.final, locale)}</div>${rollBreakdown(plan, locale)}<figcaption>${escapeHtml(rollSummary(plan, locale))}</figcaption>${plan.animated ? `<button type="button" data-roll-skip>${escapeHtml(translate(locale, 'roll.skip'))}</button>` : ''}</figure>`;
+    )}${plan.tokens.map((label) => `<span data-token>${escapeHtml(label)}</span>`).join('')}</div>${rollTotal(plan.final)}${rollOutcome(plan.final, locale)}${rollReportedBadge(plan.final, locale)}</div>${rollBreakdown(plan, locale)}<figcaption>${escapeHtml(rollSummary(plan, locale))}</figcaption>${plan.animated ? `<button type="button" data-roll-skip>${escapeHtml(translate(locale, 'roll.skip'))}</button>` : ''}</figure>`;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);

@@ -1053,3 +1053,28 @@ test('rpg-cm63.46 the replay button has a visible focus style', () => {
   assert.match(css, /\[data-replay\]/);
   assert.match(css, /\[data-replay\]:focus-visible/);
 });
+
+test('rpg-42a.96: the GM form offers who rolls with a default, app, me and ask, selecting the saved one', () => {
+  const snapshot = state.snapshot as NonNullable<DesktopState['snapshot']>;
+  const usage = {
+    turns: 0,
+    inputTokens: 0,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+    outputTokens: 0,
+    costUsd: 0,
+    pricedTurns: 0,
+  };
+  const gm = {
+    settings: {},
+    campaignSettings: { whoRolls: 'me' as const },
+    defaults: {},
+    session: usage,
+    campaign: usage,
+  };
+  const html = renderView(viewModel({ ...state, snapshot: { ...snapshot, gm } }, WIDE_WIDTH), 'en');
+  assert.match(
+    html,
+    /<form data-gm-form>[\s\S]*?<label>Who rolls the dice <select name="whoRolls"><option value="">Default \(the app rolls\)<\/option><option value="app">The app rolls<\/option><option value="me" selected>I roll my own dice<\/option><option value="ask">Ask me each time<\/option><\/select><\/label>/,
+  );
+});

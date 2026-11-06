@@ -1045,3 +1045,54 @@ test('rpg-42a.93: the client rejects an unknown slash command instead of sending
   assert.equal(client.submit('/sheet').ok, false);
   assert.equal(client.submit('/gm hello there').ok, true);
 });
+
+const PHYSICAL_OFFER = { ...ROLL_OFFER, expression: '1d20' };
+
+test('rpg-42a.96: reporting a physical roll sends the total as reportedRoll with the offer id', () => {
+  const { wire, client } = connectedClient();
+  wire.receive({ type: 'Snapshot', snapshot: { ...snapshotAt(2, ['old']), rollOffer: PHYSICAL_OFFER } });
+  assert.match(
+    renderView(viewModel(client.state(), WIDE_WIDTH), 'en'),
+    /<form data-roll-report-form aria-label="Report your roll"><label for="roll-report-input">Your result for 1d20<\/label><input id="roll-report-input" name="total" type="number" step="1" min="1" max="20" required>/,
+  );
+  assert.equal(client.reportRoll(14).ok, true);
+  assert.deepEqual(wire.sent.at(-1), {
+    version: PROTOCOL_VERSION,
+    type: 'SubmitPlayerAction',
+    campaignId: CAMPAIGN,
+    actionId: 'a0',
+    expectedRevision: 2,
+    sceneId: 's1',
+    actorId: 'hero',
+    input: ROLL_OFFER.label,
+    rollOfferId: ROLL_OFFER.offerId,
+    reportedRoll: [14],
+  });
+});
+
+test('rpg-42a.96: the report field spans the whole expression and is absent for an app-rolled offer', () => {
+  const { wire, client } = connectedClient();
+  wire.receive({
+    type: 'Snapshot',
+    snapshot: { ...snapshotAt(2, ['old']), rollOffer: { ...ROLL_OFFER, expression: '2d6+1d8' } },
+  });
+  assert.match(renderView(viewModel(client.state(), WIDE_WIDTH), 'en'), /min="3" max="20"/);
+  wire.receive({ type: 'Snapshot', snapshot: { ...snapshotAt(3, ['old']), rollOffer: ROLL_OFFER } });
+  assert.doesNotMatch(renderView(viewModel(client.state(), WIDE_WIDTH), 'en'), /data-roll-report-form/);
+  assert.equal(client.reportRoll(14).ok, false);
+});
+
+test('rpg-42a.96: a rejected report shows the server message in the alert', () => {
+  const { wire, client } = connectedClient();
+  wire.receive({ type: 'Snapshot', snapshot: { ...snapshotAt(2, ['old']), rollOffer: PHYSICAL_OFFER } });
+  client.reportRoll(99);
+  wire.receive({
+    type: 'Rejected',
+    actionId: 'a0',
+    error: { code: 'Rejected', message: '1d20 can only give 1 to 20. Roll again or check the dice.' },
+  });
+  assert.match(
+    renderView(viewModel(client.state(), WIDE_WIDTH), 'en'),
+    /<ul role="alert"><li>Attack Old Tam with your sword: 1d20 can only give 1 to 20/,
+  );
+});

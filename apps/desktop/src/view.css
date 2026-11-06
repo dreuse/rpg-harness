@@ -1179,3 +1179,19 @@ section[data-region="start"] form {
 [data-stat]:focus-within [role="tooltip"] {
   display: block;
 }
+
+[data-roll-report-form] {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-block-start: var(--space-2);
+}
+
+[data-roll-report-form] input {
+  inline-size: 6rem;
+}
+
+[data-reported-badge] {
+  font-size: 0.875rem;
+}

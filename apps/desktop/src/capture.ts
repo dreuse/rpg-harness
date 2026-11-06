@@ -277,7 +277,27 @@ const DICELESS_PLAY = steps(
   `if (document.querySelector('[data-region="character"] h3').textContent !== ${JSON.stringify(DICELESS_NAME)} || !document.querySelector('[data-region="character"] p').textContent.includes(${JSON.stringify(DICELESS_CHARACTER)})) throw new Error('diceless play lacks the character name and description');`,
 );
 
-export const JOURNEY: Readonly<Record<'first' | 'reopen' | 'portuguese' | 'diceless', readonly JourneyStep[]>> = {
+const REPORT_FORM = '[data-roll-report-form]';
+const REPORT_INPUT = '#roll-report-input';
+const REPORTED_TOTAL = 14;
+const OPEN_REPORT = steps(
+  `await ${until(`${CONNECTED} && document.querySelector('#home-continue-0')`)};`,
+  click('#home-continue-0'),
+  `await ${until(`document.querySelector(${JSON.stringify(REPORT_FORM)}) && ${SETTLED}`)};`,
+);
+const SUBMIT_REPORT = steps(
+  `document.querySelector(${JSON.stringify(REPORT_INPUT)}).value = '${REPORTED_TOTAL}';`,
+  `document.querySelector(${JSON.stringify(REPORT_FORM)}).requestSubmit();`,
+  `await ${until(`document.querySelector('[data-rolls] [data-roll][data-reported]') && ${GM_REPLIED} && ${SETTLED}`)};`,
+);
+
+export const JOURNEY: Readonly<
+  Record<'first' | 'reopen' | 'portuguese' | 'diceless' | 'physical', readonly JourneyStep[]>
+> = {
+  physical: [
+    { script: OPEN_REPORT, shot: 'report-field' },
+    { script: SUBMIT_REPORT, shot: 'player-rolled' },
+  ],
   first: [
     { script: FIRST_HOME, shot: 'first-run-home' },
     { script: OPEN_START, shot: 'guided-start' },

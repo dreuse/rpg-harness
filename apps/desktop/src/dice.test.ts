@@ -167,3 +167,11 @@ test('rpg-42a.90: an advantage roll shows the kept die and the rule it applied',
 test('rpg-42a.90: a card without a breakdown renders no breakdown list', () => {
   assert.doesNotMatch(renderRoll(rollPlan(rollOf([die(20, 12)], { total: 12 }), 'off'), LOCALE), /data-roll-breakdown/);
 });
+
+test('rpg-42a.96: a player-rolled card is marked and says so, an app-rolled card is not', () => {
+  const reported = renderRoll(rollPlan(rollOf([die(20, 14)], { total: 14, source: 'player' }), 'off'), LOCALE);
+  assert.match(reported, /<figure data-roll data-animated="false" data-reported>/);
+  assert.match(reported, /<span data-reported-badge>rolled by you<\/span>/);
+  const app = renderRoll(rollPlan(rollOf([die(20, 14)], { total: 14 }), 'off'), LOCALE);
+  assert.doesNotMatch(app, /data-reported/);
+});

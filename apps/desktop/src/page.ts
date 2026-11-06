@@ -47,6 +47,8 @@ import {
   queryStart,
   REPLAY,
   ROLL_OFFER_ATTRIBUTE,
+  ROLL_REPORT_FORM,
+  ROLL_REPORT_INPUT,
   renderView,
   SETTINGS_PANEL,
   SETTINGS_TOGGLE,
@@ -162,10 +164,12 @@ const HOME_REGION = '[data-region="campaigns"]';
 const KEEP_ENTER_REGIONS = [START_REGION, HOME_REGION, '[data-region="status"]', '[data-region="sheet"]'];
 const SHEET_INPUT_SELECTOR = `#${SHEET_INPUT}`;
 const SHEET_FORM_SELECTOR = `[${SHEET_FORM}]`;
+const ROLL_REPORT_FORM_SELECTOR = `[${ROLL_REPORT_FORM}]`;
+const ROLL_REPORT_INPUT_SELECTOR = `#${ROLL_REPORT_INPUT}`;
 const GM_FORM_SELECTOR = `[${GM_FORM}]`;
 const GM_DEFAULTS_FORM_SELECTOR = `[${GM_DEFAULTS_FORM}]`;
 const GM_FORM_SELECTORS = [GM_FORM_SELECTOR, GM_DEFAULTS_FORM_SELECTOR];
-const GM_FIELDS = ['model', 'summaryModel', 'sessionBudgetTokens', 'rulesStrictness'] as const;
+const GM_FIELDS = ['model', 'summaryModel', 'sessionBudgetTokens', 'rulesStrictness', 'whoRolls'] as const;
 const GM_BUDGET_FIELD = 'sessionBudgetTokens';
 const SHEET_FIRST_INPUT = `${SHEET_FORM_SELECTOR} input`;
 const SHEET_EDIT_SELECTOR = '#sheet-edit';
@@ -802,6 +806,12 @@ export const mountPage = ({
     if (field !== undefined && field !== null) voiceField(field, (event.target as { value?: unknown }).value);
   });
   root.addEventListener(SUBMIT, (event) => {
+    if (closestTarget(event)?.closest(ROLL_REPORT_FORM_SELECTOR)) {
+      event.preventDefault();
+      const typed = root.querySelector<HTMLInputElement>(ROLL_REPORT_INPUT_SELECTOR)?.value?.trim() ?? '';
+      if (typed !== '') client.reportRoll(Number(typed));
+      return;
+    }
     if (closestTarget(event)?.closest(GM_FORM_SELECTOR)) {
       event.preventDefault();
       return client.saveGm(gmTypedIn(GM_FORM_SELECTOR));
