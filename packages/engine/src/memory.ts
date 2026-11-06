@@ -51,7 +51,10 @@ export const ENTITY_INTRODUCED = 'EntityIntroduced';
 export const FACT_RECORDED = 'FactRecorded';
 export const CONTEXT_BUDGET_SET = 'ContextBudgetSet';
 
-type Scope = { readonly visibility: Visibility; readonly actorId: EntityId | null };
+type Scope = {
+  readonly visibility: Visibility;
+  readonly actorId: EntityId | null;
+};
 
 export type EntityIntroduction = PlayerAction & {
   readonly entity: Omit<CampaignEntity, 'campaignId'>;
@@ -86,8 +89,48 @@ export type ContextBudgetSave = CampaignChange & { readonly preset: string };
 
 const GM_ONLY: TurnVisibility = 'gm';
 const NONE = 0;
+const START = 0;
+const SINGLE_TOKEN = 1;
 const NPC_KIND: EntityKind = 'npc';
 const CANON_LAYER = 'canon';
+const NAME_ARTICLES: ReadonlySet<string> = new Set(['the', 'a', 'an', 'of']);
+const NAME_SEPARATOR = /[^a-z0-9]+/;
+const DIACRITICS = /\p{Diacritic}/gu;
+const DOUBLED_LETTER = /(.)\1/g;
+const APOSTROPHES = /['\u2019]/g;
+const FUZZY_MIN_LENGTH = 4;
+const MAX_TOKEN_EDITS = 1;
+
+const nameTokens = (name: string): string[] =>
+  name
+    .normalize('NFD')
+    .replace(DIACRITICS, '')
+    .toLowerCase()
+    .replace(APOSTROPHES, '')
+    .split(NAME_SEPARATOR)
+    .filter((token) => token !== '' && !NAME_ARTICLES.has(token))
+    .map((token) => token.replace(DOUBLED_LETTER, '$1'));
+
+const withinOneEdit = (a: string, b: string): boolean => {
+  if (a === b) return true;
+  if (a[START] !== b[START]) return false;
+  if (Math.max(a.length, b.length) < FUZZY_MIN_LENGTH || Math.abs(a.length - b.length) > MAX_TOKEN_EDITS) return false;
+  let at = START;
+  while (at < Math.min(a.length, b.length) && a[at] === b[at]) at += 1;
+  const rest = (text: string, skip: number) => text.slice(at + skip);
+  return rest(a, 1) === rest(b, 1) || rest(a, 1) === rest(b, 0) || rest(a, 0) === rest(b, 1);
+};
+
+const similarNames = (first: string, second: string): boolean => {
+  const [shorter, longer] = [nameTokens(first), nameTokens(second)].sort((a, b) => a.length - b.length);
+  if (shorter === undefined || longer === undefined || shorter.length === NONE) return false;
+  if (shorter.length === SINGLE_TOKEN) return shorter[START] === longer[longer.length - SINGLE_TOKEN];
+  const sameLastToken = withinOneEdit(
+    shorter[shorter.length - SINGLE_TOKEN] ?? '',
+    longer[longer.length - SINGLE_TOKEN] ?? '',
+  );
+  return sameLastToken && shorter.every((token) => longer.some((other) => withinOneEdit(token, other)));
+};
 
 const turnVisibility = (visibility: Visibility): TurnVisibility =>
   (TURN_VISIBILITIES as readonly Visibility[]).includes(visibility) ? (visibility as TurnVisibility) : GM_ONLY;
@@ -99,7 +142,10 @@ const withValidTraits = (entity: EntityIntroduction['entity']): EntityIntroducti
   const { [VOICE_TRAITS_FIELD]: given, ...rest } = entity.data;
   if (given === undefined) return entity;
   const traits = toVoiceTraits(given);
-  return { ...entity, data: traits === undefined ? rest : { ...rest, [VOICE_TRAITS_FIELD]: traits } };
+  return {
+    ...entity,
+    data: traits === undefined ? rest : { ...rest, [VOICE_TRAITS_FIELD]: traits },
+  };
 };
 
 export const introduceEntity = (
@@ -112,7 +158,10 @@ export const introduceEntity = (
   const entity = withValidTraits(input.entity);
   const state = loadState(store, campaignId);
   const factEvents = (committed: CommittedTurn) => committed.events.filter(({ type }) => type === FACT_RECORDED);
-  const recordedFacts = input.facts.map((fact) => ({ ...fact, subjectId: entity.id }));
+  const recordedFacts = input.facts.map((fact) => ({
+    ...fact,
+    subjectId: entity.id,
+  }));
   const project = (committed: CommittedTurn) => {
     const savedFacts = new Set(facts.listFacts(campaignId).map(({ id }) => id));
     const savedEdges = new Set(entities.listRelationships(campaignId).map(({ id }) => id));
@@ -139,10 +188,17 @@ export const introduceEntity = (
     entities.getEntity(campaignId, entity.id) !== undefined || state.characters.some(({ id }) => id === entity.id);
   requireValid(actionId, !taken, `entity ${entity.id} already exists`);
   if (entity.kind === NPC_KIND) {
-    const npcIds = new Set(entities.listEntities(campaignId, NPC_KIND).map(({ id }) => id));
+    const npcs = entities.listEntities(campaignId, NPC_KIND);
+    const npcIds = new Set(npcs.map(({ id }) => id));
     const roles = facts
       .listFacts(campaignId)
       .filter(({ layer, subjectId }) => layer === CANON_LAYER && subjectId !== null && npcIds.has(subjectId));
+    const lookalike = npcs.find(({ name }) => similarNames(name, entity.name));
+    requireValid(
+      actionId,
+      lookalike === undefined,
+      `npc ${entity.name} looks like existing npc ${lookalike?.id}; reuse that id`,
+    );
     for (const { id, statement, layer } of input.facts) {
       const holder =
         layer === CANON_LAYER ? roles.find((role) => normalize(role.statement) === normalize(statement)) : undefined;

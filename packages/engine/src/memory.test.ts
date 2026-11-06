@@ -309,3 +309,65 @@ test('an introduced npc with unusable voice traits stores none', () => {
   assert.deepEqual(entities.getEntity(CAMPAIGN.id, WARDEN.id)?.data, {});
   connection.close();
 });
+
+const SIMILAR_NAMES: readonly (readonly [string, string])[] = [
+  ['Corvin Ashe', 'Corwin Ash'],
+  ['The Drowned Warden', 'The Warden'],
+  ['Orrin Vale', 'Sexton Oren Vale'],
+];
+
+for (const [first, second] of SIMILAR_NAMES) {
+  test(`rpg-42a.95 npc named ${second} is rejected as a duplicate of ${first}`, () => {
+    const { connection, store, entities, facts } = seeded();
+    const intro = (actionId: string, id: string, name: string) => ({
+      ...actionFor(store, actionId),
+      entity: { id, kind: 'npc' as const, name, data: {}, ...PUBLIC },
+      facts: [],
+      relationships: [],
+    });
+    const original = intro('meet-first', 'first-npc', first);
+    introduceEntity(store, entities, facts, original);
+    assert.throws(
+      () => introduceEntity(store, entities, facts, intro('meet-second', 'second-npc', second)),
+      (error: unknown) => error instanceof InvalidActionError && error.message.includes('first-npc'),
+    );
+    assert.equal(entities.getEntity(CAMPAIGN.id, 'second-npc'), undefined);
+    assert.equal(introduceEntity(store, entities, facts, original).events.length > 0, true);
+    connection.close();
+  });
+}
+
+test('rpg-42a.95 distinct npc names are accepted', () => {
+  const { connection, store, entities, facts } = seeded();
+  introduceEntity(store, entities, facts, innkeeper(store, 'meet-maren', 'maren-oakhollow', 'Maren Oakhollow'));
+  const other = { ...innkeeper(store, 'meet-marta', 'marta-hollis', 'Marta Hollis'), facts: [] };
+  introduceEntity(store, entities, facts, other);
+  assert.notEqual(entities.getEntity(CAMPAIGN.id, 'marta-hollis'), undefined);
+  connection.close();
+});
+
+const DISTINCT_NAMES: readonly (readonly [string, string])[] = [
+  ['Bob', 'Rob'],
+  ['Mira', 'Kira'],
+  ['Goblin', 'Goblin Archer'],
+  ['The Innkeeper', "The Innkeeper's Daughter"],
+  ['Guard', 'Guard Captain Holt'],
+  ['Mira Vale', 'Kira Vale'],
+  ['Goblin Archer', 'Goblin Archer Captain'],
+];
+
+for (const [first, second] of DISTINCT_NAMES) {
+  test(`rpg-42a.95 npcs named ${first} and ${second} are both accepted`, () => {
+    const { connection, store, entities, facts } = seeded();
+    const intro = (actionId: string, id: string, name: string) => ({
+      ...actionFor(store, actionId),
+      entity: { id, kind: 'npc' as const, name, data: {}, ...PUBLIC },
+      facts: [],
+      relationships: [],
+    });
+    introduceEntity(store, entities, facts, intro('meet-first', 'first-npc', first));
+    introduceEntity(store, entities, facts, intro('meet-second', 'second-npc', second));
+    assert.notEqual(entities.getEntity(CAMPAIGN.id, 'second-npc'), undefined);
+    connection.close();
+  });
+}
