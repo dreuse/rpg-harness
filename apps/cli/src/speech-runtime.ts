@@ -1,9 +1,22 @@
 import { join } from 'node:path';
+import type { AudioCache } from '../../../packages/voice/src/audio-budget.ts';
+import { audioCacheKey } from '../../../packages/voice/src/audio-budget.ts';
+import {
+  AUDIO_CACHE_BYTES,
+  AUDIO_CACHE_DIR,
+  createFileAudioCache,
+} from '../../../packages/voice/src/audio-cache-store.ts';
 import { npcVoiceBlend } from '../../../packages/voice/src/cinematic.ts';
 import { duckingSink } from '../../../packages/voice/src/ducking-sink.ts';
 import { createKokoroJsEngine, KOKORO_MODEL_DIR_ENV } from '../../../packages/voice/src/kokoro-js-engine.ts';
+import { KOKORO_MODEL_SOURCE } from '../../../packages/voice/src/kokoro-model.ts';
 import { createKokoroOnnxEngine, KOKORO_ONNX_PROVIDER_ID } from '../../../packages/voice/src/kokoro-onnx-engine.ts';
-import { createKokoroProvider, type KokoroProvider } from '../../../packages/voice/src/kokoro-provider.ts';
+import {
+  createKokoroProvider,
+  KOKORO_MIME_TYPE,
+  KOKORO_PROVIDER_ID,
+  type KokoroProvider,
+} from '../../../packages/voice/src/kokoro-provider.ts';
 import { noVoiceNotice, voicesFor } from '../../../packages/voice/src/language-voices.ts';
 import {
   createMlxAudioProvider,
@@ -11,6 +24,7 @@ import {
   MLX_KOKORO_CAPABILITIES,
   MLX_KOKORO_PROVIDER_ID,
 } from '../../../packages/voice/src/mlx-audio-engine.ts';
+import { MLX_AUDIO_OFFER } from '../../../packages/voice/src/mlx-audio-install.ts';
 import type { PlaybackSink } from '../../../packages/voice/src/playback.ts';
 import { createProcessSink } from '../../../packages/voice/src/process-sink.ts';
 import { choosePtBrRoute, type PtBrRoute } from '../../../packages/voice/src/pt-br-route.ts';
@@ -25,6 +39,10 @@ import {
 
 export const VOICE_MODELS_DIR = 'voice-models';
 export const MLX_AUDIO_SUBDIR = 'mlx-audio';
+const MODEL_VERSIONS: Readonly<Record<string, string>> = {
+  [KOKORO_PROVIDER_ID]: KOKORO_MODEL_SOURCE,
+  [MLX_KOKORO_PROVIDER_ID]: MLX_AUDIO_OFFER.source,
+};
 export const SYNTHESIS_FAILURE_NOTICE = 'Part of the story could not be read aloud, so it stays in text.';
 
 export interface SpeechRuntime {
@@ -41,20 +59,45 @@ export interface SpeechRuntimeOptions {
   readonly sink: PlaybackSink & { dispose?(): void };
   readonly now?: () => number;
   readonly route?: PtBrRoute;
+  readonly cache?: AudioCache;
 }
+
+const attempt = <T>(work: () => T): T | undefined => {
+  try {
+    return work();
+  } catch {
+    return undefined;
+  }
+};
 
 export const createSpeechRuntime = ({
   providers,
   sink,
   now = performance.now.bind(performance),
   route = choosePtBrRoute(),
+  cache,
 }: SpeechRuntimeOptions): SpeechRuntime => {
   const diagnostics = createVoiceDiagnostics();
   async function* synthesize(utterance: CommittedUtterance, signal: AbortSignal): AsyncGenerator<SpeechChunk> {
     for (const { providerId, voiceId } of utterance.profile.fallbacks) {
       const provider = providers.find(({ id }) => id === providerId);
       if (provider === undefined || provider.healthy?.() === false) continue;
-      yield* provider.synthesize(utterance, voiceId, signal);
+      const modelVersion = MODEL_VERSIONS[providerId];
+      const key =
+        cache === undefined || modelVersion === undefined
+          ? undefined
+          : audioCacheKey(providerId, voiceId, utterance, { modelVersion, outputFormat: KOKORO_MIME_TYPE });
+      const cached = key === undefined ? undefined : attempt(() => cache?.get(key));
+      if (cached !== undefined) {
+        yield* cached.map((chunk) => ({ ...chunk, utteranceEventId: utterance.eventId }));
+        return;
+      }
+      const chunks: SpeechChunk[] = [];
+      for await (const chunk of provider.synthesize(utterance, voiceId, signal)) {
+        chunks.push(chunk);
+        yield chunk;
+      }
+      if (key !== undefined && !signal.aborted) attempt(() => cache?.set(key, chunks));
       return;
     }
   }
@@ -158,9 +201,11 @@ export const createLiveSpeechRuntime = (
   onSpeaking: (active: boolean) => void = () => undefined,
 ): SpeechRuntime => {
   const route = choosePtBrRoute(process.platform, process.arch, env);
+  const cache = attempt(() => createFileAudioCache(join(dataDir, AUDIO_CACHE_DIR), AUDIO_CACHE_BYTES));
   return createSpeechRuntime({
     providers: liveProviders(dataDir, env, route),
     route,
     sink: duckingSink(createProcessSink(), onSpeaking),
+    ...(cache === undefined ? {} : { cache }),
   });
 };

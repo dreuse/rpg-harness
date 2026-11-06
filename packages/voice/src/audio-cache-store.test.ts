@@ -112,3 +112,17 @@ test('a failed write is dropped without throwing', () => {
   assert.equal(cache.get('k'), undefined);
   assert.equal(cache.bytes, 0);
 });
+
+test('an entry written by another instance on the same directory is a hit', () => {
+  const reader = createFileAudioCache(dir, Number.MAX_SAFE_INTEGER);
+  const writer = createFileAudioCache(dir, Number.MAX_SAFE_INTEGER);
+  writer.set('shared', chunks(1));
+  assert.deepEqual(reader.get('shared'), chunks(1));
+  assert.equal(reader.bytes, diskBytes());
+});
+
+test('a missing file on an index miss stays a miss', () => {
+  const reader = createFileAudioCache(dir, Number.MAX_SAFE_INTEGER);
+  assert.equal(reader.get('absent'), undefined);
+  assert.equal(reader.bytes, 0);
+});

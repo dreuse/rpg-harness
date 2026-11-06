@@ -1,7 +1,11 @@
 import { rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { audioCacheKey } from '../../../packages/voice/src/audio-budget.ts';
-import { createFileAudioCache } from '../../../packages/voice/src/audio-cache-store.ts';
+import {
+  AUDIO_CACHE_BYTES,
+  AUDIO_CACHE_DIR,
+  createFileAudioCache,
+} from '../../../packages/voice/src/audio-cache-store.ts';
 import { npcVoiceBlend } from '../../../packages/voice/src/cinematic.ts';
 import { createKokoroJsEngine, KOKORO_MODEL_DIR_ENV } from '../../../packages/voice/src/kokoro-js-engine.ts';
 import {
@@ -38,12 +42,13 @@ export const VOICE_ROUTE_ENV = 'RPG_VOICE';
 export const FAKE_VOICE_ROUTE = 'fake';
 export const VOICE_MODELS_DIR = 'voice-models';
 export const MLX_AUDIO_SUBDIR = 'mlx-audio';
-export const AUDIO_CACHE_DIR = 'audio-cache';
+export { AUDIO_CACHE_DIR };
 export const MAX_SPEECH_CHARS = 4000;
 export const MAX_STYLE_CHARS = 200;
+export const MAX_EMOTION_CHARS = 100;
 export const MAX_PRONUNCIATIONS = 100;
 export const MAX_PRONUNCIATION_CHARS = 200;
-export const PREVIEW_CACHE_BYTES = 8 * 1024 * 1024;
+export const PREVIEW_CACHE_BYTES = AUDIO_CACHE_BYTES;
 export const PREVIEW_LINES: Readonly<Record<string, string>> = {
   en: 'Welcome, traveller. Your story begins here.',
   pt: 'Bem-vindo, viajante. A sua história começa aqui.',
@@ -119,7 +124,10 @@ const isDelivery = (value: unknown): value is Delivery =>
   isRecord(value) &&
   Object.entries(value).every(
     ([field, entry]) =>
-      Object.hasOwn(DELIVERY_FIELDS, field) && typeof entry === DELIVERY_FIELDS[field as keyof typeof DELIVERY_FIELDS],
+      Object.hasOwn(DELIVERY_FIELDS, field) &&
+      typeof entry === DELIVERY_FIELDS[field as keyof typeof DELIVERY_FIELDS] &&
+      (typeof entry !== 'number' || Number.isFinite(entry)) &&
+      (typeof entry !== 'string' || entry.length <= MAX_EMOTION_CHARS),
   );
 
 export const isConsent = (value: unknown): value is ModelConsent =>

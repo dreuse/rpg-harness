@@ -1,5 +1,12 @@
 import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { test } from 'node:test';
+import { audioCacheKey } from '../../../packages/voice/src/audio-budget.ts';
+import { createFileAudioCache } from '../../../packages/voice/src/audio-cache-store.ts';
+import { KOKORO_MODEL_SOURCE } from '../../../packages/voice/src/kokoro-model.ts';
+import { KOKORO_MIME_TYPE, KOKORO_PROVIDER_ID } from '../../../packages/voice/src/kokoro-provider.ts';
 import type { PlaybackSink } from '../../../packages/voice/src/playback.ts';
 import type { SpeechChunk, TtsProvider } from '../../../packages/voice/src/tts.ts';
 import type { CommittedUtterance, VoiceProfile } from '../../../packages/voice/src/voice.ts';
@@ -197,4 +204,97 @@ test('a healthy preload yields no failure notice', async () => {
   prepareVoice([mlx], PT_BR, ROUTE);
   await tick();
   assert.equal(takePreloadFailureNotice([mlx], PT_BR, ROUTE), undefined);
+});
+
+const CACHE_BYTES = 1024 * 1024;
+const countingProvider = (id: string, calls: string[]): TtsProvider => ({
+  ...provider(id),
+  async *synthesize(item, voiceId, signal) {
+    calls.push(item.text);
+    yield* provider(id).synthesize(item, voiceId, signal);
+  },
+});
+const cacheOptions = (dir: string) => ({ cache: createFileAudioCache(dir, CACHE_BYTES) });
+
+test('rpg-cm63.54 a live synthesis is stored so the next speak of the same line skips the provider', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'live-cache-'));
+  const calls: string[] = [];
+  const played: string[] = [];
+  for (let round = 0; round < 2; round += 1) {
+    const runtime = createSpeechRuntime({
+      providers: [countingProvider(KOKORO_PROVIDER_ID, calls)],
+      sink: sinkOf(played),
+      ...cacheOptions(dir),
+    });
+    runtime.speech.hold('t', utterance(KOKORO_PROVIDER_ID));
+    runtime.speech.commit('t');
+    await runtime.speech.idle();
+  }
+  assert.deepEqual(calls, [SECRET]);
+  assert.deepEqual(played, ['voice-1', 'voice-1']);
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test('rpg-cm63.54 the live cache entry is the one a replay of the same line looks up', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'live-cache-'));
+  const replayCache = createFileAudioCache(dir, CACHE_BYTES);
+  const runtime = createSpeechRuntime({
+    providers: [provider(KOKORO_PROVIDER_ID)],
+    sink: sinkOf([]),
+    ...cacheOptions(dir),
+  });
+  runtime.speech.hold('t', utterance(KOKORO_PROVIDER_ID));
+  runtime.speech.commit('t');
+  await runtime.speech.idle();
+  const key = audioCacheKey(KOKORO_PROVIDER_ID, 'voice-1', utterance(KOKORO_PROVIDER_ID), {
+    modelVersion: KOKORO_MODEL_SOURCE,
+    outputFormat: KOKORO_MIME_TYPE,
+  });
+  assert.equal(replayCache.get(key)?.length, 1);
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test('rpg-cm63.54 a broken cache never stops speech', async () => {
+  const played: string[] = [];
+  const broken = {
+    bytes: 0,
+    get: () => {
+      throw new Error('disk gone');
+    },
+    set: () => {
+      throw new Error('disk full');
+    },
+  };
+  const runtime = createSpeechRuntime({
+    providers: [provider(KOKORO_PROVIDER_ID)],
+    sink: sinkOf(played),
+    cache: broken,
+  });
+  runtime.speech.hold('t', utterance(KOKORO_PROVIDER_ID));
+  runtime.speech.commit('t');
+  await runtime.speech.idle();
+  assert.deepEqual(played, ['voice-1']);
+  assert.equal(runtime.takeFailureNotice(), undefined);
+});
+
+test('rpg-cm63.54 a synthesis aborted midway is not cached', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'live-cache-'));
+  const cache = createFileAudioCache(dir, CACHE_BYTES);
+  const aborting: TtsProvider = {
+    ...provider(KOKORO_PROVIDER_ID),
+    async *synthesize(item, voiceId, signal) {
+      yield* provider(KOKORO_PROVIDER_ID).synthesize(item, voiceId, signal);
+      runtime.speech.stop();
+    },
+  };
+  const runtime = createSpeechRuntime({ providers: [aborting], sink: sinkOf([]), cache });
+  runtime.speech.hold('t', utterance(KOKORO_PROVIDER_ID));
+  runtime.speech.commit('t');
+  await runtime.speech.idle();
+  const key = audioCacheKey(KOKORO_PROVIDER_ID, 'voice-1', utterance(KOKORO_PROVIDER_ID), {
+    modelVersion: KOKORO_MODEL_SOURCE,
+    outputFormat: KOKORO_MIME_TYPE,
+  });
+  assert.equal(cache.get(key), undefined);
+  rmSync(dir, { recursive: true, force: true });
 });

@@ -4,6 +4,8 @@ import { join } from 'node:path';
 import type { AudioCache } from './audio-budget.ts';
 import type { SpeechChunk } from './tts.ts';
 
+export const AUDIO_CACHE_DIR = 'audio-cache';
+export const AUDIO_CACHE_BYTES = 8 * 1024 * 1024;
 const FILE_SUFFIX = '.json';
 const HASH_ALGORITHM = 'sha256';
 const AUDIO_ENCODING = 'base64';
@@ -63,6 +65,17 @@ export const createFileAudioCache = (dir: string, maxBytes: number): AudioCache 
     entries.set(name, { size, used });
     utimesSync(join(dir, name), used / MS_PER_SECOND, used / MS_PER_SECOND);
   };
+  const adopt = (name: string): Entry | undefined => {
+    try {
+      const { size, mtimeMs } = statSync(join(dir, name));
+      const entry = { size, used: mtimeMs };
+      entries.set(name, entry);
+      bytes += size;
+      return entry;
+    } catch {
+      return undefined;
+    }
+  };
   const evictUntilFits = (size: number): void => {
     const oldestFirst = [...entries].sort(([, left], [, right]) => left.used - right.used);
     for (const [name] of oldestFirst) {
@@ -77,9 +90,9 @@ export const createFileAudioCache = (dir: string, maxBytes: number): AudioCache 
     },
     get(key) {
       const name = fileNameOf(key);
-      const entry = entries.get(name);
-      if (!entry) return undefined;
       try {
+        const entry = entries.get(name) ?? adopt(name);
+        if (!entry) return undefined;
         const chunks = decode(readFileSync(join(dir, name), 'utf8'));
         touch(name, entry.size);
         return chunks;

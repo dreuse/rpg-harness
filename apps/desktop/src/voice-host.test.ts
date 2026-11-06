@@ -18,6 +18,7 @@ import {
   createVoiceHost,
   fakeVoiceProviders,
   type HostedProvider,
+  MAX_EMOTION_CHARS,
   MAX_PRONUNCIATION_CHARS,
   MAX_PRONUNCIATIONS,
   MAX_SPEECH_CHARS,
@@ -265,6 +266,9 @@ test('rpg-cm63.49 voice host rejects a replay request with malformed delivery, s
   const invalid = [
     { ...request, delivery: 'angry' },
     { ...request, delivery: { emotion: 7 } },
+    { ...request, delivery: { emotion: 'x'.repeat(MAX_EMOTION_CHARS + 1) } },
+    { ...request, delivery: { intensity: Number.NaN } },
+    { ...request, delivery: { pace: Number.POSITIVE_INFINITY } },
     { ...request, delivery: { intensity: 'high' } },
     { ...request, delivery: { volume: 1 } },
     { ...request, style: 7 },
