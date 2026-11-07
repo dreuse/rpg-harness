@@ -30,6 +30,7 @@ export type RollBreakdown = {
 
 export type MechanicResult = {
   readonly resultId: string;
+  readonly actionId?: string;
   readonly mechanic: string;
   readonly visibility: Visibility;
   readonly reveals: readonly MechanicReveal[];
@@ -56,6 +57,7 @@ export type VisualizationEvent = {
   readonly version: ProtocolVersion;
   readonly type: typeof VISUALIZATION_EVENT;
   readonly resultId: string;
+  readonly actionId?: string;
   readonly mechanic: string;
   readonly frames: readonly VisualizationFrame[];
   readonly final: VisualizationFinal;
@@ -164,6 +166,7 @@ export const toVisualizationEvent = (
     version: PROTOCOL_VERSION,
     type: VISUALIZATION_EVENT,
     resultId: result.resultId,
+    ...(result.actionId === undefined ? {} : { actionId: result.actionId }),
     mechanic: result.mechanic,
     frames: result.reveals.map((reveal, step) => ({ step, reveal: copyReveal(reveal) })),
     final: finalOf(result),

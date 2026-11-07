@@ -1338,3 +1338,14 @@ test('rpg-42a.113 a turn still queued in the outbox shows no retry', () => {
   assert.equal(client.state().outbox.length, 1);
   assert.doesNotMatch(renderView(viewModel(client.state(), WIDE_WIDTH), 'en'), /data-retry-turn/);
 });
+
+test('rpg-42a.161: a roll linked to a conversation action leaves a collapsed tray collapsed', () => {
+  const { wire, client } = connectedClient();
+  wire.receive({ type: 'Snapshot', snapshot: snapshotAt(1, ['a0']) });
+  wire.receive(rollEvent('r1', 17));
+  client.collapseRolls();
+  wire.receive({ ...rollEvent('r2', 9), actionId: 'a0', replayed: true });
+  assert.equal(viewModel(client.state(), WIDE_WIDTH).rollsCollapsed, true);
+  wire.receive(rollEvent('r3', 4));
+  assert.equal(viewModel(client.state(), WIDE_WIDTH).rollsCollapsed, false);
+});

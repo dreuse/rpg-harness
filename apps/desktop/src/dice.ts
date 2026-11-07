@@ -28,6 +28,7 @@ const PART_SEPARATOR = ', ';
 export type DiceGroup = { readonly shape: string; readonly sides: number; readonly dice: number[][] };
 export type RollPlan = {
   readonly resultId: string;
+  readonly actionId?: string | undefined;
   readonly mechanic: string;
   readonly animated: boolean;
   readonly durationMs: number;
@@ -66,6 +67,7 @@ export const rollPlan = (event: VisualizationEvent, motion: MotionSetting): Roll
   }
   return {
     resultId: event.resultId,
+    ...(event.actionId === undefined ? {} : { actionId: event.actionId }),
     mechanic: event.mechanic,
     animated,
     durationMs: animated ? ROLL_MS : STILL_MS,

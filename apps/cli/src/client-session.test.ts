@@ -413,6 +413,18 @@ test('committed rolls reach each session as visualizations through the event vis
   assert.doesNotMatch(JSON.stringify(player), /ambush-roll|rival-roll/);
 });
 
+test('rpg-42a.161: a committed roll is visualized with the action id of the turn it belongs to', () => {
+  const { engine, campaignId, sessionFor, envelope, seed } = setup();
+  seed('config', CAMPAIGN_CONFIGURED, { config: visualizingConfig() }, 'gm');
+  const player = collect(sessionFor(PLAYER_VIEWER), envelope);
+  seed('swim-roll', 'RuleResolved', resolvedRoll('swim-roll'), 'player');
+  sessionFor(PLAYER_VIEWER).getSnapshot({ ...envelope, type: 'GetCampaignSnapshot' });
+  const actionId = engine.getState(campaignId).turns[0]?.actionId;
+  assert.ok(actionId !== undefined);
+  const visualized = player.flatMap((event) => (event.type === VISUALIZATION_EVENT ? [event.actionId] : []));
+  assert.deepEqual(visualized, [actionId]);
+});
+
 test('committed rolls are not visualized when the campaign has not turned visualization on', () => {
   const { sessionFor, envelope, seed } = setup();
   const gm = collect(sessionFor(GM_VIEWER), envelope);
@@ -774,6 +786,7 @@ test('a newly resolved encounter roll reaches subscribers as MechanicVisualized 
     {
       version: PROTOCOL_VERSION,
       type: VISUALIZATION_EVENT,
+      actionId: turn.actionId,
       resultId: 'r1',
       mechanic: 'dice',
       frames: [{ step: 0, reveal: { kind: 'die', sides: 20, face: 14 } }],
@@ -782,6 +795,15 @@ test('a newly resolved encounter roll reaches subscribers as MechanicVisualized 
   ]);
   sessionFor(PLAYER_VIEWER).getSnapshot({ ...envelope, type: 'GetCampaignSnapshot' });
   assert.equal(mechanics(player).length, 1);
+});
+
+test('rpg-42a.161: a replayed encounter roll carries the action id of the turn it belongs to', () => {
+  const on = setup(visualizedConfig(true));
+  resolveRoll(on.seed, on.turn.actorId, 'player');
+  const player = collect(on.sessionFor(PLAYER_VIEWER), on.envelope);
+  on.sessionFor(PLAYER_VIEWER).getSnapshot({ ...on.envelope, type: 'GetCampaignSnapshot' });
+  const replayed = mechanics(player).flatMap((event) => (event.type === VISUALIZATION_EVENT ? [event.actionId] : []));
+  assert.deepEqual(replayed, [on.turn.actionId]);
 });
 
 test('encounter rolls stay hidden when dice visualization is off or the roll is gm-only', () => {

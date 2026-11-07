@@ -125,8 +125,8 @@ const empty = (locale: string, region: Region) =>
   `<p data-empty>${escapeHtml(translate(locale, `empty.${region}`))}</p>`;
 const orEmpty = (items: readonly string[], locale: string, region: Region) =>
   items.length === 0 ? empty(locale, region) : list(items);
-const speaker = (locale: string, who: 'player' | 'gm', text: string) =>
-  `<p data-speaker="${who}"><span data-speaker-label>${escapeHtml(translate(locale, `speaker.${who}`))}</span>${escapeHtml(text)}</p>`;
+const speaker = (locale: string, who: 'player' | 'gm', text: string, trailing = '') =>
+  `<p data-speaker="${who}"><span data-speaker-label>${escapeHtml(translate(locale, `speaker.${who}`))}</span>${escapeHtml(text)}${trailing}</p>`;
 const systemLine = (text: string) => `<p data-speaker="system">${escapeHtml(text)}</p>`;
 const playerLine = (locale: string, input: string, rollOfferId: string | undefined) =>
   rollOfferId === undefined
@@ -135,10 +135,10 @@ const playerLine = (locale: string, input: string, rollOfferId: string | undefin
 export const RETRY_TURN_ATTRIBUTE = 'data-retry-turn';
 const failureNotice = (locale: string, failure: GmFailure) =>
   `<p data-speaker="system" data-gm-failure role="alert">${escapeHtml(gmFailureText(locale, failure))} ${escapeHtml(gmFailureKept(locale))}</p>${button(RETRY_TURN_ATTRIBUTE, '', translate(locale, 'action.retryTurn'), false, true)}`;
-const gmLine = (locale: string, narration: string, pending: boolean) =>
+const gmLine = (locale: string, narration: string, pending: boolean, trailing: string) =>
   narration.trim() === ''
     ? systemLine(translate(locale, pending ? 'label.pending' : 'label.no-reply'))
-    : speaker(locale, 'gm', narration);
+    : speaker(locale, 'gm', narration, trailing);
 
 const replayButton = (locale: string, actionId: string, narration: string, replay: ReplayView | undefined) => {
   if (replay?.available !== true || narration.trim() === '') return '';
@@ -646,12 +646,21 @@ const rollHistory = (older: ViewModel['rolls'], locale: string) =>
     ? ''
     : `<details data-roll-history><summary>${escapeHtml(translate(locale, 'roll.history'))}</summary><ol>${older.map((plan) => `<li>${escapeHtml(rollSummary(plan, locale))}</li>`).join('')}</ol></details>`;
 
-const rollTray = ({ rolls: [latest, ...older], rollsCollapsed, rollBadgeFresh }: ViewModel, locale: string) =>
-  latest === undefined
+const linkedRolls = ({ rolls }: ViewModel, actionId: string, locale: string) =>
+  rolls
+    .filter((plan) => plan.actionId === actionId)
+    .map((plan) => renderRoll(plan, locale))
+    .join('');
+
+const rollTray = ({ rolls, conversation, rollsCollapsed, rollBadgeFresh }: ViewModel, locale: string) => {
+  const linked = new Set(conversation.map(({ actionId }) => actionId));
+  const [latest, ...older] = rolls.filter(({ actionId }) => actionId === undefined || !linked.has(actionId));
+  return latest === undefined
     ? ''
     : rollsCollapsed
       ? renderRollBadge(latest, locale, rollBadgeFresh)
       : `<section data-rolls tabindex="-1" aria-label="${escapeHtml(translate(locale, 'region.rolls'))}">${renderRoll(latest, locale)}${rollHistory(older, locale)}</section>`;
+};
 
 export const ROLL_OFFER_ATTRIBUTE = 'data-roll-offer';
 export const OOC_ATTRIBUTE = 'data-ooc';
@@ -822,7 +831,7 @@ const REGION_BODIES: Readonly<Record<Region, (model: ViewModel, locale: string) 
     `<ol aria-live="polite">${model.conversation
       .map(
         ({ actionId, input, narration, pending, noRoll, failure, rollOfferId }) =>
-          `<li data-action-id="${escapeHtml(actionId)}"${pending ? ' aria-busy="true"' : ''}>${actionId === OPENING_ACTION_ID ? '' : playerLine(locale, input, rollOfferId)}${failure === undefined ? gmLine(locale, narration, pending) : failureNotice(locale, failure)}${pending ? '' : replayButton(locale, actionId, narration, model.replay)}${noRoll === undefined ? '' : systemLine(translate(locale, `noRoll.${noRoll}`))}</li>`,
+          `<li data-action-id="${escapeHtml(actionId)}"${pending ? ' aria-busy="true"' : ''}>${actionId === OPENING_ACTION_ID ? '' : playerLine(locale, input, rollOfferId)}${linkedRolls(model, actionId, locale)}${failure === undefined ? gmLine(locale, narration, pending, pending ? '' : replayButton(locale, actionId, narration, model.replay)) : failureNotice(locale, failure)}${noRoll === undefined ? '' : systemLine(translate(locale, `noRoll.${noRoll}`))}</li>`,
       )
       .join(
         '',

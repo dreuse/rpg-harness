@@ -1112,6 +1112,37 @@ test('rpg-cm63.46 the replay button has a visible focus style', () => {
   assert.match(css, /\[data-replay\]:focus-visible/);
 });
 
+test('rpg-42a.161 the replay button sits inside the narration line, with an accessible name and no row of its own', () => {
+  const html = renderView({ ...viewModel(state, WIDE_WIDTH), replay: { available: true } }, 'en');
+  assert.match(
+    html,
+    /<p data-speaker="gm">.*<button type="button" data-replay="a0" aria-label="Play this passage">.*<\/button><\/p>/,
+  );
+  assert.doesNotMatch(html, /<\/p><button type="button" data-replay/);
+});
+
+test('rpg-42a.161 the replay control keeps a 44px target and hides without leaving the layout', () => {
+  const css = readFileSync(new URL('./view.css', import.meta.url), 'utf8');
+  const rule = css.match(/\[data-replay\] \{[^}]*\}/)?.[0] ?? '';
+  assert.match(rule, /min-width: var\(--target-min\)/);
+  assert.match(rule, /min-height: var\(--target-min\)/);
+  assert.match(rule, /opacity: 0/);
+  assert.doesNotMatch(rule, /display: none/);
+  assert.match(css, /:focus-within \[data-replay\]/);
+});
+
+test('rpg-42a.161 a roll linked to an action renders between its player line and the GM reply', () => {
+  const linked = { ...rolled('r1', 14), actionId: 'a0' };
+  const html = renderView(viewModel({ ...state, rolls: [linked] }, WIDE_WIDTH), 'en');
+  const player = html.indexOf('data-speaker="player"');
+  const roll = html.indexOf('<figure data-roll');
+  const gm = html.indexOf('data-speaker="gm"');
+  assert.ok(player < roll && roll < gm);
+  assert.equal(html.match(/<figure data-roll/g)?.length, 1);
+  const unlinked = renderView(viewModel({ ...state, rolls: [rolled('r1', 14)] }, WIDE_WIDTH), 'en');
+  assert.ok(unlinked.indexOf('<figure data-roll') > unlinked.indexOf('data-speaker="gm"'));
+});
+
 test('rpg-42a.96: the GM form offers who rolls with a default, app, me and ask, selecting the saved one', () => {
   const snapshot = state.snapshot as NonNullable<DesktopState['snapshot']>;
   const usage = {

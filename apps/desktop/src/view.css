@@ -347,13 +347,32 @@ section[data-region="start"]:not(:has(h2)) {
 }
 
 [data-replay] {
-  justify-self: start;
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-end: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   min-width: var(--target-min);
+  min-height: var(--target-min);
   padding: var(--space-1) var(--space-2);
   color: var(--text-muted);
   line-height: 1;
   background: transparent;
   border-color: transparent;
+  opacity: 0;
+}
+
+li:hover [data-replay],
+li:focus-within [data-replay],
+[data-replay]:focus-visible {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  [data-replay] {
+    opacity: 1;
+  }
 }
 
 [data-replay]:hover {
@@ -378,7 +397,9 @@ section[data-region="start"]:not(:has(h2)) {
 }
 
 [data-speaker="gm"] {
+  position: relative;
   padding-inline-start: var(--space-4);
+  padding-inline-end: var(--target-min);
   border-inline-start: var(--marker-width) solid var(--accent);
   font-family: var(--font-narration);
   font-size: calc(var(--text-lg) * var(--font-scale, 1));

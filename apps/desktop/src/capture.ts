@@ -168,11 +168,16 @@ const DICELESS_RULESET = 'Story only';
 const DICELESS_NAME = 'Mara';
 const DICE_QUESTION = 'Who rolls the dice';
 const DICELESS_CHARACTER = 'A lighthouse keeper named Mara who hears the sea talk.';
-const UNUSED_PARTS = '[data-region="sheet"], [data-rolls], [data-motion-control]';
+const ROLL_CARD = '[data-rolls] [data-roll], [data-region="conversation"] [data-roll]';
+const ROLL_CARD_REPORTED =
+  '[data-rolls] [data-roll][data-reported], [data-region="conversation"] [data-roll][data-reported]';
+const UNUSED_PARTS =
+  '[data-region="sheet"], [data-rolls], [data-region="conversation"] [data-roll], [data-motion-control]';
 const PORTUGUESE_GUIDE = 'Me guie';
 const PORTUGUESE_FEATURE = 'Animação de dados';
 const JOURNEY_CHARACTER = 'A scout named Wren with might 6, agility 5, wits 7 and presence 4.';
-const RANDOM_REGIONS = '[data-rolls], [data-voice-progress], [data-voice-diagnostics]';
+const RANDOM_REGIONS =
+  '[data-rolls], [data-region="conversation"] [data-roll], [data-voice-progress], [data-voice-diagnostics]';
 const CONNECTED = `document.querySelector('[role=status][data-connection="connected"]')`;
 const PLAY_READY = `document.querySelector('main[data-screen="play"] [data-region="conversation"] li:not([aria-busy])') && document.querySelector('[data-region="sheet"] h3')`;
 const DICELESS_PLAY_READY = `document.querySelector('main[data-screen="play"] [data-region="conversation"] li:not([aria-busy])') && document.querySelector('[data-region="character"] h3')`;
@@ -299,7 +304,7 @@ const FIRST_TURN = steps(
   `await ${until(PLAY_READY)};`,
   `document.querySelector('#action-input').value = ${JSON.stringify(JOURNEY_ACTION)};`,
   `document.querySelector('#action-form').requestSubmit();`,
-  `await ${until(`document.querySelector('[data-rolls] [data-roll]') && ${GM_REPLIED} && ${SETTLED}`)};`,
+  `await ${until(`document.querySelector(${JSON.stringify(ROLL_CARD)}) && ${GM_REPLIED} && ${SETTLED}`)};`,
 );
 
 const OOC_NOTE = 'Please keep the tone light.';
@@ -330,11 +335,11 @@ const NPC_ROLL_ACTION = 'Tam steps out from the bar and brings the cudgel down o
 const NPC_ROLL_TURN = steps(
   `document.querySelector('#action-input').value = ${JSON.stringify(NPC_ROLL_ACTION)};`,
   `document.querySelector('#action-form').requestSubmit();`,
-  `await ${until(`document.querySelector('[data-rolls] [data-roll]') && ${GM_REPLIED} && ${SETTLED}`)};`,
+  `await ${until(`document.querySelector(${JSON.stringify(ROLL_CARD)}) && ${GM_REPLIED} && ${SETTLED}`)};`,
 );
 const GM_PROPOSAL_TURN = steps(`await ${until(`${GM_REPLIED} && ${SETTLED}`)};`);
 
-const COLLAPSED_ROLL = steps(`await ${until(`document.querySelector('[data-roll-badge]') && ${SETTLED}`)};`);
+const SETTLED_ROLL = steps(`await ${until(`document.querySelector(${JSON.stringify(ROLL_CARD)}) && ${SETTLED}`)};`);
 
 const DICELESS_TO_RULES = steps(
   chooseOption(JOURNEY_GUIDE, 'primer'),
@@ -394,7 +399,7 @@ const SLASH_MENU_PLACEMENT = `(() => {
 const SUBMIT_REPORT = steps(
   `document.querySelector(${JSON.stringify(REPORT_INPUT)}).value = '${REPORTED_TOTAL}';`,
   `document.querySelector(${JSON.stringify(REPORT_FORM)}).requestSubmit();`,
-  `await ${until(`document.querySelector('[data-rolls] [data-roll][data-reported]') && ${GM_REPLIED} && ${SETTLED}`)};`,
+  `await ${until(`document.querySelector(${JSON.stringify(ROLL_CARD_REPORTED)}) && ${GM_REPLIED} && ${SETTLED}`)};`,
 );
 
 const GM_FAILURE_NOTICE = '[data-gm-failure]';
@@ -484,7 +489,7 @@ export const JOURNEY: Readonly<
     { script: spokenStory('Off', false) },
     { script: BEGIN_TO_SUMMARY, shot: 'guided-summary' },
     { script: FIRST_TURN, shot: 'first-roll' },
-    { script: COLLAPSED_ROLL, shot: 'first-roll-collapsed', layouts: true },
+    { script: SETTLED_ROLL, shot: 'first-roll-settled', layouts: true },
     {
       script: steps(
         `await ${until('window.journeySnapshot?.turns.length > 1')};`,
@@ -536,7 +541,7 @@ export const JOURNEY: Readonly<
     {
       script: steps(
         click('#home-continue-0'),
-        `await ${until(`${PLAY_READY} && document.querySelector('[data-rolls] [data-roll]')`)};`,
+        `await ${until(`${PLAY_READY} && document.querySelector(${JSON.stringify(ROLL_CARD)})`)};`,
         `if (document.querySelector(${JSON.stringify(LIVE_ROLL)})) throw new Error('continue shows a live dice card');`,
         `await ${until(SETTLED)};`,
       ),

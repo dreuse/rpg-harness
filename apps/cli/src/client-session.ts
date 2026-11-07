@@ -30,7 +30,11 @@ import {
   type SheetSchema,
 } from '../../../packages/client-protocol/src/sheet-widgets.ts';
 import { parseViewDescriptor, SHEET_VIEW } from '../../../packages/client-protocol/src/view-registry.ts';
-import { VISUALIZATION_EVENT, type ViewerScope } from '../../../packages/client-protocol/src/visualization.ts';
+import {
+  type MechanicResult,
+  VISUALIZATION_EVENT,
+  type ViewerScope,
+} from '../../../packages/client-protocol/src/visualization.ts';
 import {
   type CampaignEvent,
   type CampaignId,
@@ -350,19 +354,32 @@ export const createClientSessions = (
   const scopesFor = createScopeLookup(readEvents, campaignId, (id) => scopes.get(id));
   const viewScopes = createScopeLookup(readEvents, campaignId, (id) => scopes.get(id));
 
+  const actionOf = (turnId: string | null) =>
+    engine.getState(campaignId).turns.find(({ id }) => id === turnId)?.actionId;
+  const withAction = (results: MechanicResult[], turnId: string | null) => {
+    const actionId = actionOf(turnId);
+    return actionId === undefined ? results : results.map((result) => ({ ...result, actionId }));
+  };
+
   const replayedRolls = (fromRevision: number) => {
     const state = engine.getState(campaignId);
     const { events } = state;
     const acted = encounterOf(state, foldEventsOf(readEvents, campaignId, state))?.actions ?? [];
     const actedScopes = scopesFor(acted.map(({ eventId }) => eventId));
+    const actedTurns = new Map(
+      readEvents(campaignId, { ids: acted.map(({ eventId }) => eventId) }).map(({ id, turnId }) => [id, turnId]),
+    );
     const encounter = acted.flatMap((action) =>
-      resultsOf(action, actedScopes.get(action.eventId)?.visibility ?? HIDDEN),
+      withAction(
+        resultsOf(action, actedScopes.get(action.eventId)?.visibility ?? HIDDEN),
+        actedTurns.get(action.eventId) ?? null,
+      ),
     );
     const retconned = retconnedTurnsOf(state.changes);
     const checks = ROLL_EVENT_TYPES.flatMap((type) => readEvents(campaignId, { type, afterRevision: fromRevision }))
       .filter(({ turnId }) => !retconned.has(turnId))
       .sort((first, second) => first.seq - second.seq)
-      .flatMap(({ payload, visibility }) => resultsOf(payload, visibility));
+      .flatMap(({ payload, visibility, turnId }) => withAction(resultsOf(payload, visibility), turnId));
     return { results: [...encounter, ...checks], preference: visualizationPreferenceOf(events) };
   };
 
@@ -378,7 +395,8 @@ export const createClientSessions = (
       const published = log.publish(toClientEvent(event));
       if (!published.ok) throw new Error(published.error.message);
       if (retconned.has(event.turnId)) continue;
-      for (const result of resultsOf(event.payload, visibility)) log.visualize(result, preference);
+      for (const result of withAction(resultsOf(event.payload, visibility), event.turnId))
+        log.visualize(result, preference);
     }
     for (const oldest of scopes.keys()) {
       if (scopes.size <= logWindow) break;
