@@ -1011,6 +1011,7 @@ export const playbackFor = (dataDir: string): TuiPlayback => ({
 });
 
 const NOTICE_JOIN = ' ';
+const IGNORE = () => {};
 
 const speechNotice = async (speech: SpeechSource, locale: string, uiLocale: string) => {
   const [{ prepareVoice }, runtime] = await Promise.all([import('./speech-runtime.ts'), speech()]);
@@ -1026,7 +1027,7 @@ const playTui = async (
   makeSpeech: MakeSpeech,
 ) => {
   const speech = liveSpeech(dataDir, makeSpeech);
-  const { session, campaignId, narrate, settle, close, voiceLocale } = openClientSession(
+  const { session, campaignId, narrate, speakOpening, settle, close, voiceLocale } = openClientSession(
     dataDir,
     name,
     gm,
@@ -1042,6 +1043,8 @@ const playTui = async (
         : await speechNotice(speech, locale, terminal.locale ?? DEFAULT_LOCALE).catch(() => undefined);
     const soundNotice = await startSound(dataDir, session, campaignId, terminal.locale ?? DEFAULT_LOCALE);
     const notice = [gm.notice, voiceNotice, soundNotice].filter((line) => line !== undefined).join(NOTICE_JOIN);
+    const snapshot = session.getSnapshot({ version: PROTOCOL_VERSION, type: 'GetCampaignSnapshot', campaignId });
+    if (snapshot.ok && snapshot.value.turns.length === 1) speakOpening().catch(IGNORE);
     await runTui(session, campaignId, terminal, narrate, notice || undefined, playbackFor(dataDir));
   } finally {
     stopSound(dataDir);

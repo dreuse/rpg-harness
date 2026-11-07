@@ -22,7 +22,7 @@ import {
 import { apiRouteOf, GM_API_URL_ENV, languageInstruction, ProviderError } from './gm-api.ts';
 import type { GmSegment } from './gm-segments.ts';
 import { createSpeechRuntime } from './speech-runtime.ts';
-import type { Capabilities } from './tui.ts';
+import { type Capabilities, PLAIN_TERMINAL } from './tui.ts';
 
 const CAMPAIGN = 'streaming-speech';
 const FIRST = 'The door creaks open slowly.';
@@ -30,6 +30,8 @@ const SECOND = 'Dust falls from the beams.';
 const FALLBACK_WORDS = 'The AI game master is unavailable';
 const TEXT_ENCODER = new TextEncoder();
 const NO_CHARACTER = async () => undefined;
+const TUI_QUIT = 'q';
+const SPEECH_WAIT_ROUNDS = 2000;
 const KEY = 'sk-ant-streaming-key';
 
 const tick = () => new Promise((resolve) => setImmediate(resolve));
@@ -748,7 +750,7 @@ describe('rpg-cm63.67 opening scene speech', () => {
       campaignId: opened.campaignId,
     });
     assert.ok(snapshot.ok);
-    return { opened, played, narration: snapshot.value.turns[0]?.narration ?? '' };
+    return { opened, played, runtime, dataDir, narration: snapshot.value.turns[0]?.narration ?? '' };
   };
 
   it('speaks the opening narration of a new adventure when voice is on', async (t) => {
@@ -767,5 +769,30 @@ describe('rpg-cm63.67 opening scene speech', () => {
     await opened.speakOpening();
     await settle();
     assert.deepEqual(played, []);
+  });
+
+  const playInTui = async (t: TestContext, spokenOutput: 'full' | undefined) => {
+    const { played, runtime, dataDir } = await create(t, spokenOutput);
+    const quit = (async function* () {
+      for (let round = 0; round < SPEECH_WAIT_ROUNDS && spokenOutput !== undefined && played.length === 0; round += 1)
+        await tick();
+      yield TUI_QUIT;
+    })();
+    await createEngineGateway(dataDir, FAKE_GAME_MASTER, Math.random, () => runtime).tui(CAMPAIGN, {
+      capabilities: PLAIN_TERMINAL,
+      lines: quit,
+      write: () => undefined,
+    });
+    await settle();
+    return played;
+  };
+
+  it('speaks the opening in the terminal when voice is on', async (t) => {
+    const played = await playInTui(t, 'full');
+    assert.ok(played.length > 0);
+  });
+
+  it('keeps the terminal opening silent when voice is off', async (t) => {
+    assert.deepEqual(await playInTui(t, undefined), []);
   });
 });
