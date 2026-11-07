@@ -46,6 +46,7 @@ const fakePage = () => {
   const listeners = new Map<string, Listener>();
   const style: Record<string, string> = {};
   const focused: string[] = [];
+  const focusOptions: (FocusOptions | undefined)[] = [];
   const sent: ClientCommand[] = [];
   const saved: StartDraft[] = [];
   const fields: Record<string, string> = {};
@@ -78,8 +79,9 @@ const fakePage = () => {
       setAttribute: () => {},
       hasAttribute: (attribute: string) => attribute === name,
       getAttribute: (attribute: string) => (attribute === name ? value : null),
-      focus: () => {
+      focus: (options?: FocusOptions) => {
         focused.push(selector);
+        focusOptions.push(options);
         active = element;
       },
       get selectionStart() {
@@ -103,7 +105,18 @@ const fakePage = () => {
     };
     return element;
   };
-  const on = (prefix: string) => (type: string, listener: Listener) => listeners.set(prefix + type, listener);
+  const on = (prefix: string) => (type: string, listener: Listener) => {
+    const earlier = listeners.get(prefix + type);
+    listeners.set(
+      prefix + type,
+      earlier === undefined
+        ? listener
+        : (...args) => {
+            earlier(...args);
+            return listener(...args);
+          },
+    );
+  };
   const elements = {
     root: {
       get innerHTML() {
@@ -171,6 +184,7 @@ const fakePage = () => {
     sent,
     style,
     focused,
+    focusOptions,
     saved,
     fields,
     selections,
@@ -185,6 +199,8 @@ const fakePage = () => {
     click: (attributes: Record<string, string>) => listeners.get('root:click')?.(event(attributes)),
     press: (key: string, attributes: Record<string, string> = {}, keys: Partial<KeyEventLike> = {}) =>
       listeners.get('keys:keydown')?.(event(attributes, key, keys)),
+    pointerDown: () => listeners.get('keys:pointerdown')?.(event({})),
+    keyDown: () => listeners.get('keys:keydown')?.(event({}, 'Enter')),
     submit: (attributes: Record<string, string>) => listeners.get('root:submit')?.(event(attributes)),
     type: () => listeners.get('root:input')?.(event({})),
     toggle: (open: boolean) =>
@@ -2236,4 +2252,36 @@ test('rpg-42a.68 page runs the import from the rules step buttons through the br
     { kind: 'decide', decision: 'decline' },
   ]);
   assert.match(page.root.innerHTML, /Import declined\./);
+});
+
+test('rpg-42a.159 the play heading takes focus without the ring after a pointer load and with it after a keyboard load', () => {
+  const pointer = fakePage();
+  mount(pointer);
+  pointer.receive(READY);
+  pointer.receive({ type: 'Campaigns', campaigns: [SNAPSHOT.campaign] });
+  pointer.pointerDown();
+  continueHarbor(pointer);
+  pointer.receive({ type: 'Snapshot', snapshot: SNAPSHOT });
+  assert.equal(pointer.focused.at(-1), '#heading-status');
+  assert.deepEqual(pointer.focusOptions.at(-1), { focusVisible: false });
+
+  const keyboard = fakePage();
+  mount(keyboard);
+  keyboard.receive(READY);
+  keyboard.receive({ type: 'Campaigns', campaigns: [SNAPSHOT.campaign] });
+  keyboard.keyDown();
+  continueHarbor(keyboard);
+  keyboard.receive({ type: 'Snapshot', snapshot: SNAPSHOT });
+  assert.equal(keyboard.focused.at(-1), '#heading-status');
+  assert.deepEqual(keyboard.focusOptions.at(-1), { focusVisible: true });
+});
+
+test('rpg-42a.159 a load with no input yet does not draw the heading ring', () => {
+  const page = fakePage();
+  mount(page);
+  page.receive(READY);
+  page.receive({ type: 'Campaigns', campaigns: [SNAPSHOT.campaign] });
+  continueHarbor(page);
+  page.receive({ type: 'Snapshot', snapshot: SNAPSHOT });
+  assert.deepEqual(page.focusOptions.at(-1), { focusVisible: false });
 });

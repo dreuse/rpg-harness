@@ -185,7 +185,7 @@ test('rpg-42a.18 the action form has a labelled input and a Send button that Ent
   );
   assert.match(page, /<div id="slash-menu" role="listbox" aria-label="[^"]+" hidden><\/div>/);
   assert.match(page, /<p id="slash-status" role="status" aria-live="polite" data-visually-hidden><\/p>/);
-  assert.match(page, /<button type="submit" aria-keyshortcuts="Enter">Send<\/button>/);
+  assert.match(page, /<button type="submit" aria-keyshortcuts="Enter" data-primary>Send<\/button>/);
   assert.doesNotMatch(page, />Act</);
 });
 
@@ -194,7 +194,7 @@ test('rpg-42a.18 the play screen fills the window height and keeps the action in
   assert.match(view, /body \{[^}]*display: flex;[^}]*flex-direction: column;[^}]*height: 100dvh;/);
   assert.match(view, /#app \{[^}]*flex: 1;[^}]*min-height: 0;/);
   assert.match(view, /#action-form \{[^}]*flex: none;/);
-  assert.match(view, /\[data-region="conversation"\] > ol \{[^}]*overflow-y: auto;/);
+  assert.match(view, /\[data-region="conversation"\] \{[^}]*overflow-y: auto;/);
   assert.match(view, /section\[hidden\] \{[^}]*display: none;/);
   for (const layout of ['medium', 'wide'])
     assert.match(view, new RegExp(`main\\[data-layout="${layout}"\\] \\[data-columns\\]`));
@@ -225,4 +225,50 @@ test('rpg-42a.158 speakers have distinct styles from tokens and headings use the
   assert.match(view, /\[data-speaker="player"\] \{[^}]*color: var\(--speaker-player\);/);
   assert.match(view, /\[data-speaker="gm"\] \{[^}]*border-inline-start: var\(--marker-width\) solid var\(--accent\);/);
   assert.match(view, /h1,\s*h2,\s*h3[^{]*\{[^}]*font-family: var\(--font-display\);/);
+});
+
+const ruleOf = (css: string, selector: string) =>
+  new RegExp(`(?:^|\\n)${selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} \\{([^}]*)\\}`).exec(css)?.[1] ?? '';
+const NO_BOX = /padding: 0;[^}]*background: none;[^}]*border: 0;[^}]*box-shadow: none;/;
+
+test('rpg-42a.159 the title ring shows only for keyboard focus and the load script knows the input device', () => {
+  const view = read(VIEW_CSS);
+  assert.doesNotMatch(view, /h1:focus(?!-visible)/);
+  const page = read('page.ts');
+  assert.match(page, /focus\(focusOptions\(\)\)/);
+  assert.match(page, /focusVisible: keyboardDriven/);
+});
+
+test('rpg-42a.159 the transcript is a flat reading column that scrolls with the roll result in its flow', () => {
+  const view = read(VIEW_CSS);
+  assert.match(
+    ruleOf(view, 'section[data-region="conversation"]'),
+    /padding: 0 max\(0px, calc\(\(100% - var\(--measure\)\) \/ 2\)\);[^}]*background: none;[^}]*border: 0;[^}]*box-shadow: none;/,
+  );
+  assert.match(ruleOf(view, '[data-region="conversation"]'), /overflow-y: auto;/);
+  assert.doesNotMatch(ruleOf(view, '[data-region="conversation"] > ol'), /overflow-y/);
+  assert.match(ruleOf(view, 'section[data-rolls]'), /background: none;[^}]*border: 0;[^}]*box-shadow: none;/);
+  assert.match(read('page.ts'), /const LOG_SELECTOR = '\[data-region="conversation"\]';/);
+});
+
+test('rpg-42a.159 the sheet is a flat side panel: no nested boxes and stat rows with dividers', () => {
+  const view = read(VIEW_CSS);
+  for (const region of ['sheet', 'character', 'panels'])
+    assert.match(ruleOf(view, `section[data-region="${region}"]`), NO_BOX, region);
+  assert.match(ruleOf(view, 'section[data-sheet-group]'), NO_BOX);
+  assert.match(ruleOf(view, 'section[data-settings-section]'), NO_BOX);
+  const stat = ruleOf(view, '[data-stat]');
+  assert.match(stat, /border: 0;[^}]*border-block-end: var\(--border-width\) solid var\(--border\);/);
+  assert.match(stat, /display: flex;/);
+  assert.match(view, /--side-panel-width\)/);
+  assert.match(read(TOKENS_CSS), /--side-panel-width: \d+rem;/);
+});
+
+test('rpg-42a.159 Send is the one primary action and the other actions are quiet', () => {
+  const view = read(VIEW_CSS);
+  const ghost = ruleOf(view, '#ooc-toggle,\n#memory-toggle');
+  assert.match(ghost, /color: var\(--text-muted\);[^}]*background: transparent;[^}]*border-color: transparent;/);
+  const page = read(PAGE_HTML);
+  assert.equal(page.match(/data-primary/g)?.length, 1);
+  assert.ok(page.indexOf('type="submit"') < page.indexOf('id="ooc-toggle"'));
 });

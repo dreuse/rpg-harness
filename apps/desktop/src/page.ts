@@ -140,6 +140,7 @@ const CLICK = 'click';
 const MOUSEDOWN = 'mousedown';
 const BLUR = 'blur';
 const KEYDOWN = 'keydown';
+const POINTERDOWN = 'pointerdown';
 const TOGGLE = 'toggle';
 const SUBMIT = 'submit';
 const RESIZE = 'resize';
@@ -205,7 +206,7 @@ const MENU_TOGGLE_SELECTOR = 'summary';
 const RENAME_SELECTOR = `#${RENAME_INPUT_ID}`;
 const SEARCH_SELECTOR = `#${HOME_SEARCH}`;
 const CANCEL_SELECTOR = '#home-cancel';
-const LOG_SELECTOR = '[data-region="conversation"] > ol';
+const LOG_SELECTOR = '[data-region="conversation"]';
 const SKIP_SELECTOR = '[data-roll-skip]';
 const ROLL_BADGE_ATTRIBUTE = 'data-roll-badge';
 const ROLL_BADGE_SELECTOR = `[${ROLL_BADGE_ATTRIBUTE}]`;
@@ -443,6 +444,14 @@ export const mountPage = ({
     return Object.fromEntries(entries);
   };
   let focusRollsOnRender = false;
+  let keyboardDriven = false;
+  const focusOptions = () => ({ focusVisible: keyboardDriven });
+  keys.addEventListener(KEYDOWN, () => {
+    keyboardDriven = true;
+  });
+  keys.addEventListener(POINTERDOWN, () => {
+    keyboardDriven = false;
+  });
   const render = () => {
     const model = viewModel(client.state(), width(), preferences, undefined, startVoices());
     const focusedElement = root.querySelector<HTMLElement>(FOCUSED_SELECTOR);
@@ -497,11 +506,13 @@ export const mountPage = ({
       shownStep = model.start?.step;
       const home = () =>
         root.querySelector<HTMLElement>(FIRST_CONTINUE_SELECTOR) ?? root.querySelector<HTMLElement>(OPEN_SELECTOR);
-      return (model.playing ? root.querySelector<HTMLElement>(HEADING_SELECTOR) : home())?.focus();
+      return (model.playing ? root.querySelector<HTMLElement>(HEADING_SELECTOR) : home())?.focus(focusOptions());
     }
     if (model.start?.step !== shownStep) {
       shownStep = model.start?.step;
-      return root.querySelector<HTMLElement>(shownStep === undefined ? OPEN_SELECTOR : TITLE_SELECTOR)?.focus();
+      return root
+        .querySelector<HTMLElement>(shownStep === undefined ? OPEN_SELECTOR : TITLE_SELECTOR)
+        ?.focus(focusOptions());
     }
     if (setupView.step !== shownVoiceStep) {
       shownVoiceStep = setupView.step;
@@ -541,7 +552,7 @@ export const mountPage = ({
     }
     const typing = focused === ENTRY_SELECTOR || focused === SEARCH_SELECTOR;
     if (soundFocus !== null && !typing) soundFocus.focus();
-    else if (focused !== undefined) root.querySelector<HTMLElement>(focused)?.focus();
+    else if (focused !== undefined) root.querySelector<HTMLElement>(focused)?.focus(focusOptions());
     if (focused === ENTRY_SELECTOR && selection.start !== null && selection.end !== null)
       entry?.setSelectionRange?.(selection.start, selection.end);
     const search = focused === SEARCH_SELECTOR ? root.querySelector<HTMLInputElement>(SEARCH_SELECTOR) : null;

@@ -52,7 +52,8 @@
   --measure: 70ch;
   --bubble-max: 85%;
   --card-min: 18rem;
-  --stat-min: 8rem;
+  --stat-input-width: 5rem;
+  --side-panel-width: 20rem;
   --card-lines: 3;
   --settings-column-width: 20rem;
   --disabled-opacity: 0.6;

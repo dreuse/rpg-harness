@@ -69,9 +69,11 @@ export type KeyEventLike = {
 };
 export type KeyTarget = {
   addEventListener(type: typeof KEYDOWN, listener: (event: KeyEventLike & { preventDefault(): void }) => void): void;
+  addEventListener(type: typeof POINTERDOWN_EVENT, listener: () => void): void;
 };
 
 const KEYDOWN = 'keydown';
+const POINTERDOWN_EVENT = 'pointerdown';
 const KEY_SEPARATOR = '+';
 const PHYSICAL_KEY = /^(?:Key|Digit)(.)$/;
 const LABEL_SEPARATOR = ': ';

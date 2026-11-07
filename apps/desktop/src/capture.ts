@@ -155,7 +155,7 @@ export const headlessRun = (env: NodeJS.ProcessEnv, platform: string) => {
 
 export const JOURNEY_ERROR = 'rpg-desktop-journey-error: ';
 export const JOURNEY_ACTION = 'I try to climb the wall';
-export const JOURNEY_EDIT = { fieldId: 'might', value: 8 } as const;
+export const JOURNEY_EDIT = { fieldId: 'agility', value: 8 } as const;
 export const SHOT_DATA_EXTENSION = '.json';
 
 const JOURNEY_TIMEOUT_MS = 60000;
