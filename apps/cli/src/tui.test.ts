@@ -1112,6 +1112,41 @@ test('rpg-42a.74: the TUI conversation names an open roll offer and the /roll hi
   assert.match(screen(press([key('?')])), /\/roll - Roll the check the GM offered\./);
 });
 
+const ROLL_TURN_LINES = {
+  en: `You roll for: ${ROLL_OFFER.label}`,
+  es: `Tiras para: ${ROLL_OFFER.label}`,
+  'pt-BR': `Você rola para: ${ROLL_OFFER.label}`,
+} as const;
+
+for (const [locale, line] of Object.entries(ROLL_TURN_LINES))
+  test(`rpg-42a.153: the ${locale} TUI conversation words an accepted roll as a roll, not as speech`, () => {
+    const [first] = snapshot.turns;
+    assert.ok(first);
+    const rolled = {
+      ...data,
+      locale,
+      snapshot: {
+        ...snapshot,
+        turns: [
+          ...snapshot.turns,
+          { ...first, id: 't2', actionId: 'a2', input: ROLL_OFFER.label, rollOfferId: ROLL_OFFER.offerId },
+        ],
+      },
+    };
+    const text = renderLinear(rolled, PLAIN_WIDE).join('\n');
+    assert.ok(text.includes(line), text);
+    assert.doesNotMatch(text, new RegExp(`Wanderer: ${ROLL_OFFER.label}`));
+    assert.match(text, /Wanderer: I greet the stranger/);
+  });
+
+test('rpg-42a.153: Enter in the TUI only opens or closes the action box and never submits an empty roll', () => {
+  const opened = press([RETURN]);
+  assert.equal(opened.draft, '');
+  assert.equal(opened.submitted, undefined);
+  assert.equal(press([RETURN, RETURN]).submitted, undefined);
+  assert.equal(press([RETURN, key(' ', 'space'), RETURN]).submitted, undefined);
+});
+
 test('rpg-42a.77: the TUI conversation shows why the last action did not roll, localized', () => {
   const actionId = snapshot.turns.at(-1)?.actionId;
   assert.ok(actionId);

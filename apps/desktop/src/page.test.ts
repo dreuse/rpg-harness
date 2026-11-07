@@ -1622,27 +1622,38 @@ test('rpg-42a.74 page accepts the roll offer from its button', () => {
   assert.equal(command.rollOfferId, 'tam-attack');
 });
 
-test('rpg-42a.87 the roll offer takes focus when it appears and keeps it off a focused action input', () => {
-  const OFFER = '[data-roll-offer]';
-  const OFFER_FOCUS = /^\[data-roll-offer/;
+test('rpg-42a.153 the roll offer never takes focus when it appears or when the page re-renders', () => {
+  const OFFER = '[data-roll-offer';
+  const tookFocus = (page: ReturnType<typeof fakePage>) => page.focused.some((selector) => selector.startsWith(OFFER));
   const idle = fakePage();
   startPlay(idle, SNAPSHOT);
   idle.receive({ type: 'Snapshot', snapshot: OFFER_SNAPSHOT });
-  assert.match(idle.focused.at(-1) ?? '', OFFER_FOCUS);
-  idle.focused.length = 0;
   idle.receive({ type: 'Snapshot', snapshot: OFFER_SNAPSHOT });
-  assert.equal(idle.focused.at(-1), '[data-roll-offer=""]');
+  assert.equal(tookFocus(idle), false);
   const empty = fakePage();
   startPlay(empty, SNAPSHOT);
   empty.typingInAction = true;
   empty.receive({ type: 'Snapshot', snapshot: OFFER_SNAPSHOT });
-  assert.match(empty.focused.at(-1) ?? '', OFFER_FOCUS);
+  assert.equal(tookFocus(empty), false);
   const typing = fakePage();
   startPlay(typing, SNAPSHOT);
   typing.typingInAction = true;
   typing.typeAction('I open');
   typing.receive({ type: 'Snapshot', snapshot: OFFER_SNAPSHOT });
-  assert.equal(typing.focused.includes(OFFER), false);
+  assert.equal(tookFocus(typing), false);
+});
+
+test('rpg-42a.153 Enter in an empty action box or on the page never accepts a roll offer', async () => {
+  const page = fakePage();
+  startPlay(page, OFFER_SNAPSHOT);
+  page.input.value = '';
+  page.elements.form.requestSubmit();
+  page.press('Enter');
+  page.press('Enter', { 'data-region': 'conversation' });
+  page.keyInInput('Enter');
+  await settle();
+  assert.deepEqual(submitted(page), []);
+  assert.equal(page.sent.filter((command) => 'rollOfferId' in command).length, 0);
 });
 
 test('rpg-42a.101 page retries a failed narration from the notice button', async () => {

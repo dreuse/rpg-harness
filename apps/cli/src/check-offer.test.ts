@@ -331,6 +331,65 @@ describe('rpg-42a.94 a check the GM marks as needed rolls without a listed verb'
   });
 });
 
+describe('rpg-42a.153 an accepted roll is not something the player said', () => {
+  const MARKED_OFFER: GmProposal = { ...ATTACK_OFFER, needsCheck: true };
+  const LABEL = ATTACK_OFFER.kind === 'check' ? ATTACK_OFFER.label : '';
+
+  it('tags the turn that accepts an offer by id and leaves a typed acceptance untagged', async (t) => {
+    const { say, snapshot } = await hollowLantern(t, [
+      { narration: SETUP, proposals: [ATTACK_OFFER] },
+      { narration: AFTER_ROLL, proposals: [OUTCOME] },
+    ]);
+    await say(FIRST_INPUT);
+    await say(LABEL, snapshot().rollOffer?.offerId);
+    const turns = snapshot().turns;
+    assert.equal(turns.at(-2)?.rollOfferId, undefined);
+    assert.equal(turns.at(-1)?.rollOfferId, ATTACK_OFFER.id);
+  });
+
+  const ROLL_RECAP = {
+    en: `You roll for: ${LABEL}`,
+    es: `Tiras para: ${LABEL}`,
+    'pt-BR': `Você rola para: ${LABEL}`,
+  } as const;
+
+  for (const [locale, line] of Object.entries(ROLL_RECAP))
+    it(`words the ${locale} CLI recap of an accepted roll as a roll, not as speech`, async (t) => {
+      const { say, snapshot, dataDir } = await hollowLantern(t, [
+        { narration: SETUP, proposals: [ATTACK_OFFER] },
+        { narration: AFTER_ROLL, proposals: [OUTCOME] },
+      ]);
+      await say(FIRST_INPUT);
+      await say(LABEL, snapshot().rollOffer?.offerId);
+      const recap = createEngineGateway(dataDir).view(CAMPAIGN, 'recap', locale);
+      assert.ok(recap.includes(line), recap);
+      assert.ok(!recap.includes(`Wren: ${LABEL}`), recap);
+    });
+
+  it('tags the turn the app rolls for a marked check', async (t) => {
+    const { say, snapshot } = await hollowLantern(t, [
+      { narration: SETUP, proposals: [MARKED_OFFER] },
+      { narration: AFTER_ROLL, proposals: [OUTCOME] },
+    ]);
+    await say('I slash my sword at his head');
+    const [typed, rolled] = snapshot().turns.slice(-2);
+    assert.equal(typed?.rollOfferId, undefined);
+    assert.equal(rolled?.rollOfferId, ATTACK_OFFER.id);
+  });
+
+  it('leaves a marked check waiting when the player chose to be asked each time', async (t) => {
+    const { say, snapshot, eventsOfType } = await hollowLantern(
+      t,
+      [{ narration: SETUP, proposals: [MARKED_OFFER] }],
+      D20_PITCH,
+      { whoRolls: 'ask' },
+    );
+    await say('I slash my sword at his head');
+    assert.equal(eventsOfType(CHECK_RESOLVED).length, 0);
+    assert.equal(snapshot().rollOffer?.offerId, MARKED_OFFER.id);
+  });
+});
+
 describe('rpg-42a.84 an offered attack resolves against the target sheet', () => {
   const TAM_ID = 'npc-tam';
   const TAM_DEFENSE = 10;

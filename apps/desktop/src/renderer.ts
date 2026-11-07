@@ -69,6 +69,7 @@ type ConversationTurn = {
   readonly input: string;
   readonly narration: string;
   readonly pending: boolean;
+  readonly rollOfferId?: string | undefined;
   readonly noRoll?: NoCheckReason | undefined;
   readonly failure?: GmFailure | undefined;
 };
@@ -404,15 +405,22 @@ export const viewModel = (
     playing: state.selected !== undefined,
     home: homeOf(state, preferences.locale, now),
     conversation: [
-      ...committed.map(({ actionId, input, narration }) => ({
+      ...committed.map(({ actionId, input, narration, rollOfferId }) => ({
         actionId,
         input,
         narration,
+        ...(rollOfferId === undefined ? {} : { rollOfferId }),
         pending: narration === '' && state.outbox.some((queued) => queued.actionId === actionId),
         ...(stalled?.action.actionId === actionId ? { failure: stalled.failure } : {}),
         ...(state.snapshot?.noRoll?.actionId === actionId ? { noRoll: state.snapshot.noRoll.reason } : {}),
       })),
-      ...pending.map(({ actionId, input }) => ({ actionId, input, narration: '', pending: true })),
+      ...pending.map(({ actionId, input, rollOfferId }) => ({
+        actionId,
+        input,
+        narration: '',
+        pending: true,
+        ...(rollOfferId === undefined ? {} : { rollOfferId }),
+      })),
     ].map(
       (turn, index, turns): ConversationTurn =>
         index === turns.length - 1 &&

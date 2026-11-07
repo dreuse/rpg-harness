@@ -1052,6 +1052,39 @@ test('rpg-42a.74: an open roll offer is a button naming the check, and accepting
   assert.equal(viewModel(client.state(), WIDE_WIDTH).rollOffer, undefined);
 });
 
+const ROLL_LINES = {
+  en: `You roll for: ${ROLL_OFFER.label}`,
+  es: `Tiras para: ${ROLL_OFFER.label}`,
+  'pt-BR': `Você rola para: ${ROLL_OFFER.label}`,
+} as const;
+
+for (const [locale, line] of Object.entries(ROLL_LINES))
+  test(`rpg-42a.153: the ${locale} transcript words an accepted roll as a roll, queued and committed`, () => {
+    const { wire, client } = connectedClient();
+    wire.receive({ type: 'Snapshot', snapshot: { ...snapshotAt(2, ['old']), rollOffer: ROLL_OFFER } });
+    assert.equal(client.acceptRoll().ok, true);
+    const queued = renderView(viewModel(client.state(), WIDE_WIDTH), locale);
+    assert.ok(queued.includes(line), queued);
+    assert.doesNotMatch(
+      queued,
+      new RegExp(`data-speaker="player"[^>]*>[^<]*<span[^>]*>[^<]*</span>${ROLL_OFFER.label}`),
+    );
+    const base = snapshotAt(3, ['old', 'a0']);
+    const [old, accepted] = base.turns;
+    assert.ok(old && accepted);
+    wire.receive({
+      type: 'Snapshot',
+      snapshot: {
+        ...base,
+        turns: [old, { ...accepted, input: ROLL_OFFER.label, rollOfferId: ROLL_OFFER.offerId }],
+      },
+    });
+    const committed = renderView(viewModel(client.state(), WIDE_WIDTH), locale);
+    assert.ok(committed.includes(line), committed);
+    assert.ok(!committed.includes(`</span>${ROLL_OFFER.label}</p>`), committed);
+    assert.ok(committed.includes('input old'), committed);
+  });
+
 test('rpg-42a.74: accepting a roll with no open offer is rejected', () => {
   const { client } = connectedClient();
   assert.equal(client.acceptRoll().ok, false);

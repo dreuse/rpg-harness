@@ -351,8 +351,12 @@ const sheetRows = (sheet: readonly ViewComponent[]) =>
 
 const conversation = ({ currentScene, characters, turns, rollOffer, noRoll }: CampaignSnapshot, locale: string) => {
   const names = new Map(characters.map(({ id, name }) => [id, name]));
-  const rows = turns.flatMap(({ actionId, actorId, input, narration }) => [
-    ...(input.trim() === '' || actionId === OPENING_ACTION_ID ? [] : [`${names.get(actorId) ?? actorId}: ${input}`]),
+  const playerLine = (actorId: string, input: string, rollOfferId: string | undefined) =>
+    rollOfferId === undefined
+      ? `${names.get(actorId) ?? actorId}: ${input}`
+      : say(locale, 'turn.rollAccepted', { label: input });
+  const rows = turns.flatMap(({ actionId, actorId, input, narration, rollOfferId }) => [
+    ...(input.trim() === '' || actionId === OPENING_ACTION_ID ? [] : [playerLine(actorId, input, rollOfferId)]),
     narration.trim() === '' ? say(locale, 'tui.noReply') : narration,
     ...(noRoll?.actionId === actionId ? [say(locale, `noRoll.${noRoll.reason}`)] : []),
   ]);

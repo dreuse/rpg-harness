@@ -556,7 +556,7 @@ export const createClientSessions = (
           const state = engine.getState(campaignId);
           try {
             engine.submitAction(
-              { campaignId, actionId, expectedRevision, sceneId, actorId, input, intent: input },
+              { campaignId, actionId, expectedRevision, sceneId, actorId, input, intent: input, rollOfferId },
               checkForAction(
                 state.events,
                 {

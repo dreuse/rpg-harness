@@ -24,7 +24,13 @@ import {
   OPENING_ACTION_ID,
   type Turn,
 } from '../../../packages/domain/src/campaign.ts';
-import { EMPTY_GM_USAGE_TOTALS, type GmSettings, type GmUsage, toGmSettings } from '../../../packages/domain/src/gm.ts';
+import {
+  DEFAULT_WHO_ROLLS,
+  EMPTY_GM_USAGE_TOTALS,
+  type GmSettings,
+  type GmUsage,
+  toGmSettings,
+} from '../../../packages/domain/src/gm.ts';
 import { commitCharacter, editSheetField, playTurns } from '../../../packages/engine/src/character.ts';
 import { pendingCheckOffer } from '../../../packages/engine/src/check-offer.ts';
 import { campaignLanguageOf, createEngine, type Engine } from '../../../packages/engine/src/engine.ts';
@@ -467,7 +473,7 @@ const acceptMarkedCheck = (
       (proposal) => proposal.kind === CHECK_PROPOSAL && proposal.needsCheck === true && proposal.id === offer?.offerId,
     );
   const whoRolls = whoRollsFor(state, defaults);
-  if (!marked || offer === undefined || whoRolls === 'me') return false;
+  if (!marked || offer === undefined || whoRolls !== DEFAULT_WHO_ROLLS) return false;
   if (committed.events.some(({ type }) => type === CHECK_RESOLVED)) return false;
   const { sceneId, actorId } = committed.turn;
   engine.submitAction(
@@ -479,6 +485,7 @@ const acceptMarkedCheck = (
       actorId,
       input: offer.label,
       intent: offer.label,
+      rollOfferId: offer.offerId,
     },
     checkForAction(
       state.events,
@@ -1039,8 +1046,13 @@ export const readCampaignState = (dataDir: string, name: string): CampaignState 
 
 const sceneText = (title: string, narration: string) => `${title}\n${narration}`;
 
-const narrate = (actor: string, turn: Turn) =>
-  `${actor}: ${turn.input}\n${turn.narration.trim() === '' ? FAKE_GM_REPLY : turn.narration}`;
+const narrate = (actor: string, turn: Turn, locale: string) => {
+  const said =
+    turn.rollOfferId === undefined
+      ? `${actor}: ${turn.input}`
+      : say(locale, 'turn.rollAccepted', { label: turn.input });
+  return `${said}\n${turn.narration.trim() === '' ? FAKE_GM_REPLY : turn.narration}`;
+};
 
 const isFileExists = (error: unknown) => error instanceof Error && 'code' in error && error.code === FILE_EXISTS;
 
@@ -1302,7 +1314,7 @@ const act = async (
         : stored;
     const warning = budgetWarning(gmSnapshotFor(session, session.gmDefaults(), sessionId), locale);
     return {
-      narration: narrate(actor.name, narrated),
+      narration: narrate(actor.name, narrated, locale),
       warning,
     };
   } finally {
@@ -1310,10 +1322,10 @@ const act = async (
   }
 };
 
-const recap = (characters: CampaignState['characters'], last: Turn | undefined) => {
+const recap = (characters: CampaignState['characters'], last: Turn | undefined, locale: string) => {
   const actor = characters.find(({ id }) => id === last?.actorId);
   if (last === undefined || actor === undefined) return DEFAULT_OPENING.narration;
-  return last.actionId === OPENING_ACTION_ID ? last.narration : narrate(actor.name, last);
+  return last.actionId === OPENING_ACTION_ID ? last.narration : narrate(actor.name, last, locale);
 };
 
 const savedSettings = (events: CampaignState['events'], locale: string) => {
@@ -1324,7 +1336,7 @@ const savedSettings = (events: CampaignState['events'], locale: string) => {
 const recapText = (name: string, state: CampaignState, locale: string) =>
   [
     ...savedSettings(state.events, locale),
-    sceneText(state.currentScene?.title ?? name, recap(state.characters, playTurns(state).at(-1))),
+    sceneText(state.currentScene?.title ?? name, recap(state.characters, playTurns(state).at(-1), locale)),
   ].join('\n');
 
 const viewSourceOf = (database: Session['database'], campaignId: CampaignId, state: CampaignState, packs?: Packs) => ({

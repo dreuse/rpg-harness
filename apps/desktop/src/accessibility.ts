@@ -461,6 +461,7 @@ export const CATALOG: Catalog = {
     'roll.history': 'Recent rolls',
     'roll.badge': 'Last roll: {result}',
     'roll.offer': 'Roll',
+    'roll.accepted': 'You roll for: {label}',
     'noRoll.no-rulebook': 'No roll: this campaign has no rulebook. The GM decides the outcome.',
     'noRoll.dice-off': 'No roll: dice are off. The GM decides the outcome.',
     'noRoll.unsupported-rulebook': 'No roll: this rulebook has no built-in checks. The GM decides the outcome.',
@@ -757,6 +758,7 @@ export const CATALOG: Catalog = {
     'roll.history': 'Tiradas recientes',
     'roll.badge': 'Última tirada: {result}',
     'roll.offer': 'Tirar',
+    'roll.accepted': 'Tiras para: {label}',
     'noRoll.no-rulebook': 'Sin tirada: esta campaña no tiene libro de reglas. El GM decide el resultado.',
     'noRoll.dice-off': 'Sin tirada: los dados están desactivados. El GM decide el resultado.',
     'noRoll.unsupported-rulebook':
@@ -1054,6 +1056,7 @@ export const CATALOG: Catalog = {
     'roll.history': 'Rolagens recentes',
     'roll.badge': 'Última rolagem: {result}',
     'roll.offer': 'Rolar',
+    'roll.accepted': 'Você rola para: {label}',
     'noRoll.no-rulebook': 'Sem rolagem: esta campanha não tem livro de regras. O mestre decide o resultado.',
     'noRoll.dice-off': 'Sem rolagem: os dados estão desligados. O mestre decide o resultado.',
     'noRoll.unsupported-rulebook':

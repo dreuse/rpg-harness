@@ -127,6 +127,7 @@ export const CLI_CATALOG: Catalog = {
     'tui.rollOfferPhysical':
       'Roll offered: {label}. Roll {expression} yourself and type the result, for example "I rolled 17".',
     'tui.noRoll': 'No roll is offered right now.',
+    'turn.rollAccepted': 'You roll for: {label}',
     'tui.voiceOff': 'Voice is off. Start the TUI with --voice to use it.',
     'noRoll.no-rulebook': 'No roll: this campaign has no rulebook. The GM decides the outcome.',
     'noRoll.dice-off': 'No roll: dice are off. The GM decides the outcome.',
@@ -508,6 +509,7 @@ export const CLI_CATALOG: Catalog = {
     'tui.rollOfferPhysical':
       'Rolagem oferecida: {label}. Role {expression} você mesmo e digite o resultado, por exemplo "tirei 17".',
     'tui.noRoll': 'Nenhuma rolagem é oferecida agora.',
+    'turn.rollAccepted': 'Você rola para: {label}',
     'tui.voiceOff': 'A voz está desligada. Inicie o TUI com --voice para usá-la.',
     'noRoll.no-rulebook': 'Sem rolagem: esta campanha não tem livro de regras. O mestre decide o resultado.',
     'noRoll.dice-off': 'Sem rolagem: os dados estão desligados. O mestre decide o resultado.',
@@ -898,6 +900,7 @@ export const CLI_CATALOG: Catalog = {
     'tui.rollOfferPhysical':
       'Tirada ofrecida: {label}. Tira {expression} tú mismo y escribe el resultado, por ejemplo "saqué 17".',
     'tui.noRoll': 'Ahora no hay ninguna tirada ofrecida.',
+    'turn.rollAccepted': 'Tiras para: {label}',
     'tui.voiceOff': 'La voz está desactivada. Inicia la TUI con --voice para usarla.',
     'noRoll.no-rulebook': 'Sin tirada: esta campaña no tiene libro de reglas. El GM decide el resultado.',
     'noRoll.dice-off': 'Sin tirada: los dados están desactivados. El GM decide el resultado.',

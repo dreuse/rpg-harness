@@ -20,6 +20,7 @@ import type { CampaignEntity, EntityKind, Relationship } from '../../../packages
 import { usesSheet } from '../../../packages/domain/src/rules-usage.ts';
 import { CHARACTER_CREATED, playTurns, profileOf } from '../../../packages/engine/src/character.ts';
 import type { EncounterAction } from '../../../packages/engine/src/encounter.ts';
+import { campaignLanguageOf } from '../../../packages/engine/src/engine.ts';
 import { oocStateOf } from '../../../packages/engine/src/ooc.ts';
 import { campaignConfigOf } from '../../../packages/engine/src/turn.ts';
 import { parseCampaignConfig } from '../../../packages/intent/src/config.ts';
@@ -344,9 +345,16 @@ const encounter = (source: ViewSource, locale: string) => {
   return [title, ...rows, ...outcome].join('\n');
 };
 
-const turnText = (names: ReadonlyMap<string, string>, { actionId, actorId, input, narration }: Turn) => {
+const turnText = (
+  names: ReadonlyMap<string, string>,
+  { actionId, actorId, input, narration, rollOfferId }: Turn,
+  locale: string,
+) => {
   if (actionId === OPENING_ACTION_ID) return narration;
-  const said = `${names.get(actorId) ?? actorId}: ${input}`;
+  const said =
+    rollOfferId === undefined
+      ? `${names.get(actorId) ?? actorId}: ${input}`
+      : say(locale, 'turn.rollAccepted', { label: input });
   return narration.trim() === '' ? said : `${said}${REPLY_SEPARATOR}${narration}`;
 };
 
@@ -354,7 +362,7 @@ const namesOf = ({ characters }: CampaignState) => new Map(characters.map(({ id,
 
 const journal = (state: CampaignState, locale: string) => {
   const names = namesOf(state);
-  const rows = playTurns(state).map((turn, index) => `  ${index + 1}. ${turnText(names, turn)}`);
+  const rows = playTurns(state).map((turn, index) => `  ${index + 1}. ${turnText(names, turn, locale)}`);
   return section(say(locale, 'view.journal'), rows, say(locale, 'view.noEvents'));
 };
 
@@ -389,7 +397,10 @@ export const panelsOf = (source: ViewSource, viewer: Viewer): Panels => {
     citations: events.flatMap(citationOf),
     recap: {
       scene: state.currentScene?.title,
-      latest: last === undefined ? undefined : turnText(namesOf(state), last),
+      latest:
+        last === undefined
+          ? undefined
+          : turnText(namesOf(state), last, campaignLanguageOf(state.changes) ?? DEFAULT_LOCALE),
     },
   };
 };

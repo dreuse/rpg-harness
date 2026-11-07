@@ -271,6 +271,7 @@ section[data-region="start"]:not(:has(h2)) {
   line-height: var(--leading-reading);
 }
 
+[data-speaker="roll"],
 [data-speaker="system"] {
   color: var(--text-muted);
   font-size: calc(var(--text-sm) * var(--font-scale, 1));

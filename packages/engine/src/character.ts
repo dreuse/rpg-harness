@@ -6,6 +6,7 @@ import {
   CHECK_OFFERED,
   type CharacterId,
   type CommittedTurn,
+  PLAYER_ACTION_SUBMITTED,
   SYSTEM_TURN,
   type TurnVisibility,
 } from '../../domain/src/campaign.ts';
@@ -115,5 +116,18 @@ export const profileOf = (events: readonly CampaignEvent[], actorId: CharacterId
   return { ...profile, traits };
 };
 
-export const playTurns = ({ turns }: Pick<CampaignState, 'turns'>) =>
-  turns.filter(({ kind, input }) => kind !== SYSTEM_TURN && !input.startsWith(GM_PROPOSAL_INPUT));
+export const playTurns = ({ turns, events }: Pick<CampaignState, 'turns' | 'events'>) => {
+  const accepted = new Map(
+    events.flatMap(({ type, turnId, payload }) =>
+      type === PLAYER_ACTION_SUBMITTED && typeof payload.rollOfferId === 'string'
+        ? [[turnId, payload.rollOfferId] as const]
+        : [],
+    ),
+  );
+  return turns
+    .filter(({ kind, input }) => kind !== SYSTEM_TURN && !input.startsWith(GM_PROPOSAL_INPUT))
+    .map((turn) => {
+      const rollOfferId = accepted.get(turn.id);
+      return rollOfferId === undefined ? turn : { ...turn, rollOfferId };
+    });
+};

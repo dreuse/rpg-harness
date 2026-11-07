@@ -862,3 +862,51 @@ test('panels read the projected quest log and refold the supplied fold events on
   assert.deepEqual(titles(retconned, surviving, 'gm'), ['kept', 'hidden']);
   assert.deepEqual(titles(retconned, undefined, 'gm'), []);
 });
+
+const ROLL_LABEL = 'Face the hunter';
+const ROLL_LINES = {
+  en: `You roll for: ${ROLL_LABEL}`,
+  es: `Tiras para: ${ROLL_LABEL}`,
+  'pt-BR': `Você rola para: ${ROLL_LABEL}`,
+} as const;
+
+for (const [locale, line] of Object.entries(ROLL_LINES))
+  test(`rpg-42a.153: the ${locale} journal and recap word an accepted roll as a roll, not as speech`, () => {
+    const turn = (id: string, input: string) => ({
+      id,
+      campaignId: CAMPAIGN,
+      sceneId: 'scene',
+      actionId: id,
+      actorId: 'hero',
+      input,
+      narration: 'Reply.',
+    });
+    const state = {
+      campaign: { id: CAMPAIGN, name: CAMPAIGN },
+      revision: 2,
+      characters: [{ id: 'hero', campaignId: CAMPAIGN, name: 'Wren' }],
+      currentScene: undefined,
+      turns: [turn('typed', 'I confront the hunter'), turn('rolled', ROLL_LABEL)],
+      events: [
+        {
+          id: 'e1',
+          campaignId: CAMPAIGN,
+          turnId: 'rolled',
+          causationId: null,
+          type: 'PlayerActionSubmitted',
+          payload: { rollOfferId: 'offer-1' },
+        },
+      ],
+      changes: [{ type: 'CampaignCreated', payload: { name: CAMPAIGN, language: locale } }],
+      gmUsage: EMPTY_GM_USAGE_LEDGER,
+      folds: EMPTY_LIVE_FOLDS,
+    };
+    const source = { state, entities: [], relationships: [], eventScopes: [] };
+    const journal = renderView('journal', source, undefined, locale);
+    assert.match(journal, /Wren: I confront the hunter/);
+    assert.ok(journal.includes(line), journal);
+    assert.doesNotMatch(journal, new RegExp(`Wren: ${ROLL_LABEL}`));
+    const { latest } = panelsOf(source, { scope: 'player' }).recap;
+    assert.ok(latest?.includes(line), latest);
+    assert.doesNotMatch(latest ?? '', new RegExp(`Wren: ${ROLL_LABEL}`));
+  });

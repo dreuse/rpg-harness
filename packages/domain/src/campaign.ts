@@ -75,6 +75,7 @@ export type Turn = {
   readonly narration: string;
   readonly segments?: readonly TurnSegment[];
   readonly kind?: TurnKind;
+  readonly rollOfferId?: string;
 };
 
 export type CampaignEvent = {

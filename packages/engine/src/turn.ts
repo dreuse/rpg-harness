@@ -43,6 +43,7 @@ export type PlayerAction = {
   readonly actorId: CharacterId;
   readonly input: string;
   readonly intent: string;
+  readonly rollOfferId?: string | undefined;
 };
 
 export type EffectiveRulesVersion = {
@@ -140,7 +141,7 @@ export const validate = (state: CampaignState, action: PlayerAction) => {
 };
 
 export const toCommittedTurn = (
-  { campaignId, actionId, expectedRevision, sceneId, actorId, input, intent }: PlayerAction,
+  { campaignId, actionId, expectedRevision, sceneId, actorId, input, intent, rollOfferId }: PlayerAction,
   kind?: TurnKind,
 ) => {
   const turn: Turn = {
@@ -160,6 +161,7 @@ export const toCommittedTurn = (
     sceneId,
     input,
     intent,
+    ...(rollOfferId === undefined ? {} : { rollOfferId }),
     ...(kind === SYSTEM_TURN ? { system: true } : {}),
   });
   return { turn, events: [submitted, event(submitted.id, ACTION_VALIDATED, { revision: expectedRevision + 1 })] };
