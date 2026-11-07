@@ -14,7 +14,7 @@ import type { CharacterProfile } from '../../domain/src/character.ts';
 import { type BuildInput, buildCharacter, type CreationRules } from '../../rules/src/character-builder.ts';
 import { isRecord } from '../../rules/src/rulepack.ts';
 import type { Visibility } from '../../rules/src/sheet-schema.ts';
-import { GM_PROPOSAL_INPUT } from './check-offer.ts';
+import { GM_PROPOSAL_INPUT, offerOf } from './check-offer.ts';
 import {
   commitSystem,
   InvalidActionError,
@@ -117,6 +117,10 @@ export const profileOf = (events: readonly CampaignEvent[], actorId: CharacterId
 };
 
 export const playTurns = ({ turns, events }: Pick<CampaignState, 'turns' | 'events'>) => {
+  const offers = events.flatMap(({ type, payload }) => {
+    const offer = type === CHECK_OFFERED ? offerOf(payload) : undefined;
+    return offer === undefined ? [] : [offer];
+  });
   const accepted = new Map(
     events.flatMap(({ type, turnId, payload }) =>
       type === PLAYER_ACTION_SUBMITTED && typeof payload.rollOfferId === 'string'
@@ -124,10 +128,16 @@ export const playTurns = ({ turns, events }: Pick<CampaignState, 'turns' | 'even
         : [],
     ),
   );
+  const rollOf = (turn: { readonly id: string; readonly input: string }) => {
+    const claimed = accepted.get(turn.id);
+    return claimed === undefined
+      ? offers.findLast(({ label }) => label === turn.input)
+      : offers.find(({ offerId }) => offerId === claimed);
+  };
   return turns
     .filter(({ kind, input }) => kind !== SYSTEM_TURN && !input.startsWith(GM_PROPOSAL_INPUT))
     .map((turn) => {
-      const rollOfferId = accepted.get(turn.id);
-      return rollOfferId === undefined ? turn : { ...turn, rollOfferId };
+      const offer = rollOf(turn);
+      return offer === undefined ? turn : { ...turn, input: offer.label, rollOfferId: offer.offerId };
     });
 };

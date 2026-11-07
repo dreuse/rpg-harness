@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { after, describe, it } from 'node:test';
 import { type CampaignStore, type CommittedTurn, MAIN_BRANCH } from '../../../packages/domain/src/campaign.ts';
+import { offerCheck } from '../../../packages/engine/src/check-offer.ts';
 import { GM_PROPOSALS_REJECTED, saveGmSettings } from '../../../packages/engine/src/gm-settings.ts';
 import { introduceEntity, openPending, recordSummary, saveContextBudget } from '../../../packages/engine/src/memory.ts';
 import { applyOocProposal, undoOocChange, withoutRetconned } from '../../../packages/engine/src/ooc.ts';
@@ -412,16 +413,6 @@ describe('rpg-42a.36 GM context packet from canonical memory', () => {
     assert.deepEqual(packet.sections.find(({ name }) => name === 'playerInput')?.items, ['I ask about the old king']);
   });
 
-  it('marks an accepted roll as a roll, not player speech', () => {
-    const rollInput = 'Test: Stealth';
-    performAction(fixture.store, { ...actionFor(fixture.store, 'roll-turn', rollInput), rollOfferId: 'offer-1' });
-    const committed = play(fixture.store, 'after-roll', 'I look around');
-    const packet = packetAt(fixture, committed);
-    const turns = packet.sections.find(({ name }) => name === 'recentTurns')?.items.join('\n') ?? '';
-    assert.ok(turns.includes(`Roll accepted: ${rollInput}`));
-    assert.ok(!turns.includes(`Player: ${rollInput}`));
-  });
-
   const useBudget = (preset: string) =>
     saveContextBudget(fixture.store, {
       campaignId: CAMPAIGN.id,
@@ -458,6 +449,18 @@ describe('rpg-42a.36 GM context packet from canonical memory', () => {
     const items = (name: string) => packet.sections.find((section) => section.name === name)?.items ?? [];
     assert.equal(items('campaignSummary').length, 1);
     assert.ok(items('chapterSummaries').length >= 1);
+  });
+
+  it('marks an accepted roll as a roll, not player speech', () => {
+    const rollInput = 'Test: Stealth';
+    const offer = { offerId: 'offer-1', ruleId: 'check.stealth', target: 'guard', label: rollInput };
+    offerCheck(fixture.store, { ...actionFor(fixture.store, 'offer-turn'), offer });
+    performAction(fixture.store, { ...actionFor(fixture.store, 'roll-turn', rollInput), rollOfferId: 'offer-1' });
+    const committed = play(fixture.store, 'after-roll', 'I look around');
+    const packet = packetAt(fixture, committed);
+    const turns = packet.sections.find(({ name }) => name === 'recentTurns')?.items.join('\n') ?? '';
+    assert.ok(turns.includes(`Roll accepted: ${rollInput}`));
+    assert.ok(!turns.includes(`Player: ${rollInput}`));
   });
 });
 

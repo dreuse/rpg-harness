@@ -40,7 +40,7 @@ const NOT_FOUND = -1;
 
 export { GM_PROPOSAL_INPUT };
 
-const offerOf = (payload: CampaignEvent['payload']): CheckOffer | undefined => {
+export const offerOf = (payload: CampaignEvent['payload']): CheckOffer | undefined => {
   const { offer } = payload;
   return isRecord(offer) && OFFER_FIELDS.every((field) => typeof offer[field] === 'string')
     ? (offer as CheckOffer)

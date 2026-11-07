@@ -889,6 +889,14 @@ for (const [locale, line] of Object.entries(ROLL_LINES))
       turns: [turn('typed', 'I confront the hunter'), turn('rolled', ROLL_LABEL)],
       events: [
         {
+          id: 'e0',
+          campaignId: CAMPAIGN,
+          turnId: 'typed',
+          causationId: null,
+          type: 'CheckOffered',
+          payload: { offer: { offerId: 'offer-1', ruleId: 'rule', target: 'hunter', label: ROLL_LABEL } },
+        },
+        {
           id: 'e1',
           campaignId: CAMPAIGN,
           turnId: 'rolled',

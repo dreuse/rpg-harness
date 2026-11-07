@@ -7,7 +7,7 @@ import { openDatabase } from '../../persistence/src/database.ts';
 import { type BuildInput, buildCharacter, type CreationRules } from '../../rules/src/character-builder.ts';
 import { SHEET_SCHEMA_VERSION } from '../../rules/src/sheet-schema.ts';
 import { CHARACTER_CREATED, commitCharacter, editSheetField, playTurns, SHEET_FIELD_EDITED } from './character.ts';
-import { GM_PROPOSAL_INPUT } from './check-offer.ts';
+import { GM_PROPOSAL_INPUT, offerCheck } from './check-offer.ts';
 import { createEngine } from './engine.ts';
 import { commit, commitSystem, InvalidActionError, openScene } from './turn.ts';
 
@@ -201,4 +201,43 @@ test('rpg-42a.130: a committed GM proposal is not a play turn', () =>
 test('rpg-42a.130: a player cannot submit input that uses the GM proposal prefix', () =>
   withCampaign(({ engine, action }) => {
     assert.throws(() => engine.submitAction({ ...action, input: `${GM_PROPOSAL_INPUT}claim x` }), InvalidActionError);
+  }));
+
+const OFFER_LABEL = 'Pick the lock';
+const offerInput = (offerId: string) => ({ offerId, ruleId: 'r', target: 't', label: OFFER_LABEL });
+
+const withOffer = (run: (play: (input: string, rollOfferId?: string) => ReturnType<typeof playTurns>) => void) =>
+  withCampaign(({ store, engine, campaignId, action }) => {
+    offerCheck(store, { ...action, actionId: 'offer-1', offer: offerInput('o1') });
+    run((input, rollOfferId) => {
+      const state = engine.getState(campaignId);
+      engine.submitAction({
+        ...action,
+        actionId: `play-${state.revision}`,
+        expectedRevision: state.revision,
+        input,
+        intent: input,
+        ...(rollOfferId === undefined ? {} : { rollOfferId }),
+      });
+      return playTurns(engine.getState(campaignId));
+    });
+  });
+
+test('rpg-42a.155: a roll turn shows the offer label, not the client input', () =>
+  withOffer((play) => {
+    const turn = play('forged text', 'o1').at(-1);
+    assert.equal(turn?.rollOfferId, 'o1');
+    assert.equal(turn?.input, OFFER_LABEL);
+  }));
+
+test('rpg-42a.155: a roll turn with an unknown offer id is a plain player turn', () =>
+  withOffer((play) => {
+    const turn = play('hello', 'missing').at(-1);
+    assert.equal(turn?.rollOfferId, undefined);
+    assert.equal(turn?.input, 'hello');
+  }));
+
+test('rpg-42a.155: an old roll turn whose input equals the offer label is inferred as a roll', () =>
+  withOffer((play) => {
+    assert.equal(play(OFFER_LABEL).at(-1)?.rollOfferId, 'o1');
   }));

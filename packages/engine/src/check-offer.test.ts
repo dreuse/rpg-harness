@@ -119,6 +119,7 @@ test('rpg-42a.90: a retried offer with modifiers returns the stored turn without
 test('rpg-42a.153: a turn that accepts an offer exposes the offer id on the play turn', () => {
   const { store, close } = seeded();
   performAction(store, actionFor(store, 'typed'));
+  offerCheck(store, { ...actionFor(store, 'offer-1'), offer: OFFER });
   performAction(store, { ...actionFor(store, 'accepted'), rollOfferId: OFFER.offerId });
   const turns = playTurns(store.load(CAMPAIGN.id) ?? assert.fail());
   assert.deepEqual(
