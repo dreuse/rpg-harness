@@ -195,20 +195,27 @@ const replyCampaigns = (id: number) => {
   }
 };
 
+type Unopened = { name?: string | undefined };
+
 const changeCampaign = async (
   command: Lifecycle,
   served: string | undefined,
-  serveCampaign: (name: string) => void,
+  serveCampaign: (name: string) => { speakOpening: () => Promise<void> },
   gm: GameMaster,
+  unopened: Unopened,
 ) => {
   const dataDir = dataDirFromEnv();
   if (command.type === 'CreateCampaign') {
     const created = await createCampaignFrom(dataDir, command, DESKTOP_CLIENT, gm);
     serveCampaign(command.name);
+    unopened.name = command.name;
     return created;
   }
   if (command.type === 'OpenCampaign') {
-    serveCampaign(command.name);
+    const opened = serveCampaign(command.name);
+    const first = unopened.name === command.name;
+    unopened.name = undefined;
+    if (first) opened.speakOpening().catch(IGNORE);
     return summaryOf(dataDir, command.name);
   }
   const archived = command.type === 'DeleteCampaign' && command.archived === true;
@@ -228,11 +235,12 @@ const replyChange = async (
   id: number,
   command: Lifecycle,
   served: string | undefined,
-  serveCampaign: (name: string) => void,
+  serveCampaign: (name: string) => { speakOpening: () => Promise<void> },
   gm: GameMaster,
+  unopened: Unopened,
 ) => {
   try {
-    const value = await changeCampaign(command, served, serveCampaign, gm);
+    const value = await changeCampaign(command, served, serveCampaign, gm, unopened);
     return send({ id, type: 'Result', result: { ok: true, value } });
   } catch (error) {
     return send({ id, type: 'Result', result: failureOf(error, daemonLocale()) });
@@ -244,18 +252,20 @@ const exitDaemon = () => {
   process.exit(EXIT_OK);
 };
 
-const replier = ({ name, campaign, problem }: Served, gm: GameMaster) => {
+export const replier = ({ name, campaign, problem }: Served, gm: GameMaster, speech = daemonSpeech()) => {
+  const unopened: Unopened = {};
   const subscriptions = new Map<number, Unsubscribe>();
   let queue = Promise.resolve();
 
   const serveCampaign = (next: string) => {
-    const opened = openClientSession(dataDirFromEnv(), next, gm, undefined, daemonSpeech(), daemonLocale());
+    const opened = openClientSession(dataDirFromEnv(), next, gm, undefined, speech, daemonLocale());
     playbackFor(dataDirFromEnv()).stop();
     for (const unsubscribe of subscriptions.values()) unsubscribe();
     subscriptions.clear();
     campaign?.close();
     name = next;
     campaign = opened;
+    return opened;
   };
 
   const execute = async (id: number, input: unknown, streamed: boolean) => {
@@ -269,7 +279,7 @@ const replier = ({ name, campaign, problem }: Served, gm: GameMaster) => {
         type: 'Result',
         result: planResult(command, DESKTOP_CLIENT, daemonLocale(), packsIn(dataDirFromEnv())),
       });
-    if (!('campaignId' in command)) return replyChange(id, command, name, serveCampaign, gm);
+    if (!('campaignId' in command)) return replyChange(id, command, name, serveCampaign, gm, unopened);
     if (campaign === undefined) return send({ id, type: 'Error', message: problem });
     const { session, campaignId, narrate } = campaign;
     if (command.campaignId !== campaignId)

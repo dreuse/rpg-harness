@@ -725,6 +725,7 @@ type OpenSession = Session & {
   sessionId: string;
   gmDefaults: () => GmSettings;
   narrate: (onSegment?: StreamedSegment) => Promise<readonly GmSegment[]>;
+  speakOpening: () => Promise<void>;
   settle: () => Promise<unknown>;
   close: () => void;
 };
@@ -850,8 +851,17 @@ const openSession = (
       );
       return segments;
     };
+    const speakOpening = async () => {
+      const opening = engine.getState(session.campaignId).turns.find(({ actionId }) => actionId === OPENING_ACTION_ID);
+      if (opening === undefined) return;
+      const { voice } = await speakTurn(opening.id);
+      voice?.settle({
+        narration: opening.narration,
+        segments: opening.segments ?? narratorSegments(opening.narration),
+      });
+    };
     const settle = () => Promise.race([summarized, settled()]);
-    return { ...session, sessionId, gmDefaults, narrate, settle, close };
+    return { ...session, sessionId, gmDefaults, narrate, speakOpening, settle, close };
   } catch (error) {
     connection.close();
     throw error;
@@ -901,7 +911,7 @@ export const openClientSession = (
   uiLocale = DEFAULT_LOCALE,
 ) => {
   const opened = openSession(dataDir, name, false, gm, rng, speech, undefined, uiLocale);
-  const { engine, campaignId, database, narrate, settle, close, sessionId, gmDefaults } = opened;
+  const { engine, campaignId, database, narrate, speakOpening, settle, close, sessionId, gmDefaults } = opened;
   try {
     const readWorld = worldOf(database);
     const sessions = createClientSessions(
@@ -922,7 +932,7 @@ export const openClientSession = (
       const settings = voiceSettingsOf(engine.getState(campaignId).changes);
       return settings === undefined || settings.spokenOutput === SPOKEN_OFF ? undefined : settings.locale;
     };
-    return { session: sessions(PLAYER_VIEWER), campaignId, narrate, settle, close, voiceLocale };
+    return { session: sessions(PLAYER_VIEWER), campaignId, narrate, speakOpening, settle, close, voiceLocale };
   } catch (error) {
     close();
     throw error;

@@ -43,13 +43,21 @@ import {
   EXIT_CONSUMER_CREDENTIALS,
   gmRouteOf,
   NO_CAMPAIGN,
+  replier,
   startDaemon,
 } from './desktop-daemon.ts';
-import { createEngineGateway, FAKE_GM_REPLY, NO_KEY_NOTICE, readCampaignState } from './engine-gateway.ts';
+import {
+  createEngineGateway,
+  FAKE_GAME_MASTER,
+  FAKE_GM_REPLY,
+  NO_KEY_NOTICE,
+  readCampaignState,
+} from './engine-gateway.ts';
 import { FAKE_ROUTE, GM_API_URL_ENV, GM_ROUTE_ENV } from './gm-api.ts';
 import { hermeticGmEnv } from './gm-test-env.ts';
 import { visualizationPreferenceOf } from './roll-visualization.ts';
 import { DATA_DIR_ENV } from './setup-check.ts';
+import { createSpeechRuntime } from './speech-runtime.ts';
 
 const SPIKE_DOC = new URL('../../../docs/product/ui07-desktop-packaging-spike.md', import.meta.url);
 const TARGET_PLATFORMS = ['win32', 'darwin', 'linux'] as const;
@@ -1305,5 +1313,79 @@ describe('desktop does not require unsupported reuse of consumer claude subscrip
     });
     assert.equal(run.status, EXIT_CONSUMER_CREDENTIALS);
     assert.match(String(run.stderr), /variáveis de sessão do Claude Code/);
+  });
+});
+
+describe('rpg-cm63.67 desktop opening scene speech', () => {
+  const LOCAL_PROVIDER = 'kokoro';
+  const OPENING_SETTLE_ROUNDS = 8;
+  const TEXT_DECODER = new TextDecoder();
+
+  const harness = (t: TestContext) => {
+    const dataDir = tempDataDir(t);
+    const previous = process.env[DATA_DIR_ENV];
+    process.env[DATA_DIR_ENV] = dataDir;
+    t.after(() => {
+      if (previous === undefined) delete process.env[DATA_DIR_ENV];
+      else process.env[DATA_DIR_ENV] = previous;
+    });
+    t.mock.method(process.stdout, 'write', () => true);
+    const played: string[] = [];
+    const runtime = createSpeechRuntime({
+      providers: [
+        {
+          id: LOCAL_PROVIDER,
+          locality: 'local',
+          retention: 'none',
+          healthy: () => true,
+          async *synthesize(utterance, voiceId) {
+            yield {
+              utteranceEventId: utterance.eventId,
+              sequence: 0,
+              audio: new TextEncoder().encode(utterance.text),
+              mimeType: 'audio/wav',
+              voiceId,
+              final: true,
+            };
+          },
+        },
+      ],
+      route: 'mlx',
+      sink: { play: async (chunk) => void played.push(TEXT_DECODER.decode(chunk.audio)) },
+    });
+    const daemon = replier({ problem: NO_CAMPAIGN }, FAKE_GAME_MASTER, async () => runtime);
+    const run = async (command: object) => {
+      daemon({ id: 1, type: 'Command', command });
+      for (let round = 0; round < OPENING_SETTLE_ROUNDS; round += 1) await setImmediate();
+    };
+    return { run, played, dataDir };
+  };
+
+  const create = (name: string, voice: boolean) =>
+    lifecycle('CreateCampaign', { name, ...(voice ? { play: { spokenOutput: 'full' } } : {}) });
+  const open = (name: string) => lifecycle('OpenCampaign', { name });
+
+  it('speaks the opening once, after the campaign is opened, not on create', async (t) => {
+    const { run, played } = harness(t);
+    await run(create(CAMPAIGN, true));
+    assert.deepEqual(played, []);
+    await run(open(CAMPAIGN));
+    assert.equal(played.length, 1);
+    assert.match(played[0] ?? '', /\w/);
+  });
+
+  it('does not speak the opening again on a later open', async (t) => {
+    const { run, played } = harness(t);
+    await run(create(CAMPAIGN, true));
+    await run(open(CAMPAIGN));
+    await run(open(CAMPAIGN));
+    assert.equal(played.length, 1);
+  });
+
+  it('stays silent when voice is off', async (t) => {
+    const { run, played } = harness(t);
+    await run(create(CAMPAIGN, false));
+    await run(open(CAMPAIGN));
+    assert.deepEqual(played, []);
   });
 });

@@ -9,6 +9,7 @@ import { startProviderServer } from '../../../packages/testkit/src/provider-serv
 import type { SpeechChunk, TtsProvider } from '../../../packages/voice/src/tts.ts';
 import {
   apiGameMaster,
+  createCampaignFrom,
   createEngineGateway,
   disposeSpeech,
   FAKE_GAME_MASTER,
@@ -721,5 +722,50 @@ describe('rpg-42a.62 spoken narration follows the continuity-corrected text', ()
 
   it('never speaks a contradiction that survives the retry', async (t) => {
     assert.ok(!(await spokenAfter(t, WAKES)).includes(WAKES));
+  });
+});
+
+describe('rpg-cm63.67 opening scene speech', () => {
+  const create = async (t: TestContext, spokenOutput?: 'full') => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'rpg-opening-speech-'));
+    t.after(() => rmSync(dataDir, { recursive: true, force: true }));
+    await createCampaignFrom(dataDir, {
+      version: PROTOCOL_VERSION,
+      type: 'CreateCampaign',
+      name: CAMPAIGN,
+      ...(spokenOutput === undefined ? {} : { play: { spokenOutput } }),
+    });
+    const played: string[] = [];
+    const runtime = createSpeechRuntime({
+      providers: [kokoro([])],
+      route: 'mlx',
+      sink: { play: async (chunk) => void played.push(new TextDecoder().decode(chunk.audio)) },
+    });
+    const opened = openClientSession(dataDir, CAMPAIGN, FAKE_GAME_MASTER, Math.random, () => runtime);
+    const snapshot = opened.session.getSnapshot({
+      version: PROTOCOL_VERSION,
+      type: 'GetCampaignSnapshot',
+      campaignId: opened.campaignId,
+    });
+    assert.ok(snapshot.ok);
+    return { opened, played, narration: snapshot.value.turns[0]?.narration ?? '' };
+  };
+
+  it('speaks the opening narration of a new adventure when voice is on', async (t) => {
+    const { opened, played, narration } = await create(t, 'full');
+    assert.notEqual(narration, '');
+    await opened.speakOpening();
+    await settle();
+    assert.ok(
+      played.some((line) => line.includes(narration)),
+      played.join('\n'),
+    );
+  });
+
+  it('stays silent for the opening when voice is off', async (t) => {
+    const { opened, played } = await create(t);
+    await opened.speakOpening();
+    await settle();
+    assert.deepEqual(played, []);
   });
 });
