@@ -1196,3 +1196,12 @@ test('rpg-42a.156: the header shows the stored campaign name verbatim', () => {
   assert.match(titled('hollow-lantern'), />hollow-lantern<\/h1>/);
   assert.match(titled('Ünder-Keep'), />Ünder-Keep<\/h1>/);
 });
+
+test('rpg-cm63.69 sound consent lists each source host separately', () => {
+  const html = soundPanel(SOUND_MUSIC_ON, 'en', {
+    step: 'consent',
+    installed: false,
+    offer: { source: 'https://upload.wikimedia.org, https://opengameart.org', sizeMiB: 3, bytes: 3_000_000 },
+  } as never);
+  assert.match(html, /Source: upload\.wikimedia\.org, opengameart\.org\./);
+});

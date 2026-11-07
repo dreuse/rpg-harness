@@ -406,12 +406,20 @@ const soundRow = (settings: SoundSettings, channel: (typeof SOUND_CHANNELS)[numb
 
 export const SOUND_SETUP = 'data-sound-setup';
 
+const SOURCE_SEPARATOR = /,\s*/;
+
+const sourceHosts = (sources: string) =>
+  sources
+    .split(SOURCE_SEPARATOR)
+    .map((source) => URL.parse(source)?.host ?? source)
+    .join(', ');
+
 const soundSetupBody = ({ step, installed, offer, progress, retryMinutes }: SoundSetupView, locale: string) => {
   const text = (key: string, values?: Record<string, string | number>, status = false) =>
     `<p${status ? ' role="status" tabindex="-1"' : ''}>${escapeHtml(translate(locale, key, values))}</p>`;
   const download = button(SOUND_SETUP, 'download', translate(locale, 'sound.setup.download'));
   if (step === 'consent' && offer !== undefined)
-    return `${text('sound.setup.consent', { size: offer.sizeMiB, source: URL.parse(offer.source)?.host ?? offer.source })}${button(SOUND_SETUP, 'accept', translate(locale, 'sound.setup.accept'), false, true)}${button(SOUND_SETUP, 'decline', translate(locale, 'sound.setup.decline'))}`;
+    return `${text('sound.setup.consent', { size: offer.sizeMiB, source: sourceHosts(offer.source) })}${button(SOUND_SETUP, 'accept', translate(locale, 'sound.setup.accept'), false, true)}${button(SOUND_SETUP, 'decline', translate(locale, 'sound.setup.decline'))}`;
   if (step === 'downloading')
     return `${text('sound.setup.downloading', undefined, true)}${progress === undefined ? '' : `<div data-voice-progress><progress value="${progress.bytes}" max="${progress.total}" aria-label="${escapeHtml(translate(locale, 'sound.setup.downloading'))}"></progress><span>${escapeHtml(translate(locale, 'voice.setup.progress', { done: mib(progress.bytes), total: mib(progress.total) }))}</span></div>`}`;
   if (step === 'failed') {
