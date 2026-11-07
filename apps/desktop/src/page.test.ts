@@ -1574,6 +1574,45 @@ test('rpg-cm63.39 page downloads the sound pack only after consent, then refresh
   assert.match(page.root.innerHTML, /Sound pack installed/);
 });
 
+const soundPackPage = async (installed: boolean) => {
+  const page = fakePage();
+  const { sound } = fakeSound();
+  const downloads: unknown[] = [];
+  const offer = { source: 'https://cdn.example.org/sounds', bytes: 40_894_464, sizeMiB: 39 };
+  const soundBridge: NonNullable<PageOptions['bridge']['sound']> = {
+    status: async () => ({ installed, bytes: 0, offer }),
+    download: async (consent) => {
+      downloads.push(consent);
+    },
+    file: async () => undefined,
+    onProgress: () => {},
+    onSpeaking: () => {},
+  };
+  mount(page, {}, deniedMicrophone, undefined, WIDE_WIDTH, { bridge: { ...page.bridge, sound: soundBridge }, sound });
+  page.receive(READY);
+  continueHarbor(page);
+  page.receive({ type: 'Snapshot', snapshot: SNAPSHOT });
+  await settle();
+  return { page, downloads };
+};
+
+test('rpg-cm63.68 turning a sound channel on without the pack asks for download consent and downloads nothing', async () => {
+  const { page, downloads } = await soundPackPage(false);
+  assert.doesNotMatch(page.root.innerHTML, /data-sound-setup="accept"/);
+  page.change({ 'data-sound-toggle': 'ambience' }, 'on', true);
+  assert.match(page.root.innerHTML, /data-sound-setup="accept"/);
+  assert.deepEqual(downloads, []);
+});
+
+test('rpg-cm63.68 turning a sound channel off or on with the pack installed asks for nothing', async () => {
+  const missing = await soundPackPage(false);
+  missing.page.change({ 'data-sound-toggle': 'ambience' }, 'off', false);
+  assert.doesNotMatch(missing.page.root.innerHTML, /data-sound-setup="accept"/);
+  const installed = await soundPackPage(true);
+  installed.page.change({ 'data-sound-toggle': 'ambience' }, 'on', true);
+  assert.doesNotMatch(installed.page.root.innerHTML, /data-sound-setup="accept"/);
+});
+
 test('rpg-cm63.39 page keeps the typed entry and its focus when the sound download settles in the background', async () => {
   const page = fakePage();
   const { sound } = fakeSound();

@@ -752,6 +752,7 @@ export const mountPage = ({
     saved = { ...saved, sound };
     bridge.savePreferences?.(saved);
     preferences = withSystem();
+    if (patch.enabled === true) soundSetup?.ask();
     render();
   };
   const voiceField = (field: string, raw: unknown) => {
