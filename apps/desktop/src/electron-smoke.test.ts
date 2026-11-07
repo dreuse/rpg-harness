@@ -103,10 +103,11 @@ if (missingBinaryFailure) {
 }
 
 const FORCE_SRGB = '--force-color-profile=srgb';
+const FORCE_SCALE_1 = '--force-device-scale-factor=1';
 
 const run = async (dataDir: string, extra: NodeJS.ProcessEnv, app = APP_DIR) => {
   const env = Object.fromEntries(KEPT_ENV.flatMap((key) => (process.env[key] ? [[key, process.env[key]]] : [])));
-  const { stdout } = await promisify(execFile)(binary as string, [FORCE_SRGB, app], {
+  const { stdout } = await promisify(execFile)(binary as string, [FORCE_SRGB, FORCE_SCALE_1, app], {
     env: {
       ...env,
       [LANGUAGE_ENV]: DEFAULT_LOCALE,
