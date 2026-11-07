@@ -142,8 +142,14 @@ const retconnedMemoryOf = (database: DatabaseSync, state: CampaignState): Retcon
 export const fakeSummarizer: Summarizer = async (_level, texts) =>
   texts.join(TEXT_SEPARATOR).slice(NONE, FAKE_SUMMARY_LENGTH);
 
-const turnText = ({ input, narration }: Turn) =>
-  narration === '' ? `Player: ${input}` : `Player: ${input} GM: ${narration}`;
+const ROLL_ACCEPTED_LABEL = 'Roll accepted: ';
+const PLAYER_LABEL = 'Player: ';
+
+const playerWords = ({ input, rollOfferId }: Turn) =>
+  rollOfferId === undefined ? `${PLAYER_LABEL}${input}` : `${ROLL_ACCEPTED_LABEL}${input}`;
+
+const turnText = (turn: Turn) =>
+  turn.narration === '' ? playerWords(turn) : `${playerWords(turn)} GM: ${turn.narration}`;
 
 const pendingText = ({ kind, text }: { readonly kind: string; readonly text: string }) => `${kind}: ${text}`;
 
@@ -420,7 +426,7 @@ export const contextPacketOf = (
         .filter(({ id }) => visibleEvents.has(id))
         .map(({ type, payload }) => `${type} ${JSON.stringify(payload)}`)
         .concat(gmRolls),
-      playerInput: [committed.turn.input],
+      playerInput: [committed.turn.rollOfferId === undefined ? committed.turn.input : playerWords(committed.turn)],
     },
     budget,
   );

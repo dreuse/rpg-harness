@@ -412,6 +412,16 @@ describe('rpg-42a.36 GM context packet from canonical memory', () => {
     assert.deepEqual(packet.sections.find(({ name }) => name === 'playerInput')?.items, ['I ask about the old king']);
   });
 
+  it('marks an accepted roll as a roll, not player speech', () => {
+    const rollInput = 'Test: Stealth';
+    performAction(fixture.store, { ...actionFor(fixture.store, 'roll-turn', rollInput), rollOfferId: 'offer-1' });
+    const committed = play(fixture.store, 'after-roll', 'I look around');
+    const packet = packetAt(fixture, committed);
+    const turns = packet.sections.find(({ name }) => name === 'recentTurns')?.items.join('\n') ?? '';
+    assert.ok(turns.includes(`Roll accepted: ${rollInput}`));
+    assert.ok(!turns.includes(`Player: ${rollInput}`));
+  });
+
   const useBudget = (preset: string) =>
     saveContextBudget(fixture.store, {
       campaignId: CAMPAIGN.id,
