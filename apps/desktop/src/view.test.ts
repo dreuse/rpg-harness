@@ -120,7 +120,7 @@ test('UI08 renderView follows layout, font scale and reduced motion', () => {
     DEFAULT_PREFERENCES.locale,
   );
   assert.match(html, /data-layout="compact"/);
-  assert.match(html, new RegExp(`--font-scale: ${MAX_FONT_SCALE}`));
+  assert.doesNotMatch(html, / style="/);
   assert.match(html, /data-animate="false"/);
   assert.doesNotMatch(html, /data-region="campaigns"/);
 });

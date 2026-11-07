@@ -20,7 +20,7 @@ import {
 import { SMOKE_ENV, SMOKE_STATUS, startMain, utilityEngine } from './main.ts';
 import { PLATFORMS } from './packaging.ts';
 import { APP_ROOT, APP_SCHEME, bundlePreload, PAGE_URL, PRELOAD_SOURCE, serveAsset } from './serve.ts';
-import { guardSmokeProcess } from './smoke-guard.ts';
+import { guardRenderer, guardSmokeProcess } from './smoke-guard.ts';
 import { createSoundHost } from './sound-host.ts';
 import { offerDesktopUpdate, UPDATE_CHOICES } from './update.ts';
 import { voiceHostFromEnv } from './voice-host.ts';
@@ -123,6 +123,15 @@ if (process.env[SMOKE_ENV] || process.env[CAPTURE_ENV] || process.env[JOURNEY_EN
 if (process.env[CAPTURE_ENV] || process.env[JOURNEY_ENV]) app.commandLine.appendSwitch(SCALE_SWITCH, CAPTURE_SCALE);
 
 app.on('window-all-closed', () => app.quit());
+
+if (process.env[SMOKE_ENV] || process.env[CAPTURE_ENV] || process.env[JOURNEY_ENV])
+  app.on('web-contents-created', (_event, contents) =>
+    guardRenderer(
+      contents as unknown as Parameters<typeof guardRenderer>[0],
+      (text) => process.stderr.write(text),
+      (code) => app.exit(code),
+    ),
+  );
 
 const headless = headlessRun(process.env, process.platform);
 

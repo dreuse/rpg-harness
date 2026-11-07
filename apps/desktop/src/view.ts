@@ -1092,7 +1092,7 @@ const storyLanguageControl = (current: string | undefined, locale: string): stri
   ).join('')}</fieldset>`;
 
 const mainOpen = (model: ViewModel, screen: 'home' | 'play') =>
-  `<main data-screen="${screen}" data-layout="${model.layout.name}" data-animate="${model.animate}" data-motion-mode="${model.motion}" style="--font-scale: ${model.fontScale}">`;
+  `<main data-screen="${screen}" data-layout="${model.layout.name}" data-animate="${model.animate}" data-motion-mode="${model.motion}">`;
 
 const renderHome = (model: ViewModel, locale: string) =>
   `${mainOpen(model, 'home')}${pane(STATUS, locale, REGION_BODIES.status(model, locale), false)}${renderStart(model, locale)}${pane('campaigns', locale, REGION_BODIES.campaigns(model, locale), false)}</main>`;

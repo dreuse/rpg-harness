@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { test } from 'node:test';
-import { EPIPE_CODE, FAILURE_EXIT, guardSmokeProcess, QUIET_EXIT } from './smoke-guard.ts';
+import { EPIPE_CODE, FAILURE_EXIT, guardRenderer, guardSmokeProcess, QUIET_EXIT } from './smoke-guard.ts';
 
 const fakeProcess = () => {
   const stderr: string[] = [];
@@ -50,4 +50,51 @@ test('a real closed stdout reader ends the process without an uncaught exception
   const code = await new Promise((resolve) => child.on('close', resolve));
   assert.equal(code, QUIET_EXIT, stderr);
   assert.doesNotMatch(stderr, /Uncaught|EPIPE/);
+});
+
+const fakeRenderer = () => {
+  const contents = new EventEmitter();
+  const stderr: string[] = [];
+  const exits: number[] = [];
+  guardRenderer(
+    contents,
+    (text) => stderr.push(text),
+    (code) => exits.push(code),
+  );
+  return { contents, stderr, exits };
+};
+
+test('a renderer console error exits non-zero with the message on stderr', () => {
+  const { contents, stderr, exits } = fakeRenderer();
+  contents.emit('console-message', { level: 'error', message: 'Cannot set properties of null' });
+  assert.deepEqual(exits, [FAILURE_EXIT]);
+  assert.match(stderr.join(''), /Cannot set properties of null/);
+});
+
+test('renderer info and warning messages do not fail the run', () => {
+  const { contents, exits } = fakeRenderer();
+  contents.emit('console-message', { level: 'info', message: 'hello' });
+  contents.emit('console-message', { level: 'warning', message: 'hmm' });
+  assert.deepEqual(exits, []);
+});
+
+test('a gone render process exits non-zero with the reason on stderr', () => {
+  const { contents, stderr, exits } = fakeRenderer();
+  contents.emit('render-process-gone', {}, { reason: 'crashed' });
+  assert.deepEqual(exits, [FAILURE_EXIT]);
+  assert.match(stderr.join(''), /crashed/);
+});
+
+test('a failed page load exits non-zero with the description on stderr', () => {
+  const { contents, stderr, exits } = fakeRenderer();
+  contents.emit('did-fail-load', {}, -6, 'ERR_FILE_NOT_FOUND', 'app://rpg/index.html', true);
+  assert.deepEqual(exits, [FAILURE_EXIT]);
+  assert.match(stderr.join(''), /ERR_FILE_NOT_FOUND/);
+});
+
+test('a preload error exits non-zero with the error on stderr', () => {
+  const { contents, stderr, exits } = fakeRenderer();
+  contents.emit('preload-error', {}, '/tmp/preload.cjs', new Error('bridge broke'));
+  assert.deepEqual(exits, [FAILURE_EXIT]);
+  assert.match(stderr.join(''), /bridge broke/);
 });
