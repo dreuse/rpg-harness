@@ -1316,8 +1316,9 @@ main[data-screen="home"] [data-region="start"] [data-actions] {
   box-shadow: inset var(--marker-width) 0 0 var(--accent);
 }
 
-[data-region="status"] h1 {
-  padding-inline-start: var(--marker-width);
+[data-region="status"] h1:focus-visible {
+  box-shadow: none;
+  outline-color: var(--focus);
 }
 
 [data-modifier] {

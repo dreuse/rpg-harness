@@ -159,19 +159,8 @@ const diagnostics = ({ diagnostics: { pid, gm, error, attempts } }: ViewModel, l
 
 const pageHeading = (text: string) => `<h1 id="${HEADING_ID}${STATUS}" tabindex="-1">${escapeHtml(text)}</h1>`;
 
-const SLUG = /^[a-z0-9]+(?:[-_][a-z0-9]+)*$/;
-const SLUG_SEPARATOR = /[-_]/;
-
-export const campaignTitle = (name: string) =>
-  SLUG.test(name)
-    ? name
-        .split(SLUG_SEPARATOR)
-        .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-        .join(' ')
-    : name;
-
 const header = (model: ViewModel, locale: string) =>
-  `<hgroup>${pageHeading(model.title.campaign === undefined ? translate(locale, 'app.name') : campaignTitle(model.title.campaign))}${model.title.scene === undefined ? '' : `<p>${escapeHtml(model.title.scene)}</p>`}</hgroup>`;
+  `<hgroup>${pageHeading(model.title.campaign === undefined ? translate(locale, 'app.name') : model.title.campaign)}${model.title.scene === undefined ? '' : `<p>${escapeHtml(model.title.scene)}</p>`}</hgroup>`;
 
 const connection = (model: ViewModel, locale: string) =>
   `<p role="status" data-connection="${model.status.connection}">${escapeHtml(model.status.label)}</p>${model.status.canRetry ? button('data-action', 'retry', translate(locale, 'action.retry')) : ''}${diagnostics(model, locale)}`;

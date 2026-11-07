@@ -1188,12 +1188,11 @@ test('rpg-42a.69 a home card shows the ruleset player name and a humanized genre
   assert.ok(hostile.includes(ESCAPED));
 });
 
-test('rpg-42a.150: the header turns a campaign slug into a readable title', () => {
+test('rpg-42a.156: the header shows the stored campaign name verbatim', () => {
   const snapshot = state.snapshot as NonNullable<DesktopState['snapshot']>;
   const titled = (name: string) =>
     renderView(viewModel({ ...state, snapshot: { ...snapshot, campaign: { id: CAMPAIGN, name } } }, WIDE_WIDTH), 'en');
-  assert.match(titled('hollow-lantern'), /<h1 id="heading-status" tabindex="-1">Hollow Lantern<\/h1>/);
-  assert.match(titled('the_old_road'), />The Old Road<\/h1>/);
-  assert.match(titled('Hollow Lantern'), />Hollow Lantern<\/h1>/);
+  assert.match(titled('Caçador'), /<h1 id="heading-status" tabindex="-1">Caçador<\/h1>/);
+  assert.match(titled('hollow-lantern'), />hollow-lantern<\/h1>/);
   assert.match(titled('Ünder-Keep'), />Ünder-Keep<\/h1>/);
 });

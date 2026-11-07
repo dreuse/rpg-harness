@@ -166,6 +166,11 @@ test('rpg-42a.11 tokens follow the OS theme, reduce motion and expose one accent
     /:is\(h1, h2\)\[tabindex="-1"\]:focus-visible \{[^}]*outline-color: transparent;[^}]*box-shadow: inset var\(--marker-width\) 0 0 var\(--accent\);/,
   );
   assert.doesNotMatch(view, /--accent:/);
+  assert.match(
+    view,
+    /\[data-region="status"\] h1:focus-visible \{[^}]*box-shadow: none;[^}]*outline-color: var\(--focus\);/,
+  );
+  assert.doesNotMatch(view, /\[data-region="status"\] h1 \{[^}]*padding-inline-start/);
 });
 
 test('rpg-42a.18 the action form has a labelled input and a Send button that Enter submits', () => {
