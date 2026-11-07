@@ -458,5 +458,6 @@ test('rpg-cm63.41 persisted tags are used and the title is only the fallback', (
     location: 'sea',
     mood: ['tense'],
   });
-  assert.deepEqual(sceneSoundInput('Docks'), { location: '', mood: ['docks'] });
+  assert.deepEqual(sceneSoundInput('Docks'), { location: 'docks', mood: ['docks'] });
+  assert.deepEqual(sceneSoundInput('Moon Base'), { location: '', mood: ['moon', 'base'] });
 });

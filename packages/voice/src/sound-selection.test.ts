@@ -79,3 +79,30 @@ test('rpg-cm63.41 a missing location kind falls back to the title and missing mo
 test('rpg-cm63.41 empty tags fall back to the title', () => {
   assert.deepEqual(sceneSoundOf('The Rusty Tavern', {}), sceneSoundOf('The Rusty Tavern'));
 });
+
+test('any word of a multi-word location can match, first match wins', () => {
+  assert.equal(selectSounds({ location: 'castle courtyard', mood: [] }).ambience, 'city');
+  assert.equal(selectSounds({ location: 'old Harbour-side tavern', mood: [] }).ambience, 'sea');
+  assert.equal(selectSounds({ location: 'moon base', mood: [] }).ambience, undefined);
+});
+
+test('common scene vocabulary maps to existing ambience keys', () => {
+  const expected: Record<string, string> = {
+    castle: 'city',
+    keep: 'city',
+    fortress: 'city',
+    road: 'forest',
+    trail: 'forest',
+    plains: 'forest',
+    docks: 'sea',
+    pier: 'sea',
+    wharf: 'sea',
+  };
+  for (const [location, ambience] of Object.entries(expected)) {
+    assert.equal(selectSounds({ location, mood: [] }).ambience, ambience, location);
+  }
+});
+
+test('extension locations still override the base table per word', () => {
+  assert.equal(selectSounds({ location: 'castle hall', mood: [] }, { locations: { castle: 'cave' } }).ambience, 'cave');
+});

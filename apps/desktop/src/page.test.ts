@@ -1496,7 +1496,7 @@ test('rpg-cm63.33 page hands the saved sound settings and the scene to playback 
   page.receive({ type: 'Campaigns', campaigns: [SNAPSHOT.campaign] });
   continueHarbor(page);
   page.receive({ type: 'Snapshot', snapshot: SNAPSHOT });
-  assert.deepEqual(last('update'), ['update', MUSIC_ON, { location: '', mood: ['docks'] }, 's1']);
+  assert.deepEqual(last('update'), ['update', MUSIC_ON, { location: 'docks', mood: ['docks'] }, 's1']);
 });
 
 test('rpg-cm63.41 page prefers the persisted location kind and mood tags over the scene title', () => {

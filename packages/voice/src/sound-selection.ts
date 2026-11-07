@@ -44,6 +44,20 @@ export const BASE_SOUND_TABLE: SoundTable = Object.freeze({
     river: 'stream',
     stream: 'stream',
     brook: 'stream',
+    castle: 'city',
+    keep: 'city',
+    fortress: 'city',
+    courtyard: 'city',
+    road: 'forest',
+    path: 'forest',
+    trail: 'forest',
+    plains: 'forest',
+    meadow: 'forest',
+    docks: 'sea',
+    dock: 'sea',
+    pier: 'sea',
+    port: 'sea',
+    wharf: 'sea',
   }),
   moods: Object.freeze({
     combat: { ambience: 'battle', music: 'combat' },
@@ -58,6 +72,8 @@ export const BASE_SOUND_TABLE: SoundTable = Object.freeze({
   }),
 });
 
+const WORD_SEPARATOR = /[^\p{L}]+/u;
+
 const own = <T>(table: Readonly<Record<string, T>>, name: string): T | undefined =>
   Object.hasOwn(table, name) ? table[name] : undefined;
 
@@ -68,13 +84,12 @@ export const selectSounds = (scene: SceneSoundInput, extension: SoundTableExtens
     const sounds = own(moods, tag.toLowerCase());
     return sounds === undefined ? [] : [sounds];
   });
-  const ambience =
-    matches.find((sounds) => sounds.ambience !== undefined)?.ambience ?? own(locations, scene.location.toLowerCase());
+  const locationWords = scene.location.toLowerCase().split(WORD_SEPARATOR).filter(Boolean);
+  const fromLocation = locationWords.map((word) => own(locations, word)).find((key) => key !== undefined);
+  const ambience = matches.find((sounds) => sounds.ambience !== undefined)?.ambience ?? fromLocation;
   const music = matches.find((sounds) => sounds.music !== undefined)?.music ?? DEFAULT_MUSIC_KEY;
   return ambience === undefined ? { music } : { ambience, music };
 };
-
-const WORD_SEPARATOR = /[^\p{L}]+/u;
 
 export interface SceneSoundTags {
   readonly locationKind?: string;
