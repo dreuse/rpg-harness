@@ -19,6 +19,7 @@ import { isLocale, type SavedVoiceSettings } from '../../domain/src/voice.ts';
 import type { Rng } from '../../rules/src/dice.ts';
 import { type GmSettingsSave, saveGmSettings } from './gm-settings.ts';
 import { applyOocProposal, type OocApplication, type OocUndo, undoOocChange, withoutRetconned } from './ooc.ts';
+import { markOpeningSpoken, type OpeningSpokenMark } from './opening-spoken.ts';
 import { type Check, type NoCheck, type PlayerAction, performAction, type ReportedRoll } from './turn.ts';
 import { saveVoiceSettings, type VoiceSettingsSave } from './voice-settings.ts';
 
@@ -38,6 +39,7 @@ export type Engine = {
   setCampaignLanguage(save: CampaignLanguageSave): string;
   saveVoiceSettings(save: VoiceSettingsSave): SavedVoiceSettings;
   saveGmSettings(save: GmSettingsSave): GmSettings;
+  markOpeningSpoken(mark: OpeningSpokenMark): void;
   applyOoc(application: OocApplication): OocApplied;
   undoOoc(undo: OocUndo): OocApplied;
 };
@@ -98,6 +100,7 @@ export const createEngine = (store: CampaignStore, rng: Rng = Math.random): Engi
   submitAction: (action, check) => performAction(store, action, check, rng),
   saveVoiceSettings: (save) => saveVoiceSettings(store, save),
   saveGmSettings: (save) => saveGmSettings(store, save),
+  markOpeningSpoken: (mark) => markOpeningSpoken(store, mark),
   applyOoc: (application) => applyOocProposal(store, application),
   undoOoc: (undo) => undoOocChange(store, undo),
 });

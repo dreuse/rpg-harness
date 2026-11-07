@@ -136,6 +136,7 @@ test('a stale revision from the engine maps to a StaleRevision tool error', () =
     submitAction: rejectStale,
     saveVoiceSettings: rejectStale,
     saveGmSettings: rejectStale,
+    markOpeningSpoken: rejectStale,
     setCampaignLanguage: rejectStale,
     applyOoc: rejectStale,
     undoOoc: rejectStale,

@@ -50,6 +50,7 @@ import {
 } from '../../../packages/engine/src/gm-settings.ts';
 import { contextBudgetOf } from '../../../packages/engine/src/memory.ts';
 import { oocStateOf, withoutRetconned } from '../../../packages/engine/src/ooc.ts';
+import { openingSpokenOf } from '../../../packages/engine/src/opening-spoken.ts';
 import {
   MAX_RULES_DOCUMENTS,
   type RulesDocument,
@@ -852,8 +853,10 @@ const openSession = (
       return segments;
     };
     const speakOpening = async () => {
-      const opening = engine.getState(session.campaignId).turns.find(({ actionId }) => actionId === OPENING_ACTION_ID);
-      if (opening === undefined) return;
+      const { turns, changes, revision } = engine.getState(session.campaignId);
+      const [opening] = turns;
+      if (turns.length !== 1 || opening?.actionId !== OPENING_ACTION_ID || openingSpokenOf(changes)) return;
+      engine.markOpeningSpoken({ campaignId: session.campaignId, actionId: randomUUID(), expectedRevision: revision });
       const { voice } = await speakTurn(opening.id);
       voice?.settle({
         narration: opening.narration,
@@ -1043,8 +1046,7 @@ const playTui = async (
         : await speechNotice(speech, locale, terminal.locale ?? DEFAULT_LOCALE).catch(() => undefined);
     const soundNotice = await startSound(dataDir, session, campaignId, terminal.locale ?? DEFAULT_LOCALE);
     const notice = [gm.notice, voiceNotice, soundNotice].filter((line) => line !== undefined).join(NOTICE_JOIN);
-    const snapshot = session.getSnapshot({ version: PROTOCOL_VERSION, type: 'GetCampaignSnapshot', campaignId });
-    if (snapshot.ok && snapshot.value.turns.length === 1) speakOpening().catch(IGNORE);
+    speakOpening().catch(IGNORE);
     await runTui(session, campaignId, terminal, narrate, notice || undefined, playbackFor(dataDir));
   } finally {
     stopSound(dataDir);

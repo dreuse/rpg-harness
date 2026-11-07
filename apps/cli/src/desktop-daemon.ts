@@ -195,27 +195,21 @@ const replyCampaigns = (id: number) => {
   }
 };
 
-type Unopened = { name?: string | undefined };
-
 const changeCampaign = async (
   command: Lifecycle,
   served: string | undefined,
   serveCampaign: (name: string) => { speakOpening: () => Promise<void> },
   gm: GameMaster,
-  unopened: Unopened,
 ) => {
   const dataDir = dataDirFromEnv();
   if (command.type === 'CreateCampaign') {
     const created = await createCampaignFrom(dataDir, command, DESKTOP_CLIENT, gm);
     serveCampaign(command.name);
-    unopened.name = command.name;
     return created;
   }
   if (command.type === 'OpenCampaign') {
     const opened = serveCampaign(command.name);
-    const first = unopened.name === command.name;
-    unopened.name = undefined;
-    if (first) opened.speakOpening().catch(IGNORE);
+    opened.speakOpening().catch(IGNORE);
     return summaryOf(dataDir, command.name);
   }
   const archived = command.type === 'DeleteCampaign' && command.archived === true;
@@ -237,10 +231,9 @@ const replyChange = async (
   served: string | undefined,
   serveCampaign: (name: string) => { speakOpening: () => Promise<void> },
   gm: GameMaster,
-  unopened: Unopened,
 ) => {
   try {
-    const value = await changeCampaign(command, served, serveCampaign, gm, unopened);
+    const value = await changeCampaign(command, served, serveCampaign, gm);
     return send({ id, type: 'Result', result: { ok: true, value } });
   } catch (error) {
     return send({ id, type: 'Result', result: failureOf(error, daemonLocale()) });
@@ -253,7 +246,6 @@ const exitDaemon = () => {
 };
 
 export const replier = ({ name, campaign, problem }: Served, gm: GameMaster, speech = daemonSpeech()) => {
-  const unopened: Unopened = {};
   const subscriptions = new Map<number, Unsubscribe>();
   let queue = Promise.resolve();
 
@@ -279,7 +271,7 @@ export const replier = ({ name, campaign, problem }: Served, gm: GameMaster, spe
         type: 'Result',
         result: planResult(command, DESKTOP_CLIENT, daemonLocale(), packsIn(dataDirFromEnv())),
       });
-    if (!('campaignId' in command)) return replyChange(id, command, name, serveCampaign, gm, unopened);
+    if (!('campaignId' in command)) return replyChange(id, command, name, serveCampaign, gm);
     if (campaign === undefined) return send({ id, type: 'Error', message: problem });
     const { session, campaignId, narrate } = campaign;
     if (command.campaignId !== campaignId)

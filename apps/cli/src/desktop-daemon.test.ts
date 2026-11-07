@@ -1318,8 +1318,8 @@ describe('desktop does not require unsupported reuse of consumer claude subscrip
 
 describe('rpg-cm63.67 desktop opening scene speech', () => {
   const LOCAL_PROVIDER = 'kokoro';
-  const OPENING_SETTLE_ROUNDS = 8;
   const TEXT_DECODER = new TextDecoder();
+  const SECOND_CAMPAIGN = 'Salt Road';
 
   const harness = (t: TestContext) => {
     const dataDir = tempDataDir(t);
@@ -1329,8 +1329,17 @@ describe('rpg-cm63.67 desktop opening scene speech', () => {
       if (previous === undefined) delete process.env[DATA_DIR_ENV];
       else process.env[DATA_DIR_ENV] = previous;
     });
-    t.mock.method(process.stdout, 'write', () => true);
+    const answered = new Map<number, () => void>();
+    const write = process.stdout.write.bind(process.stdout);
+    t.mock.method(process.stdout, 'write', (line: string | Uint8Array, ...rest: never[]) => {
+      const { id } = JSON.parse(String(line).startsWith('{') ? String(line) : '{}') as { id?: number };
+      if (id === undefined) return write(line, ...rest);
+      answered.get(id)?.();
+      return true;
+    });
     const played: string[] = [];
+    const spoken: Array<() => void> = [];
+    let runtimeLoads = 0;
     const runtime = createSpeechRuntime({
       providers: [
         {
@@ -1351,14 +1360,30 @@ describe('rpg-cm63.67 desktop opening scene speech', () => {
         },
       ],
       route: 'mlx',
-      sink: { play: async (chunk) => void played.push(TEXT_DECODER.decode(chunk.audio)) },
+      sink: {
+        play: async (chunk) => {
+          played.push(TEXT_DECODER.decode(chunk.audio));
+          for (const resolve of spoken.splice(0)) resolve();
+        },
+      },
     });
-    const daemon = replier({ problem: NO_CAMPAIGN }, FAKE_GAME_MASTER, async () => runtime);
-    const run = async (command: object) => {
-      daemon({ id: 1, type: 'Command', command });
-      for (let round = 0; round < OPENING_SETTLE_ROUNDS; round += 1) await setImmediate();
+    const speech = async () => {
+      runtimeLoads += 1;
+      return runtime;
     };
-    return { run, played, dataDir };
+    let nextId = 0;
+    const start = () => {
+      const daemon = replier({ problem: NO_CAMPAIGN }, FAKE_GAME_MASTER, speech);
+      return (command: object) => {
+        nextId += 1;
+        const id = nextId;
+        const result = new Promise<void>((resolve) => answered.set(id, resolve));
+        daemon({ id, type: 'Command', command });
+        return result;
+      };
+    };
+    const nextSpoken = () => new Promise<void>((resolve) => spoken.push(resolve));
+    return { start, played, nextSpoken, runtimeLoads: () => runtimeLoads };
   };
 
   const create = (name: string, voice: boolean) =>
@@ -1366,26 +1391,64 @@ describe('rpg-cm63.67 desktop opening scene speech', () => {
   const open = (name: string) => lifecycle('OpenCampaign', { name });
 
   it('speaks the opening once, after the campaign is opened, not on create', async (t) => {
-    const { run, played } = harness(t);
+    const { start, played, nextSpoken } = harness(t);
+    const run = start();
     await run(create(CAMPAIGN, true));
     assert.deepEqual(played, []);
+    const spoke = nextSpoken();
     await run(open(CAMPAIGN));
+    await spoke;
     assert.equal(played.length, 1);
     assert.match(played[0] ?? '', /\w/);
   });
 
   it('does not speak the opening again on a later open', async (t) => {
-    const { run, played } = harness(t);
+    const { start, played, nextSpoken, runtimeLoads } = harness(t);
+    const run = start();
     await run(create(CAMPAIGN, true));
+    const spoke = nextSpoken();
     await run(open(CAMPAIGN));
+    await spoke;
     await run(open(CAMPAIGN));
     assert.equal(played.length, 1);
+    assert.equal(runtimeLoads(), 1);
   });
 
   it('stays silent when voice is off', async (t) => {
-    const { run, played } = harness(t);
+    const { start, played, runtimeLoads } = harness(t);
+    const run = start();
     await run(create(CAMPAIGN, false));
     await run(open(CAMPAIGN));
     assert.deepEqual(played, []);
+    assert.equal(runtimeLoads(), 0);
+  });
+
+  it('speaks the opening after a daemon restart, once', async (t) => {
+    const { start, played, nextSpoken, runtimeLoads } = harness(t);
+    await start()(create(CAMPAIGN, true));
+    const restarted = start();
+    const spoke = nextSpoken();
+    await restarted(open(CAMPAIGN));
+    await spoke;
+    await start()(open(CAMPAIGN));
+    assert.equal(played.length, 1);
+    assert.equal(runtimeLoads(), 1);
+  });
+
+  it('speaks each new adventure opening when A and B are created before A is opened', async (t) => {
+    const { start, played, nextSpoken } = harness(t);
+    const run = start();
+    await run(create(CAMPAIGN, true));
+    await run(create(SECOND_CAMPAIGN, true));
+    const first = nextSpoken();
+    await run(open(CAMPAIGN));
+    await first;
+    assert.equal(played.length, 1);
+    const second = nextSpoken();
+    await run(open(SECOND_CAMPAIGN));
+    await second;
+    assert.equal(played.length, 2);
+    await run(open(CAMPAIGN));
+    assert.equal(played.length, 2);
   });
 });
