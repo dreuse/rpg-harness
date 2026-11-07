@@ -514,3 +514,12 @@ test('rpg-42a.126 an imported genre that reuses a built-in id keeps its own name
   const imported = { ...config, genre: { id: 'fantasy', version: '9.9.9' } };
   assert.ok(!describeConfig(imported, 'pt-BR').includes('Fantasia'));
 });
+
+test('rpg-42a.157 plan accepts localized stat names typed by the player', () => {
+  const localized = 'Ash. Força 3, Agilidade 2, Raciocínio 2, Presença 1';
+  assert.deepEqual(characterEntry({ ruleset: D20_RULES, character: localized }), {
+    field: 'character',
+    value: 'Ash',
+    provenance: 'explicit',
+  });
+});

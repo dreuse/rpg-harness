@@ -122,3 +122,6 @@ export const contentText = (locale: string, kind: ContentKind, id: string, fallb
   const table = TABLES[matchLocale(locale, Object.keys(TABLES), DEFAULT_LOCALE)];
   return table?.[`${kind}${KEY_SEPARATOR}${id}`] ?? fallback;
 };
+
+export const contentAliases = (kind: ContentKind, id: string): string[] =>
+  Object.values(TABLES).flatMap((table) => table[`${kind}${KEY_SEPARATOR}${id}`] ?? []);

@@ -1,3 +1,4 @@
+import { contentAliases } from '../../../packages/client-protocol/src/content-names.ts';
 import type { ProfileTraitValue } from '../../../packages/domain/src/character.ts';
 import {
   type BuildInput,
@@ -24,7 +25,11 @@ const FALSE_ANSWERS = ['no', 'n', 'false'];
 const escaped = (text: string) => text.replace(REGEX_SPECIALS, '\\$&');
 const wordPattern = (term: string, after = '') =>
   new RegExp(String.raw`(?<![\p{L}\p{N}])${escaped(term)}${after}`, 'giu');
-const termsOf = (field: SheetField) => [field.id, ...(field.label === undefined ? [] : [field.label])];
+const termsOf = (field: SheetField) => [
+  field.id,
+  ...(field.label === undefined ? [] : [field.label]),
+  ...contentAliases('stat', field.label ?? field.id),
+];
 const shortName = (description: string) =>
   (description.split(NAME_END, 1)[0] ?? '').trim().split(WORD_BREAK).slice(0, MAX_FALLBACK_NAME_WORDS).join(' ');
 const only = <T>(found: Set<T>) => (found.size === 1 ? [...found][0] : undefined);
