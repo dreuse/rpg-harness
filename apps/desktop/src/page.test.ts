@@ -2007,9 +2007,24 @@ test('rpg-cm63.50 page replays narration longer than the speech limit as several
   assert.equal((replays()[0] as { text: string }).text, sentence.trim());
 });
 
-test('rpg-cm63.46 page shows no replay button before a voice is installed and spoken', async () => {
-  const { page } = await replayPage(false);
-  assert.doesNotMatch(page.root.innerHTML, /data-replay/);
+test('rpg-cm63.66 page keeps the replay button when no voice is installed and opens voice setup on press', async () => {
+  const { page, replays } = await replayPage(false);
+  assert.match(page.root.innerHTML, /data-replay="r1"/);
+  assert.doesNotMatch(page.root.innerHTML, /data-voice-step/);
+  page.click(REPLAY_BUTTON);
+  await settle();
+  assert.match(page.root.innerHTML, /data-voice-step="consent"/);
+  assert.deepEqual(replays(), []);
+});
+
+test('rpg-cm63.66 page keeps the replay button and plays when spoken output is off', async () => {
+  const { page, replays } = await replayPage(true);
+  page.click({ 'data-voice-setup': 'off' });
+  await settle();
+  assert.match(page.root.innerHTML, /data-replay="r1"/);
+  page.click(REPLAY_BUTTON);
+  await settle();
+  assert.equal(replays().length, 1);
 });
 
 const SEGMENT_DELIVERY = { emotion: 'angry' };

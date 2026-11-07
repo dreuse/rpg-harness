@@ -404,6 +404,7 @@ export const mountPage = ({
     const snapshot = client.state().snapshot;
     const turn = snapshot?.turns.find((candidate) => candidate.actionId === actionId);
     if (turn === undefined) return;
+    if (setup.view().provider?.installed !== true) return void setup.turnOn();
     const segments = turn.segments?.length ? turn.segments : [{ text: turn.narration }];
     const nameOf = (speakerId?: string) => snapshot?.speakers?.find(({ id }) => id === speakerId)?.name ?? speakerId;
     void replay.toggle(
@@ -473,12 +474,11 @@ export const mountPage = ({
     );
     syncSpeaking();
     const setupView = setup.view();
-    const available = voice.view().preferences.spokenOutput !== 'off' && setupView.provider?.installed === true;
     root.innerHTML = renderView(
       {
         ...model,
         ...(soundSetup === undefined ? {} : { soundSetup: soundSetup.view() }),
-        replay: { available, playing: replay.playing() },
+        replay: { available: bridge.voice !== undefined, playing: replay.playing() },
       },
       preferences.locale,
       shownPane,
