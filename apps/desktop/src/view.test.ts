@@ -1121,14 +1121,16 @@ test('rpg-42a.161 the replay button sits inside the narration line, with an acce
   assert.doesNotMatch(html, /<\/p><button type="button" data-replay/);
 });
 
-test('rpg-42a.161 the replay control keeps a 44px target and hides without leaving the layout', () => {
+test('rpg-42a.161 the replay control keeps a 44px target and is visible without hover', () => {
   const css = readFileSync(new URL('./view.css', import.meta.url), 'utf8');
   const rule = css.match(/\[data-replay\] \{[^}]*\}/)?.[0] ?? '';
   assert.match(rule, /min-width: var\(--target-min\)/);
   assert.match(rule, /min-height: var\(--target-min\)/);
-  assert.match(rule, /opacity: 0/);
+  assert.doesNotMatch(rule, /opacity/);
   assert.doesNotMatch(rule, /display: none/);
-  assert.match(css, /:focus-within \[data-replay\]/);
+  assert.doesNotMatch(css, /:focus-within \[data-replay\]/);
+  assert.doesNotMatch(css, /li:hover \[data-replay\]/);
+  assert.doesNotMatch(css, /@media \(hover: none\) \{\s*\[data-replay\]/);
 });
 
 test('rpg-42a.161 a roll linked to an action renders between its player line and the GM reply', () => {

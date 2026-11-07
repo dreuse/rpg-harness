@@ -360,19 +360,6 @@ section[data-region="start"]:not(:has(h2)) {
   line-height: 1;
   background: transparent;
   border-color: transparent;
-  opacity: 0;
-}
-
-li:hover [data-replay],
-li:focus-within [data-replay],
-[data-replay]:focus-visible {
-  opacity: 1;
-}
-
-@media (hover: none) {
-  [data-replay] {
-    opacity: 1;
-  }
 }
 
 [data-replay]:hover {
