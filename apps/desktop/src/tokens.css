@@ -1,25 +1,32 @@
 :root {
   color-scheme: light dark;
 
-  --surface: light-dark(#f6f6f4, #15171b);
-  --surface-raised: light-dark(#ffffff, #1e2127);
-  --text: light-dark(#1b1d21, #e8e9ec);
-  --text-muted: light-dark(#575c66, #a6abb5);
-  --border: light-dark(#dcdde0, #31353d);
-  --border-strong: light-dark(#7a7f88, #7c828d);
-  --accent: light-dark(#4a5a8c, #9aaee6);
-  --focus: light-dark(#0b57d0, #8ab4f8);
-  --danger: light-dark(#b3261e, #f2b8b5);
-  --shadow: light-dark(#1b1d2114, #00000066);
+  --surface: light-dark(#f2e9d6, #171310);
+  --surface-raised: light-dark(#fbf6ea, #211b16);
+  --text: light-dark(#2a2017, #efe6d4);
+  --text-muted: light-dark(#5c4e3e, #b5a68f);
+  --border: light-dark(#d9ccb2, #3a3028);
+  --border-strong: light-dark(#85755d, #8a7a63);
+  --accent: light-dark(#7a5212, #e3b866);
+  --speaker-player: light-dark(#2f4a75, #a9c0e6);
+  --focus: light-dark(#1f4e9c, #8ab4f8);
+  --danger: light-dark(#a3261d, #f4b0a6);
+  --shadow: light-dark(#2a201720, #00000080);
 
   --font-body: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --font-display: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
   --font-narration: Charter, "Bitstream Charter", "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
   --text-sm: 0.875rem;
   --text-md: 1rem;
   --text-lg: 1.25rem;
   --text-xl: 1.5625rem;
+  --text-2xl: 2rem;
+  --tracking-label: 0.08em;
   --leading: 1.5;
+  --leading-tight: 1.25;
+  --ornament-size: 0.6em;
+  --ornament-lift: 0.2em;
   --leading-reading: 1.7;
   --weight-regular: 400;
   --weight-strong: 600;
@@ -28,17 +35,18 @@
   --space-2: 0.5rem;
   --space-3: 0.75rem;
   --space-4: 1rem;
+  --space-5: 1.25rem;
   --space-6: 1.5rem;
   --space-8: 2rem;
 
-  --radius-1: 4px;
-  --radius-2: 8px;
+  --radius-1: 3px;
+  --radius-2: 6px;
   --border-width: 1px;
   --marker-width: 3px;
   --focus-width: 2px;
   --focus-offset: 2px;
   --target-min: 2.75rem;
-  --elevation-1: 0 1px 2px var(--shadow), 0 2px 8px var(--shadow);
+  --elevation-1: 0 1px 2px var(--shadow), 0 4px 14px var(--shadow);
 
   --content-max: 90rem;
   --measure: 70ch;
@@ -49,6 +57,8 @@
   --settings-column-width: 20rem;
   --disabled-opacity: 0.6;
   --review-label: 10rem;
+  --columns-min: 22rem;
+  --action-input-min: 16rem;
 
   --duration-fast: 120ms;
   --duration-base: 200ms;
@@ -75,7 +85,8 @@
     --text-muted: light-dark(#262626, #e0e0e0);
     --border: light-dark(#4d4d4d, #a6a6a6);
     --border-strong: light-dark(#000000, #ffffff);
-    --accent: light-dark(#1d2f66, #c4d0ff);
+    --accent: light-dark(#4a2f00, #ffd98a);
+    --speaker-player: light-dark(#14264a, #c9dbff);
     --focus: light-dark(#0000c8, #ffd60a);
     --danger: light-dark(#8c1d18, #ffb4ab);
     --elevation-1: none;

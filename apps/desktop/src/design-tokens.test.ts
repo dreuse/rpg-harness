@@ -46,6 +46,8 @@ const TEXT_PAIRS = [
   ['danger', 'surface'],
   ['danger', 'surface-raised'],
   ['surface-raised', 'accent'],
+  ['speaker-player', 'surface'],
+  ['speaker-player', 'surface-raised'],
 ] as const;
 const NON_TEXT_PAIRS = [
   ['accent', 'surface'],
@@ -213,4 +215,14 @@ test('rpg-42a.22 the home hides the action form and primary buttons read on the 
   const view = read(VIEW_CSS);
   assert.match(view, /body:has\(main\[data-screen="home"\]\) #action-form \{[^}]*display: none;/);
   assert.match(view, /\[data-primary\] \{[^}]*color: var\(--surface-raised\);[^}]*background: var\(--accent\);/);
+});
+
+test('rpg-42a.158 speakers have distinct styles from tokens and headings use the display font', () => {
+  const tokens = read(TOKENS_CSS);
+  assert.match(tokens, /--speaker-player: light-dark\(/);
+  assert.match(tokens, /--font-display: [^;]*serif;/);
+  const view = read(VIEW_CSS);
+  assert.match(view, /\[data-speaker="player"\] \{[^}]*color: var\(--speaker-player\);/);
+  assert.match(view, /\[data-speaker="gm"\] \{[^}]*border-inline-start: var\(--marker-width\) solid var\(--accent\);/);
+  assert.match(view, /h1,\s*h2,\s*h3[^{]*\{[^}]*font-family: var\(--font-display\);/);
 });
