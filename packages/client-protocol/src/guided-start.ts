@@ -918,3 +918,8 @@ export const startScreen = (
     ...page,
   };
 };
+
+export const skipAction = (screen: StartScreen): StartAction => {
+  const recommended = screen.options.find((option) => option.recommended === true);
+  return screen.step === 'rules' && recommended ? recommended.action : { kind: 'skip' };
+};

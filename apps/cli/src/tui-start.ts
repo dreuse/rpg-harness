@@ -9,6 +9,7 @@ import {
   type StartAction,
   type StartDraft,
   type StartScreen,
+  skipAction,
   startScreen,
   stepOf,
 } from '../../../packages/client-protocol/src/guided-start.ts';
@@ -71,7 +72,7 @@ const actionFor = (screen: StartScreen, text: string): StartAction | undefined =
   if (kind === 'back' && screen.canBack) return { kind };
   const recommended = screen.options.find((option) => option.recommended === true);
   if (kind === 'skip' && screen.step === 'summary') return { kind: 'enter', text: '' };
-  if (kind === 'skip' && screen.canSkip) return screen.step === 'rules' && recommended ? recommended.action : { kind };
+  if (kind === 'skip' && screen.canSkip) return skipAction(screen);
   if (kind === 'start' && screen.canStart) return { kind };
   const option = /^\d+$/.test(text) ? screen.options[Number(text) - FIRST_NUMBER] : undefined;
   if (option !== undefined) return option.action;

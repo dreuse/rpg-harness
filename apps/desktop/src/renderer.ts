@@ -16,6 +16,7 @@ import {
   type StartAction,
   type StartDraft,
   type StartVoices,
+  skipAction,
   startScreen,
   stepOf,
 } from '../../../packages/client-protocol/src/guided-start.ts';
@@ -691,8 +692,12 @@ export const createDesktopClient = ({
     return result;
   };
 
-  const startAction = (action: StartAction) => {
+  const currentStartScreen = () =>
+    startScreen(state.start.draft, state.start.options, state.start.plan, locale(), voices(), true);
+
+  const startAction = (requested: StartAction) => {
     const { draft, plan } = state.start;
+    const action = requested.kind === 'skip' ? skipAction(currentStartScreen()) : requested;
     if (action.kind === 'start') {
       if (plan?.ok) send(createCommand(draft, DESKTOP_CLIENT, locale()));
       return;
@@ -1161,7 +1166,7 @@ export const createDesktopClient = ({
         expectedRevision: snapshot.revision,
       });
     },
-    startScreen: () => startScreen(state.start.draft, state.start.options, state.start.plan, locale(), voices(), true),
+    startScreen: currentStartScreen,
     openStart: () => {
       update({ start: { ...state.start, open: true, created: undefined } });
       requestOptions();

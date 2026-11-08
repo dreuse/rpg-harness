@@ -292,3 +292,16 @@ test('rpg-42a.88 desktop Skip on the begin step keeps the defaults', async (t) =
   assert.equal(voiceSettingsOf(changes), undefined);
   assert.deepEqual(gmSettingsOf(changes), {});
 });
+
+test('rpg-asjw.12 desktop skip on the rules step chooses the recommended ruleset', async (t) => {
+  const desktop = await openDesktop(t, envFor(tempDataDir(t)));
+  desktop.client.openStart();
+  await desktop.settled();
+  const recommended = desktop.client.state().start.options?.rulesets.find((ruleset) => ruleset.recommended);
+  assert.ok(recommended);
+  await desktop.act([{ kind: 'path', path: 'guide' }, { kind: 'next' }, { kind: 'next' }, { kind: 'skip' }]);
+  assert.deepEqual(desktop.client.state().start.draft.choices.ruleset, {
+    id: recommended.id,
+    edition: recommended.edition,
+  });
+});

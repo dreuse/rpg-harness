@@ -16,6 +16,7 @@ import {
   type StartAction,
   type StartDraft,
   type StartScreen,
+  skipAction,
   startScreen,
   stepOf,
 } from './guided-start.ts';
@@ -687,4 +688,16 @@ test('rpg-42a.126 imported genre and ruleset names are not translated', () => {
   );
   assert.ok(character.text.some((line) => line.includes('Might')));
   assert.ok(!character.text.some((line) => line.includes('Força')));
+});
+
+test('rpg-asjw.12 skipping the rules step chooses the recommended ruleset and other steps just skip', () => {
+  const rules = run([{ kind: 'path', path: 'guide' }, { kind: 'next' }, { kind: 'skip' }]);
+  assert.deepEqual(skipAction(startScreen(rules, OPTIONS, undefined)), {
+    kind: 'choose',
+    field: 'ruleset',
+    value: { id: 'narrative', edition: 'original' },
+  });
+  assert.deepEqual(skipAction(startScreen(run([{ kind: 'path', path: 'guide' }]), OPTIONS, undefined)), {
+    kind: 'skip',
+  });
 });
