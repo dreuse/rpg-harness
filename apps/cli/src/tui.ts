@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { Key } from 'node:readline';
+import { contentText } from '../../../packages/client-protocol/src/content-names.ts';
 import { gmFailureKept, gmFailureRetryHint, gmFailureText } from '../../../packages/client-protocol/src/gm-failure.ts';
 import { budgetWarning, gmUsageLines } from '../../../packages/client-protocol/src/gm-usage.ts';
 import { parseOocInput } from '../../../packages/client-protocol/src/ooc.ts';
@@ -326,6 +327,39 @@ const indicator = ({ mechanic, frames, final }: VisualizationEvent, locale = DEF
       locale,
     ),
   ].join('; ');
+
+const attributeLabel = (locale: string, id: string) => {
+  const name = `${id.charAt(0).toUpperCase()}${id.slice(1)}`;
+  return contentText(locale, 'stat', name, name);
+};
+
+const NO_TERM = 0;
+const DICE_JOINER = ' + ';
+const LEADING_PLUS = /^\+ /;
+
+const term = (value: number, label: string) => `${value < NO_TERM ? '-' : '+'} ${label} ${Math.abs(value)}`;
+
+export const rollLine = ({ frames, final }: VisualizationEvent, locale = DEFAULT_LOCALE) => {
+  const rolled = frames.flatMap(({ reveal: shown }) => (shown.kind === 'die' ? [shown] : []));
+  const { breakdown } = final;
+  const keptDie = rolled.find(({ face }) => face === breakdown?.kept);
+  const dice = breakdown?.kept === undefined || keptDie === undefined ? rolled : [keptDie];
+  const faces = dice.reduce((sum, { face }) => sum + face, NO_TERM);
+  const { total = faces } = final;
+  const attribute = breakdown?.attribute;
+  const rest = total - (breakdown?.kept ?? faces) - (attribute?.value ?? NO_TERM);
+  const parts = [
+    ...(dice.length === NO_TERM ? [] : [dice.map(({ sides, face }) => `d${sides} ${face}`).join(DICE_JOINER)]),
+    ...(attribute === undefined ? [] : [term(attribute.value, attributeLabel(locale, attribute.id))]),
+    ...(rest === NO_TERM ? [] : [term(rest, say(locale, 'roll.other'))]),
+  ]
+    .join(' ')
+    .replace(LEADING_PLUS, '');
+  const outcome = final.outcome === undefined ? '' : outcomeText(say, locale, final.outcome);
+  return breakdown?.target === undefined
+    ? say(locale, 'roll.lineOpen', { parts, total, outcome })
+    : say(locale, 'roll.line', { parts, total, target: breakdown.target, outcome });
+};
 
 const spinning = ({ mechanic, frames }: VisualizationEvent, step: number, tumbles: readonly number[][]) =>
   `${mechanic}: ${frames

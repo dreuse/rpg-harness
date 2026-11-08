@@ -157,10 +157,11 @@ import { type GmSegment, narrationOf, narratorSegments, turnSegmentsOf } from '.
 
 export { FAKE_GM_REPLY } from './gm-api.ts';
 
+import { RollReportError, rollExpressionOf } from '../../../packages/engine/src/roll-report.ts';
 import { importRules } from './import-gateway.ts';
 import { type InstalledRuleset, installedRulesetIn } from './installed-rulesets.ts';
 import type { CampaignGateway } from './main.ts';
-import { DEFAULT_LOCALE, ListParam, LocalizedError, say } from './messages.ts';
+import { DEFAULT_LOCALE, errorText, ListParam, LocalizedError, say } from './messages.ts';
 import { loadOwnRules } from './own-rules-files.ts';
 import {
   builderIssueText,
@@ -199,7 +200,7 @@ import type { SoundRequest } from './sound-command.ts';
 import { SOUND_SETTINGS_FILE } from './sound-files.ts';
 import type { SoundRuntime } from './sound-runtime.ts';
 import type { SpeechRuntime } from './speech-runtime.ts';
-import { rollFrames, rollOfferText, runTui, type Terminal, type TuiPlayback } from './tui.ts';
+import { rollLine, rollOfferText, runTui, type Terminal, type TuiPlayback } from './tui.ts';
 import { runHome } from './tui-home.ts';
 import { guidedStart } from './tui-start.ts';
 import type { TurnSpeech } from './turn-speech.ts';
@@ -1060,12 +1061,12 @@ export const readCampaignState = (dataDir: string, name: string): CampaignState 
 
 const sceneText = (title: string, narration: string) => `${title}\n${narration}`;
 
-const narrate = (actor: string, turn: Turn, locale: string) => {
+const narrate = (actor: string, turn: Turn, locale: string, rollLines: readonly string[] = []) => {
   const said =
     turn.rollOfferId === undefined
       ? `${actor}: ${turn.input}`
       : say(locale, 'turn.rollAccepted', { label: turn.input });
-  return `${said}\n${turn.narration.trim() === '' ? FAKE_GM_REPLY : turn.narration}`;
+  return [said, ...rollLines, turn.narration.trim() === '' ? FAKE_GM_REPLY : turn.narration].join('\n');
 };
 
 const isFileExists = (error: unknown) => error instanceof Error && 'code' in error && error.code === FILE_EXISTS;
@@ -1284,14 +1285,13 @@ const characterFor = async (dataDir: string, name: string, config: CampaignConfi
 };
 
 const ROLL_COMMAND = '/roll';
-const SINGLE_FRAME = 1;
 const ROLLS_ENABLED = { enabled: true };
 
 const rollLinesOf = (events: readonly CampaignEvent[], turnId: string, locale: string) =>
   events
     .filter((event) => event.type === CHECK_RESOLVED && event.turnId === turnId)
     .flatMap(({ payload }) => emitVisualizations(resultsOf(payload, 'public'), 'player', ROLLS_ENABLED))
-    .flatMap((roll) => rollFrames(roll, SINGLE_FRAME, locale));
+    .map((roll) => rollLine(roll, locale));
 
 const playedText = (
   client: ReturnType<typeof playerSessionOf>,
@@ -1307,7 +1307,7 @@ const playedText = (
   });
   const offer = snapshot.ok ? snapshot.value.rollOffer : undefined;
   return [
-    ...turns.flatMap((turn) => [...rollLinesOf(state.events, turn.id, locale), narrate(actorName, turn, locale)]),
+    ...turns.map((turn) => narrate(actorName, turn, locale, rollLinesOf(state.events, turn.id, locale))),
     ...(offer === undefined ? [] : [rollOfferText(offer, locale)]),
   ].join('\n');
 };
@@ -1315,6 +1315,23 @@ const playedText = (
 type Acted = {
   readonly narration: string;
   readonly warning: string | undefined;
+};
+
+type Decision = { readonly skip: true } | { readonly report: number } | undefined;
+type Asking = { readonly question: string; readonly ask: 'roll' | 'report' };
+
+const AGAIN = 'again';
+const SKIP_ANSWERS = new Set(['s', 'skip']);
+const REPORT_ANSWER = /^\d{1,4}$/;
+const NEEDS_REPORT = 'rollReport.needed';
+const ASK_NOW = 'roll.askNow';
+const ASK_REPORT = 'roll.askReport';
+
+const decisionOf = (answer: string, ask: Asking['ask']): Decision | typeof AGAIN => {
+  const text = answer.trim().toLowerCase();
+  if (SKIP_ANSWERS.has(text)) return { skip: true };
+  if (ask === 'roll') return text === '' ? undefined : AGAIN;
+  return REPORT_ANSWER.test(text) ? { report: Number(text) } : AGAIN;
 };
 
 const act = async (
@@ -1325,7 +1342,9 @@ const act = async (
   rng: Rng,
   sessionId: string,
   locale: string,
-): Promise<Acted> => {
+  decision?: Decision,
+  answered = false,
+): Promise<Acted | Asking> => {
   const session = openSession(dataDir, name, false, gm, rng, undefined, sessionId);
   try {
     const { engine, campaignId, database } = session;
@@ -1337,31 +1356,49 @@ const act = async (
     const offer = rolling ? pendingCheckOffer(state.events) : undefined;
     if (rolling && offer === undefined) return { narration: say(locale, 'tui.noRoll'), warning: undefined };
     const text = offer?.label ?? input;
-    const committed = engine.submitAction(
-      {
-        campaignId,
-        actionId: randomUUID(),
-        expectedRevision: state.revision,
-        sceneId: scene.id,
-        actorId: actor.id,
-        input: text,
-        intent: text,
-        ...(offer === undefined ? {} : { rollOfferId: offer.offerId }),
-      },
-      checkForAction(
-        state.events,
-        {
-          input: text,
-          ...(offer === undefined ? {} : { rollOfferId: offer.offerId }),
-          whoRolls: whoRollsFor(state, session.gmDefaults()),
-          houseRules: oocStateOf(state.changes).houseRules,
-          installed: session.installedRuleset(state.events),
-        },
-        actor.id,
-        worldOf(database)(campaignId, actor.id).entities,
-        rulesStrictnessFor(state, session.gmDefaults()),
-      ),
-    );
+    const whoRolls = whoRollsFor(state, session.gmDefaults());
+    const action = {
+      campaignId,
+      actionId: randomUUID(),
+      expectedRevision: state.revision,
+      sceneId: scene.id,
+      actorId: actor.id,
+      input: text,
+      intent: text,
+      ...(offer === undefined ? {} : { rollOfferId: offer.offerId }),
+    };
+    const roll = {
+      input: text,
+      ...(offer === undefined ? {} : { rollOfferId: offer.offerId }),
+      ...(decision !== undefined && 'report' in decision ? { reportedRoll: [decision.report] } : {}),
+      whoRolls,
+      houseRules: oocStateOf(state.changes).houseRules,
+      installed: session.installedRuleset(state.events),
+    };
+    const entities = worldOf(database)(campaignId, actor.id).entities;
+    const strictness = rulesStrictnessFor(state, session.gmDefaults());
+    const skipping = decision !== undefined && 'skip' in decision;
+    let check: ReturnType<typeof checkForAction>;
+    try {
+      check = skipping ? undefined : checkForAction(state.events, roll, actor.id, entities, strictness);
+    } catch (error) {
+      if (!answered && error instanceof LocalizedError && error.key === NEEDS_REPORT)
+        return { question: say(locale, ASK_REPORT, error.params), ask: 'report' };
+      throw error;
+    }
+    if (!answered && offer === undefined && whoRolls === 'ask' && typeof check === 'function')
+      return { question: say(locale, ASK_NOW, { expression: rollExpressionOf(check) }), ask: 'roll' };
+    let committed: CommittedTurn;
+    try {
+      committed = engine.submitAction(action, check);
+    } catch (error) {
+      if (error instanceof RollReportError && decision !== undefined && 'report' in decision)
+        return {
+          question: `${errorText(locale, error)}\n${say(locale, ASK_REPORT, { expression: error.params.expression })}`,
+          ask: 'report',
+        };
+      throw error;
+    }
     const shown = await session.narrate();
     const stored = engine.getState(campaignId).turns.find(({ id }) => id === committed.turn.id) ?? committed.turn;
     const narrated =
@@ -1812,18 +1849,35 @@ export const createEngineGateway = (
     yield readView(dataDir, name, RECAP_VIEW, locale);
     const sessionId = randomUUID();
     let warned = false;
-    for await (const line of lines) {
-      if (line.trim() === '') continue;
-      let acted: Acted;
-      try {
-        acted = await act(dataDir, name, line.trim(), gm, rng, sessionId, locale);
-      } catch (error) {
-        onTurnError(error);
-        continue;
+    const answers = lines[Symbol.asyncIterator]();
+    const nextLine = async () => {
+      const next = await answers.next();
+      return next.done ? undefined : next.value;
+    };
+    try {
+      for (let line = await nextLine(); line !== undefined; line = await nextLine()) {
+        const input = line.trim();
+        if (input === '') continue;
+        let acted: Acted | Asking;
+        try {
+          acted = await act(dataDir, name, input, gm, rng, sessionId, locale);
+          while ('question' in acted) {
+            yield acted.question;
+            const reply = await nextLine();
+            if (reply === undefined) return;
+            const decision = decisionOf(reply, acted.ask);
+            if (decision !== AGAIN) acted = await act(dataDir, name, input, gm, rng, sessionId, locale, decision, true);
+          }
+        } catch (error) {
+          onTurnError(error);
+          continue;
+        }
+        yield acted.narration;
+        if (acted.warning !== undefined && !warned) yield acted.warning;
+        warned ||= acted.warning !== undefined;
       }
-      yield acted.narration;
-      if (acted.warning !== undefined && !warned) yield acted.warning;
-      warned ||= acted.warning !== undefined;
+    } finally {
+      await answers.return?.();
     }
   },
   settings: (name, changes, locale = DEFAULT_LOCALE) => gmSettingsCommand(dataDir, name, changes, locale),
