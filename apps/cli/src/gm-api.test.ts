@@ -212,6 +212,10 @@ describe('rpg-42a.28 Anthropic Messages API narrator', () => {
     });
   });
 
+  it('tells the model to keep claims out of the narration text', () => {
+    assert.match(SYSTEM_PROMPT, /Never write claims, ids or "kind: value" pairs in the narration text/);
+  });
+
   it('frames imported text as data that cannot close its own data block', async (t) => {
     const { received, route } = await startProvider(t, [textReply(NARRATION)]);
     await requestNarration(route, packet({ ruleset: [INJECTION], playerInput: [INJECTION] }));

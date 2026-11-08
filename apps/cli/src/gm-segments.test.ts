@@ -36,6 +36,11 @@ const profile = (id: string): VoiceProfile => ({
 const reply = (segments: unknown) => ({ segments });
 
 describe('rpg-cm63.3 GM narration segments', () => {
+  it('commits narration without a claim echoed in prose', () => {
+    const segments = segmentsOf(reply([{ text: 'Ernesto falls (Ernesto Prado alive: dead) silent.' }])) ?? [];
+    assert.equal(narrationOf(segments), 'Ernesto falls silent.');
+  });
+
   it('parses ordered narrator and speaker segments with delivery', () => {
     const segments = segmentsOf(
       reply([

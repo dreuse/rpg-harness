@@ -48,3 +48,16 @@ test('hasProposalsBlock spots a proposals heading in any markdown dress', () => 
   assert.equal(hasProposalsBlock(PROSE), false);
   assert.equal(hasProposalsBlock('The council made proposals: none were kind.'), false);
 });
+
+test('strips a leaked claim from mid-sentence prose', () => {
+  assert.equal(
+    playerTextOf('The guard falls (Ernesto Prado alive: dead) and the crowd gasps.'),
+    'The guard falls and the crowd gasps.',
+  );
+  assert.equal(playerTextOf('He drops it [Iron key item: not-held].'), 'He drops it.');
+});
+
+test('keeps ordinary parentheses', () => {
+  const prose = 'He nodded (he was tired) and said (note: the door is shut) nothing.';
+  assert.equal(playerTextOf(prose), prose);
+});

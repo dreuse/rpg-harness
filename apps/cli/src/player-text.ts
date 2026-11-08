@@ -7,6 +7,8 @@ const BOLD_MARKER = /\*\*|__/g;
 const STAR_EMPHASIS = /(?<![\w*])\*(\S(?:[^*\n]*\S)?)\*(?![\w*])/g;
 const UNDERSCORE_EMPHASIS = /(?<!\w)_(\S(?:[^_\n]*\S)?)_(?!\w)/g;
 const CODE_MARKER = /`/g;
+const LEAKED_CLAIM =
+  /[ \t]*[([][^()[\]\n]{0,80}?\b(?:alive:[ \t]*(?:alive|dead)|item:[ \t]*(?:held|not-held)|promise:[ \t]*(?:open|kept|broken)|secret:[ \t]*gm)[ \t]*[)\]]/gi;
 const BLANK_RUN = /\n{3,}/g;
 const PROPOSALS_BLOCK = /^[\s*_#>-]*proposals[\s*_]*(:|$)/im;
 const KEPT_WORDS = '$1';
@@ -25,5 +27,6 @@ export const playerTextOf = (text: string): string =>
     .replace(STAR_EMPHASIS, KEPT_WORDS)
     .replace(UNDERSCORE_EMPHASIS, KEPT_WORDS)
     .replace(CODE_MARKER, NOTHING)
+    .replace(LEAKED_CLAIM, NOTHING)
     .replace(BLANK_RUN, PARAGRAPH_BREAK)
     .trim();
