@@ -157,11 +157,11 @@ test('rpg-42a.53 the saved settings read in Brazilian Portuguese and the GM prom
   const config = planCampaign(undefined, { ruleset: NARRATIVE, genre: 'horror' });
   assert.equal(
     describeConfig(config, PORTUGUESE),
-    'Regras: narrative original (escolhido)\nGênero: Terror crescente 1.0.0 (escolhido)\nDados: como as regras decidem (padrão)',
+    'Regras: narrative original (escolhido)\nGênero: Terror crescente (escolhido)\nDados: como as regras decidem (padrão)',
   );
   assert.match(
     describeConfig(config),
-    /^Ruleset: narrative original \(explicit\)\nGenre: horror 1\.0\.0 \(explicit\)\nDice: as the ruleset decides \(default\)$/,
+    /^Ruleset: narrative original \(explicit\)\nGenre: horror \(explicit\)\nDice: as the ruleset decides \(default\)$/,
   );
 });
 

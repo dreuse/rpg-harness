@@ -45,6 +45,8 @@ export const matchLocale = (requested: string, supported: readonly string[], fal
 export const localeOf = (env: Environment, supported: readonly string[]): string =>
   matchLocale(systemLocale(env), supported);
 
+const ZERO_CATEGORY = 'zero';
+
 export const missingKeys = (catalog: Catalog): string[] => {
   const keys = [...new Set(Object.values(catalog).flatMap((entries) => Object.keys(entries)))];
   return Object.entries(catalog).flatMap(([locale, entries]) =>
@@ -64,7 +66,9 @@ export const createTranslator = (catalog: Catalog) => {
     const count = params[COUNT];
     const plural =
       typeof count === 'number'
-        ? (lookup(`${key}.${new Intl.PluralRules(locale).select(count)}`) ?? lookup(`${key}.${PLURAL_FALLBACK}`))
+        ? ((count === 0 ? lookup(`${key}.${ZERO_CATEGORY}`) : undefined) ??
+          lookup(`${key}.${new Intl.PluralRules(locale).select(count)}`) ??
+          lookup(`${key}.${PLURAL_FALLBACK}`))
         : undefined;
     return (plural ?? lookup(key) ?? key).replace(PLACEHOLDER, (placeholder, name) =>
       Object.hasOwn(params, name) ? formatted(locale, params[name]) : placeholder,

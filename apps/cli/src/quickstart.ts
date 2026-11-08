@@ -400,7 +400,9 @@ export const describeConfig = (
       value:
         genre === null
           ? none
-          : `${isBuiltInGenre(genre) ? contentText(locale, 'genre', genre.id, genre.id) : genre.id} ${genre.version}`,
+          : isBuiltInGenre(genre)
+            ? contentText(locale, 'genre', genre.id, genre.id)
+            : `${genre.id} ${genre.version}`,
       provenance: how(provenance.genre),
     }),
     say(locale, 'config.dice', { value: say(locale, DICE_KEYS[values.dice]), provenance: how(provenance.dice) }),

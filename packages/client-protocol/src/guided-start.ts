@@ -604,6 +604,8 @@ const characterPage = (draft: StartDraft, options: StartOptions, locale: string)
   };
 };
 
+const NONE_VALUE = 'none';
+
 export const DICE_LABELS = { rulepack: 'as the ruleset decides', on: 'on', off: 'off' } as const;
 
 const VALUE_KEYS: Readonly<Record<string, string>> = {
@@ -614,9 +616,10 @@ const VALUE_KEYS: Readonly<Record<string, string>> = {
 };
 
 const shown = (locale: string, field: string, value: string, options: StartOptions) => {
+  if (value === NONE_VALUE) return text(locale, 'value.none');
   if (field === 'ruleset' && value === OWN_FILES_VALUE) return text(locale, 'value.ownFiles');
   if (field === 'ruleset') return rulesetValue(locale, value, options);
-  if (field === 'genre' && value !== 'none')
+  if (field === 'genre' && value !== NONE_VALUE)
     return genreLabel(
       locale,
       value,

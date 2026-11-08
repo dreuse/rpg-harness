@@ -58,7 +58,7 @@ const render = (screen: StartScreen, locale: string) =>
     ...(screen.importHint === undefined ? [] : [screen.importHint]),
     ...screen.options.flatMap(({ label, detail, selected, badge, group }, index) => [
       ...(group === undefined || group === screen.options[index - 1]?.group ? [] : [`${group}:`]),
-      `  ${index + FIRST_NUMBER}. ${label}${badge === undefined ? '' : ` [${badge}]`}${selected ? ` (${say(locale, 'start.on')})` : ''} - ${detail}`,
+      `  ${index + FIRST_NUMBER}. ${label}${badge === undefined ? '' : ` [${badge}]`}${selected ? ` (${say(locale, 'start.on')})` : ''}${detail === label ? '' : ` - ${detail}`}`,
     ]),
     ...(screen.entry === undefined ? [] : [`${screen.entry.label}: ${screen.entry.value}`]),
     ...(screen.error === undefined ? [] : [screen.error]),

@@ -79,10 +79,10 @@ export type CampaignGateway = {
     client?: string,
     language?: string,
   ) => AsyncIterable<string>;
-  list: () => string;
-  archive: (campaign: string) => string;
+  list: (locale?: string) => string;
+  archive: (campaign: string, locale?: string) => string;
   rename: (campaign: string, newName: string, locale?: string) => string;
-  remove: (campaign: string, lines: AsyncIterable<string>) => AsyncIterable<string>;
+  remove: (campaign: string, lines: AsyncIterable<string>, locale?: string) => AsyncIterable<string>;
   open: (
     campaign: string,
     mode: CampaignMode,
@@ -338,13 +338,15 @@ export const main = async (argv: readonly string[], io: Io, gateway: CampaignGat
   if (command === 'list' || command === 'start') {
     if (rest.length > 0) return unexpectedArgument(rest[0]);
     if (command === 'start') return run(io, () => gateway.start(io.lines, io.locale));
-    return run(io, () => [gateway.list()]);
+    return run(io, () => [gateway.list(localeOf(io))]);
   }
   if (command === 'archive' || command === 'delete') {
     const [name, ...extra] = rest;
     if (name === undefined || name.trim() === '') return missingName(command);
     if (extra.length > 0) return unexpectedArgument(extra[0]);
-    return run(io, () => (command === 'archive' ? [gateway.archive(name)] : gateway.remove(name, io.lines)));
+    return run(io, () =>
+      command === 'archive' ? [gateway.archive(name, localeOf(io))] : gateway.remove(name, io.lines, localeOf(io)),
+    );
   }
   if (command === 'rename') {
     const [name, newName, ...extra] = rest;

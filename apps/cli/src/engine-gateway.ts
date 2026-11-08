@@ -235,7 +235,6 @@ const SETTING_KIND = 'location';
 export const GENERIC_OPENING_NOTICE =
   'This opening is generic: no AI game master is available to build one from your pitch.';
 const ARCHIVE_DIR = 'archive';
-const NONE = 'none';
 const CREATE_CHARACTER_INTENT = 'create character';
 const SUMMARY_SETTLE_MS = 10_000;
 export const NO_KEY_NOTICE = `No AI game master is set up, so the built-in narrator tells the story. Install Claude Code or set ${API_KEY_ENV} to play with one.`;
@@ -1481,12 +1480,16 @@ export const listCampaignSummaries = (dataDir: string): CampaignSummary[] =>
 export const listArchivedSummaries = (dataDir: string): CampaignSummary[] =>
   listCampaignSummaries(join(dataDir, ARCHIVE_DIR));
 
-const listed = (names: readonly string[]) => (names.length === 0 ? NONE : names.join(', '));
+const listed = (locale: string, names: readonly string[]) =>
+  names.length === 0 ? say(locale, 'quickstart.none') : names.join(', ');
 
-const list = (dataDir: string) =>
-  `Campaigns: ${listed(savedCampaigns(dataDir))}\nArchived: ${listed(savedCampaigns(join(dataDir, ARCHIVE_DIR)))}`;
+const list = (dataDir: string, locale: string) =>
+  [
+    say(locale, 'list.campaigns', { names: listed(locale, savedCampaigns(dataDir)) }),
+    say(locale, 'list.archived', { names: listed(locale, savedCampaigns(join(dataDir, ARCHIVE_DIR))) }),
+  ].join('\n');
 
-export const archiveCampaign = (dataDir: string, name: string) => {
+export const archiveCampaign = (dataDir: string, name: string, locale = DEFAULT_LOCALE) => {
   const from = databasePath(dataDir, name);
   const to = archivePath(dataDir, name);
   if (!existsSync(from)) throw missingCampaign(dataDir, name);
@@ -1498,7 +1501,7 @@ export const archiveCampaign = (dataDir: string, name: string) => {
     throw error;
   }
   rmSync(from);
-  return `Archived campaign ${name}. Its saved state is kept in ${to}.`;
+  return say(locale, 'campaign.archivedDone', { name, file: to });
 };
 
 export const unarchiveCampaign = (dataDir: string, name: string) => {
@@ -1538,12 +1541,12 @@ export const renameCampaign = (dataDir: string, name: string, newName: string) =
   return title;
 };
 
-const deletionGuidance = (name: string, path: string, archived: boolean) =>
+const deletionGuidance = (name: string, path: string, archived: boolean, locale: string) =>
   [
-    `Deleting campaign ${name} removes its saved state for good.`,
-    `To back up first, copy ${path} somewhere safe.`,
-    ...(archived ? [] : [`Run rpg archive ${name} to hide it and keep its state instead.`]),
-    `Type ${name} to delete it, or anything else to keep it.`,
+    say(locale, 'delete.warning', { name }),
+    say(locale, 'delete.backup', { file: path }),
+    ...(archived ? [] : [say(locale, 'delete.archiveHint', { name })]),
+    say(locale, 'delete.confirm', { name }),
   ].join('\n');
 
 const savedFile = (dataDir: string, name: string) => {
@@ -1609,20 +1612,20 @@ export const createCampaignFrom = async (
   return summaryOf(dataDir, name);
 };
 
-const remove = async function* (dataDir: string, name: string, lines: AsyncIterable<string>) {
+const remove = async function* (dataDir: string, name: string, lines: AsyncIterable<string>, locale: string) {
   const { path, archived } = savedFile(dataDir, name);
-  yield deletionGuidance(name, path, archived);
+  yield deletionGuidance(name, path, archived, locale);
   let answer: string | undefined;
   for await (const line of lines) {
     answer = line.trim();
     break;
   }
   if (answer !== name) {
-    yield `Kept campaign ${name}.`;
+    yield say(locale, 'delete.kept', { name });
     return;
   }
   rmSync(path);
-  yield `Deleted campaign ${name}.`;
+  yield say(locale, 'delete.done', { name });
 };
 
 const exportCampaign = (dataDir: string, name: string, file: string, locale: string) => {
@@ -1761,11 +1764,11 @@ export const createEngineGateway = (
       },
       terminal,
     ),
-  list: () => list(dataDir),
-  archive: (name) => archiveCampaign(dataDir, name),
+  list: (locale = DEFAULT_LOCALE) => list(dataDir, locale),
+  archive: (name, locale = DEFAULT_LOCALE) => archiveCampaign(dataDir, name, locale),
   rename: (name, newName, locale = DEFAULT_LOCALE) =>
     say(locale, 'campaign.renamed', { name, newName: renameCampaign(dataDir, name, newName) }),
-  remove: (name, lines) => remove(dataDir, name, lines),
+  remove: (name, lines, locale = DEFAULT_LOCALE) => remove(dataDir, name, lines, locale),
   exportCampaign: (name, file, locale = DEFAULT_LOCALE) => exportCampaign(dataDir, name, file, locale),
   backup: (name, locale = DEFAULT_LOCALE) => backup(dataDir, name, locale),
   restore: (file, locale = DEFAULT_LOCALE) => restore(dataDir, file, locale),

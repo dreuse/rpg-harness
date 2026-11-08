@@ -75,7 +75,7 @@ test('new users can start with default choices or one-sentence campaign intent',
 
     const intended = succeed(dataDir, ['new', INTENT_CAMPAIGN, INTENT]);
     assert.match(intended, /^Ruleset: narrative original \(derived\)$/m);
-    assert.match(intended, /^Genre: horror 1\.0\.0 \(derived\)$/m);
+    assert.match(intended, /^Genre: horror \(derived\)$/m);
 
     const launcher = succeed(dataDir, []);
     assert.ok(launcher.includes(DEFAULT_CAMPAIGN) && launcher.includes(INTENT_CAMPAIGN));
@@ -101,7 +101,7 @@ test('from single prompt to scene opening without manual JSON editing', () =>
   withDataDir((dataDir) => {
     const opened = succeed(dataDir, ['new', INTENT_CAMPAIGN, SCENE_INTENT]);
     assert.match(opened, /^Ruleset: narrative original \(derived\)$/m);
-    assert.match(opened, /^Genre: fantasy 1\.0\.0 \(derived\)$/m);
+    assert.match(opened, /^Genre: fantasy \(derived\)$/m);
     assert.ok(opened.includes(FANTASY_OPENING), opened);
     assert.deepEqual(readdirSync(dataDir), [`${INTENT_CAMPAIGN}.sqlite`]);
     const state = readCampaignState(dataDir, INTENT_CAMPAIGN);
@@ -131,7 +131,7 @@ test('new saves the campaign settings and resume shows the saved ruleset and gen
     assert.match(opened, /^Saved settings:$/m);
     const resumed = succeed(dataDir, ['resume', INTENT_CAMPAIGN]);
     assert.match(resumed, /^Ruleset: narrative original \(derived\)$/m);
-    assert.match(resumed, /^Genre: horror 1\.0\.0 \(derived\)$/m);
+    assert.match(resumed, /^Genre: horror \(derived\)$/m);
     assert.ok(resumed.includes(HORROR_OPENING), resumed);
   }));
 
