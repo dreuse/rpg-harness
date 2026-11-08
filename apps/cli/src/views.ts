@@ -5,6 +5,7 @@ import type { SheetSchema, SheetValueType } from '../../../packages/client-proto
 import {
   type CampaignEvent,
   type CampaignState,
+  CHECK_RESOLVED,
   type Character,
   type EventId,
   OPENING_ACTION_ID,
@@ -19,8 +20,11 @@ import {
 import type { CampaignEntity, EntityKind, Relationship } from '../../../packages/domain/src/entity.ts';
 import { usesSheet } from '../../../packages/domain/src/rules-usage.ts';
 import { CHARACTER_CREATED, playTurns, profileOf } from '../../../packages/engine/src/character.ts';
+import { proposalEventsOf } from '../../../packages/engine/src/check-offer.ts';
 import type { EncounterAction } from '../../../packages/engine/src/encounter.ts';
 import { campaignLanguageOf } from '../../../packages/engine/src/engine.ts';
+import { HIT_EVENTS, MISS_EVENTS } from '../../../packages/engine/src/gameplay.ts';
+import { ENTITY_INTRODUCED } from '../../../packages/engine/src/memory.ts';
 import { oocStateOf } from '../../../packages/engine/src/ooc.ts';
 import { campaignConfigOf } from '../../../packages/engine/src/turn.ts';
 import { parseCampaignConfig } from '../../../packages/intent/src/config.ts';
@@ -42,7 +46,13 @@ import {
   type SheetViewer,
   type SheetViewInput,
 } from '../../../packages/rules/src/sheet-view.ts';
-import { audienceOf, visibleFoldsOf } from '../../../packages/timelines/src/live-folds.ts';
+import {
+  audienceOf,
+  QUEST_COMPLETED,
+  QUEST_FAILED,
+  QUEST_OBJECTIVE_COMPLETED,
+  visibleFoldsOf,
+} from '../../../packages/timelines/src/live-folds.ts';
 import { say } from './messages.ts';
 import { creationRulesFor, type Packs, usageFor } from './quickstart.ts';
 
@@ -366,22 +376,78 @@ const FIRST_SENTENCE = /^.*?[.!?](?=\s|$)/s;
 const ELLIPSIS = '…';
 const WHITESPACE_RUN = /\s+/g;
 
-const journalLine = (names: ReadonlyMap<string, string>, turn: Turn, locale: string) => {
+const NPC_KIND: EntityKind = 'npc';
+const PART_SEPARATOR = '; ';
+
+const QUEST_OUTCOME_KEYS = new Map([
+  [QUEST_COMPLETED, 'journal.questCompleted'],
+  [QUEST_FAILED, 'journal.questFailed'],
+  [QUEST_OBJECTIVE_COMPLETED, 'journal.objectiveCompleted'],
+]);
+
+const resolvedNamesOf = ({ payload }: CampaignEvent): readonly string[] => {
+  const { resolution } = payload as { resolution?: { events?: readonly { event?: unknown }[] } };
+  return (resolution?.events ?? []).flatMap(({ event }) => (typeof event === 'string' ? [event] : []));
+};
+
+const outcomeKeyOf = (event: CampaignEvent): string | undefined => {
+  if (event.type !== CHECK_RESOLVED) return QUEST_OUTCOME_KEYS.get(event.type);
+  const names = resolvedNamesOf(event);
+  if (names.some((name) => HIT_EVENTS.includes(name))) return 'journal.hit';
+  return names.some((name) => MISS_EVENTS.includes(name)) ? 'journal.miss' : undefined;
+};
+
+const introducedOf = ({ type, payload }: CampaignEvent) => {
+  const { entity } = payload as { entity?: { kind?: unknown; name?: unknown } };
+  return type === ENTITY_INTRODUCED && typeof entity?.name === 'string'
+    ? [{ kind: entity.kind, name: entity.name.replace(WHITESPACE_RUN, ' ').trim() }]
+    : [];
+};
+
+const eventSummary = (events: readonly CampaignEvent[], locale: string) => {
+  const introduced = events.flatMap(introducedOf).filter(({ name }) => name !== '');
+  const namesOfKind = (people: boolean) =>
+    introduced
+      .filter(({ kind }) => (kind === NPC_KIND) === people)
+      .map(({ name }) => name)
+      .join(LIST_SEPARATOR);
+  const met = namesOfKind(true);
+  const found = namesOfKind(false);
+  const outcomes = events.flatMap((event) => outcomeKeyOf(event) ?? []).map((key) => say(locale, key));
+  return [
+    met === '' ? '' : say(locale, 'journal.met', { names: met }),
+    found === '' ? '' : say(locale, 'journal.found', { names: found }),
+    outcomes.join(LIST_SEPARATOR),
+  ]
+    .filter((part) => part !== '')
+    .join(PART_SEPARATOR);
+};
+
+const narrationLine = (names: ReadonlyMap<string, string>, turn: Turn, locale: string) => {
   const narration = turn.narration.replace(WHITESPACE_RUN, ' ').trim();
-  const text =
-    narration === ''
-      ? turnText(names, turn, locale).replace(WHITESPACE_RUN, ' ').trim()
-      : (FIRST_SENTENCE.exec(narration)?.[0] ?? narration);
+  return narration === ''
+    ? turnText(names, turn, locale).replace(WHITESPACE_RUN, ' ').trim()
+    : (FIRST_SENTENCE.exec(narration)?.[0] ?? narration);
+};
+
+const journalLine = (names: ReadonlyMap<string, string>, turn: Turn, shown: CampaignState, locale: string) => {
+  const summary = eventSummary(
+    [...shown.events.filter(({ turnId }) => turnId === turn.id), ...proposalEventsOf(shown, turn.actionId)],
+    locale,
+  );
+  const text = summary === '' ? narrationLine(names, turn, locale) : summary;
   const points = Array.from(text);
   return points.length <= JOURNAL_LINE_MAX
     ? text
     : `${points.slice(0, JOURNAL_LINE_MAX - ELLIPSIS.length).join('')}${ELLIPSIS}`;
 };
 
-const journal = (state: CampaignState, locale: string) => {
+const journal = (source: ViewSource, locale: string) => {
+  const { state } = source;
   const names = namesOf(state);
+  const shown = { ...state, events: visibleEvents(source, PLAYER_VIEWER) };
   const rows = playTurns(state)
-    .map((turn) => journalLine(names, turn, locale))
+    .map((turn) => journalLine(names, turn, shown, locale))
     .filter((line) => line !== '')
     .map((line, index) => `  ${index + 1}. ${line}`);
   return section(say(locale, 'view.journal'), rows, say(locale, 'view.noEvents'));
@@ -427,7 +493,7 @@ export const panelsOf = (source: ViewSource, viewer: Viewer): Panels => {
 };
 
 const renderStored = (view: ReadView, source: ViewSource, viewer: SheetViewer, locale: string): string => {
-  if (view === 'journal') return journal(source.state, locale);
+  if (view === 'journal') return journal(source, locale);
   if (view === 'quests') return quests(source, locale);
   if (view === 'encounter') return encounter(source, locale);
   const [hero] = source.state.characters;

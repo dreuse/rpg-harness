@@ -970,3 +970,75 @@ test('rpg-asjw.9: the journal lists one short first-sentence line per turn witho
   assert.ok(Array.from(rows[6]?.slice(5) ?? '').length <= JOURNAL_LINE_MAX, rows[6]);
   assert.ok((rows[6] ?? '').endsWith('…'), rows[6]);
 });
+
+test('rpg-asjw.14: the journal names people met, things found and outcomes, never GM-only events', () => {
+  const turn = (id: string, narration: string) => ({
+    id,
+    campaignId: CAMPAIGN,
+    sceneId: 'scene',
+    actionId: id,
+    actorId: 'hero',
+    input: 'I look',
+    narration,
+  });
+  const proposalTurn = (id: string, parent: string, ref: string) => ({
+    ...turn(`${parent}:proposal:${ref}`, ''),
+    id,
+    input: `GM proposal ${ref}`,
+  });
+  const event = (id: string, turnId: string, type: string, payload: Record<string, unknown>) => ({
+    id,
+    campaignId: CAMPAIGN,
+    turnId,
+    causationId: null,
+    type,
+    payload,
+  });
+  const introduced = (id: string, turnId: string, kind: string, name: string) =>
+    event(id, turnId, 'EntityIntroduced', { entity: { id: `e-${id}`, kind, name } });
+  const state = {
+    campaign: { id: CAMPAIGN, name: CAMPAIGN },
+    revision: 5,
+    characters: [{ id: 'hero', campaignId: CAMPAIGN, name: 'Wren' }],
+    currentScene: undefined,
+    turns: [
+      turn('t1', 'You step inside. Quiet.'),
+      proposalTurn('p1', 't1', 'entity:mara'),
+      proposalTurn('p2', 't1', 'entity:key'),
+      proposalTurn('p3', 't1', 'entity:villain'),
+      turn('t2', 'Locks click. Done.'),
+      proposalTurn('p4', 't2', 'quest:q'),
+      turn('t3', 'Plain walk. Quiet.'),
+    ],
+    events: [
+      introduced('v1', 'p1', 'npc', 'Mara'),
+      introduced('v2', 'p2', 'item', 'Brass key'),
+      introduced('v3', 'p3', 'npc', 'Secret Villain'),
+      event('v4', 't2', 'CheckResolved', { resolution: { events: [{ event: 'check.success' }] } }),
+      event('v5', 'p4', 'QuestCompleted', { questId: 'q', outcome: 'ok' }),
+    ],
+    changes: [{ type: 'CampaignCreated', payload: { name: CAMPAIGN, language: 'en' } }],
+    gmUsage: EMPTY_GM_USAGE_LEDGER,
+    folds: EMPTY_LIVE_FOLDS,
+  };
+  const scope = (id: string, visibility: string) => ({ id, visibility, actorId: null });
+  const source = {
+    state,
+    entities: [],
+    relationships: [],
+    eventScopes: [
+      scope('v1', 'player'),
+      scope('v2', 'public'),
+      scope('v3', 'gm'),
+      scope('v4', 'public'),
+      scope('v5', 'public'),
+    ],
+  };
+  const rows = renderView('journal', source as never, undefined, 'en')
+    .split('\n')
+    .filter((row) => /^ {2}\d+\. /.test(row));
+  assert.equal(rows[0], '  1. Met Mara; Found Brass key');
+  assert.equal(rows[1], '  2. Success, Quest completed');
+  assert.equal(rows[2], '  3. Plain walk.');
+  assert.doesNotMatch(rows.join('\n'), /Secret Villain/);
+});

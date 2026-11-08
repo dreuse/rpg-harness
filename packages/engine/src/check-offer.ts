@@ -1,5 +1,6 @@
 import {
   type CampaignEvent,
+  type CampaignState,
   type CampaignStore,
   CHECK_OFFERED,
   CHECK_RESOLVED,
@@ -39,6 +40,17 @@ const OFFER_FIELDS = ['offerId', 'ruleId', 'target', 'label'] as const;
 const NOT_FOUND = -1;
 
 export { GM_PROPOSAL_INPUT };
+
+const PROPOSAL_ACTION_INFIX = ':proposal:';
+
+export const proposalEventsOf = (
+  { events, turns }: Pick<CampaignState, 'events' | 'turns'>,
+  actionId: string,
+): readonly CampaignEvent[] => {
+  const proposalPrefix = `${actionId}${PROPOSAL_ACTION_INFIX}`;
+  const proposalTurns = new Set(turns.filter((turn) => turn.actionId.startsWith(proposalPrefix)).map(({ id }) => id));
+  return events.filter(({ turnId }) => proposalTurns.has(turnId));
+};
 
 export const offerOf = (payload: CampaignEvent['payload']): CheckOffer | undefined => {
   const { offer } = payload;

@@ -23,7 +23,7 @@ import {
   VOICE_TRAITS_FIELD,
   type VoiceTraits,
 } from '../../../packages/domain/src/voice.ts';
-import { GM_PROPOSAL_INPUT, offerCheck } from '../../../packages/engine/src/check-offer.ts';
+import { GM_PROPOSAL_INPUT, offerCheck, proposalEventsOf } from '../../../packages/engine/src/check-offer.ts';
 import {
   applyCondition,
   type ConditionRequest,
@@ -801,18 +801,10 @@ const actionFor = (committed: CommittedTurn, { kind, id }: GmProposal, revision:
   intent: `The GM records ${kind} ${id}.`,
 });
 
-const PROPOSAL_ACTION_INFIX = ':proposal:';
-
-export const gmRollLinesOf = (store: CampaignStore, committed: CommittedTurn): readonly string[] => {
-  const { events, turns } = loadState(store, committed.turn.campaignId);
-  const proposalPrefix = `${committed.turn.actionId}${PROPOSAL_ACTION_INFIX}`;
-  const proposalTurns = new Set(
-    turns.filter(({ actionId }) => actionId.startsWith(proposalPrefix)).map(({ id }) => id),
-  );
-  return events
-    .filter(({ type, turnId }) => type === GM_ROLLED && proposalTurns.has(turnId))
+export const gmRollLinesOf = (store: CampaignStore, committed: CommittedTurn): readonly string[] =>
+  proposalEventsOf(loadState(store, committed.turn.campaignId), committed.turn.actionId)
+    .filter(({ type }) => type === GM_ROLLED)
     .map(({ type, payload }) => `${type} ${JSON.stringify(payload)}`);
-};
 
 export const commitGmRolls = (
   store: CampaignStore,

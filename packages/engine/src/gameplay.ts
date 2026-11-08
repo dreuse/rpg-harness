@@ -53,8 +53,8 @@ const OUTCOME_VIOLATIONS: readonly string[] = ['unresolved-outcome', 'outcome-mi
 
 const isOutcomeViolation = ({ kind }: Violation) => OUTCOME_VIOLATIONS.includes(kind);
 
-const HIT_EVENTS: readonly string[] = ['check.success', 'attack.hit'];
-const MISS_EVENTS: readonly string[] = ['check.failure', 'attack.miss'];
+export const HIT_EVENTS: readonly string[] = ['check.success', 'attack.hit'];
+export const MISS_EVENTS: readonly string[] = ['check.failure', 'attack.miss'];
 
 const resolvedEventNames = ({ payload }: CommittedTurn['events'][number]): readonly string[] => {
   const { resolution } = payload as { resolution?: { events?: readonly { event?: unknown }[] } };
