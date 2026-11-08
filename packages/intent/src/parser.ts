@@ -101,6 +101,12 @@ const PT_INTENT_CUES: Cue[] = (
     },
     {
       field: 'genre',
+      pattern: pt('mistério|noir'),
+      confidence: CONFIDENCE.moderate,
+      read: () => 'mystery',
+    },
+    {
+      field: 'genre',
       pattern: pt('mundo[ ]em[ ]branco'),
       confidence: CONFIDENCE.moderate,
       read: (match) => match[0],

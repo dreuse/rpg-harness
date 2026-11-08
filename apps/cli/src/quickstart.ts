@@ -314,8 +314,32 @@ const WORD_SEPARATOR = /\s+/;
 export const isPitch = (text: string) =>
   text.trim().split(WORD_SEPARATOR).length > MAX_TITLE_WORDS || text.trim().length > MAX_TITLE_LENGTH;
 
-export const titleOf = (pitch: string) =>
-  pitch.trim().split(WORD_SEPARATOR).slice(0, MAX_TITLE_WORDS).join(' ').slice(0, MAX_TITLE_LENGTH).trim();
+const TITLE_CLAUSE_END = /[,;!?](?=\s|$)/;
+const MIN_TITLE_WORDS = 2;
+const STRONG_PORTUGUESE_CUES = /(?<!\p{L})(?:uns|umas|não|história|aventura|mistério)(?!\p{L})/iu;
+const PORTUGUESE_CUES = /(?<!\p{L})(?:uma?|uns|umas|sem|não|história|aventura|mistério|com|em)(?!\p{L})/giu;
+const MIN_PORTUGUESE_CUES = 2;
+const PORTUGUESE_LOCALE = 'pt-BR';
+
+const splitWords = (text: string) => text.trim().split(WORD_SEPARATOR);
+const fitted = (words: string[]) =>
+  words.reduce(
+    (title, word) => (`${title} ${word}`.trim().length <= MAX_TITLE_LENGTH ? `${title} ${word}`.trim() : title),
+    '',
+  );
+
+export const titleOf = (pitch: string) => {
+  const clause = splitWords(pitch.split(TITLE_CLAUSE_END, 1)[0] ?? '');
+  const title = fitted(clause.length < MIN_TITLE_WORDS ? splitWords(pitch) : clause);
+  return title || (splitWords(pitch)[0] ?? '').slice(0, MAX_TITLE_LENGTH);
+};
+
+export const pitchLanguage = (pitch: string | undefined) =>
+  pitch !== undefined &&
+  STRONG_PORTUGUESE_CUES.test(pitch) &&
+  new Set([...pitch.matchAll(PORTUGUESE_CUES)].map(([word]) => word.toLowerCase())).size >= MIN_PORTUGUESE_CUES
+    ? PORTUGUESE_LOCALE
+    : undefined;
 
 export type Opening = {
   title: string;

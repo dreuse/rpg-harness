@@ -23,7 +23,7 @@ import { titleOf } from './quickstart.ts';
 
 const PITCH = 'a short fantasy adventure in a drowned chapel';
 const FANTASY_PITCH = 'a fantasy adventure in a drowned chapel';
-const TITLE = 'a short fantasy adventure';
+const TITLE = 'a short fantasy adventure in a drowned';
 const CHAPEL = 'The Drowned Chapel';
 const OPENING_NARRATION = 'Water laps at the pews of the drowned chapel. A sexton named Orrin waves you in.';
 const PLAYER_NAME = 'Ashfall';

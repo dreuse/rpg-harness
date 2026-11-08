@@ -2,7 +2,7 @@
 import { spawnSync } from 'node:child_process';
 import { on } from 'node:events';
 import { createInterface, emitKeypressEvents, type Key } from 'node:readline';
-import { localeOf } from '../../../packages/client-protocol/src/locale.ts';
+import { LANGUAGE_ENV, localeOf } from '../../../packages/client-protocol/src/locale.ts';
 import { slashCompletion } from '../../../packages/client-protocol/src/slash-commands.ts';
 import { CLI_LOCALES } from './messages.ts';
 import { dataDirFromEnv, firstRunProblem } from './setup-check.ts';
@@ -86,6 +86,7 @@ if (problem !== undefined) {
           stderr: (text) => process.stderr.write(text),
           lines,
           locale,
+          localeFixed: (process.env[LANGUAGE_ENV] ?? '') !== '',
           terminal: {
             capabilities,
             motion: motionOf(process.env, capabilities),

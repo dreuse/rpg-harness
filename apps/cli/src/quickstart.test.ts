@@ -23,11 +23,13 @@ import {
   describeConfig,
   openingFor,
   packsIn,
+  pitchLanguage,
   pitchNotes,
   planCampaign,
   planResult,
   planStart,
   startOptions,
+  titleOf,
   UnknownEdition,
 } from './quickstart.ts';
 
@@ -522,4 +524,53 @@ test('rpg-42a.157 plan accepts localized stat names typed by the player', () => 
     value: 'Ash',
     provenance: 'explicit',
   });
+});
+
+const PT_PITCH = 'Um mistério noir em São Paulo, 1940, sem dados';
+const EN_PITCH = 'A noir mystery in Chicago, 1940, no dice';
+
+test('rpg-asjw.3 a Portuguese pitch maps noir and mistério to the mystery genre', () => {
+  assert.equal(planCampaign(PT_PITCH).genre?.id, 'investigative-mystery');
+  assert.equal(planCampaign(PT_PITCH).values.dice, 'off');
+});
+
+test('rpg-asjw.3 the story language follows the pitch text only when it is Portuguese', () => {
+  assert.equal(pitchLanguage(PT_PITCH), 'pt-BR');
+  assert.equal(pitchLanguage(EN_PITCH), undefined);
+  assert.equal(pitchLanguage(undefined), undefined);
+});
+
+test('rpg-asjw.3 the campaign title is the first clause of the pitch cut at a word boundary', () => {
+  assert.equal(titleOf(PT_PITCH), 'Um mistério noir em São Paulo');
+  assert.equal(titleOf(EN_PITCH), 'A noir mystery in Chicago');
+  assert.equal(titleOf('word '.repeat(30)), 'word word word word word word word word');
+});
+
+test('rpg-asjw.3 English and Spanish pitches never infer Portuguese', () => {
+  const pitches = [
+    'A noir mystery in São Paulo, 1940',
+    'A façade of lies in a crumbling manor house',
+    'Um, a detective story in the rain',
+    'Das Boot style submarine thriller',
+    'Uma Thurman style revenge story',
+    'Una aventura de misterio en Madrid sin dados',
+    'Um, a detective story em the rain',
+    "Um, let's get em before dawn",
+    'A sci-fi heist with com relays and em fields',
+    'Uma Thurman fights em all in a dojo',
+    'A heist in Sem Francisco with uma thurman',
+  ];
+  for (const pitch of [
+    'Uma aventura de espiões em Lisboa',
+    'Quero um mistério sem magia',
+    'história de piratas com dragões',
+  ])
+    assert.equal(pitchLanguage(pitch), 'pt-BR', pitch);
+  for (const pitch of pitches) assert.equal(pitchLanguage(pitch), undefined, pitch);
+});
+
+test('rpg-asjw.3 titleOf never returns an empty or one-word title', () => {
+  assert.equal(titleOf('x'.repeat(50)), 'x'.repeat(40));
+  assert.equal(titleOf('Dr. Watson investigates a long noir mystery'), 'Dr. Watson investigates a long noir');
+  assert.equal(titleOf('1940: a noir mystery in the old city'), '1940: a noir mystery in the old city');
 });

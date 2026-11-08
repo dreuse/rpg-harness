@@ -4,6 +4,7 @@ import { CLIENTS } from '../../../packages/intent/src/intent.ts';
 import type { Ask } from './character-creation.ts';
 import type { GmSettingsChanges } from './engine-gateway.ts';
 import { DEFAULT_LOCALE, errorText, say as phrase, safeLocale } from './messages.ts';
+import { isPitch, pitchLanguage } from './quickstart.ts';
 import type { SoundRequest } from './sound-command.ts';
 import { PLAIN_TERMINAL, type Terminal } from './tui.ts';
 import type { UpdateRequest } from './update.ts';
@@ -109,6 +110,7 @@ export type Io = {
   lines: AsyncIterable<string>;
   terminal?: Terminal;
   locale?: string;
+  localeFixed?: boolean;
 };
 
 const COMMANDS = [
@@ -172,6 +174,8 @@ const COMMANDS = [
 
 const isView = (command: string): command is ViewName => VIEW_NAMES.some((view) => view === command);
 const localeOf = (io: Io) => io.locale ?? DEFAULT_LOCALE;
+const newLanguage = (io: Io, name: string, intent: string | undefined) =>
+  (io.localeFixed === true ? undefined : pitchLanguage(intent ?? (isPitch(name) ? name : undefined))) ?? io.locale;
 const describe = (locale: string, command: string) => phrase(locale, `command.${command}`);
 
 const helpText = (locale: string): string =>
@@ -355,7 +359,7 @@ export const main = async (argv: readonly string[], io: Io, gateway: CampaignGat
     if (unexpected.length > 0) return unexpectedArgument(unexpected[0]);
     return run(io, () =>
       command === 'new'
-        ? withAsk(io, (ask) => gateway.create(name, intent, ask, client, io.locale))
+        ? withAsk(io, (ask) => gateway.create(name, intent, ask, client, newLanguage(io, name, intent)))
         : gateway.open(
             name,
             command,

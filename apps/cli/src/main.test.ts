@@ -20,8 +20,12 @@ const setup = (input: readonly string[] = PLAYER_LINES) => {
       calls.push('home');
       terminal.write('Home.\n');
     },
-    create: async function* (name, intent, _ask, client) {
-      calls.push([`create:${name}`, intent, client].filter((part) => part !== undefined).join(':'));
+    create: async function* (name, intent, _ask, client, language) {
+      calls.push(
+        [`create:${name}`, intent, client, language === 'pt-BR' ? language : undefined]
+          .filter((part) => part !== undefined)
+          .join(':'),
+      );
       yield `Created campaign ${name}.`;
     },
     list: () => {
@@ -569,4 +573,17 @@ test('sound rejects a volume outside 0 to 1, stray arguments and options for oth
     assert.equal(await main(argv, io, gateway), EXIT_USAGE);
     assert.deepEqual(calls, []);
   }
+});
+
+test('rpg-asjw.3 new infers pt-BR from a Portuguese pitch unless the player fixed the language', async () => {
+  const pitch = 'Um mistério noir em São Paulo, 1940, sem dados';
+  const inferred = setup();
+  await main(['new', pitch], { ...inferred.io, locale: 'en' }, inferred.gateway);
+  const fixed = setup();
+  await main(['new', pitch], { ...fixed.io, locale: 'en', localeFixed: true }, fixed.gateway);
+  const english = setup();
+  await main(['new', 'A noir mystery in Chicago, 1940'], { ...english.io, locale: 'en' }, english.gateway);
+  assert.deepEqual(inferred.calls, [`create:${pitch}:pt-BR`]);
+  assert.deepEqual(fixed.calls, [`create:${pitch}`]);
+  assert.deepEqual(english.calls, ['create:A noir mystery in Chicago, 1940']);
 });
