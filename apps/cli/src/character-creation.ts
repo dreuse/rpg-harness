@@ -13,6 +13,22 @@ import type { SheetField } from '../../../packages/rules/src/sheet-schema.ts';
 export type Ask = (question: string) => Promise<string | undefined>;
 
 const FALLBACK_STAT = 0;
+const NO_EMPHASIS: readonly number[] = [];
+const STAT_EMPHASIS: Record<string, readonly number[]> = {
+  skeptic: [0, 0, 3, -1],
+  survivor: [2, 1, 0, 1],
+  detective: [-1, 0, 3, 1],
+  journalist: [-1, 1, 2, 3],
+  fixer: [-1, 1, 1, 3],
+  reporter: [0, 2, 1, 2],
+  pilot: [0, 3, 2, -1],
+  'hedge-witch': [-1, 0, 3, 2],
+  'exiled-knight': [3, 1, -1, 2],
+  'river-smuggler': [0, 3, 1, 2],
+  'station-engineer': [1, 0, 3, -1],
+  'corporate-envoy': [-1, 0, 2, 3],
+  'drift-salvager': [2, 2, 1, -1],
+};
 const NAME_QUESTION = 'Name?';
 const NAME_PATTERN = /\b(?:named|called)\s+([\p{L}\p{N}'-]+)/iu;
 const NAME_END = /[,.;]/;
@@ -89,16 +105,25 @@ export const describedBuild = (rules: CreationRules, description: string): Build
   },
 });
 
+const sameName = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
+const emphasisFor = (name: string) =>
+  Object.entries(STAT_EMPHASIS).find(
+    ([id]) =>
+      sameName(id.replaceAll('-', ' '), name) || contentAliases('archetype', id).some((alias) => sameName(alias, name)),
+  )?.[1] ?? NO_EMPHASIS;
+
 const defaultValue = (
   { id, widget, options }: SheetField,
   { constraints }: CreationRules,
+  offset = 0,
 ): ProfileTraitValue | undefined => {
   if (NUMERIC_WIDGETS.includes(widget)) {
     const bounds = constraints.filter(({ field }) => field === id);
     const min = Math.max(...bounds.flatMap(({ min: low }) => low ?? []), Number.NEGATIVE_INFINITY);
     const max = Math.min(...bounds.flatMap(({ max: high }) => high ?? []), Number.POSITIVE_INFINITY);
     const middle = Math.ceil((min + max) / 2);
-    return [middle, min, max].find(Number.isFinite) ?? FALLBACK_STAT;
+    const base = [middle, min, max].find(Number.isFinite) ?? FALLBACK_STAT;
+    return Math.min(Math.max(base + offset, min), max);
   }
   if (widget === 'choice') return options?.[0];
   return widget === 'toggle' ? false : undefined;
@@ -107,8 +132,11 @@ const defaultValue = (
 export const premadeBuild = (rules: CreationRules, name: string): BuildInput => {
   const build = describedBuild(rules, name);
   const values: Record<string, ProfileTraitValue> = {};
+  const emphasis = emphasisFor(name);
+  const stats = rules.schema.fields.filter(({ derived, widget }) => !derived && NUMERIC_WIDGETS.includes(widget));
   for (const field of rules.schema.fields.filter(({ derived }) => !derived)) {
-    const value = build.proposal.values[field.id] ?? defaultValue(field, rules);
+    const offset = emphasis[stats.indexOf(field)];
+    const value = build.proposal.values[field.id] ?? defaultValue(field, rules, offset);
     if (value !== undefined) values[field.id] = value;
   }
   return { ...build, proposal: { ...build.proposal, values } };

@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { type TestContext, test } from 'node:test';
 import { contentAliases } from '../../../packages/client-protocol/src/content-names.ts';
 import { PROTOCOL_VERSION } from '../../../packages/client-protocol/src/protocol.ts';
+import { ATTRIBUTE_AVERAGE } from '../../../packages/rules/src/d20-lite.ts';
 import { createCampaignFrom, createEngineGateway } from './engine-gateway.ts';
 import { BUILT_IN_PACKS } from './import-gateway.ts';
 import { planCampaign, startingCharacter, startOptions } from './quickstart.ts';
@@ -72,4 +73,37 @@ test('rpg-asjw.4 a guided start with a premade character in Portuguese gets its 
   const sheet = await startedSheet(t, 'Detetive');
   assert.ok(sheet.startsWith('Detetive'), sheet);
   assert.match(sheet, /d20-lite/);
+});
+
+const ATTRIBUTE_PATTERN = /(?:Força|Agilidade|Raciocínio|Presença)\D*(\d+)/g;
+
+const D20_LITE = { id: 'd20-lite', edition: 'original' };
+
+const spreadOf = (genre: string, character: string) => {
+  const config = planCampaign(undefined, { ruleset: D20_LITE, genre, character });
+  return JSON.stringify(startingCharacter(config)?.proposal.values);
+};
+
+test('rpg-asjw.11 the Detetive sheet is not flat and favours Raciocínio', async (t) => {
+  const sheet = await startedSheet(t, 'Detetive');
+  const scores = [...sheet.matchAll(ATTRIBUTE_PATTERN)].map((match) => Number(match[1]));
+  assert.equal(scores.length, 4, sheet);
+  assert.ok(new Set(scores).size > 1, sheet);
+  assert.equal(Math.max(...scores), scores[2], sheet);
+});
+
+test('rpg-asjw.11 every premade of a genre has its own spread, whatever the language', () => {
+  for (const { id: genre, characters } of startOptions().genres) {
+    const spreads = characters.map(({ id, name }) => {
+      const [first, ...rest] = [name, ...contentAliases('archetype', id ?? name)].map((c) => spreadOf(genre, c));
+      assert.ok(
+        rest.every((other) => other === first),
+        `${genre}/${name}`,
+      );
+      const scores = Object.values(JSON.parse(first ?? '{}')).filter((value) => typeof value === 'number');
+      assert.ok(Math.max(...scores) > ATTRIBUTE_AVERAGE, `${genre}/${name}`);
+      return first;
+    });
+    assert.equal(new Set(spreads).size, spreads.length, genre);
+  }
 });
