@@ -87,7 +87,7 @@ import { createEntityStore, createFactStore } from '../../../packages/persistenc
 import type { BuildInput, BuildResult } from '../../../packages/rules/src/character-builder.ts';
 import type { Rng } from '../../../packages/rules/src/dice.ts';
 import { backupArchive, exportArchive, restoreArchive } from './campaign-archive.ts';
-import { type Ask, createCharacter } from './character-creation.ts';
+import { type Ask, createCharacter, premadeBuild } from './character-creation.ts';
 import {
   campaignSummaryOf,
   createClientSessions,
@@ -167,6 +167,7 @@ import {
   ClientUnsupported,
   commandConfig,
   creationRulesFor,
+  defaultCharacter,
   describeConfig,
   isPitch,
   type Opening,
@@ -224,7 +225,7 @@ const UNREAD_SUMMARY = {
 const RECAP_VIEW = 'recap';
 const CREATE_EXCLUSIVE = 'wx';
 const FILE_EXISTS = 'EEXIST';
-const HERO_NAME = 'The Wanderer';
+const heroName = (locale: string) => say(locale, 'hero.default');
 const DEFAULT_OPENING: Opening = {
   title: 'The Crossroads Inn',
   narration: 'Rain drums on the roof of the Crossroads Inn. A stranger by the fire looks up as you enter.',
@@ -1133,7 +1134,7 @@ const createCampaign = async (
     const { opening, proposals, generic, pitch, usage } = await start(path);
     const committed = openScene(store, {
       campaignId: campaign.id,
-      actorName: HERO_NAME,
+      actorName: heroName(language ?? DEFAULT_LOCALE),
       sceneTitle: opening.title,
       ...(opening.locationKind === undefined ? {} : { locationKind: opening.locationKind }),
       ...(opening.moodTags === undefined ? {} : { moodTags: opening.moodTags }),
@@ -1229,7 +1230,7 @@ type StartRequest = {
 
 const unfinishedText = (result: Exclude<BuildResult, { status: 'created' }>, locale: string) =>
   say(locale, 'character.unfinished', {
-    hero: HERO_NAME,
+    hero: heroName(locale),
     reason:
       result.status === 'pending'
         ? new LocalizedError('character.noAnswer', {
@@ -1270,10 +1271,17 @@ const characterFor = async (dataDir: string, name: string, config: CampaignConfi
   const description =
     rules === undefined
       ? undefined
-      : (await ask(say(locale, 'character.prompt', { hero: HERO_NAME })))?.trim().slice(0, MAX_INPUT_LENGTH);
-  if (rules === undefined || !description) return undefined;
+      : (await ask(say(locale, 'character.prompt', { hero: heroName(locale) })))?.trim().slice(0, MAX_INPUT_LENGTH);
+  if (rules === undefined) return undefined;
+  const defaultHero = () => addCharacter(dataDir, name, premadeBuild(rules, heroName(locale)), locale);
+  if (!description) {
+    defaultHero();
+    return undefined;
+  }
   const { build, result } = await createCharacter(rules, description, ask);
-  return result.status === 'created' ? addCharacter(dataDir, name, build, locale) : unfinishedText(result, locale);
+  if (result.status === 'created') return addCharacter(dataDir, name, build, locale);
+  defaultHero();
+  return unfinishedText(result, locale);
 };
 
 const ROLL_COMMAND = '/roll';
@@ -1581,7 +1589,8 @@ export const createCampaignFrom = async (
     ...loadOwnRules(dataDir, rulesDocuments),
     ...loadOwnRules(dataDir, settingDocuments, SETTING_DOCUMENT_KIND),
   ];
-  const character = startingCharacter(config);
+  const character =
+    startingCharacter(config) ?? defaultCharacter(config.rulepack, heroName(language ?? DEFAULT_LOCALE));
   await createCampaign(
     dataDir,
     name,

@@ -12,6 +12,7 @@ import type { SheetField } from '../../../packages/rules/src/sheet-schema.ts';
 
 export type Ask = (question: string) => Promise<string | undefined>;
 
+const FALLBACK_STAT = 0;
 const NAME_QUESTION = 'Name?';
 const NAME_PATTERN = /\b(?:named|called)\s+([\p{L}\p{N}'-]+)/iu;
 const NAME_END = /[,.;]/;
@@ -87,6 +88,31 @@ export const describedBuild = (rules: CreationRules, description: string): Build
     ...proposalFrom(rules, description),
   },
 });
+
+const defaultValue = (
+  { id, widget, options }: SheetField,
+  { constraints }: CreationRules,
+): ProfileTraitValue | undefined => {
+  if (NUMERIC_WIDGETS.includes(widget)) {
+    const bounds = constraints.filter(({ field }) => field === id);
+    const min = Math.max(...bounds.flatMap(({ min: low }) => low ?? []), Number.NEGATIVE_INFINITY);
+    const max = Math.min(...bounds.flatMap(({ max: high }) => high ?? []), Number.POSITIVE_INFINITY);
+    const middle = Math.ceil((min + max) / 2);
+    return [middle, min, max].find(Number.isFinite) ?? FALLBACK_STAT;
+  }
+  if (widget === 'choice') return options?.[0];
+  return widget === 'toggle' ? false : undefined;
+};
+
+export const premadeBuild = (rules: CreationRules, name: string): BuildInput => {
+  const build = describedBuild(rules, name);
+  const values: Record<string, ProfileTraitValue> = {};
+  for (const field of rules.schema.fields.filter(({ derived }) => !derived)) {
+    const value = build.proposal.values[field.id] ?? defaultValue(field, rules);
+    if (value !== undefined) values[field.id] = value;
+  }
+  return { ...build, proposal: { ...build.proposal, values } };
+};
 
 export const createCharacter = async (rules: CreationRules, description: string, ask: Ask): Promise<Creation> => {
   const name = description.match(NAME_PATTERN)?.[1] ?? (await ask(NAME_QUESTION))?.trim() ?? '';

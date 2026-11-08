@@ -1,4 +1,4 @@
-import { type ContentKind, contentText } from '../../../packages/client-protocol/src/content-names.ts';
+import { type ContentKind, contentAliases, contentText } from '../../../packages/client-protocol/src/content-names.ts';
 import { DICE_LABELS } from '../../../packages/client-protocol/src/guided-start.ts';
 import {
   type CampaignPlan,
@@ -57,7 +57,7 @@ import { D20_LITE_CREATION } from '../../../packages/rules/src/d20-lite.ts';
 import { DICE_POOL_LITE_CREATION } from '../../../packages/rules/src/dice-pool-lite.ts';
 import { NARRATIVE_CREATION } from '../../../packages/rules/src/narrative.ts';
 import { type RulePackManifest, rulesUsageOf } from '../../../packages/rules/src/rulepack.ts';
-import { describedBuild } from './character-creation.ts';
+import { describedBuild, premadeBuild } from './character-creation.ts';
 import { BUILT_IN_PACKS } from './import-gateway.ts';
 import { baseIdOf, type InstalledRuleset, installedRulesets } from './installed-rulesets.ts';
 import { DEFAULT_LOCALE, errorText, ListParam, LocalizedError, say } from './messages.ts';
@@ -423,12 +423,18 @@ const blurbOf = (pack: RulePackManifest, features: readonly string[]) => {
   return features.length === 0 ? LIGHT_RULES : `Rules for ${LIST.format(features)}.`;
 };
 
+const PREMADE_NAMES = GENRE_PACKS.flatMap(({ genre }) =>
+  genre.archetypes.flatMap(({ id, name }) => [name, ...contentAliases('archetype', id)]),
+);
+const premadeNameOf = (character: string) =>
+  PREMADE_NAMES.find((name) => name.toLowerCase() === character.trim().toLowerCase());
+
 const readyMadeOn = (pack: RulePackManifest) => {
   const rules = creationRulesFor(pack);
   return (
     rules === undefined ||
     GENRE_PACKS.every(({ genre }) =>
-      genre.archetypes.every(({ name }) => buildCharacter(describedBuild(rules, name)).status === 'created'),
+      genre.archetypes.every(({ name }) => buildCharacter(premadeBuild(rules, name)).status === 'created'),
     )
   );
 };
@@ -499,7 +505,8 @@ export const builderIssueText = ({ code, message, min, max, widget }: BuilderIss
 export const startingCharacter = ({ rulepack, values: { character } }: CampaignConfig): BuildInput | undefined => {
   const rules = creationRulesFor(rulepack);
   if (typeof character !== 'string' || rules === undefined) return undefined;
-  const build = describedBuild(rules, character);
+  const premade = premadeNameOf(character);
+  const build = premade === undefined ? describedBuild(rules, character) : premadeBuild(rules, premade);
   const result = buildCharacter(build);
   if (result.status === 'created') return build;
   if (result.status === 'pending')
@@ -513,6 +520,11 @@ export const startingCharacter = ({ rulepack, values: { character } }: CampaignC
   throw new LocalizedError('quickstart.characterInvalid', {
     issues: new ListParam(result.issues.map(builderIssueText), 'semicolon'),
   });
+};
+
+export const defaultCharacter = (rulepack: CampaignConfig['rulepack'], name: string): BuildInput | undefined => {
+  const rules = creationRulesFor(rulepack);
+  return rules === undefined ? undefined : premadeBuild(rules, name);
 };
 
 export const commandConfig = (

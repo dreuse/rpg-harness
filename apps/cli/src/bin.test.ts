@@ -122,6 +122,11 @@ test('new keeps the default hero when the player skips or leaves character creat
   for (const input of [NO_INPUT, '\n', `${VAGUE_CHARACTER}\n`])
     withDataDir((dataDir) => {
       assert.ok(succeed(dataDir, ['new', CAMPAIGN, D20_INTENT], input).trim().length > 0);
-      assert.deepEqual(createdCharacters(dataDir), []);
+      assert.deepEqual(
+        createdCharacters(dataDir).map(
+          ({ payload }) => (payload as { profile: { identity: { name: string } } }).profile.identity.name,
+        ),
+        ['The Wanderer'],
+      );
     });
 });

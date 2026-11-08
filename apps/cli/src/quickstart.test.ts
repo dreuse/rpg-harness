@@ -402,10 +402,10 @@ test('rpg-42a.14 plan builds the chosen character from the ruleset sheet and nev
   );
 });
 
-test('rpg-42a.19 ready-made characters are offered only on rules that can build them from a name', () => {
+test('rpg-42a.19 ready-made characters are offered on every built-in ruleset', () => {
   const { genres, rulesets } = startOptions();
   const readyMade = Object.fromEntries(rulesets.map(({ id, readyMade }) => [id, readyMade]));
-  assert.deepEqual(readyMade, { 'd20-lite': false, 'dice-pool-lite': true, narrative: true });
+  assert.deepEqual(readyMade, { 'd20-lite': true, 'dice-pool-lite': true, narrative: true });
   const [archetype] = genres[0]?.characters ?? [];
   assert.ok(archetype !== undefined);
   assert.deepEqual(characterEntry({ ruleset: NARRATIVE_RULES, character: archetype.name }), {
@@ -413,7 +413,7 @@ test('rpg-42a.19 ready-made characters are offered only on rules that can build 
     value: archetype.name,
     provenance: 'explicit',
   });
-  assert.match(String(characterEntry({ ruleset: D20_RULES, character: archetype.name })), /^Your character needs/);
+  assert.match(String(characterEntry({ ruleset: D20_RULES, character: 'Quiet stranger' })), /^Your character needs/);
 });
 
 test('rpg-42a.38 start options declare usage and explain the diceless built-in pack in plain words', () => {

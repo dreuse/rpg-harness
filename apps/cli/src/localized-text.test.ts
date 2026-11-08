@@ -200,7 +200,7 @@ test('rpg-42a.117 the read views and the recap read in Brazilian Portuguese and 
   const dataDir = dataDirFor(t);
   const gateway = createEngineGateway(dataDir);
   await collect(gateway.create(CAMPAIGN, undefined, async () => undefined, undefined, PORTUGUESE));
-  assert.equal(gateway.view(CAMPAIGN, 'sheet', PORTUGUESE), 'The Wanderer\nAinda não há ficha de personagem.');
+  assert.equal(gateway.view(CAMPAIGN, 'sheet', PORTUGUESE), 'O Andarilho\nAinda não há ficha de personagem.');
   assert.equal(gateway.view(CAMPAIGN, 'inventory', PORTUGUESE), 'Inventário:\nAinda não há itens.');
   assert.equal(gateway.view(CAMPAIGN, 'quests', PORTUGUESE), 'Missões:\nAinda não há missões.');
   assert.equal(gateway.view(CAMPAIGN, 'encounter', PORTUGUESE), 'Ainda não há encontro.');
@@ -240,7 +240,7 @@ test('rpg-42a.140 a created character, an unfinished one and the prompt read in 
   assert.match(spanish.text, /Personaje Wren creado\./);
   assert.notEqual(done.asked[0], PROMPT_ENGLISH);
   const pending = await createWith(t, 'A scout named Wren.', PORTUGUESE);
-  assert.match(pending.text, /Personagem não criado, você joga como The Wanderer: sem resposta para /);
+  assert.match(pending.text, /Personagem não criado, você joga como O Andarilho: sem resposta para /);
   const english = await createWith(t, 'A scout named Wren.', 'en');
   assert.match(english.text, /Character not created, you play as The Wanderer: no answer for /);
   assert.equal(english.asked[0], PROMPT_ENGLISH);
@@ -252,5 +252,5 @@ test('rpg-42a.140 invalid builder values in an unfinished character read in Braz
     'A scout named Wren with might 99, agility 5, wits 7 and presence 4.',
     PORTUGUESE,
   );
-  assert.match(invalid.text, /Personagem não criado, você joga como The Wanderer: .*deve estar entre 0 e 10/);
+  assert.match(invalid.text, /Personagem não criado, você joga como O Andarilho: .*deve estar entre 0 e 10/);
 });
