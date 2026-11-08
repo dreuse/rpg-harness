@@ -31,7 +31,15 @@ import { importSheet, SHEET_EXPORT_FORMAT } from '../../../packages/rules/src/sh
 import { EMPTY_LIVE_FOLDS, foldLive } from '../../../packages/timelines/src/live-folds.ts';
 import { createEngineGateway, FAKE_GAME_MASTER, openClientSession, readCampaignState } from './engine-gateway.ts';
 import { main } from './main.ts';
-import { editableSheet, panelsOf, printable, renderView, sheetComponents, sheetFields } from './views.ts';
+import {
+  editableSheet,
+  JOURNAL_LINE_MAX,
+  panelsOf,
+  printable,
+  renderView,
+  sheetComponents,
+  sheetFields,
+} from './views.ts';
 
 const CAMPAIGN = 'Ember';
 const HIGH_DRAW = 0.95;
@@ -215,7 +223,7 @@ test('read character state, inventory, important events and quests using concise
     assert.match(await run(dataDir, ['recap', CAMPAIGN]), /The Crossroads Inn/);
     assert.match(await run(dataDir, ['sheet', CAMPAIGN]), /resolve: 3/);
     assert.match(await run(dataDir, ['inventory', CAMPAIGN]), /Brass lantern/);
-    assert.match(await run(dataDir, ['journal', CAMPAIGN]), new RegExp(ACTION));
+    assert.match(await run(dataDir, ['journal', CAMPAIGN]), /Rain drums on the roof of the Crossroads Inn\./);
     assert.match(await run(dataDir, ['quests', CAMPAIGN]), /Find the ferryman/);
   }));
 
@@ -252,10 +260,8 @@ test('the play loop and views never print stored control or bidi characters', ()
     const played = await run(dataDir, ['play', CAMPAIGN], [HOSTILE, '/journal']);
     const resumed = await run(dataDir, ['resume', CAMPAIGN]);
     const journal = await run(dataDir, ['journal', CAMPAIGN]);
-    for (const output of [played, resumed, journal]) {
-      assert.match(output, /I wave\[2J\]0;pwn31m back/);
-      assert.doesNotMatch(output.replaceAll('\n', ''), UNSAFE);
-    }
+    for (const output of [played, resumed]) assert.match(output, /I wave\[2J\]0;pwn31m back/);
+    for (const output of [played, resumed, journal]) assert.doesNotMatch(output.replaceAll('\n', ''), UNSAFE);
   }));
 
 test('restore, list and errors never print control or bidi characters from stored names', () =>
@@ -872,21 +878,21 @@ const ROLL_LINES = {
 
 for (const [locale, line] of Object.entries(ROLL_LINES))
   test(`rpg-42a.153: the ${locale} journal and recap word an accepted roll as a roll, not as speech`, () => {
-    const turn = (id: string, input: string) => ({
+    const turn = (id: string, input: string, narration = 'Reply.') => ({
       id,
       campaignId: CAMPAIGN,
       sceneId: 'scene',
       actionId: id,
       actorId: 'hero',
       input,
-      narration: 'Reply.',
+      narration,
     });
     const state = {
       campaign: { id: CAMPAIGN, name: CAMPAIGN },
       revision: 2,
       characters: [{ id: 'hero', campaignId: CAMPAIGN, name: 'Wren' }],
       currentScene: undefined,
-      turns: [turn('typed', 'I confront the hunter'), turn('rolled', ROLL_LABEL)],
+      turns: [turn('typed', 'I confront the hunter'), turn('rolled', ROLL_LABEL, '')],
       events: [
         {
           id: 'e0',
@@ -911,10 +917,56 @@ for (const [locale, line] of Object.entries(ROLL_LINES))
     };
     const source = { state, entities: [], relationships: [], eventScopes: [] };
     const journal = renderView('journal', source, undefined, locale);
-    assert.match(journal, /Wren: I confront the hunter/);
     assert.ok(journal.includes(line), journal);
     assert.doesNotMatch(journal, new RegExp(`Wren: ${ROLL_LABEL}`));
     const { latest } = panelsOf(source, { scope: 'player' }).recap;
     assert.ok(latest?.includes(line), latest);
     assert.doesNotMatch(latest ?? '', new RegExp(`Wren: ${ROLL_LABEL}`));
   });
+
+test('rpg-asjw.9: the journal lists one short first-sentence line per turn without a model', () => {
+  const long = `${'Mist '.repeat(60)}rises. Second sentence stays out.`;
+  const turn = (id: string, narration: string) => ({
+    id,
+    campaignId: CAMPAIGN,
+    sceneId: 'scene',
+    actionId: id,
+    actorId: 'hero',
+    input: 'I look',
+    narration,
+  });
+  const state = {
+    campaign: { id: CAMPAIGN, name: CAMPAIGN },
+    revision: 5,
+    characters: [{ id: 'hero', campaignId: CAMPAIGN, name: 'Wren' }],
+    currentScene: undefined,
+    turns: [
+      turn('t1', 'You find a brass key. It is cold.'),
+      turn('t2', 'You meet Mara the ferryman. She nods.'),
+      turn('t3', long),
+      turn('t4', ''),
+      turn('t5', 'The gate opens! Nobody stirs.'),
+      turn('t6', 'Rain falls\n  on the\nroof. More.'),
+      turn('t7', `${'x'.repeat(JOURNAL_LINE_MAX - 2)}😀😀 tail.`),
+    ],
+    events: [],
+    changes: [{ type: 'CampaignCreated', payload: { name: CAMPAIGN, language: 'en' } }],
+    gmUsage: EMPTY_GM_USAGE_LEDGER,
+    folds: EMPTY_LIVE_FOLDS,
+  };
+  const source = { state, entities: [], relationships: [], eventScopes: [] };
+  const rows = renderView('journal', source, undefined, 'en')
+    .split('\n')
+    .filter((row) => /^ {2}\d+\. /.test(row));
+  assert.equal(rows.length, 7);
+  assert.match(rows[0] ?? '', /^ {2}1\. You find a brass key\.$/);
+  assert.match(rows[1] ?? '', /^ {2}2\. You meet Mara the ferryman\.$/);
+  assert.ok((rows[2] ?? '').length <= 5 + JOURNAL_LINE_MAX, rows[2]);
+  assert.doesNotMatch(rows[2] ?? '', /Second sentence/);
+  assert.match(rows[3] ?? '', /^ {2}4\. Wren: I look$/);
+  assert.match(rows[4] ?? '', /^ {2}5\. The gate opens!$/);
+  assert.match(rows[5] ?? '', /^ {2}6\. Rain falls on the roof\.$/);
+  assert.ok((rows[6] ?? '').isWellFormed(), rows[6]);
+  assert.ok(Array.from(rows[6]?.slice(5) ?? '').length <= JOURNAL_LINE_MAX, rows[6]);
+  assert.ok((rows[6] ?? '').endsWith('…'), rows[6]);
+});

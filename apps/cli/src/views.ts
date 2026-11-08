@@ -345,6 +345,8 @@ const encounter = (source: ViewSource, locale: string) => {
   return [title, ...rows, ...outcome].join('\n');
 };
 
+export const JOURNAL_LINE_MAX = 80;
+
 const turnText = (
   names: ReadonlyMap<string, string>,
   { actionId, actorId, input, narration, rollOfferId }: Turn,
@@ -360,9 +362,28 @@ const turnText = (
 
 const namesOf = ({ characters }: CampaignState) => new Map(characters.map(({ id, name }) => [id, name]));
 
+const FIRST_SENTENCE = /^.*?[.!?](?=\s|$)/s;
+const ELLIPSIS = '…';
+const WHITESPACE_RUN = /\s+/g;
+
+const journalLine = (names: ReadonlyMap<string, string>, turn: Turn, locale: string) => {
+  const narration = turn.narration.replace(WHITESPACE_RUN, ' ').trim();
+  const text =
+    narration === ''
+      ? turnText(names, turn, locale).replace(WHITESPACE_RUN, ' ').trim()
+      : (FIRST_SENTENCE.exec(narration)?.[0] ?? narration);
+  const points = Array.from(text);
+  return points.length <= JOURNAL_LINE_MAX
+    ? text
+    : `${points.slice(0, JOURNAL_LINE_MAX - ELLIPSIS.length).join('')}${ELLIPSIS}`;
+};
+
 const journal = (state: CampaignState, locale: string) => {
   const names = namesOf(state);
-  const rows = playTurns(state).map((turn, index) => `  ${index + 1}. ${turnText(names, turn, locale)}`);
+  const rows = playTurns(state)
+    .map((turn) => journalLine(names, turn, locale))
+    .filter((line) => line !== '')
+    .map((line, index) => `  ${index + 1}. ${line}`);
   return section(say(locale, 'view.journal'), rows, say(locale, 'view.noEvents'));
 };
 

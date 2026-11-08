@@ -165,7 +165,7 @@ test('pass m3 acceptance matrix with all optional capabilities implemented and d
   assert.equal(played.status, EXIT_OK, played.stderr);
   assert.doesNotMatch(played.stderr, new RegExp(OPTIONAL_LOADED));
   assert.match(played.stdout, new RegExp(`: ${ACTION}`));
-  assert.match(rpg(['journal', CAMPAIGN]).stdout, new RegExp(ACTION));
+  assert.match(rpg(['journal', CAMPAIGN]).stdout, /Rain drums/);
 });
 
 test('no unresolved p0 critical defect and all runtime components remain optional', async (t) => {
