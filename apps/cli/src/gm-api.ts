@@ -71,6 +71,7 @@ export const RULES_STRICTNESS_PROMPTS: Readonly<Record<RulesStrictness, string>>
     'Never narrate a hit, a miss, damage, a save, a spell effect, a resource change, a condition or a rest that the results do not show.',
     'When the rules call for a check, whatever words the player used, add a check proposal and end your narration on the situation, never on an instruction to attempt something; the player is offered the roll and the engine rolls it.',
     'When your narration states a hit, a miss, damage or another rule outcome the engine results show, add an outcome proposal with a short text and declared "hit" or "miss" matching the engine result; never state one without it.',
+    'A risky attempt by the player, such as picking a lock, climbing or forcing a door, is never narrated as a success or a failure: add a check proposal with needsCheck true and describe only the moment before the roll.',
     'Never make a ruling that contradicts the ruleset.',
   ].join(' '),
   relaxed:
@@ -78,7 +79,7 @@ export const RULES_STRICTNESS_PROMPTS: Readonly<Record<RulesStrictness, string>>
   off: 'Rules strictness is off: the story decides outcomes, so narrate what happens without asking for rolls.',
 };
 export const RULES_RETRY_PROMPT =
-  'Your previous reply claimed a mechanical result the engine did not resolve or that differs from the engine result. Write it again without any hit, miss, damage or other rule outcome, and add a check proposal if the rules call for one.';
+  'Your previous reply claimed a mechanical result the engine did not resolve or that differs from the engine result. Write it again without any hit, miss, damage or other rule outcome, and when the action of the player is a risky attempt, add a check proposal with needsCheck true instead of narrating its result.';
 export const noCheckPrompt = (reason: string): string =>
   `The engine made no roll this turn (${reason}). Narrate the outcome of the player's action yourself. Do not ask the player to attempt it or to roll.`;
 export const repetitionRetryPrompt = (lines: readonly string[]): string =>

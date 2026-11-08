@@ -651,6 +651,40 @@ describe('rpg-42a.58 rules strictness in the GM path', () => {
     assert.equal(lastNarration(dataDir), HIT);
   });
 
+  const LOCK_PICK = 'I pick the lock';
+  const LOCK_FAILS = 'The pick snaps and the lock holds.';
+  const LOCK_WAITS = 'The lock clicks under your pick, and the door waits.';
+  const missingGm = (packets: ContextPacket[]): GameMaster => ({
+    request: async (packet) => {
+      packets.push(packet);
+      const narration = packets.length === 1 ? LOCK_FAILS : LOCK_WAITS;
+      const proposals: readonly GmProposal[] =
+        packets.length === 1 ? [{ kind: 'outcome', id: 'lock', text: 'the lock holds', declared: 'miss' }] : [];
+      return { narration, segments: [{ text: narration }], proposals };
+    },
+    summarizer: FAKE_GAME_MASTER.summarizer,
+  });
+
+  it('as-written rejects a narrated failure of a risky action with no check and regenerates once', async (t) => {
+    const dataDir = await d20Campaign(t);
+    const packets: ContextPacket[] = [];
+    await play(dataDir, missingGm(packets), [LOCK_PICK]);
+    assert.equal(packets.length, 2);
+    assert.ok(packetParts(packets[1] as ContextPacket).instructions.includes(RULES_RETRY_PROMPT));
+    assert.equal(lastNarration(dataDir), LOCK_WAITS);
+  });
+
+  for (const strictness of ['relaxed', 'off']) {
+    it(`${strictness} keeps a narrated failure of a risky action with no check`, async (t) => {
+      const dataDir = await d20Campaign(t);
+      createEngineGateway(dataDir).settings(CAMPAIGN, { rulesStrictness: strictness });
+      const packets: ContextPacket[] = [];
+      await play(dataDir, missingGm(packets), [LOCK_PICK]);
+      assert.equal(packets.length, 1);
+      assert.equal(lastNarration(dataDir), LOCK_FAILS);
+    });
+  }
+
   it('in Portuguese an attack becomes an engine roll and the matching narration is accepted', async (t) => {
     const dataDir = tempDataDir(t);
     const describe = async () => 'Wren, uma batedora. Might 3, Agility 2, Wits 2, Presence 1';
