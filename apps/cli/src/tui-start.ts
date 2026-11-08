@@ -69,10 +69,14 @@ const render = (screen: StartScreen, locale: string) =>
 const actionFor = (screen: StartScreen, text: string): StartAction | undefined => {
   const kind = KEYS[text];
   if (kind === 'back' && screen.canBack) return { kind };
-  if (kind === 'skip' && screen.canSkip) return { kind };
+  const recommended = screen.options.find((option) => option.recommended === true);
+  if (kind === 'skip' && screen.step === 'summary') return { kind: 'enter', text: '' };
+  if (kind === 'skip' && screen.canSkip) return screen.step === 'rules' && recommended ? recommended.action : { kind };
   if (kind === 'start' && screen.canStart) return { kind };
   const option = /^\d+$/.test(text) ? screen.options[Number(text) - FIRST_NUMBER] : undefined;
   if (option !== undefined) return option.action;
+  const preferred = screen.options.find((option) => option.selected) ?? recommended;
+  if (text === '' && !screen.canNext && preferred !== undefined) return preferred.action;
   if (text === '' && screen.step !== 'summary') return screen.canNext ? { kind: 'next' } : undefined;
   return screen.entry === undefined ? undefined : { kind: 'enter', text };
 };

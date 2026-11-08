@@ -76,7 +76,7 @@ test('guided summary localizes none and the export count pluralizes', async (t) 
   const dataDir = dataDirOf(t);
   for await (const text of guidedStart(
     dataDir,
-    lines(['2', '', 's', 's', 's', 's', 's', 's', 's', 'q']),
+    lines(['2', '', 's', '4', 's', 's', 's', 's', 's', 'q']),
     createCampaignFrom,
     PORTUGUESE,
   ))

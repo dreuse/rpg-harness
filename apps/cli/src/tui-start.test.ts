@@ -58,11 +58,9 @@ const PITCH_GM: GameMaster = {
   summarizer: FAKE_GAME_MASTER.summarizer,
 };
 const SKIPPED_SUMMARY = [
-  'Rules: none (default)',
+  'Rules: Story only: no dice, no sheet (chosen)',
   'Genre: none (default)',
   'Character: none (default)',
-  'Dice: as the ruleset decides (default)',
-  'Dice animation: off (default)',
   'Voice narration: off (default)',
   'Living world: off (default)',
 ];
@@ -139,6 +137,38 @@ test('rpg-42a.14 tui skipping every step shows documented defaults with default 
   assert.equal(summaryOf(dataDir, DEFAULT_ADVENTURE_NAME)?.health, 'ok');
 });
 
+test('rpg-asjw.7 tui s at the name step keeps the default name and creates nothing', async (t) => {
+  const dataDir = tempDataDir(t);
+  const out = await answer(dataDir, [GUIDE, CONTINUE, SKIP, SKIP, SKIP, CONTINUE, SKIP, GUIDED_NAME, SKIP]);
+  assert.deepEqual(listCampaignSummaries(dataDir), []);
+  assert.match(out.at(-1) ?? '', new RegExp(`Adventure name: ${DEFAULT_ADVENTURE_NAME}`));
+});
+
+test('rpg-asjw.7 tui a typed name creates nothing until y', async (t) => {
+  const dataDir = tempDataDir(t);
+  await answer(dataDir, [GUIDE, CONTINUE, SKIP, SKIP, SKIP, CONTINUE, SKIP, GUIDED_NAME]);
+  assert.deepEqual(listCampaignSummaries(dataDir), []);
+});
+
+test('rpg-asjw.7 tui Enter at a menu with a recommended option picks it', async (t) => {
+  const dataDir = tempDataDir(t);
+  const out = await answer(dataDir, [GUIDE, CONTINUE, SKIP, CONTINUE]);
+  assert.doesNotMatch(out.at(-1) ?? '', /Type one of the choices above/);
+  assert.match(out.at(-1) ?? '', /^Step 4 of 7/);
+});
+
+test('rpg-asjw.7 tui Enter after going back keeps the ruleset already chosen', async (t) => {
+  const dataDir = tempDataDir(t);
+  await answer(dataDir, [GUIDE, CONTINUE, SKIP, CLASSIC_D20, 'b', CONTINUE, SKIP, SKIP, SKIP, CONTINUE, SKIP, START]);
+  assert.equal(summaryOf(dataDir, DEFAULT_ADVENTURE_NAME)?.ruleset?.id, 'd20-lite');
+});
+
+test('rpg-asjw.7 tui skipping the rules step uses the recommended ruleset', async (t) => {
+  const dataDir = tempDataDir(t);
+  await answer(dataDir, [GUIDE, CONTINUE, SKIP, SKIP, SKIP, CONTINUE, SKIP, START]);
+  assert.equal(summaryOf(dataDir, DEFAULT_ADVENTURE_NAME)?.ruleset?.id, 'narrative');
+});
+
 test('rpg-42a.14 tui never substitutes an uninstalled edition and asks for an import', async (t) => {
   const dataDir = tempDataDir(t);
   const out = await answer(dataDir, [DESCRIBE, 'Play D&D 1.9 in a noir mystery', CONTINUE, CONTINUE, START]);
@@ -174,7 +204,8 @@ test('rpg-42a.46 tui describe it path opens from the GM with the pitch', async (
 const PORTUGUESE_OPTION = '2';
 const ME_ROLLS_OPTION = '4';
 const RELAXED_OPTION = '7';
-const TO_BEGIN = [GUIDE, CONTINUE, SKIP, SKIP, SKIP, CONTINUE];
+const CLASSIC_D20 = '2';
+const TO_BEGIN = [GUIDE, CONTINUE, SKIP, CLASSIC_D20, SKIP, CONTINUE];
 const OPENING_LANGUAGE = 'pt-BR';
 
 const recordingGm = (

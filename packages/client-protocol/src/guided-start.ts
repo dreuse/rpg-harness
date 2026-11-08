@@ -66,6 +66,7 @@ export type StartOption = {
   readonly action: StartAction;
   readonly selected: boolean;
   readonly badge?: string;
+  readonly recommended?: boolean;
   readonly group?: string;
   readonly preview?: StartAction;
 };
@@ -771,7 +772,7 @@ const PAGES: Readonly<
             rulesetDetail(locale, ruleset),
             draft,
           ),
-          ...(ruleset.recommended ? { badge: text(locale, 'rules.badge') } : {}),
+          ...(ruleset.recommended ? { badge: text(locale, 'rules.badge'), recommended: true } : {}),
         })),
       ...(canPickFiles ? [sourceOption(draft, locale, 'own', 'set')] : []),
       sourceOption(draft, locale, 'none', 'choose'),
