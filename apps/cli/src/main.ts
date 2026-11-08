@@ -217,6 +217,7 @@ const SLASH_CLIENT: SlashClient = 'line';
 const QUIT_CONTROL = '/quit';
 const HELP_CONTROL = '/help';
 const HISTORY_CONTROL = '/history';
+const ROLL_CONTROL = '/roll';
 const sessionHelp = (views: readonly ViewName[], locale: string) =>
   [
     phrase(locale, 'session.plain'),
@@ -240,6 +241,8 @@ const withControls = async function* (io: Io, show?: (view: ViewName) => string)
       return;
     } else if (text === HELP_CONTROL) {
       say(io, sessionHelp(show === undefined ? [] : VIEW_NAMES, localeOf(io)));
+    } else if (text === ROLL_CONTROL) {
+      yield text;
     } else if (text === HISTORY_CONTROL) {
       say(
         io,

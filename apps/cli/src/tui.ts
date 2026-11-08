@@ -9,6 +9,7 @@ import {
   type ClientSession,
   EVENT_COMMITTED,
   PROTOCOL_VERSION,
+  type RollOffer,
   type ViewComponent,
   type ViewValue,
 } from '../../../packages/client-protocol/src/protocol.ts';
@@ -349,6 +350,11 @@ const sheetRows = (sheet: readonly ViewComponent[]) =>
     return [...heading, sheetRow(component)];
   });
 
+export const rollOfferText = (rollOffer: RollOffer, locale: string) =>
+  rollOffer.expression === undefined
+    ? say(locale, 'tui.rollOffer', { label: rollOffer.label })
+    : say(locale, 'tui.rollOfferPhysical', { label: rollOffer.label, expression: rollOffer.expression });
+
 const conversation = ({ currentScene, characters, turns, rollOffer, noRoll }: CampaignSnapshot, locale: string) => {
   const names = new Map(characters.map(({ id, name }) => [id, name]));
   const playerLine = (actorId: string, input: string, rollOfferId: string | undefined) =>
@@ -360,14 +366,7 @@ const conversation = ({ currentScene, characters, turns, rollOffer, noRoll }: Ca
     narration.trim() === '' ? say(locale, 'tui.noReply') : narration,
     ...(noRoll?.actionId === actionId ? [say(locale, `noRoll.${noRoll.reason}`)] : []),
   ]);
-  const offer =
-    rollOffer === undefined
-      ? []
-      : [
-          rollOffer.expression === undefined
-            ? say(locale, 'tui.rollOffer', { label: rollOffer.label })
-            : say(locale, 'tui.rollOfferPhysical', { label: rollOffer.label, expression: rollOffer.expression }),
-        ];
+  const offer = rollOffer === undefined ? [] : [rollOfferText(rollOffer, locale)];
   return rows.length === 0 || currentScene === undefined
     ? [...rows, ...offer]
     : [say(locale, 'tui.scene', { title: currentScene.title }), ...rows, ...offer];

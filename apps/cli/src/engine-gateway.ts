@@ -184,11 +184,13 @@ import {
   checkForAction,
   checkRulesFor,
   combatRulesOf,
+  emitVisualizations,
   enforcedStrictnessFor,
   gmRollExpressionFor,
   gmRollsAllowed,
   healTargetOf,
   modifierPolicyOf,
+  resultsOf,
   rulesStrictnessFor,
   whoRollsFor,
 } from './roll-visualization.ts';
@@ -196,7 +198,7 @@ import type { SoundRequest } from './sound-command.ts';
 import { SOUND_SETTINGS_FILE } from './sound-files.ts';
 import type { SoundRuntime } from './sound-runtime.ts';
 import type { SpeechRuntime } from './speech-runtime.ts';
-import { runTui, type Terminal, type TuiPlayback } from './tui.ts';
+import { rollFrames, rollOfferText, runTui, type Terminal, type TuiPlayback } from './tui.ts';
 import { runHome } from './tui-home.ts';
 import { guidedStart } from './tui-start.ts';
 import type { TurnSpeech } from './turn-speech.ts';
@@ -905,6 +907,18 @@ const storyOf = ({ store }: Session, database: DatabaseSync): StoryPort => {
   };
 };
 
+const playerSessionOf = (opened: OpenSession, gm: GameMaster) => {
+  const { engine, campaignId, database, sessionId, gmDefaults } = opened;
+  const readWorld = worldOf(database);
+  return createClientSessions(engine, campaignId, scopedEventsOf(database), readWorld, sheetsOf(opened, readWorld), {
+    sessionId,
+    defaults: gmDefaults,
+    story: storyOf(opened, database),
+    oocReply: gm.oocReply,
+    installedRuleset: opened.installedRuleset,
+  })(PLAYER_VIEWER);
+};
+
 export const openClientSession = (
   dataDir: string,
   name: string,
@@ -914,28 +928,13 @@ export const openClientSession = (
   uiLocale = DEFAULT_LOCALE,
 ) => {
   const opened = openSession(dataDir, name, false, gm, rng, speech, undefined, uiLocale);
-  const { engine, campaignId, database, narrate, speakOpening, settle, close, sessionId, gmDefaults } = opened;
+  const { engine, campaignId, narrate, speakOpening, settle, close } = opened;
   try {
-    const readWorld = worldOf(database);
-    const sessions = createClientSessions(
-      engine,
-      campaignId,
-      scopedEventsOf(database),
-      readWorld,
-      sheetsOf(opened, readWorld),
-      {
-        sessionId,
-        defaults: gmDefaults,
-        story: storyOf(opened, database),
-        oocReply: gm.oocReply,
-        installedRuleset: opened.installedRuleset,
-      },
-    );
     const voiceLocale = () => {
       const settings = voiceSettingsOf(engine.getState(campaignId).changes);
       return settings === undefined || settings.spokenOutput === SPOKEN_OFF ? undefined : settings.locale;
     };
-    return { session: sessions(PLAYER_VIEWER), campaignId, narrate, speakOpening, settle, close, voiceLocale };
+    return { session: playerSessionOf(opened, gm), campaignId, narrate, speakOpening, settle, close, voiceLocale };
   } catch (error) {
     close();
     throw error;
@@ -1277,6 +1276,35 @@ const characterFor = async (dataDir: string, name: string, config: CampaignConfi
   return result.status === 'created' ? addCharacter(dataDir, name, build, locale) : unfinishedText(result, locale);
 };
 
+const ROLL_COMMAND = '/roll';
+const SINGLE_FRAME = 1;
+const ROLLS_ENABLED = { enabled: true };
+
+const rollLinesOf = (events: readonly CampaignEvent[], turnId: string, locale: string) =>
+  events
+    .filter((event) => event.type === CHECK_RESOLVED && event.turnId === turnId)
+    .flatMap(({ payload }) => emitVisualizations(resultsOf(payload, 'public'), 'player', ROLLS_ENABLED))
+    .flatMap((roll) => rollFrames(roll, SINGLE_FRAME, locale));
+
+const playedText = (
+  client: ReturnType<typeof playerSessionOf>,
+  state: CampaignState,
+  actorName: string,
+  turns: readonly Turn[],
+  locale: string,
+) => {
+  const snapshot = client.getSnapshot({
+    version: PROTOCOL_VERSION,
+    type: 'GetCampaignSnapshot',
+    campaignId: state.campaign.id,
+  });
+  const offer = snapshot.ok ? snapshot.value.rollOffer : undefined;
+  return [
+    ...turns.flatMap((turn) => [...rollLinesOf(state.events, turn.id, locale), narrate(actorName, turn, locale)]),
+    ...(offer === undefined ? [] : [rollOfferText(offer, locale)]),
+  ].join('\n');
+};
+
 type Acted = {
   readonly narration: string;
   readonly warning: string | undefined;
@@ -1298,6 +1326,10 @@ const act = async (
     const [actor] = state.characters;
     const scene = state.currentScene;
     if (actor === undefined || scene === undefined) throw new LocalizedError('campaign.noScene', { name });
+    const rolling = input === ROLL_COMMAND;
+    const offer = rolling ? pendingCheckOffer(state.events) : undefined;
+    if (rolling && offer === undefined) return { narration: say(locale, 'tui.noRoll'), warning: undefined };
+    const text = offer?.label ?? input;
     const committed = engine.submitAction(
       {
         campaignId,
@@ -1305,13 +1337,15 @@ const act = async (
         expectedRevision: state.revision,
         sceneId: scene.id,
         actorId: actor.id,
-        input,
-        intent: input,
+        input: text,
+        intent: text,
+        ...(offer === undefined ? {} : { rollOfferId: offer.offerId }),
       },
       checkForAction(
         state.events,
         {
-          input,
+          input: text,
+          ...(offer === undefined ? {} : { rollOfferId: offer.offerId }),
           whoRolls: whoRollsFor(state, session.gmDefaults()),
           houseRules: oocStateOf(state.changes).houseRules,
           installed: session.installedRuleset(state.events),
@@ -1328,8 +1362,11 @@ const act = async (
         ? { ...stored, narration: narrationOf(shown) }
         : stored;
     const warning = budgetWarning(gmSnapshotFor(session, session.gmDefaults(), sessionId), locale);
+    const latest = engine.getState(campaignId);
+    const played = playTurns(latest);
+    const followUps = played.slice(played.findIndex(({ id }) => id === committed.turn.id) + 1);
     return {
-      narration: narrate(actor.name, narrated, locale),
+      narration: playedText(playerSessionOf(session, gm), latest, actor.name, [narrated, ...followUps], locale),
       warning,
     };
   } finally {
