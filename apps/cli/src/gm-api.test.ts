@@ -277,6 +277,14 @@ describe('rpg-42a.28 Anthropic Messages API narrator', () => {
     assert.equal(received[1]?.body.system, SUMMARY_PROMPT);
   });
 
+  it('rpg-asjw.8 states the dialogue convention per locale', () => {
+    assert.match(languageInstruction(PORTUGUESE), /em dash \(—\)/);
+    assert.match(languageInstruction('pt'), /em dash \(—\)/);
+    assert.match(languageInstruction(ENGLISH), /double quotation marks/);
+    assert.match(languageInstruction('fr'), /double quotation marks/);
+    assert.doesNotMatch(languageInstruction(ENGLISH), /em dash/);
+  });
+
   it('does not retry a 401 and reports it without the key', async (t) => {
     const { received, route } = await startProvider(t, [{ status: UNAUTHORIZED, body: `bad key ${KEY}` }]);
     const error = await failureOf(requestNarration(route, packet()));

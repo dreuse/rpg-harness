@@ -169,8 +169,17 @@ const INSTRUCTION_SEPARATOR = ' ';
 const languageName = (language: string) =>
   new Intl.DisplayNames(INSTRUCTION_LOCALE, { type: 'language' }).of(language) ?? language;
 
+const DASH_DIALOGUE_LANGUAGES = ['pt'];
+const DASH_DIALOGUE_RULE =
+  'Open each line of spoken dialogue with an em dash (—) on its own paragraph, never inline in the prose.';
+const QUOTE_DIALOGUE_RULE =
+  'Put every line of spoken dialogue inside double quotation marks, never inline in the prose without them.';
+
+const dialogueRule = (language: string): string =>
+  DASH_DIALOGUE_LANGUAGES.includes(language.split('-')[0] ?? language) ? DASH_DIALOGUE_RULE : QUOTE_DIALOGUE_RULE;
+
 export const languageInstruction = (language: string): string =>
-  `Write all narration, dialogue and summaries in ${languageName(language)} (${language}), whatever language the data uses.`;
+  `Write all narration, dialogue and summaries in ${languageName(language)} (${language}), whatever language the data uses. ${dialogueRule(language)}`;
 
 export const summaryPrompt = (language: string | undefined): string =>
   language === undefined ? SUMMARY_PROMPT : [SUMMARY_PROMPT, languageInstruction(language)].join(INSTRUCTION_SEPARATOR);
