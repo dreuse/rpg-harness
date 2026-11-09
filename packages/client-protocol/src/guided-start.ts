@@ -657,16 +657,32 @@ const reviewOf = (
   ].filter((group) => group.items.length > 0);
 };
 
+const diceLines = (draft: StartDraft, { options }: CampaignPlan, locale: string) => {
+  const { whoRolls } = draft.choices;
+  return typeof whoRolls === 'string' && usesDice(usageOf(draft, options))
+    ? [
+        text(locale, 'summary.line', {
+          label: text(locale, 'begin.dice'),
+          value: text(locale, `whoRolls.${whoRolls}`),
+          provenance: text(locale, `provenance.${CHOSEN}`),
+        }),
+      ]
+    : [];
+};
+
 const summaryPage = (draft: StartDraft, plan: Result<CampaignPlan> | undefined, locale: string): Page => ({
   title: text(locale, 'summary.title'),
   text: plan?.ok
-    ? entriesOf(draft, plan.value.entries).map(({ field, value, provenance }) =>
-        text(locale, 'summary.line', {
-          label: fieldLabel(locale, field),
-          value: shown(locale, field, value, plan.value.options),
-          provenance: text(locale, `provenance.${PROVENANCE_LABELS.has(provenance) ? provenance : CHOSEN}`),
-        }),
-      )
+    ? [
+        ...entriesOf(draft, plan.value.entries).map(({ field, value, provenance }) =>
+          text(locale, 'summary.line', {
+            label: fieldLabel(locale, field),
+            value: shown(locale, field, value, plan.value.options),
+            provenance: text(locale, `provenance.${PROVENANCE_LABELS.has(provenance) ? provenance : CHOSEN}`),
+          }),
+        ),
+        ...diceLines(draft, plan.value, locale),
+      ]
     : [],
   ...(plan?.ok && plan.value.notes?.length ? { notes: plan.value.notes } : {}),
   options: [],
@@ -867,6 +883,8 @@ const spokenOptions = (draft: StartDraft, locale: string, voices: StartVoices): 
   ...(Object.hasOwn(draft.choices, VOICE_FEATURE) ? voiceOptions(draft, locale, voices) : []),
 ];
 
+const hasMechanics = (usage: RulesUsage) => usesDice(usage) || usesSheet(usage);
+
 const beginPage = (
   draft: StartDraft,
   options: StartOptions,
@@ -881,15 +899,17 @@ const beginPage = (
     ...(usesDice(usageOf(draft, options))
       ? choiceOptions(draft, locale, 'begin.dice', 'whoRolls', WHO_ROLLS, DEFAULT_WHO_ROLLS, 'whoRolls')
       : []),
-    ...choiceOptions(
-      draft,
-      locale,
-      'begin.strictness',
-      'rulesStrictness',
-      RULES_STRICTNESSES,
-      DEFAULT_RULES_STRICTNESS,
-      'strictness',
-    ),
+    ...(hasMechanics(usageOf(draft, options))
+      ? choiceOptions(
+          draft,
+          locale,
+          'begin.strictness',
+          'rulesStrictness',
+          RULES_STRICTNESSES,
+          DEFAULT_RULES_STRICTNESS,
+          'strictness',
+        )
+      : []),
   ],
   canNext: true,
 });

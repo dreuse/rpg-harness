@@ -107,6 +107,10 @@ export const guidedStart = async function* (
       return;
     }
     const action = actionFor(screen, text);
+    if (action === undefined && text === '') {
+      yield say(locale, 'choice.unknown');
+      continue;
+    }
     if (action === undefined) {
       yield `${say(locale, 'choice.unknown')}\n${render(screen, locale)}`;
       continue;

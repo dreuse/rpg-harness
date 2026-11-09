@@ -701,3 +701,20 @@ test('rpg-asjw.12 skipping the rules step chooses the recommended ruleset and ot
     kind: 'skip',
   });
 });
+
+test('rpg-asjw.15 a ruleset without mechanics hides the rules strictness question', () => {
+  const strictness = (draft: StartDraft) =>
+    startScreen(draft, OPTIONS, undefined).options.filter(
+      ({ action }) => action.kind === 'set' && action.field === 'rulesStrictness',
+    );
+  const storyOnly = atBegin({ kind: 'choose', field: 'ruleset', value: { id: 'narrative', edition: 'original' } });
+  assert.equal(strictness(run([{ kind: 'back' }, { kind: 'back' }], storyOnly)).length, 0);
+  assert.equal(strictness(atBegin()).length, 3);
+});
+
+test('rpg-asjw.15 the summary lists who rolls the dice once it is chosen', () => {
+  const chosen = run([{ kind: 'set', field: 'whoRolls', value: 'ask' }], skipAll);
+  const lines = startScreen(chosen, OPTIONS, PLAN, 'pt-BR').text;
+  assert.ok(lines.includes('Quem rola os dados: Perguntar sempre (escolhido)'), lines.join('|'));
+  assert.ok(startScreen(skipAll, OPTIONS, PLAN, 'pt-BR').text.every((line) => !line.startsWith('Quem rola')));
+});

@@ -310,3 +310,9 @@ test('rpg-42a.122 tui guided start lists an installed ruleset and the campaign p
     [installed.id, 'explicit'],
   );
 });
+
+test('rpg-asjw.15 tui Enter at a menu without a recommended option prints only the hint', async (t) => {
+  const dataDir = tempDataDir(t);
+  const out = await answer(dataDir, [GUIDE, CONTINUE, CONTINUE]);
+  assert.equal(out.at(-1), 'Type one of the choices above.');
+});
