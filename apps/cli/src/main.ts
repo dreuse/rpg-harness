@@ -255,6 +255,7 @@ const SLASH_CLIENT: SlashClient = 'line';
 const QUIT_CONTROL = '/quit';
 const HELP_CONTROL = '/help';
 const HISTORY_CONTROL = '/history';
+const GM_COMMAND = 'gm';
 const ROLL_COMMAND = 'roll';
 const ROLL_CONTROL = `${CONTROL_PREFIX}${ROLL_COMMAND}`;
 const PLAY_ONLY_COMMANDS: ReadonlySet<string> = new Set([ROLL_COMMAND, ...VIEW_NAMES]);
@@ -280,7 +281,7 @@ const withControls = async function* (io: Io, show?: (view: ViewName) => string)
       return;
     } else if (text === HELP_CONTROL) {
       say(io, sessionHelp(show !== undefined, localeOf(io)));
-    } else if (text === ROLL_CONTROL) {
+    } else if (text === ROLL_CONTROL || (slash.kind === 'command' && slash.id === GM_COMMAND)) {
       yield text;
     } else if (text === HISTORY_CONTROL) {
       say(

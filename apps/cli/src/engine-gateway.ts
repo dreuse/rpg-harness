@@ -35,6 +35,7 @@ import {
   type GmUsage,
   toGmSettings,
 } from '../../../packages/domain/src/gm.ts';
+import type { OocProposal } from '../../../packages/domain/src/ooc.ts';
 import { commitCharacter, editSheetField, playTurns } from '../../../packages/engine/src/character.ts';
 import { pendingCheckOffer } from '../../../packages/engine/src/check-offer.ts';
 import { campaignLanguageOf, createEngine, type Engine } from '../../../packages/engine/src/engine.ts';
@@ -206,7 +207,7 @@ import type { SoundRequest } from './sound-command.ts';
 import { SOUND_SETTINGS_FILE } from './sound-files.ts';
 import type { SoundRuntime } from './sound-runtime.ts';
 import type { SpeechRuntime } from './speech-runtime.ts';
-import { rollLine, rollOfferText, runTui, type Terminal, type TuiPlayback } from './tui.ts';
+import { rollLine, rollOfferText, runTui, type Terminal, type TuiPlayback, talkToGm } from './tui.ts';
 import { runHome } from './tui-home.ts';
 import { guidedStart } from './tui-start.ts';
 import type { TurnSpeech } from './turn-speech.ts';
@@ -1544,17 +1545,11 @@ const answerOoc = async (
   gm: GameMaster,
   rng: Rng,
   locale: string,
+  held: OocProposal[],
 ): Promise<string> => {
   const opened = openClientSession(dataDir, name, gm, rng, undefined, locale);
   try {
-    const reply = await opened.session.submitOocMessage({
-      version: PROTOCOL_VERSION,
-      type: 'SubmitOocMessage',
-      campaignId: opened.campaignId,
-      actionId: randomUUID(),
-      text,
-    });
-    return reply.ok ? say(locale, 'tui.oocReply', { reply: reply.value.reply }) : reply.error.message;
+    return await talkToGm(opened.session, opened.campaignId, locale, held, text);
   } finally {
     opened.close();
   }
@@ -2017,6 +2012,7 @@ export const createEngineGateway = (
     const soundNotice = await start(dataDir, sound.session, campaignId, locale);
     if (soundNotice !== undefined) yield soundNotice;
     let warned = false;
+    const held: OocProposal[] = [];
     const answers = lines[Symbol.asyncIterator]();
     const nextLine = async () => {
       const next = await answers.next();
@@ -2028,7 +2024,11 @@ export const createEngineGateway = (
         if (input === '') continue;
         const oocText = parseOocInput(input);
         if (oocText !== undefined) {
-          yield await answerOoc(dataDir, name, oocText, gm, rng, locale);
+          try {
+            yield await answerOoc(dataDir, name, oocText, gm, rng, locale, held);
+          } catch (error) {
+            onTurnError(error);
+          }
           continue;
         }
         let acted: Acted | Asking;

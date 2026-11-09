@@ -411,10 +411,17 @@ test('rpg-asjw.29: line help lists every shared line command by its localized na
     for (const { name, description } of matchSlash(locale, 'line', '/')) {
       assert.ok(text.includes(`  ${name} - ${description}`), `${locale} ${name}`);
     }
-    for (const id of ['gm', 'retry', 'edit', 'language', 'voice', 'memory']) {
+    for (const id of ['retry', 'edit', 'language', 'voice', 'memory']) {
       assert.ok(!text.includes(`/${slashText(locale, `slash.${id}.name`)} `), `${locale} ${id}`);
     }
   }
+});
+
+test('rpg-asjw.37: line play sends /gm text to the game master as an out-of-character line', async () => {
+  const { gateway, io, out, err } = setup(['/gm you forgot my +2', '/gm', '/quit']);
+  assert.equal(await main(['play', 'Ember'], io, gateway), 0);
+  assert.ok(out.join('').includes('/gm you forgot my +2'));
+  assert.deepEqual(err, []);
 });
 
 test('gameplay does not require commands for normal actions', async () => {

@@ -613,10 +613,20 @@ const editField = (session: ClientSession, data: TuiData, name: string, text: st
   return accepted.ok ? undefined : accepted.error.message;
 };
 
-const talkToGm = async (session: ClientSession, data: () => TuiData, held: OocProposal[], input: string) => {
-  const { snapshot } = data();
-  const locale = localeOf(data());
-  const envelope = { version: PROTOCOL_VERSION, campaignId: snapshot.campaignId } as const;
+const revisionOf = (session: ClientSession, campaignId: CampaignId) => {
+  const snapshot = session.getSnapshot({ version: PROTOCOL_VERSION, type: 'GetCampaignSnapshot', campaignId });
+  if (!snapshot.ok) throw new Error(snapshot.error.message);
+  return snapshot.value.revision;
+};
+
+export const talkToGm = async (
+  session: ClientSession,
+  campaignId: CampaignId,
+  locale: string,
+  held: OocProposal[],
+  input: string,
+) => {
+  const envelope = { version: PROTOCOL_VERSION, campaignId } as const;
   const text = parseOocInput(input) ?? input;
   if (OOC_DECLINE.test(text)) {
     held.length = 0;
@@ -630,7 +640,7 @@ const talkToGm = async (session: ClientSession, data: () => TuiData, held: OocPr
         ...envelope,
         type: 'ConfirmOocProposal',
         actionId: randomUUID(),
-        expectedRevision: data().snapshot.revision,
+        expectedRevision: revisionOf(session, campaignId),
         proposal: proposal as unknown as Record<string, unknown>,
       });
       notices.push(
@@ -646,7 +656,7 @@ const talkToGm = async (session: ClientSession, data: () => TuiData, held: OocPr
       ...envelope,
       type: 'UndoOocChange',
       actionId: randomUUID(),
-      expectedRevision: snapshot.revision,
+      expectedRevision: revisionOf(session, campaignId),
     });
     return undone.ok ? say(locale, 'tui.oocUndone', { summary: undone.value.summary }) : undone.error.message;
   }
@@ -932,7 +942,7 @@ export const runTui = async (
   };
   const act: AsyncAct = (input) => {
     const typed = canonical(input);
-    if (parseOocInput(typed) !== undefined) return talkToGm(session, data, held, typed);
+    if (parseOocInput(typed) !== undefined) return talkToGm(session, campaignId, localeOf(data()), held, typed);
     return audio === undefined ? send(input) : audio.input(typed, send);
   };
   const immediate: Immediate = (input) => {

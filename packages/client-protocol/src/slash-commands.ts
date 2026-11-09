@@ -24,7 +24,6 @@ export type SlashCompletion = { readonly text: string; readonly matches: readonl
 
 export const SLASH_PREFIX = '/';
 
-const BOTH: readonly SlashClient[] = ['desktop', 'tui'];
 const TUI: readonly SlashClient[] = ['tui'];
 const LINE: readonly SlashClient[] = ['line'];
 const TUI_AND_LINE: readonly SlashClient[] = ['tui', 'line'];
@@ -35,7 +34,7 @@ const ARGS_GROUP = 2;
 const COMPLETION_SUFFIX = ' ';
 
 export const SLASH_COMMANDS: readonly SlashCommand[] = [
-  { id: 'gm', clients: BOTH, hasArgs: true },
+  { id: 'gm', clients: ALL_CLIENTS, hasArgs: true },
   { id: 'roll', clients: ALL_CLIENTS, hasArgs: false },
   { id: 'retry', clients: TUI, hasArgs: false },
   { id: 'edit', clients: TUI, hasArgs: true },
