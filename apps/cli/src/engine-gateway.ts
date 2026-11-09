@@ -172,6 +172,7 @@ import {
   defaultCharacter,
   describeConfig,
   isPitch,
+  localizedPremade,
   type Opening,
   openingFor,
   type Packs,
@@ -1684,7 +1685,19 @@ export const createCampaignFrom = async (
   gm: GameMaster = FAKE_GAME_MASTER,
 ): Promise<CampaignSummary> => {
   const { name, language, intent, play, rulesDocuments = [], settingDocuments = [] } = command;
-  const config = commandConfig(command, client, packsIn(dataDir));
+  const config = commandConfig(
+    command.choices?.character === undefined
+      ? command
+      : {
+          ...command,
+          choices: {
+            ...command.choices,
+            character: localizedPremade(command.choices.character, language ?? DEFAULT_LOCALE),
+          },
+        },
+    client,
+    packsIn(dataDir),
+  );
   if (rulesDocuments.length + settingDocuments.length > MAX_RULES_DOCUMENTS)
     throw new Error(`Pick from 1 to ${MAX_RULES_DOCUMENTS} rules and setting files in total.`);
   if (new Set([...rulesDocuments, ...settingDocuments]).size !== rulesDocuments.length + settingDocuments.length)

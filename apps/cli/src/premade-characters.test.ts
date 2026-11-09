@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { type TestContext, test } from 'node:test';
@@ -105,5 +105,23 @@ test('rpg-asjw.11 every premade of a genre has its own spread, whatever the lang
       return first;
     });
     assert.equal(new Set(spreads).size, spreads.length, genre);
+  }
+});
+
+test('rpg-asjw.17 a premade picked by id or English name is stored under its Portuguese name', async (t) => {
+  for (const pick of ['detective', 'Detective', 'Detetive']) {
+    const dataDir = dataDirFor(t);
+    await createCampaignFrom(dataDir, {
+      version: PROTOCOL_VERSION,
+      type: 'CreateCampaign',
+      name: 'Ember',
+      language: PORTUGUESE,
+      choices: { ...D20_MYSTERY, character: pick },
+    });
+    const gateway = createEngineGateway(dataDir);
+    assert.ok(gateway.view('Ember', 'sheet', PORTUGUESE).startsWith('Detetive'), pick);
+    const recap = gateway.view('Ember', 'recap', PORTUGUESE);
+    assert.ok(!recap.includes('Detective'), recap);
+    assert.equal(readFileSync(join(dataDir, 'Ember.sqlite')).includes('Detective'), false, pick);
   }
 });

@@ -431,6 +431,17 @@ const PREMADE_NAMES = GENRE_PACKS.flatMap(({ genre }) =>
 const premadeNameOf = (character: string) =>
   PREMADE_NAMES.find((name) => name.toLowerCase() === character.trim().toLowerCase());
 
+const PREMADES = GENRE_PACKS.flatMap(({ genre }) => genre.archetypes);
+
+export const localizedPremade = (character: unknown, locale: string) => {
+  if (typeof character !== 'string') return character;
+  const wanted = character.trim().toLowerCase();
+  const premade = PREMADES.find(({ id, name }) =>
+    [id, name, ...contentAliases('archetype', id)].some((known) => known.toLowerCase() === wanted),
+  );
+  return premade === undefined ? character : contentText(locale, 'archetype', premade.id, premade.name);
+};
+
 const readyMadeOn = (pack: RulePackManifest) => {
   const rules = creationRulesFor(pack);
   return (
