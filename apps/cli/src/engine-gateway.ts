@@ -22,6 +22,7 @@ import {
   type CommittedTurn,
   GM_ROLLED,
   OPENING_ACTION_ID,
+  SYSTEM_TURN,
   type Turn,
 } from '../../../packages/domain/src/campaign.ts';
 import {
@@ -862,10 +863,16 @@ const openSession = (
     const speakOpening = async () => {
       const { turns, changes, revision } = engine.getState(session.campaignId);
       const [opening] = turns;
-      if (turns.length !== 1 || opening?.actionId !== OPENING_ACTION_ID || openingSpokenOf(changes)) return;
-      engine.markOpeningSpoken({ campaignId: session.campaignId, actionId: randomUUID(), expectedRevision: revision });
+      const onlySystemAfter = turns.slice(1).every(({ kind }) => kind === SYSTEM_TURN);
+      if (opening?.actionId !== OPENING_ACTION_ID || !onlySystemAfter || openingSpokenOf(changes)) return;
       const { voice } = await speakTurn(opening.id);
-      voice?.settle({
+      if (voice === undefined) return;
+      engine.markOpeningSpoken({
+        campaignId: session.campaignId,
+        actionId: randomUUID(),
+        expectedRevision: engine.getState(session.campaignId).revision,
+      });
+      voice.settle({
         narration: opening.narration,
         segments: opening.segments ?? narratorSegments(opening.narration),
       });

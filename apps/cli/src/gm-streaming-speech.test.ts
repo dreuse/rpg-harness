@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it, type TestContext } from 'node:test';
@@ -728,13 +728,16 @@ describe('rpg-42a.62 spoken narration follows the continuity-corrected text', ()
 });
 
 describe('rpg-cm63.67 opening scene speech', () => {
-  const create = async (t: TestContext, spokenOutput?: 'full') => {
+  const create = async (t: TestContext, spokenOutput?: 'full', character?: string) => {
     const dataDir = mkdtempSync(join(tmpdir(), 'rpg-opening-speech-'));
     t.after(() => rmSync(dataDir, { recursive: true, force: true }));
     await createCampaignFrom(dataDir, {
       version: PROTOCOL_VERSION,
       type: 'CreateCampaign',
       name: CAMPAIGN,
+      ...(character === undefined
+        ? {}
+        : { choices: { ruleset: { id: 'd20-lite', edition: 'original' }, genre: 'mystery', character } }),
       ...(spokenOutput === undefined ? {} : { play: { spokenOutput } }),
     });
     const played: string[] = [];
@@ -762,6 +765,24 @@ describe('rpg-cm63.67 opening scene speech', () => {
       played.some((line) => line.includes(narration)),
       played.join('\n'),
     );
+  });
+
+  it('speaks the opening after a character creation system turn', async (t) => {
+    const { opened, played, narration } = await create(t, 'full', 'Detective');
+    await opened.speakOpening();
+    await settle();
+    assert.ok(
+      played.some((line) => line.includes(narration)),
+      played.join('\n'),
+    );
+  });
+
+  it('leaves the opening unspoken when voice is off', async (t) => {
+    const { opened, played, dataDir } = await create(t);
+    await opened.speakOpening();
+    await settle();
+    assert.deepEqual(played, []);
+    assert.equal(readFileSync(join(dataDir, `${CAMPAIGN}.sqlite`)).includes('OpeningSpoken'), false);
   });
 
   it('stays silent for the opening when voice is off', async (t) => {

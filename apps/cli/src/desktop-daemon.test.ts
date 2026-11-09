@@ -1414,6 +1414,22 @@ describe('rpg-cm63.67 desktop opening scene speech', () => {
     assert.equal(runtimeLoads(), 1);
   });
 
+  it('speaks the opening of a guided start with a character', async (t) => {
+    const { start, played, nextSpoken } = harness(t);
+    const run = start();
+    await run(
+      lifecycle('CreateCampaign', {
+        name: CAMPAIGN,
+        play: { spokenOutput: 'full' },
+        choices: { ruleset: { id: 'd20-lite', edition: 'original' }, genre: 'mystery', character: 'Detective' },
+      }),
+    );
+    const spoke = nextSpoken();
+    await run(open(CAMPAIGN));
+    await spoke;
+    assert.equal(played.length, 1);
+  });
+
   it('stays silent when voice is off', async (t) => {
     const { start, played, runtimeLoads } = harness(t);
     const run = start();
