@@ -110,6 +110,18 @@ type Shown = { readonly title: string; readonly rows: readonly string[]; readonl
 
 const CONVERSATION: Pane = { id: 'conversation', key: '1' };
 const CHARACTER_LABEL = 'pane.character';
+const PLAYER_FACING_EVENTS: ReadonlySet<string> = new Set([
+  'PlayerActionSubmitted',
+  'SceneOpened',
+  'CheckOffered',
+  'CheckResolved',
+  'CharacterCreated',
+  'DamageApplied',
+  'HealingApplied',
+  'ConditionApplied',
+  'ConditionRemoved',
+  'SheetFieldEdited',
+]);
 const PANE_IDS: readonly PaneId[] = ['conversation', 'sheet', 'log', 'mechanics'];
 
 export const panesFor = (rules: RulesUsage = DEFAULT_RULES_USAGE): readonly Pane[] =>
@@ -415,8 +427,12 @@ const PANE_ROWS: Readonly<Record<PaneId, (data: TuiData) => readonly string[]>> 
           ...sheetRows(data.sheet),
         ]
       : [...sheetRows(data.sheet), say(localeOf(data), 'tui.noSheet')],
-  log: ({ events }) =>
-    events.flatMap((event) => (event.type === EVENT_COMMITTED ? [`#${event.revision} ${event.event.type}`] : [])),
+  log: (data) =>
+    data.events.flatMap((event) =>
+      event.type === EVENT_COMMITTED && PLAYER_FACING_EVENTS.has(event.event.type)
+        ? [`#${event.revision} ${say(localeOf(data), `event.${event.event.type}`)}`]
+        : [],
+    ),
   mechanics: (data) => data.mechanics.map((event) => indicator(event, localeOf(data))),
 };
 

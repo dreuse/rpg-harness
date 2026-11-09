@@ -120,7 +120,7 @@ const data: TuiData = {
       turnId: 't1',
       actorId: 'h1',
       causationId: null,
-      type: 'StrangerGreeted',
+      type: 'PlayerActionSubmitted',
       payload: {},
     }),
   ],
@@ -163,7 +163,7 @@ test('UI06: provide accessible terminal conversation, sheet, log and mechanical 
   assert.match(screen(INITIAL_STATE), /Wanderer: I greet the stranger/);
   assert.match(screen(INITIAL_STATE), /The stranger nods slowly\./);
   assert.match(screen(press([TAB])), /\[2 Sheet\][\s\S]*Grit: 3/);
-  assert.match(screen(press([key('3')])), /\[3 Event log\][\s\S]*#2 StrangerGreeted/);
+  assert.match(screen(press([key('3')])), /\[3 Event log\][\s\S]*#2 Action taken/);
   assert.match(screen(press([key('4')])), /attack: d20 -> 14, Ace; modifier \+2; total 16; outcome hit/);
   assert.equal(press([TAB, { ...TAB, shift: true }]).pane, INITIAL_STATE.pane);
   assert.match(screen(press([key('?')])), /q - Quit/);
@@ -1483,3 +1483,30 @@ test('rpg-42a.61: /memory says why a correction was refused', async () => {
   });
   assert.match(output.join(''), /The correction was refused: stale/);
 });
+
+const eventOf = (type: string, revision: number) =>
+  toClientEvent({
+    id: `e${revision}`,
+    campaignId: 'c1',
+    branchId: MAIN_BRANCH,
+    revision,
+    turnId: 't1',
+    actorId: 'h1',
+    causationId: null,
+    type,
+    payload: {},
+  });
+
+const INTERNAL_EVENTS = ['EntityIntroduced', 'FactRecorded', 'PendingOpened', 'ClaimRecorded'];
+
+for (const [locale, expected] of [
+  ['en', /#3 Scene opened/],
+  ['pt-BR', /#3 Cena aberta/],
+] as const) {
+  test(`event pane shows player-facing text and hides internal events in ${locale}`, () => {
+    const events = [...INTERNAL_EVENTS.map((type, index) => eventOf(type, index + 10)), eventOf('SceneOpened', 3)];
+    const text = renderScreen(press([key('3')]), { ...data, events, locale }, COLOR).join('\n');
+    assert.match(text, expected);
+    for (const type of INTERNAL_EVENTS) assert.doesNotMatch(text, new RegExp(type));
+  });
+}

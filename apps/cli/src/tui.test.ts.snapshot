@@ -319,7 +319,7 @@ exports[`rpg-42a.11 TUI honors NO_COLOR, ASCII terminals and piped output 2`] = 
   "Character: Wanderer",
   "Grit: 3",
   "Event log:",
-  "#2 StrangerGreeted",
+  "#2 Action taken",
   "Mechanics:",
   "attack: d20 -> 14, Ace; modifier +2; total 16; outcome hit"
 ]
