@@ -13,6 +13,7 @@ import {
 import { BUNDLE_FORMAT, previousDir, stagedDir } from '../../../packages/updater/src/apply.ts';
 import { readState, UPDATE_STATE_FILE, writeState } from '../../../packages/updater/src/schedule.ts';
 import { campaignDatabases, createEngineGateway, readCampaignState } from './engine-gateway.ts';
+import { errorText } from './messages.ts';
 import {
   cliAssetName,
   holdSession,
@@ -168,11 +169,11 @@ test('rejects a tampered build and deletes the download', async (t) => {
   assert.equal(existsSync(stagedDir(installDir)), false);
 });
 
-test('reports offline and rate limits without errors', async (t) => {
+test('fails with the reason when offline or rate limited', async (t) => {
   const { server, context } = await setup(t);
-  assert.match(await collect(updateCommand({ ...context, releasesUrl: CLOSED_PORT_URL }, CHECK)), /offline/);
+  await assert.rejects(collect(updateCommand({ ...context, releasesUrl: CLOSED_PORT_URL }, CHECK)), /offline/);
   server.serve(RELEASES_PATH, { status: 403 });
-  assert.match(await collect(updateCommand(context, CHECK)), /GitHub asked to wait/);
+  await assert.rejects(collect(updateCommand(context, CHECK)), /GitHub asked to wait/);
 });
 
 test('checks at startup once a day and tells the player', async (t) => {
@@ -314,12 +315,16 @@ test('rpg-42a.53 update messages read in Brazilian Portuguese', async (t) => {
     await collect(updateCommand(pt, INSTALL)),
     /A versão 1\.3\.0 está pronta\. Ela é instalada na próxima vez que você abrir o rpg\./,
   );
+  const failure = (request: Promise<string>) => request.then(assert.fail, (error) => errorText('pt-BR', error));
   assert.match(
-    await collect(updateCommand({ ...pt, releasesUrl: CLOSED_PORT_URL }, CHECK)),
+    await failure(collect(updateCommand({ ...pt, releasesUrl: CLOSED_PORT_URL }, CHECK))),
     /Não foi possível verificar atualizações: você parece estar sem conexão\./,
   );
   server.serve(RELEASES_PATH, { status: 403 });
-  assert.match(await collect(updateCommand(pt, CHECK)), /o GitHub pediu para esperar\. Tente de novo mais tarde\./);
+  assert.match(
+    await failure(collect(updateCommand(pt, CHECK))),
+    /o GitHub pediu para esperar\. Tente de novo mais tarde\./,
+  );
 });
 
 test('rpg-42a.53 the startup update notice reads in Brazilian Portuguese', async (t) => {

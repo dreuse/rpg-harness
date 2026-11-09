@@ -31,7 +31,7 @@ import {
   updateState,
 } from '../../../packages/updater/src/schedule.ts';
 import { backupArchive, replaceFromArchive } from './campaign-archive.ts';
-import { DEFAULT_LOCALE, say } from './messages.ts';
+import { DEFAULT_LOCALE, LocalizedError, say } from './messages.ts';
 
 const INSTALL_DIR = resolve(import.meta.dirname, '..', '..', '..');
 
@@ -128,6 +128,12 @@ const check = (context: UpdateContext, signal?: AbortSignal) =>
 
 const localeOf = ({ locale = DEFAULT_LOCALE }: UpdateContext) => locale;
 
+const CHECK_FAILURE_KEYS = {
+  offline: 'update.checkOffline',
+  'rate-limited': 'update.checkRateLimited',
+  unavailable: 'update.checkFailed',
+} as const;
+
 const checkText = (result: CheckResult, locale: string) => {
   if (result.status === 'available') {
     const { release, current } = result;
@@ -136,9 +142,7 @@ const checkText = (result: CheckResult, locale: string) => {
       .join('\n');
   }
   if (result.status === 'current') return say(locale, 'update.current', { version: result.version });
-  if (result.status === 'offline') return say(locale, 'update.checkOffline');
-  if (result.status === 'rate-limited') return say(locale, 'update.checkRateLimited');
-  return say(locale, 'update.checkFailed');
+  throw new LocalizedError(CHECK_FAILURE_KEYS[result.status]);
 };
 
 const downloadText = (result: Exclude<DownloadResult, { status: 'verified' }>, locale: string) => {

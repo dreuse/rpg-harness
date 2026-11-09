@@ -35,7 +35,6 @@ type SoundOptionValues = Readonly<Record<string, string | boolean | undefined>>;
 
 const TEXT = 'utf8';
 const PERCENT = 100;
-const INVALID_VOLUME = 'Volume must be a number from 0 to 1.';
 const YES_NEEDS_DOWNLOAD = '--yes needs --download.';
 
 export const readSoundSettings = (dataDir: string): SoundSettings => {
@@ -51,7 +50,7 @@ export const writeSoundSettings = (dataDir: string, settings: SoundSettings): vo
   writeFileSync(join(dataDir, SOUND_SETTINGS_FILE), JSON.stringify(settings));
 };
 
-export const soundRequestOf = (values: SoundOptionValues): SoundRequest | string => {
+export const soundRequestOf = (values: SoundOptionValues, locale = DEFAULT_LOCALE): SoundRequest | string => {
   const enabled: Partial<Record<SoundChannel, boolean>> = {};
   const volume: Partial<Record<SoundChannel, number>> = {};
   for (const channel of SOUND_CHANNELS) {
@@ -60,7 +59,7 @@ export const soundRequestOf = (values: SoundOptionValues): SoundRequest | string
     const raw = values[`${channel}-volume`];
     if (typeof raw !== 'string') continue;
     const parsed = raw.trim() === '' ? Number.NaN : Number(raw);
-    if (!isVolume(parsed)) return INVALID_VOLUME;
+    if (!isVolume(parsed)) return say(locale, 'sound.invalidVolume');
     volume[channel] = parsed;
   }
   const download = values.download === true;

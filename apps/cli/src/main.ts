@@ -178,11 +178,37 @@ const newLanguage = (io: Io, name: string, intent: string | undefined) =>
   (io.localeFixed === true ? undefined : pitchLanguage(intent ?? (isPitch(name) ? name : undefined))) ?? io.locale;
 const describe = (locale: string, command: string) => phrase(locale, `command.${command}`);
 
+const UNKNOWN_OPTION_CODE = 'ERR_PARSE_ARGS_UNKNOWN_OPTION';
+const QUOTED_OPTION = /'(-[^']*)'/;
+const USAGE_ARGUMENT = /<([^<>]+)>/g;
+const ARGUMENT_KEYS: Readonly<Record<string, string>> = {
+  campaign: 'cli.arg.campaign',
+  'name|pitch': 'cli.arg.namePitch',
+  'new name': 'cli.arg.newName',
+  file: 'cli.arg.file',
+  'file...': 'cli.arg.files',
+  name: 'cli.arg.name',
+  tokens: 'cli.arg.tokens',
+};
+
+const parseFailure = (locale: string, error: unknown): string => {
+  const { code, message } = error as { code?: string; message?: string };
+  const option = QUOTED_OPTION.exec(message ?? '')?.[1];
+  return code === UNKNOWN_OPTION_CODE && option !== undefined
+    ? phrase(locale, 'cli.unknownOption', { option })
+    : phrase(locale, 'cli.invalid');
+};
+
+const localizedUsage = (locale: string, usage: string): string =>
+  usage.replace(USAGE_ARGUMENT, (whole, argument: string) =>
+    ARGUMENT_KEYS[argument] === undefined ? whole : `<${phrase(locale, ARGUMENT_KEYS[argument])}>`,
+  );
+
 const helpText = (locale: string): string =>
   [
     phrase(locale, 'cli.usage'),
     phrase(locale, 'cli.commands'),
-    ...COMMANDS.map(({ name, usage }) => `  ${usage} - ${describe(locale, name)}`),
+    ...COMMANDS.map(({ name, usage }) => `  ${localizedUsage(locale, usage)} - ${describe(locale, name)}`),
     '',
   ].join('\n');
 
@@ -288,7 +314,7 @@ export const main = async (argv: readonly string[], io: Io, gateway: CampaignGat
   try {
     parsed = parseArgs({ args: [...argv], options: OPTIONS, allowPositionals: true, allowNegative: true });
   } catch (error) {
-    return usageError(io, error instanceof Error ? error.message : phrase(locale, 'cli.invalid'));
+    return usageError(io, parseFailure(locale, error));
   }
   const [command = 'launch', ...rest] = parsed.positionals;
   const voice = parsed.values.voice === true;
@@ -445,7 +471,7 @@ export const main = async (argv: readonly string[], io: Io, gateway: CampaignGat
   if (command === SOUND_COMMAND) {
     if (rest.length > 0) return unexpectedArgument(rest[0]);
     const { soundRequestOf } = await import('./sound-command.ts');
-    const request = soundRequestOf(parsed.values);
+    const request = soundRequestOf(parsed.values, locale);
     if (typeof request === 'string') return usageError(io, request);
     return run(io, () => gateway.sound(request, locale));
   }

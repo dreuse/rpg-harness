@@ -245,10 +245,20 @@ const ARCHIVE_DIR = 'archive';
 const CREATE_CHARACTER_INTENT = 'create character';
 const SUMMARY_SETTLE_MS = 10_000;
 export const NO_KEY_NOTICE = `No AI game master is set up, so the built-in narrator tells the story. Install Claude Code or set ${API_KEY_ENV} to play with one.`;
-export const GM_NOTICES: Readonly<Record<GmRoute, string>> = {
-  'claude-code': 'The game master is Claude Code on this computer.',
-  api: `The game master is Claude through your ${API_KEY_ENV}.`,
-  fake: NO_KEY_NOTICE,
+const gmNotice = (route: GmRoute, locale: string): string =>
+  ({
+    'claude-code': say(locale, 'gm.notice.claudeCode'),
+    api: say(locale, 'gm.notice.api', { env: API_KEY_ENV }),
+    fake: NO_KEY_NOTICE,
+  })[route];
+const NO_SUCH_FILE = 'ENOENT';
+const missingFileAs = <T>(key: string, file: string, action: () => T): T => {
+  try {
+    return action();
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === NO_SUCH_FILE) throw new LocalizedError(key, { file });
+    throw error;
+  }
 };
 const NO_FACTS: NarrationContext = {
   facts: [],
@@ -441,9 +451,9 @@ const chosenGameMaster = async (env: NodeJS.ProcessEnv): Promise<{ gm: GameMaste
   };
 };
 
-export const gameMasterFor = async (env: NodeJS.ProcessEnv) => {
+export const gameMasterFor = async (env: NodeJS.ProcessEnv, locale = DEFAULT_LOCALE) => {
   const { gm, route } = await chosenGameMaster(env);
-  return { gm: { ...gm, notice: GM_NOTICES[route] }, route };
+  return { gm: { ...gm, notice: gmNotice(route, locale) }, route };
 };
 
 type Session = {
@@ -1788,7 +1798,7 @@ const remove = async function* (dataDir: string, name: string, lines: AsyncItera
 const exportCampaign = (dataDir: string, name: string, file: string, locale: string) => {
   const path = databasePath(dataDir, name);
   if (!existsSync(path)) throw missingCampaign(dataDir, name);
-  const { rulesets } = exportArchive(path, file);
+  const { rulesets } = missingFileAs('campaign.exportFolderMissing', file, () => exportArchive(path, file));
   return say(locale, 'campaign.exported', { name, count: rulesets.length, file });
 };
 
@@ -1843,7 +1853,9 @@ const uniqueName = (dataDir: string, title: string) => {
 
 const restore = (dataDir: string, file: string, locale: string) => {
   mkdirSync(dataDir, { recursive: true });
-  const { campaign } = restoreArchive(file, dataDir, (name) => databasePath(dataDir, name));
+  const { campaign } = missingFileAs('archive.fileMissing', file, () =>
+    restoreArchive(file, dataDir, (name) => databasePath(dataDir, name)),
+  );
   return say(locale, 'campaign.restored', { name: campaign });
 };
 

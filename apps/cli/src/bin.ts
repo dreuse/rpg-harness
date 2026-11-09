@@ -75,7 +75,7 @@ if (problem !== undefined) {
   );
   for (const message of startup.messages) process.stderr.write(`${printable(message)}\n`);
   const capabilities = capabilitiesOf(process.env, process.stdin, process.stdout);
-  const { gm } = await gameMasterFor(process.env);
+  const { gm } = await gameMasterFor(process.env, locale);
   process.exitCode = startup.restart
     ? (spawnSync(process.execPath, [...process.execArgv, ...process.argv.slice(1)], { stdio: 'inherit' }).status ??
       EXIT_SETUP_FAILURE)
