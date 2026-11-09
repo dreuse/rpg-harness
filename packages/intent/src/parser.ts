@@ -28,6 +28,7 @@ type Cue = {
     read: (match: RegExpExecArray) => IntentValues[K];
     off?: IntentValues[K];
     negation?: RegExp;
+    bare?: true;
   };
 }[IntentField];
 
@@ -44,6 +45,8 @@ const LENGTH_WORDS = /^(?:short|long|quick|brief|small|big|epic)(?:[ -]|$)/i;
 const PT_STORY_NOUNS = 'história|aventura|campanha|jogo|conto|saga|partida';
 const PT_GENRE_STOPS = 'com|sem|e|em|no|na|num|numa|usando|para|que|mas|onde';
 const PT_WORD = String.raw`(?!(?:${PT_GENRE_STOPS})(?!\p{L}))\p{L}+`;
+const GENRE_WORDS = String.raw`fantasy|sci-fi|science[ ]fiction|horror|mystery`;
+const PT_GENRE_WORDS = 'fantasia|ficção[ ]científica|terror';
 const PT_NEGATION = String.raw`(?<!\p{L})(?:não|sem|nunca|nada|nenhuma?)(?!\p{L})`;
 const EN_NEGATION = String.raw`\b(?:not|never|nothing|without)\b|n['’]t\b`;
 const NEGATION_TOKEN = new RegExp(String.raw`\bno\b|${EN_NEGATION}|${PT_NEGATION}`, 'iu');
@@ -101,7 +104,15 @@ const PT_INTENT_CUES: Cue[] = (
     },
     {
       field: 'genre',
-      pattern: pt('mistério|noir'),
+      pattern: pt(PT_GENRE_WORDS),
+      bare: true,
+      confidence: CONFIDENCE.moderate,
+      read: (match) => match[0],
+    },
+    {
+      field: 'genre',
+      pattern: pt(`mistério|noir`),
+      bare: true,
       confidence: CONFIDENCE.moderate,
       read: () => 'mystery',
     },
@@ -110,6 +121,12 @@ const PT_INTENT_CUES: Cue[] = (
       pattern: pt('mundo[ ]em[ ]branco'),
       confidence: CONFIDENCE.moderate,
       read: (match) => match[0],
+    },
+    {
+      field: 'ruleset',
+      pattern: pt('(?:regras|sistema)[ ]d20'),
+      confidence: CONFIDENCE.moderate,
+      read: () => ({ id: 'd20', edition: null }),
     },
     {
       field: 'ruleset',
@@ -161,6 +178,13 @@ const INTENT_CUES: Cue[] = [
   },
   {
     field: 'genre',
+    pattern: new RegExp(String.raw`\b(?:${GENRE_WORDS})\b`, 'gi'),
+    bare: true,
+    confidence: CONFIDENCE.moderate,
+    read: (match) => match[0],
+  },
+  {
+    field: 'genre',
     pattern: /\bblank[ -]world\b/gi,
     confidence: CONFIDENCE.moderate,
     read: (match) => match[0],
@@ -190,6 +214,12 @@ const INTENT_CUES: Cue[] = [
   },
   {
     field: 'ruleset',
+    pattern: /\b(d20)[ ](?:rules|system)\b/gi,
+    confidence: CONFIDENCE.moderate,
+    read: (match) => ({ id: (match[1] ?? '').toLowerCase(), edition: null }),
+  },
+  {
+    field: 'ruleset',
     pattern: new RegExp(
       String.raw`\b(?:using|in|with|on)[ ](?:the[ ])?(${SLUG_ID})[ ](?:rules|system|ruleset|rpg)\b`,
       'g',
@@ -202,6 +232,8 @@ const INTENT_CUES: Cue[] = [
 export const isNegatedClause = (text: string, start: number, negation = NEGATION_TOKEN) =>
   negation.test(text.slice(0, start).split(CLAUSE_END).at(-1) ?? '');
 
+const BARE_SETTINGS = new WeakSet<ProposedSetting>();
+
 const matchesOf = (text: string): ProposedSetting[] =>
   INTENT_CUES.flatMap((cue) =>
     Array.from(text.matchAll(cue.pattern)).flatMap((match) => {
@@ -210,7 +242,9 @@ const matchesOf = (text: string): ProposedSetting[] =>
       if (negated && cue.off === undefined) return [];
       const value = negated ? cue.off : cue.read(match);
       const evidence = { start, end: start + match[0].length, text: match[0] };
-      return [{ field: cue.field, value, confidence: cue.confidence, evidence } as ProposedSetting];
+      const setting = { field: cue.field, value, confidence: cue.confidence, evidence } as ProposedSetting;
+      if (cue.bare) BARE_SETTINGS.add(setting);
+      return [setting];
     }),
   );
 
@@ -238,7 +272,9 @@ const propose = (text: string): IntentProposal => {
   const settings: ProposedSetting[] = [];
   const conflicts: IntentConflict[] = [];
   for (const field of new Set(kept.map((setting) => setting.field))) {
-    const candidates = kept.filter((setting) => setting.field === field);
+    const all = kept.filter((setting) => setting.field === field);
+    const explicit = all.filter((setting) => !BARE_SETTINGS.has(setting));
+    const candidates = explicit.length > 0 ? explicit : all.slice(0, 1);
     const [first] = candidates;
     if (!first) continue;
     if (candidates.every((candidate) => isDeepStrictEqual(candidate.value, first.value))) settings.push(first);

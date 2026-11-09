@@ -132,12 +132,13 @@ test('N02 setting cues win over the genre phrase that contains them', () => {
     const { settings, conflicts } = proposalOf(text);
     assert.deepEqual(conflicts, [], text);
     assert.equal(settingFor(settings, field)?.value, value, text);
-    assert.equal(settingFor(settings, 'genre'), undefined, text);
+    if (!text.includes('mystery')) assert.equal(settingFor(settings, 'genre'), undefined, text);
   }
   assert.equal(
     settingFor(proposalOf('a slow-paced mystery with a dynamic world').settings, 'simulation')?.value,
     'dynamic',
   );
+  assert.equal(settingFor(proposalOf('a slow-paced mystery with a dynamic world').settings, 'genre')?.value, 'mystery');
 });
 
 test('N02 negated cues map to the off value or are not proposed', () => {
@@ -355,4 +356,51 @@ test('rpg-42a.66 length words before the story noun are not part of the genre', 
   ];
   for (const [text, genre] of probes) assert.equal(settingFor(proposalOf(text).settings, 'genre')?.value, genre, text);
   assert.equal(settingFor(proposalOf('a short adventure').settings, 'genre')?.value, null);
+});
+
+const BARE_GENRE_CASES: [string, string][] = [
+  ['hard sci-fi salvage crew, d20 rules', 'sci-fi'],
+  ['a horror pitch in a quiet town', 'horror'],
+  ['fantasy with a cursed crown', 'fantasy'],
+  ['mystery on a night train', 'mystery'],
+  ['fantasia medieval com dados d20', 'fantasia'],
+  ['ficção científica numa nave', 'ficção científica'],
+  ['terror numa casa velha', 'terror'],
+  ['mistério num trem', 'mystery'],
+];
+
+test('rpg-asjw.27 bare genre words in en and pt-BR are proposed and negation drops them', () => {
+  for (const [text, genre] of BARE_GENRE_CASES)
+    assert.equal(settingFor(proposalOf(text).settings, 'genre')?.value, genre, text);
+  assert.equal(settingFor(proposalOf('no horror please').settings, 'genre'), undefined);
+  assert.equal(settingFor(proposalOf('sem terror').settings, 'genre'), undefined);
+});
+
+test('rpg-asjw.27 bare "d20 rules" proposes the d20 ruleset and D&D 1.9 stays verbatim', () => {
+  assert.deepEqual(settingFor(proposalOf('hard sci-fi, d20 rules').settings, 'ruleset')?.value, {
+    id: 'd20',
+    edition: null,
+  });
+  assert.deepEqual(settingFor(proposalOf('play D&D 1.9').settings, 'ruleset')?.value, { id: 'D&D', edition: '1.9' });
+});
+
+test('rpg-asjw.27 blended bare genres keep the first one without a conflict in en and pt-BR', () => {
+  const blends: [string, string][] = [
+    ['sci-fi horror on a derelict ship', 'sci-fi'],
+    ['terror e mistério numa mansão', 'terror'],
+    ['a horror story in a fantasy world', 'horror'],
+    ['a western story with sci-fi elements', 'western'],
+  ];
+  for (const [text, genre] of blends) {
+    const { settings, conflicts } = proposalOf(text);
+    assert.deepEqual(conflicts, [], text);
+    assert.equal(settingFor(settings, 'genre')?.value, genre, text);
+  }
+});
+
+test('rpg-asjw.27 pt-BR "regras d20" proposes the d20 ruleset', () => {
+  assert.deepEqual(settingFor(proposalOf('fantasia medieval com regras d20').settings, 'ruleset')?.value, {
+    id: 'd20',
+    edition: null,
+  });
 });

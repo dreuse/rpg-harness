@@ -574,3 +574,22 @@ test('rpg-asjw.3 titleOf never returns an empty or one-word title', () => {
   assert.equal(titleOf('Dr. Watson investigates a long noir mystery'), 'Dr. Watson investigates a long noir');
   assert.equal(titleOf('1940: a noir mystery in the old city'), '1940: a noir mystery in the old city');
 });
+
+const GENRE_PITCHES: [string, string, string, string | undefined][] = [
+  ['en', 'hard sci-fi salvage crew on a derelict ship, d20 rules', 'science-fiction', 'd20-lite'],
+  ['en', 'a horror pitch in a quiet town', 'horror', undefined],
+  ['en', 'fantasy with a cursed crown', 'fantasy', undefined],
+  ['en', 'mystery on a night train', 'investigative-mystery', undefined],
+  ['pt-BR', 'fantasia medieval com dados d20', 'fantasy', 'd20-lite'],
+  ['pt-BR', 'ficção científica em uma nave abandonada', 'science-fiction', undefined],
+  ['pt-BR', 'terror numa casa velha', 'horror', undefined],
+  ['pt-BR', 'mistério num trem noturno', 'investigative-mystery', undefined],
+];
+
+test('rpg-asjw.27 common genre words and bare d20 rules pick the installed packs in en and pt-BR', () => {
+  for (const [locale, pitch, genre, ruleset] of GENRE_PITCHES) {
+    const { values } = planCampaign(pitch);
+    assert.equal(values.genre, genre, `${locale}: ${pitch}`);
+    if (ruleset !== undefined) assert.equal(values.ruleset?.id, ruleset, `${locale}: ${pitch}`);
+  }
+});

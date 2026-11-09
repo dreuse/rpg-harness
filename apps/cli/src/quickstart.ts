@@ -71,7 +71,7 @@ const isBuiltInGenre = ({ id, version }: { id: string; version: string }) =>
   GENRE_PACKS.some(({ genre }) => genre.id === id && genre.version === version);
 const GENRE_ALIASES: Readonly<Record<string, readonly string[]>> = {
   [FANTASY_PACK.genre.id]: ['fantasia'],
-  [SCIENCE_FICTION_PACK.genre.id]: ['ficção científica'],
+  [SCIENCE_FICTION_PACK.genre.id]: ['sci-fi', 'scifi', 'science fiction', 'ficção científica'],
   [HORROR_PACK.genre.id]: ['terror'],
   [MYSTERY_PACK.genre.id]: ['mystery', 'mistério'],
   [MODERN_ADVENTURE_PACK.genre.id]: ['modern', 'moderna'],
@@ -83,7 +83,11 @@ const GENRE_REGISTRY: Registry['genres'] = GENRE_PACKS.map(({ genre }) => ({
   name: genre.name,
   aliases: [...(GENRE_ALIASES[genre.id] ?? [])],
 }));
-const registryOf = (packs: Packs): Registry => ({ rulepacks: packs, genres: GENRE_REGISTRY });
+const RULESET_ALIASES: Readonly<Record<string, readonly string[]>> = { 'd20-lite': ['d20'] };
+const registryOf = (packs: Packs): Registry => ({
+  rulepacks: packs.map((pack) => ({ ...pack, aliases: [...(RULESET_ALIASES[pack.id] ?? [])] })),
+  genres: GENRE_REGISTRY,
+});
 const NONE = 'none';
 const DICE_KEYS: Record<CapabilityMode, string> = {
   rulepack: 'config.dice.rulepack',
