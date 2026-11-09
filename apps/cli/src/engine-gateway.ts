@@ -1078,7 +1078,7 @@ const narrate = (actor: string, turn: Turn, locale: string, rollLines: readonly 
     turn.rollOfferId === undefined
       ? `${actor}: ${turn.input}`
       : say(locale, 'turn.rollAccepted', { label: turn.input });
-  return [said, ...rollLines, turn.narration.trim() === '' ? FAKE_GM_REPLY : turn.narration].join('\n');
+  return [said, ...rollLines, ...(turn.narration.trim() === '' ? [] : [turn.narration])].join('\n');
 };
 
 const isFileExists = (error: unknown) => error instanceof Error && 'code' in error && error.code === FILE_EXISTS;

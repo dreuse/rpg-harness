@@ -273,6 +273,21 @@ describe('rpg-42a.28 API game master wiring', () => {
     );
   });
 
+  it('does not show the placeholder reply for a turn left unnarrated', async (t) => {
+    const dataDir = await seededCampaign(t);
+    const { gm } = await providerGm(t, [{ status: UNAUTHORIZED }, { status: UNAUTHORIZED }, { status: UNAUTHORIZED }]);
+    const lines = (async function* () {
+      yield ACTION;
+    })();
+    for await (const _ of createEngineGateway(dataDir, gm).open(CAMPAIGN, 'play', lines, () => {}));
+    assert.equal(lastNarration(dataDir), '');
+    const { gm: offline } = await providerGm(t, [{ status: UNAUTHORIZED }, { status: UNAUTHORIZED }]);
+    const reopened = createEngineGateway(dataDir, offline).open(CAMPAIGN, 'play', (async function* () {})(), () => {});
+    const first = (await reopened[Symbol.asyncIterator]().next()).value as string;
+    assert.ok(first.includes(ACTION));
+    assert.ok(!first.includes(FAKE_GM_REPLY));
+  });
+
   it('tells the player once that no provider key is set', async (t) => {
     const dataDir = await seededCampaign(t);
     const [first, second] = await play(dataDir, noKeyGameMaster(), [ACTION, SECOND_ACTION]);
