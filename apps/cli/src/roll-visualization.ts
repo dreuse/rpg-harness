@@ -695,6 +695,7 @@ const acceptsOffer = (input: string) => wordsOf(input).some((word) => ATTEMPT_WO
 const REPORT_PHRASE = String.raw`(?:i\s+rolled|rolled|rolei|tirei|saiu|saqu[eé]|tir[eé]|sali[oó])\s+(?:a\s+|um\s+|un\s+)?(\d{1,4})`;
 const TYPED_REPORT = new RegExp(String.raw`\b${REPORT_PHRASE}\b`, 'iu');
 const BARE_REPORT = new RegExp(String.raw`^${REPORT_PHRASE}[\s.!?]*$`, 'iu');
+const BARE_NUMBER = /^-?\d+(?:\.\d+)?[\s.!?]*$/;
 const FIRST_GROUP = 1;
 const NEEDS_REPORT = 'rollReport.needed';
 
@@ -713,7 +714,8 @@ export const rollExpressionFor = (
 
 const typedReportOf = (input: string) => {
   const found = TYPED_REPORT.exec(input)?.[FIRST_GROUP];
-  return found === undefined ? undefined : [Number(found)];
+  if (found !== undefined) return [Number(found)];
+  return BARE_NUMBER.test(input.trim()) ? [Number.parseFloat(input)] : undefined;
 };
 
 export type ActionRoll = {
@@ -760,7 +762,7 @@ export const checkForAction = (
   const offerOpen = offer !== undefined && !offerFollowsPlayerAction(events);
   const base = appCheckFor(events, action, actorId, entities, strictness);
   const typed = whoRolls === DEFAULT_WHO_ROLLS ? undefined : typedReportOf(input);
-  const bareReport = BARE_REPORT.test(input.trim());
+  const bareReport = BARE_REPORT.test(input.trim()) || BARE_NUMBER.test(input.trim());
   const usableTyped = typed !== undefined && (offerOpen || typeof base === 'function') ? typed : undefined;
   const reported = action.reportedRoll ?? usableTyped;
   if (reported === undefined) {

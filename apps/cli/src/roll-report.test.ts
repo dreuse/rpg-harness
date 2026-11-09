@@ -16,7 +16,9 @@ import {
   readCampaignState,
 } from './engine-gateway.ts';
 import type { GmProposal } from './gm-proposals.ts';
+import { CLI_CATALOG } from './messages.ts';
 import { resultsOf } from './roll-visualization.ts';
+import { runTui } from './tui.ts';
 
 const CAMPAIGN = 'hollow-lantern';
 const D20_PITCH = 'A fantasy story using the d20-lite rules';
@@ -79,7 +81,7 @@ const physicalTable = async (t: TestContext, whoRolls: string, pitch = D20_PITCH
   } as never);
   assert.ok(saved.ok, saved.ok ? '' : saved.error.message);
   const eventsOfType = (type: string) => readCampaignState(dataDir, CAMPAIGN).events.filter((e) => e.type === type);
-  return { say, snapshot, eventsOfType };
+  return { say, snapshot, eventsOfType, session, campaignId, narrate, gmCalls: () => calls };
 };
 
 const drawsOf = (events: readonly { readonly payload: Readonly<Record<string, unknown>> }[]) =>
@@ -231,5 +233,93 @@ describe('rpg-42a.83 physical dice', () => {
     await say('I rolled 17');
     assert.equal(eventsOfType(ROLL_REPORTED).length, 0);
     assert.equal(eventsOfType(CHECK_RESOLVED).length, 0);
+  });
+});
+
+const BARE_REPORT_INPUTS = [`${REPORTED}`, ` ${REPORTED} `, `${REPORTED}.`];
+const REJECTED_NUMBERS = ['0', `${D20_SIDES + 1}`, '99999', '-3', '15.5'];
+const FREE_TEXT = 'abc';
+const PLAIN_TERMINAL = { width: 100, height: 40, colors: 'none', unicode: false, interactive: false } as const;
+
+describe('rpg-asjw.24 bare number answers an open roll offer in me mode', () => {
+  for (const typed of BARE_REPORT_INPUTS)
+    it(`resolves the offer from "${typed}" with no extra GM call`, async (t) => {
+      const { say, snapshot, eventsOfType, gmCalls } = await physicalTable(t, 'me');
+      await say(FIRST_INPUT);
+      const before = gmCalls();
+      const done = await say(typed);
+      assert.ok(done.ok, done.ok ? '' : done.error.message);
+      assert.deepEqual(drawsOf(eventsOfType(CHECK_RESOLVED)), [[REPORTED]]);
+      assert.equal(eventsOfType(ROLL_REPORTED).length, 1);
+      assert.equal(snapshot().rollOffer, undefined);
+      assert.equal(gmCalls(), before + 1);
+    });
+
+  for (const typed of REJECTED_NUMBERS)
+    it(`rejects "${typed}" locally in the campaign language and keeps the offer open`, async (t) => {
+      const { say, snapshot, eventsOfType, gmCalls } = await physicalTable(t, 'me');
+      await say(FIRST_INPUT);
+      const before = gmCalls();
+      const rejected = await say(typed);
+      assert.ok(!rejected.ok);
+      assert.match(rejected.error.message, /1d20.*1.*20/);
+      assert.equal(eventsOfType(CHECK_RESOLVED).length, 0);
+      assert.equal(eventsOfType(ROLL_REPORTED).length, 0);
+      assert.equal(gmCalls(), before);
+      assert.ok(snapshot().rollOffer);
+    });
+
+  it('leaves a bare number alone when the app rolls', async (t) => {
+    const { say, eventsOfType } = await physicalTable(t, 'app');
+    await say(FIRST_INPUT);
+    await say(`${REPORTED}`);
+    assert.equal(eventsOfType(ROLL_REPORTED).length, 0);
+  });
+
+  it('leaves a bare number alone when no offer is open', async (t) => {
+    const { say, eventsOfType } = await physicalTable(t, 'me', D20_PITCH, false);
+    const done = await say(`${REPORTED}`);
+    assert.ok(done.ok, done.ok ? '' : done.error.message);
+    assert.equal(eventsOfType(ROLL_REPORTED).length, 0);
+  });
+
+  it('still treats other text as a normal action', async (t) => {
+    const { say, eventsOfType } = await physicalTable(t, 'me');
+    await say(FIRST_INPUT);
+    const done = await say(FREE_TEXT);
+    assert.ok(done.ok, done.ok ? '' : done.error.message);
+    assert.equal(eventsOfType(CHECK_RESOLVED).length, 0);
+  });
+
+  for (const [locale, messages] of Object.entries(CLI_CATALOG))
+    for (const key of ['tui.rollOfferPhysical', 'rollReport.needed'] as const)
+      it(`parses the ${locale} example in ${key}`, async (t) => {
+        const [, example] = /"([^"]+)"/.exec(messages[key] ?? '') ?? [];
+        assert.ok(example, `${locale} ${key} has a quoted example`);
+        const { say, eventsOfType } = await physicalTable(t, 'me');
+        await say(FIRST_INPUT);
+        const done = await say(example);
+        assert.ok(done.ok, done.ok ? '' : done.error.message);
+        assert.equal(eventsOfType(ROLL_REPORTED).length, 1);
+      });
+
+  it('resolves the offer from a bare number typed in the TUI', async (t) => {
+    const { say, snapshot, eventsOfType, session, campaignId, narrate } = await physicalTable(t, 'me');
+    await say(FIRST_INPUT);
+    const output: string[] = [];
+    const lines = (async function* () {
+      yield `${D20_SIDES + 1}`;
+      yield `${REPORTED}`;
+      yield 'q';
+    })();
+    await runTui(
+      session,
+      campaignId,
+      { capabilities: PLAIN_TERMINAL, lines, write: (text) => output.push(text) },
+      narrate,
+    );
+    assert.match(output.join(''), /1d20.*1.*20/);
+    assert.deepEqual(drawsOf(eventsOfType(CHECK_RESOLVED)), [[REPORTED]]);
+    assert.equal(snapshot().rollOffer, undefined);
   });
 });

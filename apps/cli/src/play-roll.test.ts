@@ -7,6 +7,7 @@ import { PROTOCOL_VERSION } from '../../../packages/client-protocol/src/protocol
 import { VISUALIZATION_EVENT, type VisualizationEvent } from '../../../packages/client-protocol/src/visualization.ts';
 import { createEngineGateway, FAKE_GAME_MASTER, type GameMaster } from './engine-gateway.ts';
 import type { GmProposal } from './gm-proposals.ts';
+import { errorText } from './messages.ts';
 import { rollLine } from './tui.ts';
 
 const CAMPAIGN = 'hollow-lantern';
@@ -86,6 +87,29 @@ describe('rpg-asjw.1 plain play rolls', () => {
     assert.match(second ?? '', /^Roll: d20 17 [+-] Might/m);
     assert.ok(second?.includes(AFTER_ROLL));
   });
+});
+
+describe('rpg-asjw.24 plain play answers a roll offer with a bare number in me mode', () => {
+  it('resolves the offer from a bare number', async (t) => {
+    const { output, errors } = await play(t, 'me', [FIRST_INPUT, '17']);
+    assert.deepEqual(errors, []);
+    assert.match(output[1] ?? '', /^Roll: d20 17 [+-] Might/m);
+    assert.ok(output[1]?.includes(AFTER_ROLL));
+  });
+
+  it('resolves the offer from the Portuguese example "tirei 17"', async (t) => {
+    const { output, errors } = await play(t, 'me', [FIRST_INPUT, 'tirei 17'], true, 'pt-BR');
+    assert.deepEqual(errors, []);
+    assert.match(output[1] ?? '', /^Rolagem: d20 17 [+-] Força/mu);
+  });
+
+  for (const typed of ['0', '21', '99999'])
+    it(`rejects "${typed}" in Portuguese and keeps the offer open`, async (t) => {
+      const { output, errors } = await play(t, 'me', [FIRST_INPUT, typed, '17'], true, 'pt-BR');
+      assert.equal(errors.length, 1);
+      assert.match(errorText('pt-BR', errors[0]), /só dá de 1 a 20/);
+      assert.match(output[1] ?? '', /^Rolagem: d20 17 [+-] Força/mu);
+    });
 });
 
 const OWN_CHECK_INPUT = 'I grab the rope and swing across to the loft';
