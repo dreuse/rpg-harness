@@ -855,6 +855,7 @@ const REGION_BODIES: Readonly<Record<Region, (model: ViewModel, locale: string) 
         : [
             ...panels.inventory.map(({ name }) => name),
             ...panels.quests.map(({ title }) => title),
+            ...panels.tableNotes,
             ...(panels.recap.scene === undefined ? [] : [panels.recap.scene]),
           ].map(escapeHtml),
       locale,

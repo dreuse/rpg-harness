@@ -528,6 +528,7 @@ export const panelsOf = (source: ViewSource, viewer: Viewer): Panels => {
       objectives: objectives.map(({ summary, done }) => ({ summary, done })),
     })),
     citations: events.flatMap(citationOf),
+    tableNotes: oocStateOf(state.changes).notes,
     recap: {
       scene: state.currentScene?.title,
       latest:

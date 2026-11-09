@@ -78,6 +78,7 @@ const state: DesktopState = {
     inventory: [{ id: 'rope', name: HOSTILE }],
     quests: [{ id: 'q', title: HOSTILE, status: 'open', objectives: [] }],
     citations: [],
+    tableNotes: [HOSTILE],
     recap: { scene: HOSTILE, latest: undefined },
   },
   rejected: [{ actionId: 'a9', input: HOSTILE, message: HOSTILE }],
@@ -90,7 +91,7 @@ test('UI08 escapeHtml neutralises markup characters', () => {
 test('UI08 renderView escapes every untrusted text and labels regions', () => {
   const html = renderView(viewModel(state, WIDE_WIDTH), DEFAULT_PREFERENCES.locale);
   assert.doesNotMatch(html, /<img/);
-  assert.equal(html.split(ESCAPED).length - 1, 10);
+  assert.equal(html.split(ESCAPED).length - 1, 11);
   assert.doesNotMatch(html, /data-region="campaigns"/);
   for (const [region, heading] of [
     ['conversation', 'Conversation'],

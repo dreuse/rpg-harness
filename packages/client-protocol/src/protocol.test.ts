@@ -155,6 +155,7 @@ const inMemorySession = (): ClientSession & { commit(event: DomainEvent): void }
         inventory: [],
         quests: [],
         citations: [],
+        tableNotes: [],
         recap: { scene: undefined, latest: undefined },
       },
     }),

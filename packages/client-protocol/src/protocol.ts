@@ -331,6 +331,7 @@ export type CampaignPanels = {
   readonly inventory: readonly InventoryEntry[];
   readonly quests: readonly QuestEntry[];
   readonly citations: readonly CitationEntry[];
+  readonly tableNotes: readonly string[];
   readonly recap: WorldRecap;
 };
 

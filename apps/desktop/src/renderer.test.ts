@@ -53,6 +53,7 @@ const PANELS: CampaignPanels = {
   inventory: [{ id: 'rope', name: 'Rope' }],
   quests: [],
   citations: [],
+  tableNotes: [],
   recap: { scene: 'Docks', latest: undefined },
 };
 

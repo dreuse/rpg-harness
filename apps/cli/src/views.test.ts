@@ -1126,3 +1126,19 @@ test('rpg-asjw.18: a reported roll names the offered action, not the number', ()
   assert.ok(rows[0]?.endsWith('Success: climb the wet barn wall'), rows.join(' '));
   assert.ok(journalRowsOf([], '15')[0]?.endsWith('Success: 15'));
 });
+
+test('panelsOf lists the applied table notes', () => {
+  const state = {
+    campaign: { id: CAMPAIGN, name: CAMPAIGN },
+    revision: 1,
+    characters: [],
+    currentScene: undefined,
+    turns: [],
+    events: [],
+    changes: [{ type: OOC_STATE_SAVED, payload: { state: { notes: ['no gore'] } } }],
+    gmUsage: EMPTY_GM_USAGE_LEDGER,
+    folds: EMPTY_LIVE_FOLDS,
+  };
+  const source = { state, entities: [], relationships: [], eventScopes: [] };
+  assert.deepEqual(panelsOf(source, { scope: 'player' }).tableNotes, ['no gore']);
+});
