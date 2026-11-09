@@ -378,6 +378,7 @@ const WHITESPACE_RUN = /\s+/g;
 
 const NPC_KIND: EntityKind = 'npc';
 const PART_SEPARATOR = '; ';
+const ACTION_KEY_SUFFIX = 'Action';
 
 const QUEST_OUTCOME_KEYS = new Map([
   [QUEST_COMPLETED, 'journal.questCompleted'],
@@ -390,11 +391,12 @@ const resolvedNamesOf = ({ payload }: CampaignEvent): readonly string[] => {
   return (resolution?.events ?? []).flatMap(({ event }) => (typeof event === 'string' ? [event] : []));
 };
 
-const outcomeKeyOf = (event: CampaignEvent): string | undefined => {
+const outcomeKeyOf = (event: CampaignEvent, hasAction: boolean): string | undefined => {
   if (event.type !== CHECK_RESOLVED) return QUEST_OUTCOME_KEYS.get(event.type);
   const names = resolvedNamesOf(event);
-  if (names.some((name) => HIT_EVENTS.includes(name))) return 'journal.hit';
-  return names.some((name) => MISS_EVENTS.includes(name)) ? 'journal.miss' : undefined;
+  const suffix = hasAction ? ACTION_KEY_SUFFIX : '';
+  if (names.some((name) => HIT_EVENTS.includes(name))) return `journal.hit${suffix}`;
+  return names.some((name) => MISS_EVENTS.includes(name)) ? `journal.miss${suffix}` : undefined;
 };
 
 const introducedOf = ({ type, payload }: CampaignEvent) => {
@@ -404,23 +406,46 @@ const introducedOf = ({ type, payload }: CampaignEvent) => {
     : [];
 };
 
-const eventSummary = (events: readonly CampaignEvent[], locale: string) => {
+const lengthOf = (text: string) => Array.from(text).length;
+
+const clip = (text: string, max: number) => {
+  const points = Array.from(text);
+  return points.length <= max ? text : `${points.slice(0, max - ELLIPSIS.length).join('')}${ELLIPSIS}`;
+};
+
+const wrapItems = (items: readonly string[], render: (group: readonly string[]) => string) => {
+  const rows: string[] = [];
+  let group: string[] = [];
+  for (const item of items) {
+    const grown = [...group, item];
+    if (group.length > 0 && lengthOf(render(grown)) > JOURNAL_LINE_MAX) {
+      rows.push(render(group));
+      group = [item];
+    } else group = grown;
+  }
+  return group.length === 0 ? rows : [...rows, render(group)];
+};
+
+const eventSummary = (events: readonly CampaignEvent[], input: string, locale: string): string[] => {
+  const longestPrefix = Math.max(
+    ...['journal.hitAction', 'journal.missAction'].map((key) => lengthOf(say(locale, key, { action: '' }))),
+  );
+  const action = clip(input, JOURNAL_LINE_MAX - longestPrefix);
   const introduced = events.flatMap(introducedOf).filter(({ name }) => name !== '');
   const namesOfKind = (people: boolean) =>
-    introduced
-      .filter(({ kind }) => (kind === NPC_KIND) === people)
-      .map(({ name }) => name)
-      .join(LIST_SEPARATOR);
-  const met = namesOfKind(true);
-  const found = namesOfKind(false);
-  const outcomes = events.flatMap((event) => outcomeKeyOf(event) ?? []).map((key) => say(locale, key));
-  return [
-    met === '' ? '' : say(locale, 'journal.met', { names: met }),
-    found === '' ? '' : say(locale, 'journal.found', { names: found }),
-    outcomes.join(LIST_SEPARATOR),
-  ]
-    .filter((part) => part !== '')
-    .join(PART_SEPARATOR);
+    introduced.filter(({ kind }) => (kind === NPC_KIND) === people).map(({ name }) => name);
+  const groupRows = (names: readonly string[], key: string) =>
+    wrapItems(names, (group) => say(locale, key, { names: group.join(LIST_SEPARATOR) }));
+  const outcomes = events
+    .flatMap((event) => outcomeKeyOf(event, action !== '') ?? [])
+    .map((key) => say(locale, key, { action }));
+  const distinctOutcomes = [...new Set(outcomes)];
+  const parts = [
+    ...groupRows(namesOfKind(true), 'journal.met'),
+    ...groupRows(namesOfKind(false), 'journal.found'),
+    ...wrapItems(distinctOutcomes, (group) => group.join(LIST_SEPARATOR)),
+  ];
+  return wrapItems(parts, (group) => group.join(PART_SEPARATOR));
 };
 
 const narrationLine = (names: ReadonlyMap<string, string>, turn: Turn, locale: string) => {
@@ -431,15 +456,12 @@ const narrationLine = (names: ReadonlyMap<string, string>, turn: Turn, locale: s
 };
 
 const journalLine = (names: ReadonlyMap<string, string>, turn: Turn, shown: CampaignState, locale: string) => {
-  const summary = eventSummary(
+  const rows = eventSummary(
     [...shown.events.filter(({ turnId }) => turnId === turn.id), ...proposalEventsOf(shown, turn.actionId)],
+    turn.input.replace(WHITESPACE_RUN, ' ').trim(),
     locale,
   );
-  const text = summary === '' ? narrationLine(names, turn, locale) : summary;
-  const points = Array.from(text);
-  return points.length <= JOURNAL_LINE_MAX
-    ? text
-    : `${points.slice(0, JOURNAL_LINE_MAX - ELLIPSIS.length).join('')}${ELLIPSIS}`;
+  return rows.length > 0 ? rows : [clip(narrationLine(names, turn, locale), JOURNAL_LINE_MAX)];
 };
 
 const journal = (source: ViewSource, locale: string) => {
@@ -448,8 +470,11 @@ const journal = (source: ViewSource, locale: string) => {
   const shown = { ...state, events: visibleEvents(source, PLAYER_VIEWER) };
   const rows = playTurns(state)
     .map((turn) => journalLine(names, turn, shown, locale))
-    .filter((line) => line !== '')
-    .map((line, index) => `  ${index + 1}. ${line}`);
+    .filter((lines) => lines.some((line) => line !== ''))
+    .map((lines, index) => {
+      const prefix = `  ${index + 1}. `;
+      return lines.map((line, row) => `${row === 0 ? prefix : ' '.repeat(prefix.length)}${line}`).join('\n');
+    });
   return section(say(locale, 'view.journal'), rows, say(locale, 'view.noEvents'));
 };
 

@@ -1038,7 +1038,74 @@ test('rpg-asjw.14: the journal names people met, things found and outcomes, neve
     .split('\n')
     .filter((row) => /^ {2}\d+\. /.test(row));
   assert.equal(rows[0], '  1. Met Mara; Found Brass key');
-  assert.equal(rows[1], '  2. Success, Quest completed');
+  assert.equal(rows[1], '  2. Success: I look, Quest completed');
   assert.equal(rows[2], '  3. Plain walk.');
   assert.doesNotMatch(rows.join('\n'), /Secret Villain/);
+});
+
+const journalRowsOf = (introduced: readonly string[], input = 'I look', resolved = 'check.success', locale = 'en') => {
+  const ev = (id: string, turnId: string, type: string, payload: Record<string, unknown>) => ({
+    id,
+    campaignId: CAMPAIGN,
+    turnId,
+    causationId: null,
+    type,
+    payload,
+  });
+  const state = {
+    campaign: { id: CAMPAIGN, name: CAMPAIGN },
+    revision: 1,
+    characters: [{ id: 'hero', campaignId: CAMPAIGN, name: 'Wren' }],
+    currentScene: undefined,
+    turns: [
+      { id: 't1', campaignId: CAMPAIGN, sceneId: 's', actionId: 't1', actorId: 'hero', input, narration: 'Quiet.' },
+    ],
+    events: [
+      ...introduced.map((name, index) =>
+        ev(`i${index}`, 't1', 'EntityIntroduced', { entity: { id: `e${index}`, kind: 'place', name } }),
+      ),
+      ev('r', 't1', 'CheckResolved', { resolution: { events: [{ event: resolved }] } }),
+    ],
+    changes: [{ type: 'CampaignCreated', payload: { name: CAMPAIGN, language: 'en' } }],
+    gmUsage: EMPTY_GM_USAGE_LEDGER,
+    folds: EMPTY_LIVE_FOLDS,
+  };
+  const eventScopes = state.events.map(({ id }) => ({ id, visibility: 'public', actorId: null }));
+  const source = { state, entities: [], relationships: [], eventScopes };
+  return renderView('journal', source as never, undefined, locale)
+    .split('\n')
+    .filter((row) => /^ {2,}\S/.test(row) && !row.includes('Journal'));
+};
+
+test('rpg-asjw.18: a journal summary wraps whole names and never cuts inside one', () => {
+  const names = ['Municipal Archive of Porto Sol', 'Helena Duarte Manor', 'The Old Lighthouse Keeper House'];
+  const rows = journalRowsOf(names);
+  const text = rows.join(' ');
+  for (const name of names) assert.ok(text.includes(name), text);
+  assert.doesNotMatch(text, /…/);
+  assert.ok(rows.length > 1, text);
+  for (const row of rows) assert.ok(Array.from(row.replace(/^ *(\d+\. )?/, '')).length <= JOURNAL_LINE_MAX, row);
+});
+
+test('rpg-asjw.18: a name longer than the line max stays whole', () => {
+  const name = 'The Extraordinarily Long Named Municipal Archive of the Great Port City of Porto Sol and Beyond';
+  assert.ok(journalRowsOf([name]).join(' ').includes(name));
+});
+
+test('rpg-asjw.18: hit and miss outcomes name the action', () => {
+  assert.ok(journalRowsOf([], 'pick the archive lock')[0]?.endsWith('Success: pick the archive lock'));
+  assert.ok(journalRowsOf([], 'pick the archive lock', 'check.failure')[0]?.endsWith('Failure: pick the archive lock'));
+  assert.ok(journalRowsOf([], '   ')[0]?.endsWith('Success'));
+});
+
+test('rpg-asjw.18: a long action is shortened so every outcome row fits the line max', () => {
+  const rows = journalRowsOf([], 'pick the archive lock '.repeat(10));
+  for (const row of rows) assert.ok(Array.from(row.replace(/^ *(\d+\. )?/, '')).length <= JOURNAL_LINE_MAX, row);
+  assert.ok(rows.join('').includes('…'));
+});
+
+test('rpg-asjw.18: a long action fits the line max in pt-BR hit rows', () => {
+  const rows = journalRowsOf([], 'pick the archive lock '.repeat(10), 'check.success', 'pt-BR');
+  assert.ok(rows.join('').includes('Sucesso: '), rows.join(' '));
+  for (const row of rows) assert.ok(Array.from(row.replace(/^ *(\d+\. )?/, '')).length <= JOURNAL_LINE_MAX, row);
 });
