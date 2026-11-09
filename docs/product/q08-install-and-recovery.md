@@ -71,10 +71,11 @@ pnpm rpg resume Ember
 - `backup` writes a dated `.rpg-archive.json` file into the `backups` folder inside the data folder.
 - `export` writes the same archive format to a path you choose.
 - `restore` checks the archive (format, checksum, schema, integrity, RulePack pins) before it writes the campaign.
-- `archive` hides a campaign and keeps its saved state. `delete` asks you to confirm the campaign name.
+- `archive` hides a campaign and keeps its saved state. `unarchive` brings it back. `delete` asks you to confirm the campaign name.
 
 ```bash
 pnpm rpg archive Ember
+pnpm rpg unarchive Ember
 pnpm rpg list
 ```
 

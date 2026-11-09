@@ -1936,6 +1936,10 @@ export const createEngineGateway = (
     ),
   list: (locale = DEFAULT_LOCALE) => list(dataDir, locale),
   archive: (name, locale = DEFAULT_LOCALE) => archiveCampaign(dataDir, name, locale),
+  unarchive: (name, locale = DEFAULT_LOCALE) => {
+    unarchiveCampaign(dataDir, name);
+    return say(locale, 'campaign.unarchivedDone', { name });
+  },
   rename: (name, newName, locale = DEFAULT_LOCALE) =>
     say(locale, 'campaign.renamed', { name, newName: renameCampaign(dataDir, name, newName) }),
   remove: (name, lines, locale = DEFAULT_LOCALE) => remove(dataDir, name, lines, locale),

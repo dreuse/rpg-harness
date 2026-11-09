@@ -36,6 +36,10 @@ const setup = (input: readonly string[] = PLAYER_LINES) => {
       calls.push(`archive:${name}`);
       return `Archived campaign ${name}.`;
     },
+    unarchive: (name) => {
+      calls.push(`unarchive:${name}`);
+      return `Restored campaign ${name}.`;
+    },
     rename: (name, newName) => {
       calls.push(`rename:${name}:${newName}`);
       return `Renamed campaign ${name} to ${newName}.`;
@@ -204,6 +208,7 @@ test('launch, new, play and resume dispatch to the gateway and confirm', async (
     [['resume', 'Ember'], 'resume:Ember'],
     [['list'], 'list'],
     [['archive', 'Ember'], 'archive:Ember'],
+    [['unarchive', 'Ember'], 'unarchive:Ember'],
     [['rename', 'Ember', 'Cinders'], 'rename:Ember:Cinders'],
     [['delete', 'Ember'], 'delete:Ember'],
     [['import', 'rules.md', 'core.pdf'], 'import:rules.md,core.pdf'],
@@ -295,6 +300,7 @@ test('gateway failures exit 1 and report the error on stderr', async () => {
     create: broken,
     list: broken,
     archive: broken,
+    unarchive: broken,
     rename: broken,
     remove: async function* () {
       yield 'Confirm.';

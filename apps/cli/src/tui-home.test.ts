@@ -142,6 +142,18 @@ test('rpg-42a.13 the TUI home lists archived adventures apart and restores them'
   assert.deepEqual(calls, ['unarchive Frost']);
 });
 
+test('rpg-asjw.30 the TUI home points to the archived view when only archived adventures remain', async () => {
+  const { ports } = homeWith([], [summary('Frost')]);
+  const output = await runWith(ports, ['q']);
+  assert.match(output, /No active adventures\. Type x for archived ones, n to start one, or q to quit\./);
+});
+
+test('rpg-asjw.30 the archived view says so once the last archived adventure is restored', async () => {
+  const { ports } = homeWith([EMBER], [summary('Frost')]);
+  const output = await runWith(ports, ['x', '1', 'q']);
+  assert.match(output, /^Archived adventures\nNo archived adventures\./m);
+});
+
 test('rpg-42a.13 the TUI home deletes the archived copy, not the active adventure with the same name', async () => {
   const { calls, ports } = homeWith([EMBER], [summary('Ember')]);
   await runWith(ports, ['x', 'd1', 'Ember', 'q']);

@@ -65,7 +65,8 @@ export const runHome = async (ports: HomePorts, terminal: Terminal, now = Date.n
   const cards = () => homeCards(campaigns(), query);
   const screen = () => {
     const all = campaigns();
-    if (!showArchived && all.length === 0) return say(locale, 'home.empty');
+    if (!showArchived && all.length === 0)
+      return say(locale, ports.archived().length === 0 ? 'home.empty' : 'home.emptyActive');
     const shown = cards();
     return [
       showArchived
@@ -73,6 +74,7 @@ export const runHome = async (ports: HomePorts, terminal: Terminal, now = Date.n
         : query === ''
           ? say(locale, 'home.title')
           : say(locale, 'home.title.matching', { query }),
+      ...(showArchived && all.length === 0 ? [say(locale, 'home.emptyArchived')] : []),
       ...shown.flatMap((card, index) => cardLines(card, index, now, locale)),
       controls(locale, showArchived, !showArchived && hasSearch(all)),
     ].join('\n');

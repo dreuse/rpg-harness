@@ -64,6 +64,20 @@ test('list, archive and delete read in Brazilian Portuguese', (t) => {
   assert.match(rpg(dataDir, 'en', ['list']), /^Campaigns: none\nArchived: none$/m);
 });
 
+test('rpg-asjw.30 unarchive restores a campaign and play on an archived one points to it', (t) => {
+  const dataDir = dataDirOf(t);
+  rpg(dataDir, PORTUGUESE, ['new', CAMPAIGN]);
+  rpg(dataDir, PORTUGUESE, ['archive', CAMPAIGN]);
+  const refused = spawnSync(process.execPath, [BIN, 'play', CAMPAIGN], {
+    encoding: 'utf8',
+    env: { ...hermeticGmEnv(), RPG_DATA_DIR: dataDir, RPG_LANG: PORTUGUESE },
+  });
+  assert.match(refused.stderr, /A campanha Ember está arquivada\. Rode rpg unarchive Ember ou use rpg, depois x\./);
+  assert.match(rpg(dataDir, PORTUGUESE, ['unarchive', CAMPAIGN]), /^Campanha Ember restaurada\./);
+  assert.match(rpg(dataDir, PORTUGUESE, ['list']), /^Campanhas: Ember\nArquivadas: nenhum$/m);
+  assert.match(rpg(dataDir, PORTUGUESE, ['help']), /^ {2}unarchive <campanha> - /m);
+});
+
 test('the play header carries no version number', (t) => {
   const dataDir = dataDirOf(t);
   const out = rpg(dataDir, PORTUGUESE, ['new', CAMPAIGN, 'um mistério investigativo']);
