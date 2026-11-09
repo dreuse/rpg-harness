@@ -106,3 +106,75 @@ test('common scene vocabulary maps to existing ambience keys', () => {
 test('extension locations still override the base table per word', () => {
   assert.equal(selectSounds({ location: 'castle hall', mood: [] }, { locations: { castle: 'cave' } }).ambience, 'cave');
 });
+
+const PT_BR_LOCATIONS: readonly (readonly [string, string])[] = [
+  ['taverna', 'tavern'],
+  ['estalagem', 'tavern'],
+  ['floresta', 'forest'],
+  ['mata', 'forest'],
+  ['cidade', 'city'],
+  ['vila', 'city'],
+  ['mercado', 'city'],
+  ['caverna', 'cave'],
+  ['masmorra', 'cave'],
+  ['ruínas', 'cave'],
+  ['mar', 'sea'],
+  ['porto', 'sea'],
+  ['cais', 'sea'],
+  ['navio', 'sea'],
+  ['tempestade', 'storm'],
+  ['rio', 'stream'],
+  ['riacho', 'stream'],
+  ['castelo', 'city'],
+  ['fortaleza', 'city'],
+  ['pátio', 'city'],
+  ['estrada', 'forest'],
+  ['caminho', 'forest'],
+  ['trilha', 'forest'],
+  ['planície', 'forest'],
+  ['campo', 'forest'],
+  ['doca', 'sea'],
+];
+
+test('pt-BR location words map to the English ambience keys', () => {
+  for (const [word, key] of PT_BR_LOCATIONS) {
+    assert.equal(selectSounds({ location: word, mood: [] }).ambience, key, word);
+  }
+});
+
+test('pt-BR mood words map like the English ones', () => {
+  const cases: readonly (readonly [string, string | undefined, string])[] = [
+    ['combate', 'battle', 'combat'],
+    ['batalha', 'battle', 'combat'],
+    ['tenso', 'tension', 'tension'],
+    ['tensão', 'tension', 'tension'],
+    ['exploração', undefined, 'exploration'],
+    ['viagem', undefined, 'exploration'],
+    ['chuva', 'rain', DEFAULT_MUSIC_KEY],
+    ['calmo', undefined, 'calm'],
+  ];
+  for (const [word, ambience, music] of cases) {
+    assert.deepEqual(
+      selectSounds({ location: '', mood: [word] }),
+      ambience === undefined ? { music } : { ambience, music },
+      word,
+    );
+  }
+});
+
+test('accents and case are ignored', () => {
+  assert.equal(selectSounds({ location: 'RUINAS', mood: [] }).ambience, 'cave');
+  assert.equal(selectSounds({ location: 'Pátio', mood: [] }).ambience, 'city');
+  assert.equal(selectSounds({ location: '', mood: ['TENSÃO'] }).music, 'tension');
+});
+
+test('a pt-BR title selects its ambience', () => {
+  assert.equal(selectSounds(sceneSoundOf('Taverna do Javali')).ambience, 'tavern');
+  assert.equal(selectSounds(sceneSoundOf('O PÂNTANO')).ambience, undefined);
+});
+
+test('extension keys with accents or capitals still override', () => {
+  const extension = { locations: { Pântano: 'forest', taverna: 'city' } };
+  assert.equal(selectSounds({ location: 'pantano', mood: [] }, extension).ambience, 'forest');
+  assert.equal(selectSounds({ location: 'Taverna', mood: [] }, extension).ambience, 'city');
+});

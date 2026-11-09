@@ -58,6 +58,32 @@ export const BASE_SOUND_TABLE: SoundTable = Object.freeze({
     pier: 'sea',
     port: 'sea',
     wharf: 'sea',
+    taverna: 'tavern',
+    estalagem: 'tavern',
+    floresta: 'forest',
+    mata: 'forest',
+    cidade: 'city',
+    vila: 'city',
+    mercado: 'city',
+    caverna: 'cave',
+    masmorra: 'cave',
+    ruinas: 'cave',
+    mar: 'sea',
+    porto: 'sea',
+    cais: 'sea',
+    navio: 'sea',
+    tempestade: 'storm',
+    rio: 'stream',
+    riacho: 'stream',
+    castelo: 'city',
+    fortaleza: 'city',
+    patio: 'city',
+    estrada: 'forest',
+    caminho: 'forest',
+    trilha: 'forest',
+    planicie: 'forest',
+    campo: 'forest',
+    doca: 'sea',
   }),
   moods: Object.freeze({
     combat: { ambience: 'battle', music: 'combat' },
@@ -69,22 +95,37 @@ export const BASE_SOUND_TABLE: SoundTable = Object.freeze({
     travel: { music: 'exploration' },
     rain: { ambience: 'rain' },
     calm: { music: 'calm' },
+    combate: { ambience: 'battle', music: 'combat' },
+    batalha: { ambience: 'battle', music: 'combat' },
+    tenso: { ambience: 'tension', music: 'tension' },
+    tensao: { ambience: 'tension', music: 'tension' },
+    exploracao: { music: 'exploration' },
+    viagem: { music: 'exploration' },
+    chuva: { ambience: 'rain' },
+    calmo: { music: 'calm' },
   }),
 });
 
 const WORD_SEPARATOR = /[^\p{L}]+/u;
 
+const DIACRITICS = /\p{M}/gu;
+
+const fold = (text: string): string => text.normalize('NFD').replace(DIACRITICS, '').toLowerCase();
+
+const foldKeys = <T>(table: Readonly<Record<string, T>> = {}): Record<string, T> =>
+  Object.fromEntries(Object.entries(table).map(([key, value]) => [fold(key), value]));
+
 const own = <T>(table: Readonly<Record<string, T>>, name: string): T | undefined =>
   Object.hasOwn(table, name) ? table[name] : undefined;
 
 export const selectSounds = (scene: SceneSoundInput, extension: SoundTableExtension = {}): SoundSelection => {
-  const locations = { ...BASE_SOUND_TABLE.locations, ...extension.locations };
-  const moods = { ...BASE_SOUND_TABLE.moods, ...extension.moods };
+  const locations = { ...BASE_SOUND_TABLE.locations, ...foldKeys(extension.locations) };
+  const moods = { ...BASE_SOUND_TABLE.moods, ...foldKeys(extension.moods) };
   const matches = scene.mood.flatMap((tag) => {
-    const sounds = own(moods, tag.toLowerCase());
+    const sounds = own(moods, fold(tag));
     return sounds === undefined ? [] : [sounds];
   });
-  const locationWords = scene.location.toLowerCase().split(WORD_SEPARATOR).filter(Boolean);
+  const locationWords = fold(scene.location).split(WORD_SEPARATOR).filter(Boolean);
   const fromLocation = locationWords.map((word) => own(locations, word)).find((key) => key !== undefined);
   const ambience = matches.find((sounds) => sounds.ambience !== undefined)?.ambience ?? fromLocation;
   const music = matches.find((sounds) => sounds.music !== undefined)?.music ?? DEFAULT_MUSIC_KEY;
@@ -97,7 +138,9 @@ export interface SceneSoundTags {
 }
 
 export const sceneSoundOf = (title: string | undefined, tags: SceneSoundTags = {}): SceneSoundInput => {
-  const words = (title ?? '').toLowerCase().split(WORD_SEPARATOR).filter(Boolean);
+  const words = fold(title ?? '')
+    .split(WORD_SEPARATOR)
+    .filter(Boolean);
   const fromTitle = words.find((word) => Object.hasOwn(BASE_SOUND_TABLE.locations, word)) ?? '';
   if (tags.locationKind === undefined && tags.moodTags === undefined) return { location: fromTitle, mood: words };
   return { location: tags.locationKind ?? fromTitle, mood: tags.moodTags ?? [] };
