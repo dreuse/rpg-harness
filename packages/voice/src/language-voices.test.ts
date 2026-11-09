@@ -1,12 +1,20 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { missingKeys } from '../../client-protocol/src/locale.ts';
+import { CHATTERBOX_CAPABILITIES, CHATTERBOX_PROVIDER_ID } from './chatterbox-engine.ts';
 import { KOKORO_ONNX_PROVIDER_ID } from './kokoro-onnx-engine.ts';
-import { KOKORO_PROVIDER_ID } from './kokoro-provider.ts';
+import {
+  KOKORO_CAPABILITIES,
+  KOKORO_PROVIDER_ID,
+  type KokoroCapabilities,
+  MLX_KOKORO_CAPABILITIES,
+} from './kokoro-provider.ts';
 import {
   languageVoicesFor,
   narratorFallback,
+  narratorFallbacks,
   noVoiceNotice,
+  synthesisFailureNotice,
   VOICE_NOTICE_CATALOG,
   voiceLocaleFor,
   voicesFor,
@@ -89,4 +97,34 @@ test('rpg-cm63.53 the ONNX route narrates pt-BR with pf_dora on the kokoro-onnx 
   assert.equal(portuguese?.providerId, KOKORO_ONNX_PROVIDER_ID);
   assert.equal(portuguese?.narrator, 'pf_dora');
   assert.equal(languageVoicesFor('mlx')[1]?.providerId, MLX_KOKORO_PROVIDER_ID);
+});
+
+const capable = (id: string, capabilities: KokoroCapabilities): TtsProvider & { capabilities: KokoroCapabilities } => ({
+  ...provider(id, true),
+  capabilities,
+});
+
+test('the pt-BR narrator lists every engine that speaks pt-BR, the route engine first', () => {
+  const providers = [
+    capable(CHATTERBOX_PROVIDER_ID, CHATTERBOX_CAPABILITIES),
+    capable(KOKORO_PROVIDER_ID, KOKORO_CAPABILITIES),
+    capable(PT_BR_PROVIDER_ID, MLX_KOKORO_CAPABILITIES),
+  ];
+  assert.deepEqual(narratorFallbacks('pt-BR', ROUTE, providers), [
+    { providerId: PT_BR_PROVIDER_ID, voiceId: 'pf_dora' },
+    { providerId: CHATTERBOX_PROVIDER_ID, voiceId: CHATTERBOX_CAPABILITIES.voices[0] },
+  ]);
+});
+
+test('an English narrator keeps one fallback and a language nobody speaks has none', () => {
+  const providers = [capable(CHATTERBOX_PROVIDER_ID, CHATTERBOX_CAPABILITIES)];
+  assert.deepEqual(narratorFallbacks('en-GB', ROUTE, providers), [
+    { providerId: KOKORO_PROVIDER_ID, voiceId: 'af_heart' },
+  ]);
+  assert.deepEqual(narratorFallbacks('xx-YY', ROUTE, providers), []);
+});
+
+test('the failure notice reads in every catalog language', () => {
+  assert.match(synthesisFailureNotice('en'), /could not be read aloud/);
+  assert.match(synthesisFailureNotice('pt-BR'), /não pôde ser lida em voz alta/);
 });

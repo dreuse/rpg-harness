@@ -798,6 +798,7 @@ const openSession = (
           campaignLanguage === undefined ? settings.locale : voiceLocaleFor(campaignLanguage, settings.locale),
           route,
           settings.speed,
+          runtime.providers,
         );
         const chosenNarrator = withOptedInNarrator(narrator, optedInNarrator(dataDir, narrator.language));
         const entities = createEntityStore(database);
@@ -805,7 +806,7 @@ const openSession = (
         prepareVoice(runtime.providers, narrator.language, route, uiLocale);
         const notice =
           takePreloadFailureNotice(runtime.providers, narrator.language, route, uiLocale) ??
-          runtime.takeFailureNotice();
+          runtime.takeFailureNotice(uiLocale);
         const voice = createTurnSpeech({
           speech: runtime.speech,
           turnId,

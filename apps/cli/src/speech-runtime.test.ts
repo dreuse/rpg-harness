@@ -75,6 +75,58 @@ test('a provider that is not healthy keeps the line in text', async () => {
   assert.deepEqual(played, []);
 });
 
+test('rpg-asjw.20 a provider that is not healthy hands the line to the next healthy fallback', async () => {
+  const played: string[] = [];
+  const runtime = createSpeechRuntime({
+    providers: [provider('mlx', false), provider('kokoro')],
+    sink: sinkOf(played),
+  });
+  const line = utterance('mlx');
+  runtime.speech.hold('t', {
+    ...line,
+    profile: {
+      ...line.profile,
+      fallbacks: [
+        { providerId: 'mlx', voiceId: 'dora' },
+        { providerId: 'kokoro', voiceId: 'heart' },
+      ],
+    },
+  });
+  runtime.speech.commit('t');
+  await runtime.speech.idle();
+  assert.deepEqual(played, ['heart']);
+  assert.equal(runtime.takeFailureNotice(), undefined);
+});
+
+test('rpg-asjw.20 a provider that yields nothing hands the line to the next fallback', async () => {
+  const played: string[] = [];
+  const silent: TtsProvider = { ...provider('mlx'), synthesize: async function* () {} };
+  const runtime = createSpeechRuntime({ providers: [silent, provider('kokoro')], sink: sinkOf(played) });
+  const line = utterance('mlx');
+  runtime.speech.hold('t', {
+    ...line,
+    profile: {
+      ...line.profile,
+      fallbacks: [
+        { providerId: 'mlx', voiceId: 'dora' },
+        { providerId: 'kokoro', voiceId: 'heart' },
+      ],
+    },
+  });
+  runtime.speech.commit('t');
+  await runtime.speech.idle();
+  assert.deepEqual(played, ['heart']);
+});
+
+test('rpg-asjw.20 a line no healthy provider can read gives a notice in the interface language', async () => {
+  const runtime = createSpeechRuntime({ providers: [provider('kokoro', false)], sink: sinkOf([]) });
+  runtime.speech.hold('t', utterance('kokoro'));
+  runtime.speech.commit('t');
+  await runtime.speech.idle();
+  assert.match(runtime.takeFailureNotice('pt-BR') ?? '', /não pôde ser lida em voz alta/);
+  assert.equal(runtime.takeFailureNotice(), undefined);
+});
+
 test('metrics reach the voice diagnostics without campaign text', async () => {
   const runtime = createSpeechRuntime({ providers: [provider('kokoro')], sink: sinkOf([]) });
   runtime.speech.hold('t', utterance('kokoro'));

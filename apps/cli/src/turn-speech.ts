@@ -1,4 +1,4 @@
-import { narratorFallback } from '../../../packages/voice/src/language-voices.ts';
+import { narratorFallbacks } from '../../../packages/voice/src/language-voices.ts';
 import { DEFAULT_PLAYBACK_SPEED } from '../../../packages/voice/src/playback.ts';
 import type { PtBrRoute } from '../../../packages/voice/src/pt-br-route.ts';
 import { NARRATOR_SPEAKER } from '../../../packages/voice/src/speaker-routing.ts';
@@ -34,17 +34,19 @@ export interface TurnSpeech {
   abandon(): void;
 }
 
-export const narratorProfileOf = (language: string, route: PtBrRoute, speed = DEFAULT_PLAYBACK_SPEED): VoiceProfile => {
-  const fallback = narratorFallback(language, route);
-  return {
-    id: NARRATOR_SPEAKER,
-    language,
-    pace: speed,
-    style: NO_STYLE,
-    pronunciations: {},
-    fallbacks: fallback === undefined ? [] : [fallback],
-  };
-};
+export const narratorProfileOf = (
+  language: string,
+  route: PtBrRoute,
+  speed = DEFAULT_PLAYBACK_SPEED,
+  providers: Parameters<typeof narratorFallbacks>[2] = [],
+): VoiceProfile => ({
+  id: NARRATOR_SPEAKER,
+  language,
+  pace: speed,
+  style: NO_STYLE,
+  pronunciations: {},
+  fallbacks: [...narratorFallbacks(language, route, providers)],
+});
 
 export const spokenIn = (mode: SpokenOutputMode, { speakerId }: CommittedUtterance): boolean => {
   if (mode === 'dialogue') return speakerId !== NARRATOR_SPEAKER;

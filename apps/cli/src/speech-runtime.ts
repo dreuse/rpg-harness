@@ -35,7 +35,7 @@ import {
   type KokoroProvider,
   speaksLanguage,
 } from '../../../packages/voice/src/kokoro-provider.ts';
-import { noVoiceNotice, voicesFor } from '../../../packages/voice/src/language-voices.ts';
+import { noVoiceNotice, synthesisFailureNotice, voicesFor } from '../../../packages/voice/src/language-voices.ts';
 import {
   createMlxAudioProvider,
   MLX_AUDIO_DIR_ENV,
@@ -70,14 +70,13 @@ const MODEL_VERSIONS: Readonly<Record<string, string>> = {
   [CHATTERBOX_PROVIDER_ID]: CHATTERBOX_OFFER.source,
   [F5_PROVIDER_ID]: F5_OFFER.source,
 };
-export const SYNTHESIS_FAILURE_NOTICE = 'Part of the story could not be read aloud, so it stays in text.';
 
 export interface SpeechRuntime {
   readonly speech: StreamingSpeech;
   readonly providers: readonly TtsProvider[];
   readonly diagnostics: VoiceDiagnostics;
   readonly route: PtBrRoute;
-  takeFailureNotice(): string | undefined;
+  takeFailureNotice(locale?: string): string | undefined;
   dispose(): void;
 }
 
@@ -124,6 +123,7 @@ export const createSpeechRuntime = ({
         chunks.push(chunk);
         yield chunk;
       }
+      if (chunks.length === 0 && !signal.aborted) continue;
       if (key !== undefined && !signal.aborted) attempt(() => cache?.set(key, chunks));
       return;
     }
@@ -143,8 +143,8 @@ export const createSpeechRuntime = ({
     providers,
     diagnostics,
     route,
-    takeFailureNotice: () => {
-      const notice = failed ? SYNTHESIS_FAILURE_NOTICE : undefined;
+    takeFailureNotice: (locale = DEFAULT_LOCALE) => {
+      const notice = failed ? synthesisFailureNotice(locale) : undefined;
       failed = false;
       return notice;
     },

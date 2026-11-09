@@ -356,3 +356,65 @@ test('finish forgets the turn so its id can be held again', async () => {
   await tick();
   assert.deepEqual(started, ['a']);
 });
+
+const EMPTY_PROFILE: VoiceProfile = { ...PROFILE, id: 'empty' };
+const OTHER_PROFILE: VoiceProfile = { ...PROFILE, id: 'other' };
+
+const silentHarness = (silentProfiles: readonly string[]) => {
+  const played: string[] = [];
+  const attempts: string[] = [];
+  const metrics: SpeechMetrics[] = [];
+  const failed: string[] = [];
+  const speech = createStreamingSpeech({
+    now: () => 0,
+    synthesize: async function* (item) {
+      attempts.push(item.profile.id);
+      if (!silentProfiles.includes(item.profile.id)) yield chunk(item.eventId);
+    },
+    sink: { play: async (c) => void played.push(c.utteranceEventId) },
+    onMetrics: (m) => metrics.push(m),
+    onFailure: (item) => void failed.push(item.eventId),
+  });
+  return { speech, played, attempts, metrics, failed };
+};
+
+test('an attempt that yields no audio is retried and then falls back to the fallback profile', async () => {
+  const { speech, played, attempts, failed } = silentHarness([EMPTY_PROFILE.id]);
+  speech.hold('t', { ...utterance('a'), profile: EMPTY_PROFILE }, OTHER_PROFILE);
+  speech.commit('t');
+  await speech.idle();
+  assert.deepEqual(attempts, [EMPTY_PROFILE.id, EMPTY_PROFILE.id, OTHER_PROFILE.id]);
+  assert.deepEqual(played, ['a']);
+  assert.deepEqual(failed, []);
+});
+
+test('an utterance that never yields audio reports an error and a failure instead of vanishing', async () => {
+  const { speech, played, metrics, failed } = silentHarness([EMPTY_PROFILE.id, OTHER_PROFILE.id]);
+  speech.hold('t', { ...utterance('a'), profile: EMPTY_PROFILE }, OTHER_PROFILE);
+  speech.commit('t');
+  await speech.idle();
+  assert.deepEqual(played, []);
+  assert.deepEqual(failed, ['a']);
+  assert.ok(metrics.some(({ kind }) => kind === 'error'));
+});
+
+test('an aborted silent attempt is not a failure', async () => {
+  const { speech, failed, metrics } = silentHarness([PROFILE.id]);
+  speech.hold('t', utterance('a'));
+  speech.commit('t');
+  speech.reject('t');
+  await speech.idle();
+  assert.deepEqual(failed, []);
+  assert.ok(!metrics.some(({ kind }) => kind === 'error'));
+});
+
+test('empty and whitespace-only text is never held', async () => {
+  const { speech, attempts, failed } = silentHarness([]);
+  speech.hold('t', { ...utterance('a'), text: '' });
+  speech.hold('t', { ...utterance('b'), text: '  \n\t ' });
+  speech.commit('t');
+  await speech.idle();
+  assert.deepEqual(attempts, []);
+  assert.deepEqual(failed, []);
+  assert.equal(speech.depth(), 0);
+});

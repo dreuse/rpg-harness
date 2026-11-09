@@ -101,11 +101,12 @@ export const createStreamingSpeech = (deps: StreamingSpeechDeps): StreamingSpeec
         const out: SpeechChunk[] = [];
         try {
           for await (const item of deps.synthesize(attempt, controller.signal)) out.push(item);
-          deps.onMetrics({ kind: 'synthesis', ms: deps.now() - begun });
-          return out;
-        } catch {
-          if (controller.signal.aborted) return [];
-        }
+          if (out.length > 0) {
+            deps.onMetrics({ kind: 'synthesis', ms: deps.now() - begun });
+            return out;
+          }
+        } catch {}
+        if (controller.signal.aborted) return [];
       }
       deps.onMetrics({ kind: 'error' });
       deps.onFailure?.(utterance);
@@ -163,6 +164,7 @@ export const createStreamingSpeech = (deps: StreamingSpeechDeps): StreamingSpeec
 
   return {
     hold(turnId, utterance, fallback) {
+      if (utterance.text.trim() === '') return;
       if (fallback !== undefined) fallbacks.set(utterance, fallback);
       const state = turns.get(turnId);
       if (state === 'rejected') return;

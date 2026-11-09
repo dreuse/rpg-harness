@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { CHATTERBOX_CAPABILITIES, CHATTERBOX_PROVIDER_ID } from '../../../packages/voice/src/chatterbox-engine.ts';
+import { type KokoroCapabilities, MLX_KOKORO_CAPABILITIES } from '../../../packages/voice/src/kokoro-provider.ts';
+import { MLX_KOKORO_PROVIDER_ID } from '../../../packages/voice/src/mlx-audio-engine.ts';
 import { DEFAULT_PLAYBACK_SPEED } from '../../../packages/voice/src/playback.ts';
 import type { CommittedUtterance, VoiceProfile } from '../../../packages/voice/src/voice.ts';
 import { createTurnSpeech, narratorProfileOf, spokenIn, type TurnSpeechOptions } from './turn-speech.ts';
@@ -220,6 +223,19 @@ test('the narrator profile uses the saved locale and its default voice', () => {
   assert.equal(profile.language, 'en-GB');
   assert.equal(profile.fallbacks[0]?.providerId, 'kokoro');
   assert.deepEqual(narratorProfileOf('xx-YY', ROUTE).fallbacks, []);
+});
+
+test('rpg-asjw.20 the pt-BR narrator falls back to every installed engine that speaks pt-BR', () => {
+  const engine = (id: string, capabilities: KokoroCapabilities) => ({ id, capabilities });
+  const providers = [
+    engine(CHATTERBOX_PROVIDER_ID, CHATTERBOX_CAPABILITIES),
+    engine(MLX_KOKORO_PROVIDER_ID, MLX_KOKORO_CAPABILITIES),
+  ];
+  const { fallbacks } = narratorProfileOf('pt-BR', ROUTE, undefined, providers);
+  assert.deepEqual(
+    fallbacks.map(({ providerId }) => providerId),
+    [MLX_KOKORO_PROVIDER_ID, CHATTERBOX_PROVIDER_ID],
+  );
 });
 
 test('a stop during the turn drops its remaining streamed and recorded speech', () => {

@@ -33,14 +33,17 @@ export const VOICE_NOTICE_CATALOG: Catalog = {
   en: {
     'voice.none': 'No spoken voice exists for {name} yet. The story stays in text.',
     'voice.unavailable': '{name} voices are not available on this computer. The story stays in text.',
+    'voice.failed': 'Part of the story could not be read aloud, so it stays in text.',
   },
   es: {
     'voice.none': 'Aún no existe una voz hablada para {name}. La historia sigue en texto.',
     'voice.unavailable': 'Las voces en {name} no están disponibles en este equipo. La historia sigue en texto.',
+    'voice.failed': 'Una parte de la historia no pudo leerse en voz alta, así que sigue en texto.',
   },
   'pt-BR': {
     'voice.none': 'Ainda não existe voz falada para {name}. A história continua em texto.',
     'voice.unavailable': 'As vozes em {name} não estão disponíveis neste computador. A história continua em texto.',
+    'voice.failed': 'Parte da história não pôde ser lida em voz alta, então continua em texto.',
   },
 };
 
@@ -64,6 +67,29 @@ export const narratorFallback = (language: string, route: PtBrRoute): VoiceProfi
   const voices = voicesFor(language, route);
   return voices && { providerId: voices.providerId, voiceId: voices.narrator };
 };
+
+type NarratorVoice = VoiceProfile['fallbacks'][number];
+type CapableProvider = Pick<TtsProvider, 'id'> & { readonly capabilities?: KokoroCapabilities };
+
+export const narratorFallbacks = (
+  language: string,
+  route: PtBrRoute,
+  providers: readonly CapableProvider[] = [],
+): readonly NarratorVoice[] => {
+  const preferred = narratorFallback(language, route);
+  const others = providers.flatMap(({ id, capabilities }): NarratorVoice[] => {
+    const voiceId = capabilities?.voices[0];
+    return capabilities === undefined ||
+      voiceId === undefined ||
+      id === preferred?.providerId ||
+      !speaksLanguage(capabilities, language)
+      ? []
+      : [{ providerId: id, voiceId }];
+  });
+  return preferred === undefined ? others : [preferred, ...others];
+};
+
+export const synthesisFailureNotice = (locale = DEFAULT_LOCALE): string => translate(locale, 'voice.failed');
 
 export const noVoiceNotice = (
   language: string,
