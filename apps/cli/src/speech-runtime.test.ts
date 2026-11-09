@@ -118,6 +118,34 @@ test('rpg-asjw.20 a provider that yields nothing hands the line to the next fall
   assert.deepEqual(played, ['heart']);
 });
 
+test('rpg-asjw.34 a provider that throws before yielding hands the line to the next fallback', async () => {
+  const played: string[] = [];
+  const broken: TtsProvider = {
+    ...provider('mlx'),
+    synthesize: () => ({
+      [Symbol.asyncIterator]: () => ({
+        next: () => Promise.reject(new Error('engine crashed')),
+      }),
+    }),
+  };
+  const runtime = createSpeechRuntime({ providers: [broken, provider('kokoro')], sink: sinkOf(played) });
+  const line = utterance('mlx');
+  runtime.speech.hold('t', {
+    ...line,
+    profile: {
+      ...line.profile,
+      fallbacks: [
+        { providerId: 'mlx', voiceId: 'dora' },
+        { providerId: 'kokoro', voiceId: 'heart' },
+      ],
+    },
+  });
+  runtime.speech.commit('t');
+  await runtime.speech.idle();
+  assert.deepEqual(played, ['heart']);
+  assert.equal(runtime.takeFailureNotice(), undefined);
+});
+
 test('rpg-asjw.20 a line no healthy provider can read gives a notice in the interface language', async () => {
   const runtime = createSpeechRuntime({ providers: [provider('kokoro', false)], sink: sinkOf([]) });
   runtime.speech.hold('t', utterance('kokoro'));

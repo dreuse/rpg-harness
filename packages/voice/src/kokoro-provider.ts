@@ -57,6 +57,7 @@ export const KOKORO_ONNX_PROVIDER_ID = 'kokoro-onnx';
 export const KOKORO_IDLE_TIMEOUT_MS = 300_000;
 export const KOKORO_MAX_CONCURRENT = 1;
 export const KOKORO_MIME_TYPE = 'audio/wav';
+export const KOKORO_NO_AUDIO_MESSAGE = 'kokoro engine returned no audio';
 
 const ENGLISH = 'en';
 
@@ -293,7 +294,8 @@ export const createKokoroProvider = ({
           : undefined);
       for (const [sequence, { sentence, pauseMs }] of sentences.entries()) {
         const synthesized = await synthesizeSentence(sentence, engineVoice, signal, speed, blend, utterance.delivery);
-        if (!synthesized || signal.aborted) return;
+        if (signal.aborted) return;
+        if (!synthesized) throw new Error(KOKORO_NO_AUDIO_MESSAGE);
         const audio = shiftPitch(synthesized, manner.pitch);
         yield {
           utteranceEventId: utterance.eventId,

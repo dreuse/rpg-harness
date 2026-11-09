@@ -119,9 +119,14 @@ export const createSpeechRuntime = ({
         return;
       }
       const chunks: SpeechChunk[] = [];
-      for await (const chunk of provider.synthesize(utterance, voiceId, signal)) {
-        chunks.push(chunk);
-        yield chunk;
+      try {
+        for await (const chunk of provider.synthesize(utterance, voiceId, signal)) {
+          chunks.push(chunk);
+          yield chunk;
+        }
+      } catch (error) {
+        if (chunks.length > 0 || signal.aborted) throw error;
+        continue;
       }
       if (chunks.length === 0 && !signal.aborted) continue;
       if (key !== undefined && !signal.aborted) attempt(() => cache?.set(key, chunks));

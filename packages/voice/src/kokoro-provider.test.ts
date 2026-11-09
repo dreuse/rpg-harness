@@ -15,6 +15,7 @@ import {
   KOKORO_DELIVERY_SPEED,
   KOKORO_IDLE_TIMEOUT_MS,
   KOKORO_MAX_CONCURRENT,
+  KOKORO_NO_AUDIO_MESSAGE,
   KOKORO_PROVIDER_ID,
   type KokoroEngine,
   MLX_KOKORO_CAPABILITIES,
@@ -160,6 +161,14 @@ test('yields nothing for a non-English profile or an unknown voice', async () =>
   assert.deepEqual(await speak(provider, portuguese), []);
   assert.deepEqual(await speak(provider, UTTERANCE, 'pf_dora'), []);
   assert.equal(engine.loads, 0);
+});
+
+test('an engine that returns no audio without an abort fails the synthesis', async () => {
+  const engine = fakeEngine();
+  engine.synthesize = async () => undefined as unknown as Uint8Array;
+  const provider = createKokoroProvider({ engine });
+  await assert.rejects(speak(provider), { message: KOKORO_NO_AUDIO_MESSAGE });
+  await provider.dispose();
 });
 
 test('stops synthesizing further sentences once aborted', async () => {
