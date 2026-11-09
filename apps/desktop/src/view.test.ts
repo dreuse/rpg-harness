@@ -484,7 +484,7 @@ test('rpg-42a.13 the home shows one line and the guided start when there are no 
   assert.ok(html.includes('<p data-empty>No adventures yet. Start a new adventure to play.</p>'));
   assert.match(
     html,
-    /data-region="campaigns"[^>]*><h2[^>]*>Your adventures<\/h2><p data-empty>[^<]*<\/p><button type="button" data-start-open="home" data-primary>Start your first adventure<\/button>/,
+    /data-region="campaigns"[^>]*><h2[^>]*>Your adventures<\/h2><p data-empty>[^<]*<\/p><p data-intro>[^<]+<\/p><button type="button" data-start-open="home" data-primary>Start your first adventure<\/button>/,
   );
   assert.doesNotMatch(html, /home-search|data-archived|data-start-open="open"/);
 });

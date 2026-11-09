@@ -12,7 +12,7 @@ import { OOC_ATTRIBUTE, OOC_PANEL, renderView } from './view.ts';
 const CAMPAIGN = 'c1';
 const WIDE_WIDTH = 1600;
 const READY = { type: 'Ready', version: PROTOCOL_VERSION, pid: 42, node: 'v24', sqlite: true, gm: 'fake' };
-const NOTE = 'NPCs speak modern English';
+const NOTE = 'NPCs speak modern English.';
 const PROPOSAL = { kind: 'table_note', summary: `Table note: ${NOTE}`, note: NOTE };
 const SNAPSHOT: CampaignSnapshot = {
   version: PROTOCOL_VERSION,
@@ -126,6 +126,7 @@ test('rpg-42a.91: the GM reply shows its proposals; confirm applies one, decline
   assert.equal(client.state().ooc.exchanges[1]?.proposals[0]?.status, 'applied');
   assert.equal(client.state().ooc.undoable, PROPOSAL.summary);
   assert.match(html(), new RegExp(`${OOC_ATTRIBUTE}="undo"`));
+  assert.ok(html().includes(`<li data-ooc-status="applied">Applied: ${PROPOSAL.summary}</li>`));
 
   sent.length = 0;
   client.undoOoc();

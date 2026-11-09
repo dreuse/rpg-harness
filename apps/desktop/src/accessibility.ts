@@ -389,6 +389,8 @@ export const CATALOG: Catalog = {
     'region.start': 'New adventure',
     'start.open': 'New adventure',
     'start.first': 'Start your first adventure',
+    'home.intro':
+      'Play a story by typing what your character does. Voice, dice and rules are optional, and you can change them in Settings.',
     'start.created': 'Created campaign {name}.',
     'start.step': 'Step {current} of {total}: {title}',
     'start.chosen': 'Chosen',
@@ -586,6 +588,8 @@ export const CATALOG: Catalog = {
     'region.start': 'Nueva aventura',
     'start.open': 'Nueva aventura',
     'start.first': 'Empieza tu primera aventura',
+    'home.intro':
+      'Juega una historia escribiendo lo que hace tu personaje. La voz, los dados y las reglas son opcionales, y puedes cambiarlos en Ajustes.',
     'start.created': 'Campaña {name} creada.',
     'start.step': 'Paso {current} de {total}: {title}',
     'start.chosen': 'Elegido',
@@ -886,6 +890,8 @@ export const CATALOG: Catalog = {
     'region.start': 'Nova aventura',
     'start.open': 'Nova aventura',
     'start.first': 'Comece sua primeira aventura',
+    'home.intro':
+      'Jogue uma história escrevendo o que seu personagem faz. Voz, dados e regras são opcionais, e você pode mudá-los em Configurações.',
     'start.created': 'Campanha {name} criada.',
     'start.step': 'Passo {current} de {total}: {title}',
     'start.chosen': 'Escolhido',
@@ -952,7 +958,7 @@ export const CATALOG: Catalog = {
     'voice.playback': 'Reprodução',
     'voice.playback.pause': 'Pausar',
     'voice.playback.resume': 'Retomar',
-    'voice.playback.skip': 'Saltar',
+    'voice.playback.skip': 'Pular',
     'voice.playback.stop': 'Parar',
     'replay.play': 'Ouvir esta passagem',
     'replay.stop': 'Parar esta passagem',

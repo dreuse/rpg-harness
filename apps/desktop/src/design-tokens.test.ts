@@ -211,6 +211,14 @@ test('rpg-42a.18 narration reads at a comfortable measure in its own font', () =
     assert.match(view, new RegExp(`\\[data-speaker="${speaker}"\\] \\{`));
 });
 
+test('rpg-asjw.23 at compact width the action input takes its own row so the quiet buttons share one', () => {
+  const view = read(VIEW_CSS);
+  assert.match(
+    view,
+    /body:has\(main\[data-layout="compact"\]\) #action-form label,\s*body:has\(main\[data-layout="compact"\]\) #action-input \{[^}]*flex-basis: 100%;/,
+  );
+});
+
 test('rpg-42a.22 the home hides the action form and primary buttons read on the accent', () => {
   const view = read(VIEW_CSS);
   assert.match(view, /body:has\(main\[data-screen="home"\]\) #action-form \{[^}]*display: none;/);

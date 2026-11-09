@@ -883,6 +883,11 @@ button:disabled {
   padding: var(--space-3) var(--space-6) var(--space-5);
 }
 
+body:has(main[data-layout="compact"]) #action-form label,
+body:has(main[data-layout="compact"]) #action-input {
+  flex-basis: 100%;
+}
+
 #action-form label {
   color: var(--text-muted);
 }

@@ -89,6 +89,12 @@ test('rpg-cm63.7 basic voice settings: on/off, mode, narrator voice with preview
   assert.match(off, /<button type="button" data-voice-setup="on" data-primary>Turn voice on<\/button>/);
 });
 
+test('rpg-asjw.23 voice controls stay hidden while voice is off and the turn-on button stays', () => {
+  const off = html(ready, { ...voice.preferences, spokenOutput: 'off' });
+  assert.match(off, /data-voice-setup="on" data-primary>Turn voice on<\/button>/);
+  assert.doesNotMatch(off, /id="voice-(mode|narrator|language|speed|volume|provider)"/);
+});
+
 test('rpg-cm63.7 advanced voice settings: provider, NPC voices, installed models, cache and diagnostics', () => {
   const page = html(ready);
   assert.doesNotMatch(page, /data-voice-advanced/);
@@ -231,7 +237,7 @@ test('rpg-cm63.15 the character picker lists known speaking characters plus Othe
   labelled(none, 'voice-npc-name', 'Character name');
 });
 
-test('rpg-cm63.15 each voice choice has a labelled Preview that is disabled while voice is off', () => {
+test('rpg-cm63.15 each voice choice has a labelled Preview that is hidden while voice is off', () => {
   const on = html(ready);
   assert.match(
     on,
@@ -242,8 +248,7 @@ test('rpg-cm63.15 each voice choice has a labelled Preview that is disabled whil
     /data-voice-npc-preview="&lt;b&gt;Guard&lt;\/b&gt;" aria-label="Preview the voice of &lt;b&gt;Guard&lt;\/b&gt;">/,
   );
   const off = html(ready, { ...voice.preferences, spokenOutput: 'off' });
-  for (const preview of ['data-voice-preview="narrator"', 'data-voice-preview="character"', 'data-voice-npc-preview='])
-    assert.match(off, new RegExp(`${preview}[^>]* disabled>`), preview);
+  assert.doesNotMatch(off, /data-voice-(npc-)?preview=/);
   assert.doesNotMatch(on, /data-voice-(npc-)?preview=[^>]* disabled>/);
 });
 

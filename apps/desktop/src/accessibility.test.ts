@@ -23,6 +23,7 @@ test('rpg-42a.39 every desktop locale has every catalog key', () => {
 
 test('rpg-42a.39 pt-BR reads naturally and formats numbers the Brazilian way', () => {
   assert.equal(translate('pt-BR', 'start.first'), 'Comece sua primeira aventura');
+  assert.equal(translate('pt-BR', 'voice.playback.skip'), 'Pular');
   assert.equal(translate('pt-BR', 'home.archived', { count: 2 }), 'Aventuras arquivadas (2)');
   assert.equal(
     translate('pt-BR', 'gmModel.hint.default'),

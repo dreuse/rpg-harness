@@ -1250,9 +1250,14 @@ test('rpg-cm63.7 page without a voice bridge keeps text play and reports voice u
 test('rpg-42a.40 desktop voice locale defaults to the campaign language when it has a voice', async () => {
   const page = fakePage();
   const voice = installedVoiceBridge();
-  mount(page, { voice: { ...DEFAULT_PREFERENCES.voice, consent: CONSENT } }, deniedMicrophone, undefined, WIDE_WIDTH, {
-    bridge: { ...page.bridge, voice: voice.bridge },
-  });
+  mount(
+    page,
+    { voice: { ...DEFAULT_PREFERENCES.voice, consent: CONSENT, spokenOutput: 'dialogue' } },
+    deniedMicrophone,
+    undefined,
+    WIDE_WIDTH,
+    { bridge: { ...page.bridge, voice: voice.bridge } },
+  );
   page.receive(READY);
   page.receive({ type: 'Campaigns', campaigns: [SNAPSHOT.campaign] });
   continueHarbor(page);

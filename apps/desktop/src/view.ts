@@ -267,11 +267,9 @@ const basicVoice = ({ preferences }: DesktopVoiceView, setup: VoiceSetupView, lo
   const on = preferences.spokenOutput !== 'off';
   const voices = setup.provider?.voices ?? [];
   const languages = [...new Set([...setup.speaking.flatMap(({ languages }) => languages), preferences.locale])];
-  return `<fieldset data-voice-basic><legend>${escapeHtml(translate(locale, 'region.voice'))}</legend>${
-    on
-      ? button(VOICE_SETUP, 'off', translate(locale, 'voice.turnOff'))
-      : button(VOICE_SETUP, 'on', translate(locale, 'voice.on'), false, true)
-  }${select(
+  const legend = `<fieldset data-voice-basic><legend>${escapeHtml(translate(locale, 'region.voice'))}</legend>`;
+  if (!on) return `${legend}${button(VOICE_SETUP, 'on', translate(locale, 'voice.on'), false, true)}</fieldset>`;
+  return `${legend}${button(VOICE_SETUP, 'off', translate(locale, 'voice.turnOff'))}${select(
     'voice-mode',
     'spokenOutput',
     translate(locale, 'voice.mode'),
@@ -394,7 +392,7 @@ const voiceProvider = (setup: VoiceSetupView, locale: string) => {
 const voiceSettings = (voice: DesktopVoiceView | undefined, setup: VoiceSetupView | undefined, locale: string) =>
   voice === undefined
     ? ''
-    : `<p data-voice-hint>${escapeHtml(translate(locale, 'voice.hint'))}</p>${setup === undefined ? '' : `${basicVoice(voice, setup, locale)}${voiceProvider(setup, locale)}`}`;
+    : `<p data-voice-hint>${escapeHtml(translate(locale, 'voice.hint'))}</p>${setup === undefined ? '' : `${basicVoice(voice, setup, locale)}${voice.preferences.spokenOutput === 'off' ? '' : voiceProvider(setup, locale)}`}`;
 
 export const SOUND_FIELD_TOGGLE = 'data-sound-toggle';
 export const SOUND_FIELD_VOLUME = 'data-sound-volume';
@@ -512,7 +510,7 @@ const settingsMenu = (
     settingsSection(
       'characters',
       translate(locale, 'voice.npcs'),
-      setup === undefined ? '' : npcVoices(setup, locale, off === true),
+      setup === undefined || off === true ? '' : npcVoices(setup, locale, false),
     ),
     settingsSection('gm', translate(locale, 'settings.section.gm'), gmSettings(model.gm, locale)),
     settingsSection(
@@ -628,7 +626,7 @@ const homeNotices = ({ error, undo, confirm }: HomeModel, locale: string) =>
 
 const homeList = (home: HomeModel, starting: boolean, locale: string) => {
   if (home.total === 0)
-    return `${empty(locale, 'campaigns')}${starting ? '' : button(START_OPEN, 'home', translate(locale, 'start.first'), false, true)}`;
+    return `${empty(locale, 'campaigns')}<p data-intro>${escapeHtml(translate(locale, 'home.intro'))}</p>${starting ? '' : button(START_OPEN, 'home', translate(locale, 'start.first'), false, true)}`;
   const search = home.search
     ? `<label for="${HOME_SEARCH}">${escapeHtml(translate(locale, 'home.search'))}</label><input id="${HOME_SEARCH}" type="search" value="${escapeHtml(home.query)}">`
     : '';
@@ -704,9 +702,9 @@ const oocProposal = (
   const summary = escapeHtml(proposal.summary);
   const note = error === undefined ? '' : `<p role="alert">${escapeHtml(error)}</p>`;
   if (status === 'applied')
-    return `<li data-ooc-status="applied">${summary}${LABEL_SEPARATOR}${escapeHtml(translate(locale, 'ooc.applied'))}</li>`;
+    return `<li data-ooc-status="applied">${escapeHtml(translate(locale, 'ooc.applied'))}${LABEL_SEPARATOR}${summary}</li>`;
   if (status === 'declined')
-    return `<li data-ooc-status="declined">${summary}${LABEL_SEPARATOR}${escapeHtml(translate(locale, 'ooc.declined'))}</li>`;
+    return `<li data-ooc-status="declined">${escapeHtml(translate(locale, 'ooc.declined'))}${LABEL_SEPARATOR}${summary}</li>`;
   const busy = status === 'applying' ? ' aria-busy="true"' : '';
   const actions =
     status === 'open'
