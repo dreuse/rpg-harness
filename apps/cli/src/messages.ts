@@ -202,6 +202,10 @@ export const CLI_CATALOG: Catalog = {
     'campaign.blankName': 'The campaign name cannot be blank.',
     'campaign.renamed': 'Renamed campaign {name} to {newName}.',
     'campaign.noScene': 'Campaign {name} has no opening scene.',
+    'campaign.openingFailed': 'The opening of campaign {name} could not be written. Run the command again to retry.',
+    'opening.default.title': 'The Crossroads Inn',
+    'opening.default.narration':
+      'Rain drums on the roof of the Crossroads Inn. A stranger by the fire looks up as you enter.',
     'sound.channel.ambience': 'ambience',
     'sound.channel.effects': 'effects',
     'sound.channel.music': 'music',
@@ -611,6 +615,11 @@ export const CLI_CATALOG: Catalog = {
     'campaign.blankName': 'O nome da campanha não pode ficar em branco.',
     'campaign.renamed': 'Campanha {name} renomeada para {newName}.',
     'campaign.noScene': 'A campanha {name} não tem cena de abertura.',
+    'campaign.openingFailed':
+      'Não foi possível escrever a abertura da campanha {name}. Execute o comando novamente para tentar de novo.',
+    'opening.default.title': 'A Estalagem da Encruzilhada',
+    'opening.default.narration':
+      'A chuva tamborila no telhado da Estalagem da Encruzilhada. Um desconhecido junto à lareira ergue os olhos quando você entra.',
     'sound.channel.ambience': 'ambiência',
     'sound.channel.effects': 'efeitos',
     'sound.channel.music': 'música',
@@ -1029,6 +1038,11 @@ export const CLI_CATALOG: Catalog = {
     'campaign.blankName': 'El nombre de la campaña no puede estar en blanco.',
     'campaign.renamed': 'La campaña {name} pasó a llamarse {newName}.',
     'campaign.noScene': 'La campaña {name} no tiene escena inicial.',
+    'campaign.openingFailed':
+      'No se pudo escribir la apertura de la campaña {name}. Ejecuta el comando de nuevo para reintentar.',
+    'opening.default.title': 'La Posada del Cruce',
+    'opening.default.narration':
+      'La lluvia repiquetea en el tejado de la Posada del Cruce. Un desconocido junto al fuego levanta la vista al entrar.',
     'sound.channel.ambience': 'ambiente',
     'sound.channel.effects': 'efectos',
     'sound.channel.music': 'música',

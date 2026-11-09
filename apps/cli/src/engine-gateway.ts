@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { closeSync, existsSync, linkSync, mkdirSync, openSync, readdirSync, rmSync, statSync } from 'node:fs';
+import { existsSync, linkSync, mkdirSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -67,6 +67,7 @@ import {
   CHECK_RESOLVED,
   CHECK_SKIPPED,
   campaignConfigOf,
+  campaignPitchOf,
   loadState,
   openScene,
   performAction,
@@ -224,13 +225,14 @@ const UNREAD_SUMMARY = {
   turnCount: 0,
 } as const;
 const RECAP_VIEW = 'recap';
-const CREATE_EXCLUSIVE = 'wx';
+const DATABASE_SIDE_FILES = ['', '-wal', '-shm', '-journal'];
 const FILE_EXISTS = 'EEXIST';
 const heroName = (locale: string) => say(locale, 'hero.default');
-const DEFAULT_OPENING: Opening = {
-  title: 'The Crossroads Inn',
-  narration: 'Rain drums on the roof of the Crossroads Inn. A stranger by the fire looks up as you enter.',
-};
+const defaultOpening = (locale: string): Opening => ({
+  title: say(locale, 'opening.default.title'),
+  narration: say(locale, 'opening.default.narration'),
+});
+const CREATING_SUFFIX = '.creating';
 const OPENING_ENTITY_ID = 'opening-scene';
 const SETTING_KIND = 'location';
 export const GENERIC_OPENING_NOTICE =
@@ -1029,6 +1031,7 @@ const playTui = async (
   rng: Rng,
   makeSpeech: MakeSpeech,
 ) => {
+  await completeCampaign(dataDir, name, gm);
   const speech = liveSpeech(dataDir, makeSpeech);
   const { session, campaignId, narrate, speakOpening, settle, close, voiceLocale } = openClientSession(
     dataDir,
@@ -1071,15 +1074,6 @@ const narrate = (actor: string, turn: Turn, locale: string, rollLines: readonly 
 
 const isFileExists = (error: unknown) => error instanceof Error && 'code' in error && error.code === FILE_EXISTS;
 
-const claimFile = (path: string, name: string) => {
-  try {
-    closeSync(openSync(path, CREATE_EXCLUSIVE));
-  } catch (error) {
-    if (isFileExists(error)) throw new LocalizedError('campaign.exists', { name });
-    throw error;
-  }
-};
-
 type Started = {
   readonly opening: Opening;
   readonly proposals: readonly GmProposal[];
@@ -1111,6 +1105,65 @@ const savePlay = (
     engine.saveGmSettings({ campaignId, actionId: randomUUID(), expectedRevision: revision(), settings: gm });
 };
 
+type Connection = ReturnType<typeof openDatabase>;
+
+const writeOpening = (
+  dataDir: string,
+  { database }: Connection,
+  campaignId: string,
+  started: Started,
+  config: CampaignConfig,
+  language: string | undefined,
+  rulesDocuments: readonly RulesDocument[] = [],
+) => {
+  const { opening, proposals, generic, pitch, usage } = started;
+  const store = createCampaignStore(database);
+  const engine = createEngine(store);
+  const committed = openScene(store, {
+    campaignId,
+    actorName: heroName(language ?? DEFAULT_LOCALE),
+    sceneTitle: opening.title,
+    ...(opening.locationKind === undefined ? {} : { locationKind: opening.locationKind }),
+    ...(opening.moodTags === undefined ? {} : { moodTags: opening.moodTags }),
+    narration: opening.narration,
+    config,
+    rulesDocuments,
+    ...(pitch === undefined ? {} : { pitch }),
+  });
+  if (usage !== undefined)
+    recordGmUsage(store, { campaignId, turnId: committed.turn.id, sessionId: randomUUID(), usage });
+  const state = engine.getState(campaignId);
+  const strictness = rulesStrictnessFor(state, readGmDefaults(dataDir));
+  const installed = installedRulesetIn(dataDir, state.events);
+  commitProposals(
+    store,
+    createEntityStore(database),
+    createFactStore(database),
+    committed,
+    proposals,
+    checkRulesFor(state.events, strictness, installed),
+    modifierPolicyOf(state.events, strictness, installed),
+    combatRulesOf(state.events, installed),
+    healTargetOf,
+  );
+  return generic
+    ? `${sceneText(opening.title, opening.narration)}\n${GENERIC_OPENING_NOTICE}`
+    : sceneText(opening.title, opening.narration);
+};
+
+const removeDatabaseFiles = (path: string) => {
+  for (const suffix of DATABASE_SIDE_FILES) rmSync(`${path}${suffix}`, { force: true });
+};
+
+const publish = (building: string, path: string, name: string) => {
+  try {
+    linkSync(building, path);
+  } catch (error) {
+    if (isFileExists(error)) throw new LocalizedError('campaign.exists', { name });
+    throw error;
+  }
+};
+
 const createCampaign = async (
   dataDir: string,
   name: string,
@@ -1122,51 +1175,62 @@ const createCampaign = async (
 ): Promise<string> => {
   mkdirSync(dataDir, { recursive: true });
   const path = databasePath(dataDir, name);
-  claimFile(path, name);
-  let connection: ReturnType<typeof openDatabase> | undefined;
+  const building = `${path}${CREATING_SUFFIX}`;
+  if (existsSync(path)) throw new LocalizedError('campaign.exists', { name });
+  removeDatabaseFiles(building);
+  let connection: Connection | undefined;
   try {
-    connection = openDatabase(path);
-    const { database } = connection;
-    const store = createCampaignStore(database);
-    const engine = createEngine(store);
+    connection = openDatabase(building);
+    const engine = createEngine(createCampaignStore(connection.database));
     const campaign = engine.createCampaign(name, language);
     savePlay(engine, campaign.id, play, language);
-    const { opening, proposals, generic, pitch, usage } = await start(path);
-    const committed = openScene(store, {
-      campaignId: campaign.id,
-      actorName: heroName(language ?? DEFAULT_LOCALE),
-      sceneTitle: opening.title,
-      ...(opening.locationKind === undefined ? {} : { locationKind: opening.locationKind }),
-      ...(opening.moodTags === undefined ? {} : { moodTags: opening.moodTags }),
-      narration: opening.narration,
+    const text = writeOpening(
+      dataDir,
+      connection,
+      campaign.id,
+      await start(building),
       config,
+      language,
       rulesDocuments,
-      ...(pitch === undefined ? {} : { pitch }),
-    });
-    if (usage !== undefined)
-      recordGmUsage(store, { campaignId: campaign.id, turnId: committed.turn.id, sessionId: randomUUID(), usage });
-    const state = engine.getState(campaign.id);
-    const strictness = rulesStrictnessFor(state, readGmDefaults(dataDir));
-    const installed = installedRulesetIn(dataDir, state.events);
-    commitProposals(
-      store,
-      createEntityStore(database),
-      createFactStore(database),
-      committed,
-      proposals,
-      checkRulesFor(state.events, strictness, installed),
-      modifierPolicyOf(state.events, strictness, installed),
-      combatRulesOf(state.events, installed),
-      healTargetOf,
     );
     connection.close();
-    return generic
-      ? `${sceneText(opening.title, opening.narration)}\n${GENERIC_OPENING_NOTICE}`
-      : sceneText(opening.title, opening.narration);
+    connection = undefined;
+    publish(building, path, name);
+    return text;
   } catch (error) {
     connection?.close();
-    rmSync(path, { force: true });
     throw error;
+  } finally {
+    removeDatabaseFiles(building);
+  }
+};
+
+const completeCampaign = async (dataDir: string, name: string, gm: GameMaster): Promise<void> => {
+  const path = databasePath(dataDir, name);
+  if (!existsSync(path)) return;
+  const connection = openDatabase(path);
+  try {
+    const row = connection.database.prepare(SELECT_CAMPAIGN_ID).get();
+    if (row === undefined) return;
+    const campaignId = String(row.id);
+    const state = createEngine(createCampaignStore(connection.database)).getState(campaignId);
+    if (state.currentScene !== undefined) return;
+    const language = campaignLanguageOf(state.changes);
+    const saved = parseCampaignConfig(campaignConfigOf(state.events));
+    const config = saved.ok ? saved.config : planCampaign(undefined, {}, packsIn(dataDir));
+    const pitch = campaignPitchOf(state.events);
+    const started = await starterFor(gm, {
+      name,
+      pitch,
+      config,
+      language,
+      model: readGmDefaults(dataDir).model,
+    })(path);
+    writeOpening(dataDir, connection, campaignId, started, config, language);
+  } catch {
+    throw new LocalizedError('campaign.openingFailed', { name });
+  } finally {
+    connection.close();
   }
 };
 
@@ -1184,7 +1248,7 @@ const isPlace = (proposal: GmProposal): proposal is EntityProposal =>
 const starterFor =
   (gm: GameMaster, { name, pitch, config, language, model }: StartRequest): Starter =>
   async (databasePath) => {
-    const opening = openingFor(config, DEFAULT_OPENING, language);
+    const opening = openingFor(config, defaultOpening(language ?? DEFAULT_LOCALE), language);
     const generic = {
       opening,
       proposals: pitch === undefined ? [] : [openingPlace(opening)],
@@ -1420,7 +1484,7 @@ const act = async (
 
 const recap = (characters: CampaignState['characters'], last: Turn | undefined, locale: string) => {
   const actor = characters.find(({ id }) => id === last?.actorId);
-  if (last === undefined || actor === undefined) return DEFAULT_OPENING.narration;
+  if (last === undefined || actor === undefined) return defaultOpening(locale).narration;
   return last.actionId === OPENING_ACTION_ID ? last.narration : narrate(actor.name, last, locale);
 };
 
@@ -1846,6 +1910,7 @@ export const createEngineGateway = (
     return launchClaude(process.env, dataDir, path);
   },
   open: async function* (name, _mode, lines, onTurnError, locale = DEFAULT_LOCALE) {
+    await completeCampaign(dataDir, name, gm);
     yield readView(dataDir, name, RECAP_VIEW, locale);
     const sessionId = randomUUID();
     let warned = false;
