@@ -333,7 +333,7 @@ const textOf = (body: unknown): string => {
 
 const toolSegmentsOf = (input: unknown, body: unknown): readonly GmSegment[] => {
   const text = isRecord(input) && typeof input.text === 'string' ? input.text.trim() : '';
-  return segmentsOf(input) ?? narratorSegments(text || plainTextOf(body) || FAKE_GM_REPLY);
+  return segmentsOf(input) ?? narratorSegments(text || textOf(body));
 };
 
 const isRetryable = (status: number) => status === TOO_MANY_REQUESTS || status >= SERVER_ERROR;

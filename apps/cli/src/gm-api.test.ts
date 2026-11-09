@@ -17,7 +17,6 @@ import {
   apiRouteOf,
   CHEAP_SUMMARY_MODEL,
   DEFAULT_GM_MODEL,
-  FAKE_GM_REPLY,
   GM_API_URL_ENV,
   GM_KEYCHAIN_ENV,
   GM_MODEL_ENV,
@@ -166,14 +165,22 @@ describe('rpg-42a.28 Anthropic Messages API narrator', () => {
     assert.equal(received[1]?.body.tools, undefined);
   });
 
-  it('rpg-cm63.3: never fails a turn for a malformed tool-only reply', async (t) => {
+  it('rpg-asjw.36: rejects a tool reply without text instead of recording a fake reply', async (t) => {
+    const inputs: readonly unknown[] = [{ segments: 'oops' }, { segments: [{ text: '  ' }, { text: '' }] }, undefined];
+    const { route } = await startProvider(
+      t,
+      inputs.map((input) => ({
+        body: JSON.stringify({ content: [{ type: 'tool_use', id: 't1', name: NARRATE_TOOL, input }] }),
+      })),
+    );
+    for (const _ of inputs) await assert.rejects(requestNarration(route, packet()), ProviderError);
+  });
+
+  it('rpg-cm63.3: recovers usable text from a malformed tool-only reply', async (t) => {
     const toolOnly = (input: unknown) => ({
       body: JSON.stringify({ content: [{ type: 'tool_use', id: 't1', name: NARRATE_TOOL, input }] }),
     });
     const cases: readonly [unknown, readonly unknown[]][] = [
-      [{ segments: 'oops' }, [{ text: FAKE_GM_REPLY }]],
-      [{ segments: [{ text: '  ' }, { text: '' }] }, [{ text: FAKE_GM_REPLY }]],
-      [undefined, [{ text: FAKE_GM_REPLY }]],
       [{ segments: [{ text: ' ' }], text: ` ${NARRATION} ` }, [{ text: NARRATION }]],
       [
         { segments: [{ speakerId: 'npc-stranger', text: NARRATION, delivery: 'loud', mood: 1 }, { speakerId: 'x' }] },
