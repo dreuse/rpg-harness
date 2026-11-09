@@ -160,26 +160,26 @@
     {
       "kind": "ambience",
       "key": "rain",
-      "file": "ambience/rain.mp3",
-      "mimeType": "audio/mpeg",
-      "url": "https://opengameart.org/sites/default/files/1_7.mp3",
-      "sourcePage": "https://opengameart.org/content/rain-loopable",
-      "author": "Ylmir",
+      "file": "ambience/rain.ogg",
+      "mimeType": "audio/ogg",
+      "url": "https://upload.wikimedia.org/wikipedia/commons/c/c9/Vichy_-_Grand_Caf%C3%A9%2C_terrasse_sous_la_gr%C3%AAle.ogv",
+      "sourcePage": "https://commons.wikimedia.org/wiki/File:Vichy_-_Grand_Caf%C3%A9,_terrasse_sous_la_gr%C3%AAle.ogv",
+      "author": "Romainbehar",
       "license": "CC0",
-      "sha256": "da5f63758a4d74e10ab9dd1b0bed62aa4c06fd960af6a7cdb83266354d75204f",
-      "bytes": 649507
+      "sha256": "76be241759873d55e7719e1a64e9620f922ff0510d7449c3727b65907426a439",
+      "bytes": 6667258
     },
     {
       "kind": "ambience",
       "key": "cave",
       "file": "ambience/cave.ogg",
       "mimeType": "audio/ogg",
-      "url": "https://opengameart.org/sites/default/files/dungeon_ambient_1.ogg",
-      "sourcePage": "https://opengameart.org/content/loopable-dungeon-ambience",
-      "author": "JaggedStone",
+      "url": "https://upload.wikimedia.org/wikipedia/commons/7/77/John_Bartmann_-_abandoned-subway-master.ogg",
+      "sourcePage": "https://commons.wikimedia.org/wiki/File:John_Bartmann_-_abandoned-subway-master.ogg",
+      "author": "John Bartmann",
       "license": "CC0",
-      "sha256": "df491823e4877371c34dbda4e9321cd83a4a14fa7573cee0ebca1ae423b70e6e",
-      "bytes": 1626352
+      "sha256": "dc9229d9b32670755fd729eb23698e8420838694e5edaf4008c993c95e5fb45a",
+      "bytes": 3388869
     },
     {
       "kind": "ambience",
@@ -198,12 +198,12 @@
       "key": "battle",
       "file": "ambience/battle.ogg",
       "mimeType": "audio/ogg",
-      "url": "https://opengameart.org/sites/default/files/crowd_shouting.ogg",
-      "sourcePage": "https://opengameart.org/content/crowd-shoutingspeaking-ambience",
-      "author": "StarNinjas",
+      "url": "https://upload.wikimedia.org/wikipedia/commons/1/15/%22Haut_ab%21%22_protest_shoutings_at_G20_protests_in_Hamburg_2017.ogg",
+      "sourcePage": "https://commons.wikimedia.org/wiki/File:%22Haut_ab!%22_protest_shoutings_at_G20_protests_in_Hamburg_2017.ogg",
+      "author": "Leonhard Lenz",
       "license": "CC0",
-      "sha256": "a2c23a64c127c77717cbe4abb21f138bac9d9aa6cb3cc89d62bab5d0d96dd7ca",
-      "bytes": 335526
+      "sha256": "e69488d82363ddb118d2033cc7941af33b50fefa1d29dd9771659590462d3a9b",
+      "bytes": 1710216
     },
     {
       "kind": "ambience",

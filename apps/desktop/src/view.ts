@@ -416,7 +416,10 @@ const sourceHosts = (sources: string) =>
     .map((source) => URL.parse(source)?.host ?? source)
     .join(', ');
 
-const soundSetupBody = ({ step, installed, offer, progress, retryMinutes }: SoundSetupView, locale: string) => {
+const soundSetupBody = (
+  { step, installed, offer, progress, retryMinutes, unavailable }: SoundSetupView,
+  locale: string,
+) => {
   const text = (key: string, values?: Record<string, string | number>, status = false) =>
     `<p${status ? ' role="status" tabindex="-1"' : ''}>${escapeHtml(translate(locale, key, values))}</p>`;
   const download = button(SOUND_SETUP, 'download', translate(locale, 'sound.setup.download'));
@@ -427,7 +430,7 @@ const soundSetupBody = ({ step, installed, offer, progress, retryMinutes }: Soun
   if (step === 'failed') {
     const message =
       retryMinutes === undefined
-        ? translate(locale, 'sound.setup.failed')
+        ? translate(locale, unavailable ? 'sound.setup.unavailable' : 'sound.setup.failed')
         : translate(locale, 'sound.setup.busy', { minutes: retryMinutes });
     return `${alert(message)}${download}`;
   }

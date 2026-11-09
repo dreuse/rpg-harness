@@ -222,6 +222,10 @@ export const CLI_CATALOG: Catalog = {
     'sound.installedNo': 'no (run sound --download)',
     'sound.offer': 'Download {size} MiB of CC0 sounds from {source}. Run again with --download --yes to accept.',
     'sound.downloaded': 'Downloaded and verified the sounds.',
+    'sound.unavailable.download':
+      'Some sounds could not be downloaded from their host, and retrying will not help until the pack is updated: {reason}',
+    'sound.busy': 'The sound host is busy. Try again in about {minutes} minutes.',
+    'sound.failed': 'The sound download failed: {reason}',
     'voiceModel.offer':
       'Download {size} MiB of Brazilian Portuguese voice files from {source}. Run again with --yes to accept.',
     'voiceModel.downloaded': 'Downloaded and verified the voice files.',
@@ -636,6 +640,10 @@ export const CLI_CATALOG: Catalog = {
     'sound.installedNo': 'não (execute sound --download)',
     'sound.offer': 'Baixe {size} MiB de sons CC0 de {source}. Execute de novo com --download --yes para aceitar.',
     'sound.downloaded': 'Sons baixados e verificados.',
+    'sound.unavailable.download':
+      'Alguns sons não puderam ser baixados do servidor, e tentar de novo não ajuda até o pacote ser atualizado: {reason}',
+    'sound.busy': 'O servidor de sons está ocupado. Tente novamente em cerca de {minutes} minutos.',
+    'sound.failed': 'O download dos sons falhou: {reason}',
     'voiceModel.offer':
       'Baixe {size} MiB de arquivos de voz em português do Brasil de {source}. Execute de novo com --yes para aceitar.',
     'voiceModel.downloaded': 'Arquivos de voz baixados e verificados.',
@@ -1060,6 +1068,10 @@ export const CLI_CATALOG: Catalog = {
     'sound.offer':
       'Descarga {size} MiB de sonidos CC0 desde {source}. Ejecuta de nuevo con --download --yes para aceptar.',
     'sound.downloaded': 'Sonidos descargados y verificados.',
+    'sound.unavailable.download':
+      'Algunos sonidos no se pudieron descargar del servidor, y reintentar no ayudará hasta que se actualice el paquete: {reason}',
+    'sound.busy': 'El servidor de sonidos está ocupado. Inténtalo de nuevo en unos {minutes} minutos.',
+    'sound.failed': 'Falló la descarga de los sonidos: {reason}',
     'voiceModel.offer':
       'Descarga {size} MiB de archivos de voz en portugués de Brasil desde {source}. Ejecuta de nuevo con --yes para aceptar.',
     'voiceModel.downloaded': 'Archivos de voz descargados y verificados.',

@@ -3,6 +3,12 @@ import { join } from 'node:path';
 import { createSoundManager } from '../../../packages/voice/src/sound-downloader.ts';
 import { loadBundledManifest, type SoundEntry } from '../../../packages/voice/src/sound-manifest.ts';
 import {
+  parseRateLimited,
+  parseUnavailable,
+  retryMinutes,
+  stripUnavailableCode,
+} from '../../../packages/voice/src/sound-rate-limit.ts';
+import {
   isVolume,
   SOUND_CHANNELS,
   type SoundChannel,
@@ -74,6 +80,14 @@ const statusLines = (settings: SoundSettings, installed: boolean, locale: string
   say(locale, 'sound.installed', { answer: say(locale, installed ? 'sound.installedYes' : 'sound.installedNo') }),
 ];
 
+const downloadFailure = (error: unknown, locale: string): string => {
+  const message = error instanceof Error ? error.message : String(error);
+  const seconds = parseRateLimited(message);
+  if (seconds !== undefined) return say(locale, 'sound.busy', { minutes: retryMinutes(seconds) });
+  const reason = stripUnavailableCode(message);
+  return say(locale, parseUnavailable(message) ? 'sound.unavailable.download' : 'sound.failed', { reason });
+};
+
 export async function* soundCommand(
   dataDir: string,
   request: SoundRequest,
@@ -99,9 +113,15 @@ export async function* soundCommand(
     const { sizeMiB, source } = manager.offer;
     yield say(locale, 'sound.offer', { size: sizeMiB, source });
   }
+  let failure: string | undefined;
   if (request.download && request.accept) {
-    await manager.download({ ...manager.offer, accepted: true });
-    yield say(locale, 'sound.downloaded');
+    try {
+      await manager.download({ ...manager.offer, accepted: true });
+      yield say(locale, 'sound.downloaded');
+    } catch (error) {
+      failure = downloadFailure(error, locale);
+    }
   }
   for (const line of statusLines(next, (await manager.status()).installed, locale)) yield line;
+  if (failure !== undefined) throw new Error(failure);
 }

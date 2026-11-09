@@ -127,3 +127,9 @@ test('every shipped ambience key is the target of a base mapping', () => {
     [],
   );
 });
+
+const BLOCKED_HOST = 'opengameart.org';
+
+test('no bundled sound is hosted on a site that blocks automated clients', () => {
+  for (const { url } of loadBundledManifest()) assert.notEqual(new URL(url).hostname, BLOCKED_HOST, url);
+});

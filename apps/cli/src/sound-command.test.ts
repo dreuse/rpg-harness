@@ -94,7 +94,21 @@ test('a failed checksum is reported and nothing is installed', async () => {
   const evil: typeof fetch = async () => new Response(new TextEncoder().encode('evil'));
   await assert.rejects(
     collect(soundCommand(dir, { ...none, download: true, accept: true }, { sounds: SOUNDS, fetch: evil })),
-    /checksum mismatch/,
+    /The sound download failed: .*checksum mismatch/,
+  );
+});
+
+test('a permanent 403 is reported in pt-BR without the internal code or a connection hint', async () => {
+  const dir = await tempDir();
+  const blocked: typeof fetch = async () => new Response(null, { status: 403 });
+  await assert.rejects(
+    collect(
+      soundCommand(dir, { ...none, download: true, accept: true }, { sounds: SOUNDS, fetch: blocked, locale: 'pt-BR' }),
+    ),
+    (error: Error) =>
+      /Alguns sons não puderam ser baixados do servidor/.test(error.message) &&
+      /HTTP 403/.test(error.message) &&
+      !/sound-unavailable|conexão/.test(error.message),
   );
 });
 

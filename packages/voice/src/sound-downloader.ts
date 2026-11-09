@@ -4,8 +4,9 @@ import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { consented, type ModelConsent, type ModelOffer, type ModelStatus } from './kokoro-model.ts';
+import { layerId } from './sound-controller.ts';
 import type { SoundEntry, SoundKind } from './sound-manifest.ts';
-import { DEFAULT_RETRY_AFTER_SECONDS, SoundRateLimitedError } from './sound-rate-limit.ts';
+import { DEFAULT_RETRY_AFTER_SECONDS, SoundRateLimitedError, unavailableMessage } from './sound-rate-limit.ts';
 
 export interface SoundManagerOptions {
   readonly dir: string;
@@ -14,9 +15,28 @@ export interface SoundManagerOptions {
   readonly sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
 }
 
+export interface SoundStatus extends ModelStatus {
+  readonly available: readonly string[];
+}
+
+class SoundHttpError extends Error {
+  readonly status: number;
+
+  constructor(file: string, status: number) {
+    super(`sound download failed: ${file} (HTTP ${status})`);
+    this.status = status;
+  }
+}
+
+const isPermanent = (error: unknown): boolean =>
+  error instanceof SoundHttpError &&
+  error.status >= HTTP_CLIENT_ERROR_MIN &&
+  error.status < HTTP_SERVER_ERROR_MIN &&
+  !RETRYABLE_STATUSES.has(error.status);
+
 export interface SoundManager {
   readonly offer: ModelOffer;
-  status(): Promise<ModelStatus>;
+  status(): Promise<SoundStatus>;
   pathOf(kind: SoundKind, key: string): string | undefined;
   download(consent: ModelConsent, signal?: AbortSignal, onProgress?: (bytes: number) => void): Promise<void>;
   remove(): Promise<void>;
@@ -35,6 +55,9 @@ const LOCATION = 'location';
 const RETRY_AFTER = 'retry-after';
 const USER_AGENT = 'user-agent';
 const RETRYABLE_STATUSES: ReadonlySet<number> = new Set([429, 503]);
+const HTTP_CLIENT_ERROR_MIN = 400;
+const HTTP_SERVER_ERROR_MIN = 500;
+const FAILURE_SEPARATOR = '; ';
 const MAX_WAIT_SECONDS = 60;
 const MS_PER_SECOND = 1000;
 const APP_NAME = 'RPGHarness';
@@ -134,7 +157,7 @@ export const createSoundManager = ({
 
   const downloadOne = async (sound: SoundEntry, signal: AbortSignal | undefined): Promise<Uint8Array> => {
     const response = await fetchFollowing(sound, signal);
-    if (!response.ok) throw new Error(`sound download failed: ${sound.file} (HTTP ${response.status})`);
+    if (!response.ok) throw new SoundHttpError(sound.file, response.status);
     const declared = response.headers.get(CONTENT_LENGTH);
     if (declared !== null && Number(declared) !== sound.bytes) {
       throw new Error(`sound content-length ${declared} differs from expected ${sound.bytes}: ${sound.file}`);
@@ -165,6 +188,7 @@ export const createSoundManager = ({
       return {
         installed: intact.every(Boolean),
         bytes: sizes.reduce<number>((sum, size) => sum + (size ?? 0), 0),
+        available: sounds.filter((_, index) => intact[index]).map(({ kind, key }) => layerId(kind, key)),
       };
     },
     pathOf: (kind, key) => {
@@ -176,12 +200,23 @@ export const createSoundManager = ({
         throw new Error('sound download needs explicit consent to the offered size and source');
       }
       let total = 0;
+      const failures: unknown[] = [];
       for (const sound of sounds) {
         if (await verified(target(sound), sound)) continue;
-        await install(sound, await downloadOne(sound, signal));
+        try {
+          await install(sound, await downloadOne(sound, signal));
+        } catch (error) {
+          if (signal?.aborted || error instanceof SoundRateLimitedError) throw error;
+          failures.push(error);
+          continue;
+        }
         total += sound.bytes;
         onProgress?.(total);
       }
+      if (failures.length === 0) return;
+      const details = failures.map((error) => (error instanceof Error ? error.message : String(error)));
+      const message = details.join(FAILURE_SEPARATOR);
+      throw new Error(failures.every(isPermanent) ? unavailableMessage(message) : message);
     },
     remove: () => rm(dir, { recursive: true, force: true }),
   };

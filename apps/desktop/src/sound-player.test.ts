@@ -461,3 +461,25 @@ test('rpg-cm63.41 persisted tags are used and the title is only the fallback', (
   assert.deepEqual(sceneSoundInput('Docks'), { location: 'docks', mood: ['docks'] });
   assert.deepEqual(sceneSoundInput('Moon Base'), { location: '', mood: ['moon', 'base'] });
 });
+
+test('rpg-asjw.19 plays a layer whose file is installed even when the pack is incomplete', async () => {
+  const audio = fakeContext();
+  const time = fakeClock();
+  const requested: string[] = [];
+  const bridge: Pick<SoundBridge, 'status' | 'file'> = {
+    status: async () => ({
+      installed: false,
+      bytes: 0,
+      available: ['music:calm'],
+      offer: { source: '', bytes: 0, sizeMiB: 0 },
+    }),
+    file: async (kind, key) => {
+      requested.push(`${kind}:${key}`);
+      return bytesOf(`${kind}:${key}`);
+    },
+  };
+  const sound = createDesktopSound({ bridge, context: audio.make, clock: time.clock });
+  sound.update(MUSIC_ON, QUIET_SCENE);
+  await flush();
+  assert.deepEqual(requested, ['music:calm']);
+});

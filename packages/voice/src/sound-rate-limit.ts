@@ -20,3 +20,13 @@ export const parseRateLimited = (message: string): number | undefined => {
 };
 
 export const retryMinutes = (seconds: number): number => Math.ceil(seconds / SECONDS_PER_MINUTE);
+
+const UNAVAILABLE_CODE = 'sound-unavailable';
+
+export const unavailableMessage = (details: string): string => `${UNAVAILABLE_CODE}: ${details}`;
+
+const UNAVAILABLE_PATTERN = new RegExp(`${UNAVAILABLE_CODE}: `);
+
+export const parseUnavailable = (message: string): boolean => UNAVAILABLE_PATTERN.test(message);
+
+export const stripUnavailableCode = (message: string): string => message.replace(UNAVAILABLE_PATTERN, '');

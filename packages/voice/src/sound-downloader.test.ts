@@ -6,7 +6,13 @@ import { join } from 'node:path';
 import { afterEach, test } from 'node:test';
 import { createSoundManager, SOUND_USER_AGENT } from './sound-downloader.ts';
 import type { SoundEntry } from './sound-manifest.ts';
-import { DEFAULT_RETRY_AFTER_SECONDS, parseRateLimited, SoundRateLimitedError } from './sound-rate-limit.ts';
+import {
+  DEFAULT_RETRY_AFTER_SECONDS,
+  parseRateLimited,
+  parseUnavailable,
+  SoundRateLimitedError,
+  unavailableMessage,
+} from './sound-rate-limit.ts';
 
 const CONTENT = new TextEncoder().encode('loop-audio');
 const TAMPERED = new TextEncoder().encode('evil-audio');
@@ -68,7 +74,7 @@ test('downloads once with consent, verifies sha256 and reports installed sounds'
   const path = manager.pathOf('music', 'calm');
   assert.equal(path, join(dir, 'music/calm.ogg'));
   assert.deepEqual(new Uint8Array(await readFile(path ?? '')), CONTENT);
-  assert.deepEqual(await manager.status(), { installed: true, bytes: CONTENT.length });
+  assert.deepEqual(await manager.status(), { installed: true, bytes: CONTENT.length, available: ['music:calm'] });
   assert.deepEqual(progress, [CONTENT.length]);
 });
 
@@ -90,7 +96,7 @@ test('rejects and removes a file whose sha256 does not match', async () => {
   const manager = createSoundManager({ dir, sounds: SOUNDS, fetch: serving(TAMPERED) });
   await assert.rejects(manager.download({ ...manager.offer, accepted: true }), /checksum mismatch/);
   assert.equal(manager.pathOf('music', 'calm'), undefined);
-  assert.deepEqual(await manager.status(), { installed: false, bytes: 0 });
+  assert.deepEqual(await manager.status(), { installed: false, bytes: 0, available: [] });
 });
 
 test('fails on an HTTP error without leaving files', async () => {
@@ -136,7 +142,7 @@ test('refuses a body larger than the manifest size', async () => {
   const oversized = new TextEncoder().encode('loop-audio-and-more');
   const manager = createSoundManager({ dir: await tempDir(), sounds: SOUNDS, fetch: serving(oversized) });
   await assert.rejects(manager.download(consent(manager)), /larger than/);
-  assert.deepEqual(await manager.status(), { installed: false, bytes: 0 });
+  assert.deepEqual(await manager.status(), { installed: false, bytes: 0, available: [] });
 });
 
 test('follows https redirects manually', async () => {
@@ -189,10 +195,10 @@ test('status and download treat a same-size file with wrong content as not insta
   const manager = createSoundManager({ dir, sounds: SOUNDS, fetch: serving(CONTENT) });
   await manager.download(consent(manager));
   await writeFile(join(dir, 'music/calm.ogg'), TAMPERED);
-  assert.deepEqual(await manager.status(), { installed: false, bytes: TAMPERED.length });
+  assert.deepEqual(await manager.status(), { installed: false, bytes: TAMPERED.length, available: [] });
   await manager.download(consent(manager));
   assert.deepEqual(new Uint8Array(await readFile(join(dir, 'music/calm.ogg'))), CONTENT);
-  assert.deepEqual(await manager.status(), { installed: true, bytes: CONTENT.length });
+  assert.deepEqual(await manager.status(), { installed: true, bytes: CONTENT.length, available: ['music:calm'] });
 });
 
 const RATE_LIMITED = 429;
@@ -302,4 +308,88 @@ test('keeps verified files after a mid-manifest rate limit so a retry resumes', 
   await manager.download(consent(manager));
   assert.deepEqual(requested, ['https://sounds.example/storm.ogg']);
   assert.equal((await manager.status()).installed, true);
+});
+
+const FORBIDDEN = 403;
+const SERVER_ERROR = 500;
+const SECOND = new TextEncoder().encode('second-audio');
+const TWO_SOUNDS: readonly SoundEntry[] = [
+  {
+    ...SOUNDS[0]!,
+    kind: 'ambience',
+    key: 'rain',
+    file: 'ambience/rain.ogg',
+    url: 'https://blocked.example/rain.ogg',
+  },
+  {
+    ...SOUNDS[0]!,
+    kind: 'ambience',
+    key: 'storm',
+    file: 'ambience/storm.ogg',
+    url: 'https://sounds.example/storm.ogg',
+    sha256: sha256(SECOND),
+    bytes: SECOND.length,
+  },
+];
+const blockingRain: typeof fetch = async (input) =>
+  String(input).includes('blocked.example') ? new Response(null, { status: FORBIDDEN }) : new Response(SECOND);
+
+test('keeps downloading after a failed file, then reports every failure', async () => {
+  const manager = createSoundManager({ dir: await tempDir(), sounds: TWO_SOUNDS, fetch: blockingRain });
+  await assert.rejects(manager.download(consent(manager)), /ambience\/rain\.ogg \(HTTP 403\)/);
+  assert.notEqual(manager.pathOf('ambience', 'storm'), undefined);
+  assert.equal(manager.pathOf('ambience', 'rain'), undefined);
+});
+
+test('status lists each intact file even when the pack is incomplete', async () => {
+  const manager = createSoundManager({ dir: await tempDir(), sounds: TWO_SOUNDS, fetch: blockingRain });
+  await manager.download(consent(manager)).catch(() => undefined);
+  const status = await manager.status();
+  assert.equal(status.installed, false);
+  assert.deepEqual(status.available, ['ambience:storm']);
+});
+
+test('marks a failure unavailable only when every failed file is a permanent client error', async () => {
+  const manager = createSoundManager({ dir: await tempDir(), sounds: TWO_SOUNDS, fetch: blockingRain });
+  const failure = await manager.download(consent(manager)).catch((error: Error) => error);
+  assert.ok(failure instanceof Error);
+  assert.equal(parseUnavailable(failure.message), true);
+  const flaky = createSoundManager({
+    dir: await tempDir(),
+    sounds: SOUNDS,
+    fetch: async () => new Response(null, { status: SERVER_ERROR }),
+  });
+  const transient = await flaky.download(consent(flaky)).catch((error: Error) => error);
+  assert.ok(transient instanceof Error);
+  assert.equal(parseUnavailable(transient.message), false);
+});
+
+test('an abort stops the remaining files at once', async () => {
+  const controller = new AbortController();
+  const requested: string[] = [];
+  const aborting: typeof fetch = async (input) => {
+    requested.push(String(input));
+    controller.abort();
+    throw controller.signal.reason;
+  };
+  const manager = createSoundManager({ dir: await tempDir(), sounds: TWO_SOUNDS, fetch: aborting });
+  await assert.rejects(manager.download(consent(manager), controller.signal));
+  assert.equal(requested.length, 1);
+});
+
+test('a rate limit stops the remaining files at once', async () => {
+  const requested: string[] = [];
+  const limited: typeof fetch = async (input) => {
+    requested.push(String(input));
+    return new Response(null, { status: RATE_LIMITED, headers: { 'retry-after': String(LONG_WAIT_SECONDS) } });
+  };
+  const manager = createSoundManager({ dir: await tempDir(), sounds: TWO_SOUNDS, fetch: limited, sleep: noSleep });
+  await assert.rejects(manager.download(consent(manager)), SoundRateLimitedError);
+  assert.equal(requested.length, 1);
+});
+
+test('recognises the unavailable code inside an Electron-wrapped invoke error', () => {
+  const wrapped = `Error invoking remote method 'sound:download': Error: ${unavailableMessage('sound download failed: a (HTTP 403)')}`;
+  assert.equal(parseUnavailable(wrapped), true);
+  assert.equal(parseUnavailable("Error invoking remote method 'x': Error: offline"), false);
 });

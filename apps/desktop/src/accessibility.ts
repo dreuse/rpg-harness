@@ -317,6 +317,8 @@ export const CATALOG: Catalog = {
     'sound.setup.downloading': 'Downloading the sound pack',
     'sound.setup.installed': 'Sound pack installed',
     'sound.setup.failed': 'The sound pack download failed. Check your connection and try again.',
+    'sound.setup.unavailable':
+      'Some sounds could not be downloaded from their host. Retrying will not help until the pack is updated.',
     'sound.setup.busy': 'The sound host is busy. Try again in about {minutes} minutes.',
     'voice.provider': 'Voice provider',
     'voice.npcs': 'Character voices',
@@ -678,6 +680,8 @@ export const CATALOG: Catalog = {
     'sound.setup.downloading': 'Descargando el paquete de sonido',
     'sound.setup.installed': 'Paquete de sonido instalado',
     'sound.setup.failed': 'Falló la descarga del paquete de sonido. Revisa tu conexión e inténtalo de nuevo.',
+    'sound.setup.unavailable':
+      'Algunos sonidos no se pudieron descargar del servidor. Reintentar no ayudará hasta que se actualice el paquete.',
     'sound.setup.busy': 'El servidor de sonidos está ocupado. Inténtalo de nuevo en unos {minutes} minutos.',
     'voice.provider': 'Proveedor de voz',
     'voice.npcs': 'Voces de personajes',
@@ -976,6 +980,8 @@ export const CATALOG: Catalog = {
     'sound.setup.downloading': 'Baixando o pacote de som',
     'sound.setup.installed': 'Pacote de som instalado',
     'sound.setup.failed': 'O download do pacote de som falhou. Verifique a conexão e tente novamente.',
+    'sound.setup.unavailable':
+      'Alguns sons não puderam ser baixados do servidor. Tentar de novo não ajuda até o pacote ser atualizado.',
     'sound.setup.busy': 'O servidor de sons está ocupado. Tente novamente em cerca de {minutes} minutos.',
     'voice.provider': 'Provedor de voz',
     'voice.npcs': 'Vozes dos personagens',

@@ -1,5 +1,5 @@
 import type { ModelOffer } from '../../../packages/voice/src/kokoro-model.ts';
-import { parseRateLimited, retryMinutes } from '../../../packages/voice/src/sound-rate-limit.ts';
+import { parseRateLimited, parseUnavailable, retryMinutes } from '../../../packages/voice/src/sound-rate-limit.ts';
 import type { SoundBridge } from './sound-player.ts';
 
 export type SoundSetupStep = 'idle' | 'consent' | 'downloading' | 'failed';
@@ -9,6 +9,7 @@ export type SoundSetupView = {
   readonly installed: boolean;
   readonly offer?: ModelOffer;
   readonly retryMinutes?: number;
+  readonly unavailable?: boolean;
   readonly progress?: { readonly bytes: number; readonly total: number };
 };
 
@@ -26,6 +27,7 @@ export const createSoundSetup = ({
   let offer: ModelOffer | undefined;
   let progress: SoundSetupView['progress'];
   let retry: number | undefined;
+  let unavailable = false;
 
   const go = (next: SoundSetupStep) => {
     step = next;
@@ -60,12 +62,15 @@ export const createSoundSetup = ({
       if (step !== 'consent' || offer === undefined) return;
       progress = { bytes: 0, total: offer.bytes };
       retry = undefined;
+      unavailable = false;
       go('downloading');
       try {
         await bridge.download({ accepted: true, ...offer });
       } catch (error) {
         progress = undefined;
-        const seconds = parseRateLimited(error instanceof Error ? error.message : '');
+        const message = error instanceof Error ? error.message : '';
+        const seconds = parseRateLimited(message);
+        unavailable = parseUnavailable(message);
         retry = seconds === undefined ? undefined : retryMinutes(seconds);
         await refresh();
         return go('failed');
@@ -80,6 +85,7 @@ export const createSoundSetup = ({
       installed: present,
       ...(offer === undefined ? {} : { offer }),
       ...(retry === undefined ? {} : { retryMinutes: retry }),
+      ...(unavailable ? { unavailable } : {}),
       ...(progress === undefined ? {} : { progress }),
     }),
   };

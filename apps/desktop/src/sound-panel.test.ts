@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { SoundRateLimitedError } from '../../../packages/voice/src/sound-rate-limit.ts';
+import { SoundRateLimitedError, unavailableMessage } from '../../../packages/voice/src/sound-rate-limit.ts';
 import { DEFAULT_SOUND_SETTINGS } from '../../../packages/voice/src/sound-settings.ts';
 import { DEFAULT_PREFERENCES, parsePreferences, persistedPreferences } from './accessibility.ts';
 import { initialState, viewModel } from './renderer.ts';
@@ -203,4 +203,26 @@ test('the setup control is in the settings menu', async () => {
     soundSetup: setup.view(),
   };
   assert.match(renderView(model, 'en', undefined, undefined, undefined), /data-sound-setup="download"/);
+});
+
+test('a permanent client error tells the player the sounds are unavailable, not to check the connection', async () => {
+  const fake = fakeBridge();
+  fake.failNext(
+    new Error(
+      `Error invoking remote method 'sound:download': Error: ${unavailableMessage('sound download failed: ambience/rain.mp3 (HTTP 403)')}`,
+    ),
+  );
+  const { setup } = await setupOf(fake);
+  setup.ask();
+  await setup.accept();
+  assert.equal(setup.view().unavailable, true);
+  for (const [locale, pattern] of [
+    ['en', /could not be downloaded from their host/],
+    ['pt-BR', /não puderam ser baixados do servidor/],
+    ['es', /no se pudieron descargar del servidor/],
+  ] as const) {
+    const page = soundPanel(DEFAULT_SOUND_SETTINGS, locale, setup.view());
+    assert.match(page, pattern);
+    assert.doesNotMatch(page, /connection|conexão|conexión/);
+  }
 });

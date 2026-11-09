@@ -7,6 +7,7 @@ import { isConsent } from './voice-host.ts';
 export type SoundHostStatus = {
   readonly installed: boolean;
   readonly bytes: number;
+  readonly available?: readonly string[];
   readonly offer: ModelOffer;
 };
 

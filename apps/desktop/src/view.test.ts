@@ -1234,7 +1234,7 @@ test('rpg-cm63.69 sound consent lists each source host separately', () => {
   const html = soundPanel(SOUND_MUSIC_ON, 'en', {
     step: 'consent',
     installed: false,
-    offer: { source: 'https://upload.wikimedia.org, https://opengameart.org', sizeMiB: 3, bytes: 3_000_000 },
+    offer: { source: 'https://upload.wikimedia.org, https://sounds.example', sizeMiB: 3, bytes: 3_000_000 },
   } as never);
-  assert.match(html, /Source: upload\.wikimedia\.org, opengameart\.org\./);
+  assert.match(html, /Source: upload\.wikimedia\.org, sounds\.example\./);
 });

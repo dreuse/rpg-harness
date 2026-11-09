@@ -2,10 +2,12 @@ import type { AmbientSink } from '../../../packages/voice/src/ambience.ts';
 import type { ModelConsent } from '../../../packages/voice/src/kokoro-model.ts';
 import {
   createSoundController,
+  layerId,
   SCENE_EFFECT,
   type SoundClock,
   type SoundController,
 } from '../../../packages/voice/src/sound-controller.ts';
+import type { SoundKind } from '../../../packages/voice/src/sound-manifest.ts';
 import { type SceneSoundInput, sceneSoundOf } from '../../../packages/voice/src/sound-selection.ts';
 import { type SoundSettings, soundEnabled } from '../../../packages/voice/src/sound-settings.ts';
 import type { SoundHostStatus } from './sound-host.ts';
@@ -137,6 +139,7 @@ export const createDesktopSound = ({
 }): DesktopSound => {
   let running: { readonly controller: SoundController; readonly sink: WebAudioSink } | undefined;
   let installed = false;
+  let availableIds: ReadonlySet<string> = new Set();
   let silenced = false;
   let talking = false;
   let narrating = false;
@@ -145,12 +148,14 @@ export const createDesktopSound = ({
   let sceneId: string | undefined;
   let chimedScene: string | undefined;
 
+  const isAvailable = (kind: SoundKind, key: string): boolean => installed || availableIds.has(layerId(kind, key));
+
   const sync = (): void => {
     if (running === undefined || settings === undefined) return;
     const { controller } = running;
     controller.apply(settings);
     if (scene !== undefined) controller.setScene(scene);
-    if (installed && sceneId !== undefined && sceneId !== chimedScene) {
+    if (isAvailable('effect', SCENE_EFFECT) && sceneId !== undefined && sceneId !== chimedScene) {
       chimedScene = sceneId;
       controller.effect(SCENE_EFFECT);
     }
@@ -162,11 +167,12 @@ export const createDesktopSound = ({
   const checkInstalled = (started: NonNullable<typeof running>): Promise<void> =>
     bridge
       .status()
-      .then(({ installed: present }) => present)
-      .catch(() => false)
-      .then((present) => {
+      .then(({ installed: present, available = [] }) => ({ present, available }))
+      .catch(() => ({ present: false, available: [] as readonly string[] }))
+      .then(({ present, available }) => {
         if (running !== started) return;
         installed = present;
+        availableIds = new Set(available);
         sync();
       });
 
@@ -175,7 +181,7 @@ export const createDesktopSound = ({
       context,
       load: (kind, key) => bridge.file(kind, key).catch(() => undefined),
     });
-    const controller = createSoundController({ sink, clock, available: () => installed });
+    const controller = createSoundController({ sink, clock, available: isAvailable });
     const started = { controller, sink };
     running = started;
     silenced = false;
