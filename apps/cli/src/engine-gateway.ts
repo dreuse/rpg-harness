@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { setTimeout as delay } from 'node:timers/promises';
 import { budgetWarning, gmSettingsLines, gmUsageLines } from '../../../packages/client-protocol/src/gm-usage.ts';
+import { parseOocInput } from '../../../packages/client-protocol/src/ooc.ts';
 import {
   type CampaignHealth,
   type CampaignPlay,
@@ -1536,6 +1537,29 @@ const act = async (
   }
 };
 
+const answerOoc = async (
+  dataDir: string,
+  name: string,
+  text: string,
+  gm: GameMaster,
+  rng: Rng,
+  locale: string,
+): Promise<string> => {
+  const opened = openClientSession(dataDir, name, gm, rng, undefined, locale);
+  try {
+    const reply = await opened.session.submitOocMessage({
+      version: PROTOCOL_VERSION,
+      type: 'SubmitOocMessage',
+      campaignId: opened.campaignId,
+      actionId: randomUUID(),
+      text,
+    });
+    return reply.ok ? say(locale, 'tui.oocReply', { reply: reply.value.reply }) : reply.error.message;
+  } finally {
+    opened.close();
+  }
+};
+
 const recap = (characters: CampaignState['characters'], last: Turn | undefined, locale: string) => {
   const actor = characters.find(({ id }) => id === last?.actorId);
   if (last === undefined || actor === undefined) return defaultOpening(locale).narration;
@@ -1544,7 +1568,7 @@ const recap = (characters: CampaignState['characters'], last: Turn | undefined, 
 
 const savedSettings = (events: CampaignState['events'], locale: string) => {
   const saved = parseCampaignConfig(campaignConfigOf(events));
-  return saved.ok ? [describeConfig(saved.config, locale)] : [];
+  return saved.ok ? [describeConfig(saved.config, locale, true)] : [];
 };
 
 const recapText = (name: string, state: CampaignState, locale: string) =>
@@ -1696,10 +1720,10 @@ export const renameCampaign = (dataDir: string, name: string, newName: string) =
   return title;
 };
 
-const deletionGuidance = (name: string, path: string, archived: boolean, locale: string) =>
+const deletionGuidance = (name: string, archived: boolean, locale: string) =>
   [
     say(locale, 'delete.warning', { name }),
-    say(locale, 'delete.backup', { file: path }),
+    say(locale, 'delete.backup', { name }),
     ...(archived ? [] : [say(locale, 'delete.archiveHint', { name })]),
     say(locale, 'delete.confirm', { name }),
   ].join('\n');
@@ -1781,7 +1805,7 @@ export const createCampaignFrom = async (
 
 const remove = async function* (dataDir: string, name: string, lines: AsyncIterable<string>, locale: string) {
   const { path, archived } = savedFile(dataDir, name);
-  yield deletionGuidance(name, path, archived, locale);
+  yield deletionGuidance(name, archived, locale);
   let answer: string | undefined;
   for await (const line of lines) {
     answer = line.trim();
@@ -1967,7 +1991,7 @@ export const createEngineGateway = (
     const notes = pitchNotes(pitch, shown, packsIn(dataDir))
       .map((note) => `${note}\n`)
       .join('');
-    yield `${derived ? `${say(shown, 'campaign.created', { title })}\n${say(shown, 'campaign.keepName')}\n` : ''}${notes}${say(shown, 'campaign.savedSettings')}\n${describeConfig(config, shown)}\n${scene}`;
+    yield `${derived ? `${say(shown, 'campaign.created', { title })}\n${say(shown, 'campaign.keepName')}\n` : ''}${notes}${say(shown, 'campaign.savedSettings')}\n${describeConfig(config, shown, true)}\n${scene}`;
     const character = await characterFor(dataDir, title, config, ask, shown);
     if (character !== undefined) yield character;
   },
@@ -2002,6 +2026,11 @@ export const createEngineGateway = (
       for (let line = await nextLine(); line !== undefined; line = await nextLine()) {
         const input = line.trim();
         if (input === '') continue;
+        const oocText = parseOocInput(input);
+        if (oocText !== undefined) {
+          yield await answerOoc(dataDir, name, oocText, gm, rng, locale);
+          continue;
+        }
         let acted: Acted | Asking;
         try {
           acted = await act(dataDir, name, input, gm, rng, sessionId, locale);

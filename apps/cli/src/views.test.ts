@@ -431,7 +431,7 @@ test('a gm-only stored profile stays hidden even after character creation', () =
     seed(dataDir, GM);
     createHero(dataDir, 'Wren');
     const sheet = await run(dataDir, ['sheet', CAMPAIGN]);
-    assert.match(sheet, /^Wren\nNo character sheet yet\./);
+    assert.match(sheet, /^No character sheet yet\.\n?$/);
     assert.doesNotMatch(sheet, /SECRET_TRAIT/);
   }));
 
@@ -1014,6 +1014,7 @@ test('rpg-asjw.14: the journal names people met, things found and outcomes, neve
       introduced('v1', 'p1', 'npc', 'Mara'),
       introduced('v2', 'p2', 'item', 'Brass key'),
       introduced('v3', 'p3', 'npc', 'Secret Villain'),
+      introduced('v6', 'p2', 'location', 'Old Farm'),
       event('v4', 't2', 'CheckResolved', { resolution: { events: [{ event: 'check.success' }] } }),
       event('v5', 'p4', 'QuestCompleted', { questId: 'q', outcome: 'ok' }),
     ],
@@ -1032,12 +1033,13 @@ test('rpg-asjw.14: the journal names people met, things found and outcomes, neve
       scope('v3', 'gm'),
       scope('v4', 'public'),
       scope('v5', 'public'),
+      scope('v6', 'public'),
     ],
   };
   const rows = renderView('journal', source as never, undefined, 'en')
     .split('\n')
     .filter((row) => /^ {2}\d+\. /.test(row));
-  assert.equal(rows[0], '  1. Met Mara; Found Brass key');
+  assert.equal(rows[0], '  1. Met Mara; Found Brass key; Arrived at Old Farm');
   assert.equal(rows[1], '  2. Success: I look, Quest completed');
   assert.equal(rows[2], '  3. Plain walk.');
   assert.doesNotMatch(rows.join('\n'), /Secret Villain/);

@@ -9,6 +9,8 @@ import {
   readSync,
   renameSync,
   rmSync,
+  statSync,
+  utimesSync,
   writeFileSync,
 } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -59,6 +61,7 @@ export type CampaignArchive = {
   readonly rulesets: readonly RulesetPin[];
   readonly sha256: string;
   readonly database: string;
+  readonly lastPlayedAt?: string;
 };
 
 export class InvalidArchiveError extends LocalizedError {
@@ -131,6 +134,7 @@ const readBounded = (file: string) => {
 };
 
 export const exportArchive = (databaseFile: string, archiveFile: string): CampaignArchive => {
+  const lastPlayedAt = statSync(databaseFile).mtime.toISOString();
   const connection = openDatabase(databaseFile);
   let campaign: string;
   let rulesets: RulesetPin[];
@@ -152,6 +156,7 @@ export const exportArchive = (databaseFile: string, archiveFile: string): Campai
     rulesets,
     sha256: digest(bytes),
     database: bytes.toString(BINARY_ENCODING),
+    lastPlayedAt,
   };
   writeNew(archiveFile, JSON.stringify(archive), new LocalizedError('archive.fileExists', { file: archiveFile }));
   return archive;
@@ -262,6 +267,11 @@ export const replaceFromArchive = (archiveFile: string, databaseFile: string) =>
   }
 };
 
+const keepLastPlayed = (target: string, { lastPlayedAt }: CampaignArchive) => {
+  const played = new Date(lastPlayedAt ?? Number.NaN);
+  if (!Number.isNaN(played.getTime())) utimesSync(target, played, played);
+};
+
 export const restoreArchive = (
   archiveFile: string,
   dataDir: string,
@@ -276,6 +286,7 @@ export const restoreArchive = (
     inspectSchema(temp, archive);
     inspectContent(temp, archive);
     linkExclusive(temp, target, new LocalizedError('campaign.exists', { name: archive.campaign }));
+    keepLastPlayed(target, archive);
   } finally {
     rmSync(temp, { force: true });
     rmSync(`${temp}${JOURNAL_SUFFIX}`, { force: true });

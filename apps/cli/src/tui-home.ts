@@ -1,6 +1,6 @@
 import { type HomeCard, hasSearch, homeCards, relativeTime } from '../../../packages/client-protocol/src/home.ts';
 import type { CampaignHealth, CampaignSummary } from '../../../packages/client-protocol/src/protocol.ts';
-import { DEFAULT_LOCALE, errorText, say } from './messages.ts';
+import { DEFAULT_LOCALE, errorText, isYes, say } from './messages.ts';
 import type { Terminal } from './tui.ts';
 
 export type HomePorts = {
@@ -21,7 +21,6 @@ const QUIT = 'q';
 const NEW = 'n';
 const UNDO = 'u';
 const ARCHIVED = 'x';
-const YES = 'y';
 const SEARCH_PREFIX = '/';
 const ARCHIVE_PREFIX = 'a';
 const DELETE_PREFIX = 'd';
@@ -81,7 +80,7 @@ export const runHome = async (ports: HomePorts, terminal: Terminal, now = Date.n
   };
   const cardAt = (text: string) => (/^\d+$/.test(text) ? cards()[Number(text) - FIRST_NUMBER] : undefined);
   const answer = (text: string, { kind, name, archived }: Pending) => {
-    if (kind === 'archive' && text === YES) {
+    if (kind === 'archive' && isYes(locale, text)) {
       ports.archive(name);
       undo = name;
       return say(locale, 'home.archived', { name });

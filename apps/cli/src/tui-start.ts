@@ -14,13 +14,13 @@ import {
   stepOf,
 } from '../../../packages/client-protocol/src/guided-start.ts';
 import type { CampaignSummary, CreateCampaign } from '../../../packages/client-protocol/src/protocol.ts';
-import { DEFAULT_LOCALE, errorText, safeLocale, say } from './messages.ts';
+import { DEFAULT_LOCALE, errorText, isYes, safeLocale, say } from './messages.ts';
 import { packsIn, planResult, startOptions } from './quickstart.ts';
 
 const TUI_CLIENT = 'tui';
 const TEXT = 'utf8';
-const KEYS: Readonly<Record<string, StartAction['kind']>> = { b: 'back', s: 'skip', y: 'start' };
-const QUIT = 'q';
+const KEYS: Readonly<Record<string, StartAction['kind']>> = { b: 'back', s: 'skip' };
+const QUITS: readonly string[] = ['q', '/quit'];
 const FIRST_NUMBER = 1;
 const LIST_STYLE = { type: 'conjunction' } as const;
 
@@ -67,13 +67,13 @@ const render = (screen: StartScreen, locale: string) =>
     controls(screen, locale),
   ].join('\n');
 
-const actionFor = (screen: StartScreen, text: string): StartAction | undefined => {
+const actionFor = (screen: StartScreen, text: string, locale: string): StartAction | undefined => {
+  if (screen.canStart && isYes(locale, text)) return { kind: 'start' };
   const kind = KEYS[text];
   if (kind === 'back' && screen.canBack) return { kind };
   const recommended = screen.options.find((option) => option.recommended === true);
   if (kind === 'skip' && screen.step === 'summary') return { kind: 'enter', text: '' };
   if (kind === 'skip' && screen.canSkip) return skipAction(screen);
-  if (kind === 'start' && screen.canStart) return { kind };
   const option = /^\d+$/.test(text) ? screen.options[Number(text) - FIRST_NUMBER] : undefined;
   if (option !== undefined) return option.action;
   const preferred = screen.options.find((option) => option.selected) ?? recommended;
@@ -102,13 +102,17 @@ export const guidedStart = async function* (
   yield render(screen, locale);
   for await (const line of lines) {
     const text = line.trim();
-    if (text === QUIT) {
+    if (QUITS.includes(text)) {
       yield say(locale, 'start.saved');
       return;
     }
-    const action = actionFor(screen, text);
+    const action = actionFor(screen, text, locale);
     if (action === undefined && text === '') {
       yield say(locale, 'choice.unknown');
+      continue;
+    }
+    if (action === undefined && screen.options.length === 0 && screen.entry === undefined) {
+      yield render(screen, locale);
       continue;
     }
     if (action === undefined) {

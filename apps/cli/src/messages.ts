@@ -97,6 +97,7 @@ export const CLI_CATALOG: Catalog = {
     'view.journal': 'Journal:',
     'journal.met': 'Met {names}',
     'journal.found': 'Found {names}',
+    'journal.arrived': 'Arrived at {names}',
     'journal.hit': 'Success',
     'journal.miss': 'Failure',
     'journal.hitAction': 'Success: {action}',
@@ -282,6 +283,7 @@ export const CLI_CATALOG: Catalog = {
     'home.askDelete': 'Deleting {name} removes it for good. Type {name} to delete it.',
     'home.cannotOpen': '{name} cannot be opened. {hint}',
     'start.saved': 'Saved your progress. Run rpg start to pick up where you left off.',
+    'confirm.words': 'y|yes',
     'start.askStart': 'Type y to start, or type a new name.',
     'start.goBack': 'Go back and change your choices.',
     'start.toggle': 'Type a number to turn it on or off.',
@@ -306,6 +308,7 @@ export const CLI_CATALOG: Catalog = {
     'cli.unknownClient': 'Unknown client {client}. Valid clients: {clients}.',
     'cli.unexpected': 'Unexpected argument: {value}.',
     'cli.missingName': 'Missing campaign name for {command}.',
+    'cli.emptyIntent': 'The campaign intent cannot be empty. Leave it out or describe the adventure.',
     'cli.missingFile': 'Missing file for {command}.',
     'cli.unsupported': 'Unsupported command: {command}.',
     'session.plain': 'Type what you do in plain text. Plain text is a normal action.',
@@ -350,7 +353,7 @@ export const CLI_CATALOG: Catalog = {
     'campaign.unarchivedDone': 'Campaign {name} restored.',
     'campaign.archivedDone': 'Archived campaign {name}. Its saved state is kept in {file}.',
     'delete.warning': 'Deleting campaign {name} removes its saved state for good.',
-    'delete.backup': 'To back up first, copy {file} somewhere safe.',
+    'delete.backup': 'To back up first, run rpg backup {name}.',
     'delete.archiveHint': 'Run rpg archive {name} to hide it and keep its state instead.',
     'delete.confirm': 'Type {name} to delete it, or anything else to keep it.',
     'delete.kept': 'Kept campaign {name}.',
@@ -406,7 +409,7 @@ export const CLI_CATALOG: Catalog = {
     'campaign.restored': 'Restored campaign {name}. Run rpg resume {name} to continue.',
     'settings.appDefaults': 'App defaults for every campaign:',
     'settings.invalid':
-      'Choose a model name without spaces or a leading dash, a session budget that is a whole number of tokens, and a rules strictness of as-written, relaxed or off.',
+      'Choose a model name without spaces or a leading dash and a session budget that is a whole number of tokens. For the rules strictness, use as-written, relaxed, off or unset.',
     'update.available': 'Version {version} is available. You have {current}.',
     'update.current': 'rpg {version} is up to date.',
     'update.checkOffline': 'Could not check for updates: you seem to be offline.',
@@ -532,6 +535,7 @@ export const CLI_CATALOG: Catalog = {
     'view.journal': 'Diário:',
     'journal.met': 'Conheceu {names}',
     'journal.found': 'Encontrou {names}',
+    'journal.arrived': 'Chegou a {names}',
     'journal.hit': 'Sucesso',
     'journal.miss': 'Falha',
     'journal.hitAction': 'Sucesso: {action}',
@@ -716,13 +720,14 @@ export const CLI_CATALOG: Catalog = {
     'home.restored': 'Aventura {name} restaurada.',
     'home.emptyActive': 'Nenhuma aventura ativa. Digite x para as arquivadas, n para começar uma ou q para sair.',
     'home.emptyArchived': 'Nenhuma aventura arquivada.',
-    'home.askArchive': 'Arquivar {name}? Digite y para arquivar.',
+    'home.askArchive': 'Arquivar {name}? Digite s para arquivar.',
     'home.askRename': 'Novo nome para {name}? Digite-o ou aperte Enter para manter o nome.',
     'home.renamed': 'Aventura {name} renomeada para {newName}.',
     'home.askDelete': 'Excluir {name} apaga a aventura para sempre. Digite {name} para excluir.',
     'home.cannotOpen': 'Não é possível abrir {name}. {hint}',
     'start.saved': 'Seu progresso foi salvo. Rode rpg start para continuar de onde parou.',
-    'start.askStart': 'Digite y para começar ou digite um novo nome.',
+    'confirm.words': 's|sim|y|yes',
+    'start.askStart': 'Digite s para começar ou digite um novo nome.',
     'start.goBack': 'Volte e mude suas escolhas.',
     'start.toggle': 'Digite um número para ligar ou desligar.',
     'start.choose': 'Digite um número para escolher.',
@@ -735,7 +740,7 @@ export const CLI_CATALOG: Catalog = {
     'start.key.quit': 'q para parar e voltar depois',
     'start.controls': 'Digite {keys}.',
     'start.step': 'Passo {current} de {total}: {title}',
-    'start.on': 'ligado',
+    'start.on': 'selecionado',
     'start.created': 'Campanha {name} criada. Rode rpg play {quoted} para começar.',
     'cli.usage': 'Uso: rpg [comando]',
     'cli.commands': 'Comandos:',
@@ -746,6 +751,7 @@ export const CLI_CATALOG: Catalog = {
     'cli.unknownClient': 'Cliente {client} desconhecido. Clientes válidos: {clients}.',
     'cli.unexpected': 'Argumento inesperado: {value}.',
     'cli.missingName': 'Falta o nome da campanha para {command}.',
+    'cli.emptyIntent': 'A intenção da campanha não pode ficar vazia. Omita-a ou descreva a aventura.',
     'cli.missingFile': 'Falta o arquivo para {command}.',
     'cli.unsupported': 'Comando não suportado: {command}.',
     'session.plain': 'Digite o que você faz em texto simples. Texto simples é uma ação normal.',
@@ -791,7 +797,7 @@ export const CLI_CATALOG: Catalog = {
     'campaign.unarchivedDone': 'Campanha {name} restaurada.',
     'campaign.archivedDone': 'Campanha {name} arquivada. O estado salvo fica em {file}.',
     'delete.warning': 'Apagar a campanha {name} remove o estado salvo de vez.',
-    'delete.backup': 'Para fazer backup antes, copie {file} para um lugar seguro.',
+    'delete.backup': 'Para fazer backup antes, rode rpg backup {name}.',
     'delete.archiveHint': 'Rode rpg archive {name} para escondê-la e manter o estado.',
     'delete.confirm': 'Digite {name} para apagá-la, ou qualquer outra coisa para mantê-la.',
     'delete.kept': 'A campanha {name} foi mantida.',
@@ -849,7 +855,7 @@ export const CLI_CATALOG: Catalog = {
     'campaign.restored': 'Campanha {name} restaurada. Rode rpg resume {name} para continuar.',
     'settings.appDefaults': 'Padrões do app para todas as campanhas:',
     'settings.invalid':
-      'Escolha um nome de modelo sem espaços nem traço no início, um limite de sessão que seja um número inteiro de tokens e um rigor das regras entre as-written, relaxed ou off.',
+      'Escolha um nome de modelo sem espaços nem traço no início e um limite de sessão que seja um número inteiro de tokens. Para o rigor das regras, use as-written, relaxed, off ou unset.',
     'update.available': 'A versão {version} está disponível. Você tem a {current}.',
     'update.current': 'O rpg {version} está atualizado.',
     'update.checkOffline': 'Não foi possível verificar atualizações: você parece estar sem conexão.',
@@ -978,6 +984,7 @@ export const CLI_CATALOG: Catalog = {
     'view.journal': 'Diario:',
     'journal.met': 'Conoció a {names}',
     'journal.found': 'Encontró {names}',
+    'journal.arrived': 'Llegó a {names}',
     'journal.hit': 'Éxito',
     'journal.miss': 'Fallo',
     'journal.hitAction': 'Éxito: {action}',
@@ -1171,6 +1178,7 @@ export const CLI_CATALOG: Catalog = {
     'home.askDelete': 'Borrar {name} la elimina para siempre. Escribe {name} para borrarla.',
     'home.cannotOpen': 'No se puede abrir {name}. {hint}',
     'start.saved': 'Progreso guardado. Ejecuta rpg start para retomarlo donde lo dejaste.',
+    'confirm.words': 'y|yes',
     'start.askStart': 'Escribe y para empezar, o escribe un nombre nuevo.',
     'start.goBack': 'Vuelve atrás y cambia tus elecciones.',
     'start.toggle': 'Escribe un número para activarlo o desactivarlo.',
@@ -1195,6 +1203,7 @@ export const CLI_CATALOG: Catalog = {
     'cli.unknownClient': 'Cliente desconocido {client}. Clientes válidos: {clients}.',
     'cli.unexpected': 'Argumento inesperado: {value}.',
     'cli.missingName': 'Falta el nombre de la campaña para {command}.',
+    'cli.emptyIntent': 'La intención de la campaña no puede estar vacía. Omítela o describe la aventura.',
     'cli.missingFile': 'Falta el archivo para {command}.',
     'cli.unsupported': 'Comando no admitido: {command}.',
     'session.plain': 'Escribe lo que haces en texto plano. El texto plano es una acción normal.',
@@ -1240,7 +1249,7 @@ export const CLI_CATALOG: Catalog = {
     'campaign.unarchivedDone': 'Campaña {name} restaurada.',
     'campaign.archivedDone': 'Campaña {name} archivada. Su estado guardado queda en {file}.',
     'delete.warning': 'Borrar la campaña {name} elimina su estado guardado para siempre.',
-    'delete.backup': 'Para hacer una copia antes, copia {file} a un lugar seguro.',
+    'delete.backup': 'Para hacer una copia antes, ejecuta rpg backup {name}.',
     'delete.archiveHint': 'Ejecuta rpg archive {name} para ocultarla y conservar su estado.',
     'delete.confirm': 'Escribe {name} para borrarla, o cualquier otra cosa para conservarla.',
     'delete.kept': 'Campaña {name} conservada.',
@@ -1298,7 +1307,7 @@ export const CLI_CATALOG: Catalog = {
     'campaign.restored': 'Campaña {name} restaurada. Ejecuta rpg resume {name} para continuar.',
     'settings.appDefaults': 'Valores predeterminados de la aplicación para todas las campañas:',
     'settings.invalid':
-      'Elige un nombre de modelo sin espacios ni guion inicial, un presupuesto de sesión que sea un número entero de tokens y un rigor de reglas de as-written, relaxed u off.',
+      'Elige un nombre de modelo sin espacios ni guion inicial y un presupuesto de sesión que sea un número entero de tokens. Para el rigor de reglas, usa as-written, relaxed, off o unset.',
     'update.available': 'La versión {version} está disponible. Tienes la {current}.',
     'update.current': 'rpg {version} está al día.',
     'update.checkOffline': 'No se pudo buscar actualizaciones: parece que no tienes conexión.',
@@ -1349,6 +1358,7 @@ const LIST_TYPES = ['conjunction', 'disjunction', 'plain', 'semicolon'] as const
 const PLAIN_SEPARATOR = ', ';
 const SEMICOLON_SEPARATOR = '; ';
 const LINE_SEPARATOR = '\n';
+const WORD_SEPARATOR = '|';
 
 export class ListParam {
   readonly items: readonly (string | LocalizedError)[];
@@ -1386,6 +1396,9 @@ export const say = (locale: string, key: string, params: Params = {}): string =>
     key,
     Object.fromEntries(Object.entries(params).map(([name, value]) => [name, resolved(locale, value)])),
   );
+
+export const isYes = (locale: string, text: string): boolean =>
+  say(locale, 'confirm.words').split(WORD_SEPARATOR).includes(text.toLowerCase());
 
 export class LocalizedError extends Error {
   readonly key: string;

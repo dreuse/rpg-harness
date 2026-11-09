@@ -316,3 +316,38 @@ test('rpg-asjw.15 tui Enter at a menu without a recommended option prints only t
   const out = await answer(dataDir, [GUIDE, CONTINUE, CONTINUE]);
   assert.equal(out.at(-1), 'Type one of the choices above.');
 });
+
+const PT_YES = 's';
+const SLASH_QUIT = '/quit';
+const PORTUGUESE = 'pt-BR';
+const TO_NAME = [GUIDE, CONTINUE, SKIP, SKIP, SKIP, CONTINUE, SKIP];
+
+const answerIn = async (dataDir: string, input: readonly string[], locale: string) => {
+  const out: string[] = [];
+  for await (const text of guidedStart(dataDir, lines(input), createCampaignFrom, locale)) out.push(text);
+  return out;
+};
+
+test('rpg-asjw.31 tui /quit at the name step quits instead of becoming the name', async (t) => {
+  const dataDir = tempDataDir(t);
+  const out = await answer(dataDir, [...TO_NAME, SLASH_QUIT]);
+  assert.match(out.at(-1) ?? '', /come back|saved/i);
+  assert.deepEqual(listCampaignSummaries(dataDir), []);
+  assert.doesNotMatch((await answer(dataDir, [])).join('\n'), new RegExp(SLASH_QUIT));
+});
+
+test('rpg-asjw.31 tui typing 1 at a step without options re-prompts without the choices message', async (t) => {
+  const dataDir = tempDataDir(t);
+  const out = await answer(dataDir, [GUIDE, FIRST]);
+  assert.doesNotMatch(out.at(-1) ?? '', /Type one of the choices above/);
+  assert.match(out.at(-1) ?? '', /^Step 1 of 7/);
+});
+
+test('rpg-asjw.31 tui in Portuguese confirms with s and marks choices as selecionado', async (t) => {
+  const dataDir = tempDataDir(t);
+  const out = await answerIn(dataDir, [...TO_NAME, PT_YES], PORTUGUESE);
+  assert.equal(listCampaignSummaries(dataDir).length, 1);
+  assert.match(out.join('\n'), /Digite s para começar/);
+  assert.doesNotMatch(out.join('\n'), /\(ligado\)/);
+  assert.match(out.join('\n'), /\(selecionado\)/);
+});

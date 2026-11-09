@@ -395,6 +395,7 @@ export const main = async (argv: readonly string[], io: Io, gateway: CampaignGat
     if (name === undefined || name.trim() === '') return missingName(command);
     const [intent, ...unexpected] = command === 'new' ? extra : [undefined, ...extra];
     if (unexpected.length > 0) return unexpectedArgument(unexpected[0]);
+    if (intent !== undefined && intent.trim() === '') return usageError(io, phrase(locale, 'cli.emptyIntent'));
     return run(io, () =>
       command === 'new'
         ? withAsk(io, (ask) => gateway.create(name, intent, ask, client, newLanguage(io, name, intent)))

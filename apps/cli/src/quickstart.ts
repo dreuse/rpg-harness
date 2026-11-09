@@ -1,5 +1,5 @@
 import { type ContentKind, contentAliases, contentText } from '../../../packages/client-protocol/src/content-names.ts';
-import { DICE_LABELS } from '../../../packages/client-protocol/src/guided-start.ts';
+import { DICE_LABELS, rulesetLabel } from '../../../packages/client-protocol/src/guided-start.ts';
 import {
   type CampaignPlan,
   failure,
@@ -392,12 +392,14 @@ export const styleLinesOf = ({ rulepack, genre }: CampaignConfig, packs: Packs =
 export const describeConfig = (
   { rulepack, genre, values, provenance }: CampaignConfig,
   locale = DEFAULT_LOCALE,
+  friendly = false,
 ): string => {
   const none = say(locale, 'quickstart.none');
   const how = (field: string) => say(locale, `provenance.${field}`);
   return [
     say(locale, 'config.ruleset', {
-      value: rulepack === null ? none : `${rulepack.id} ${rulepack.edition}`,
+      value:
+        rulepack === null ? none : friendly ? rulesetLabel(locale, rulepack) : `${rulepack.id} ${rulepack.edition}`,
       provenance: how(provenance.ruleset),
     }),
     say(locale, 'config.genre', {

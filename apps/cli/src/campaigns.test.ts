@@ -82,7 +82,7 @@ test('deletion requires explicit intent and offers backup/export guidance', () =
     for (const input of ['', `${WRONG_CONFIRMATION}\n`, `${FIRST.toLowerCase()}\n`]) {
       const kept = succeed(dataDir, ['delete', FIRST], input);
       assert.match(kept, /back up/i);
-      assert.ok(kept.includes(join(dataDir, `${FIRST}.sqlite`)));
+      assert.match(kept, new RegExp(`rpg backup ${FIRST}`));
       assert.match(kept, new RegExp(`rpg archive ${FIRST}`));
       assert.match(kept, new RegExp(`Type ${FIRST} to delete it`));
       assert.match(kept, new RegExp(`Kept campaign ${FIRST}\\.`));

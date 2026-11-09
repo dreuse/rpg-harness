@@ -156,8 +156,8 @@ test('rpg-42a.117 archive, import and Claude Code leaf errors read in Brazilian 
 test('rpg-42a.53 the saved settings read in Brazilian Portuguese and the GM prompt text stays English', () => {
   const config = planCampaign(undefined, { ruleset: NARRATIVE, genre: 'horror' });
   assert.equal(
-    describeConfig(config, PORTUGUESE),
-    'Regras: narrative original (escolhido)\nGênero: Terror crescente (escolhido)\nDados: como as regras decidem (padrão)',
+    describeConfig(config, PORTUGUESE, true),
+    'Regras: Só história: sem dados, sem ficha (escolhido)\nGênero: Terror crescente (escolhido)\nDados: como as regras decidem (padrão)',
   );
   assert.match(
     describeConfig(config),
@@ -200,7 +200,7 @@ test('rpg-42a.117 the read views and the recap read in Brazilian Portuguese and 
   const dataDir = dataDirFor(t);
   const gateway = createEngineGateway(dataDir);
   await collect(gateway.create(CAMPAIGN, undefined, async () => undefined, undefined, PORTUGUESE));
-  assert.equal(gateway.view(CAMPAIGN, 'sheet', PORTUGUESE), 'O Andarilho\nAinda não há ficha de personagem.');
+  assert.equal(gateway.view(CAMPAIGN, 'sheet', PORTUGUESE), 'Ainda não há ficha de personagem.');
   assert.equal(gateway.view(CAMPAIGN, 'inventory', PORTUGUESE), 'Inventário:\nAinda não há itens.');
   assert.equal(gateway.view(CAMPAIGN, 'quests', PORTUGUESE), 'Missões:\nAinda não há missões.');
   assert.equal(gateway.view(CAMPAIGN, 'encounter', PORTUGUESE), 'Ainda não há encontro.');

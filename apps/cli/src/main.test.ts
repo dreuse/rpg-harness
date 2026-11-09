@@ -607,3 +607,11 @@ test('rpg-asjw.3 new infers pt-BR from a Portuguese pitch unless the player fixe
   assert.deepEqual(fixed.calls, [`create:${pitch}`]);
   assert.deepEqual(english.calls, ['create:A noir mystery in Chicago, 1940']);
 });
+
+test('new rejects an empty or blank intent', async () => {
+  for (const intent of ['', '   ']) {
+    const { calls, gateway, io } = setup();
+    assert.equal(await main(['new', 'Ember', intent], io, gateway), EXIT_USAGE);
+    assert.deepEqual(calls, []);
+  }
+});

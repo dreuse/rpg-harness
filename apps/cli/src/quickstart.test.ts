@@ -74,7 +74,7 @@ test('new users can start with default choices or one-sentence campaign intent',
     assert.match(defaults, /^Dice: as the ruleset decides \(default\)$/m);
 
     const intended = succeed(dataDir, ['new', INTENT_CAMPAIGN, INTENT]);
-    assert.match(intended, /^Ruleset: narrative original \(derived\)$/m);
+    assert.match(intended, /^Ruleset: Story only: no dice, no sheet \(derived\)$/m);
     assert.match(intended, /^Genre: horror \(derived\)$/m);
 
     const launcher = succeed(dataDir, []);
@@ -100,7 +100,7 @@ test('missing ruleset files are surfaced honestly instead of invented', () =>
 test('from single prompt to scene opening without manual JSON editing', () =>
   withDataDir((dataDir) => {
     const opened = succeed(dataDir, ['new', INTENT_CAMPAIGN, SCENE_INTENT]);
-    assert.match(opened, /^Ruleset: narrative original \(derived\)$/m);
+    assert.match(opened, /^Ruleset: Story only: no dice, no sheet \(derived\)$/m);
     assert.match(opened, /^Genre: fantasy \(derived\)$/m);
     assert.ok(opened.includes(FANTASY_OPENING), opened);
     assert.deepEqual(readdirSync(dataDir), [`${INTENT_CAMPAIGN}.sqlite`]);
@@ -130,7 +130,7 @@ test('new saves the campaign settings and resume shows the saved ruleset and gen
     const opened = succeed(dataDir, ['new', INTENT_CAMPAIGN, INTENT]);
     assert.match(opened, /^Saved settings:$/m);
     const resumed = succeed(dataDir, ['resume', INTENT_CAMPAIGN]);
-    assert.match(resumed, /^Ruleset: narrative original \(derived\)$/m);
+    assert.match(resumed, /^Ruleset: Story only: no dice, no sheet \(derived\)$/m);
     assert.match(resumed, /^Genre: horror \(derived\)$/m);
     assert.ok(resumed.includes(HORROR_OPENING), resumed);
   }));

@@ -188,7 +188,7 @@ const sheet = (hero: Character, source: ViewSource, viewer: SheetViewer, locale:
   if (sheetless(source)) return sheetlessText(hero, source, locale);
   const input = sheetInput(source, hero, viewer);
   const noSheet = say(locale, 'view.noSheet');
-  if (input === undefined) return `${hero.name}\n${noSheet}`;
+  if (input === undefined) return noSheet;
   const { rulepack } = input.schema;
   const shownLocale = labelLocale(rulepack.id, locale);
   const rows = buildSheetView(input).groups.flatMap((group) =>
@@ -283,9 +283,7 @@ export const sheetFields = (source: ViewSource, viewer: Viewer, locale: string =
 const sheetExport = (hero: Character, source: ViewSource, viewer: SheetViewer, locale: string) => {
   if (sheetless(source)) return sheetlessText(hero, source, locale);
   const input = sheetInput(source, hero, viewer);
-  return input === undefined
-    ? `${hero.name}\n${say(locale, 'view.noSheet')}`
-    : JSON.stringify(exportSheet(input), null, JSON_INDENT);
+  return input === undefined ? say(locale, 'view.noSheet') : JSON.stringify(exportSheet(input), null, JSON_INDENT);
 };
 
 const heldItems = (hero: Character, { entities, relationships }: ViewSource) => {
@@ -378,6 +376,7 @@ const ELLIPSIS = '…';
 const WHITESPACE_RUN = /\s+/g;
 
 const NPC_KIND: EntityKind = 'npc';
+const LOCATION_KIND: EntityKind = 'location';
 const PART_SEPARATOR = '; ';
 const ACTION_KEY_SUFFIX = 'Action';
 
@@ -433,8 +432,8 @@ const eventSummary = (events: readonly CampaignEvent[], input: string, locale: s
   );
   const action = clip(input, JOURNAL_LINE_MAX - longestPrefix);
   const introduced = events.flatMap(introducedOf).filter(({ name }) => name !== '');
-  const namesOfKind = (people: boolean) =>
-    introduced.filter(({ kind }) => (kind === NPC_KIND) === people).map(({ name }) => name);
+  const namesOf = (matches: (kind: unknown) => boolean) =>
+    introduced.filter(({ kind }) => matches(kind)).map(({ name }) => name);
   const groupRows = (names: readonly string[], key: string) =>
     wrapItems(names, (group) => say(locale, key, { names: group.join(LIST_SEPARATOR) }));
   const outcomes = events
@@ -442,8 +441,18 @@ const eventSummary = (events: readonly CampaignEvent[], input: string, locale: s
     .map((key) => say(locale, key, { action }));
   const distinctOutcomes = [...new Set(outcomes)];
   const parts = [
-    ...groupRows(namesOfKind(true), 'journal.met'),
-    ...groupRows(namesOfKind(false), 'journal.found'),
+    ...groupRows(
+      namesOf((kind) => kind === NPC_KIND),
+      'journal.met',
+    ),
+    ...groupRows(
+      namesOf((kind) => kind !== NPC_KIND && kind !== LOCATION_KIND),
+      'journal.found',
+    ),
+    ...groupRows(
+      namesOf((kind) => kind === LOCATION_KIND),
+      'journal.arrived',
+    ),
     ...wrapItems(distinctOutcomes, (group) => group.join(LIST_SEPARATOR)),
   ];
   return wrapItems(parts, (group) => group.join(PART_SEPARATOR));

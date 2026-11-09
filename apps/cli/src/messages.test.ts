@@ -182,3 +182,8 @@ test('rpg-42a.101 a provider failure reads in the player language, with the reas
     true,
   );
 });
+
+test('the settings error lists every valid rules strictness including unset', () => {
+  for (const locale of ['en', PORTUGUESE, SPANISH])
+    assert.match(say(locale, 'settings.invalid'), /as-written, relaxed, off.* unset/);
+});

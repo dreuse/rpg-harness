@@ -8,8 +8,10 @@ import {
   readdirSync,
   readFileSync,
   rmSync,
+  statSync,
   symlinkSync,
   truncateSync,
+  utimesSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -28,6 +30,7 @@ const ACTION = 'I light the lantern';
 const RULEPACK = 'homebrew-core';
 const RULEPACK_REVISION = '2.1.0';
 const DATA = 'data';
+const PLAYED_AT = '2024-03-04T05:06:07.000Z';
 const OUTSIDE = 'outside';
 const ARCHIVE = 'ember.rpg-archive.json';
 const ENCODED_NAMES = ['AC/DC', '..'];
@@ -217,4 +220,25 @@ test('untrusted archives cannot write outside application data directory', () =>
 
     succeed(dataDir, ['restore', file]);
     assert.deepEqual(pins(dataDir, CAMPAIGN), [{ rulepack_id: RULEPACK, revision: RULEPACK_REVISION }]);
+  }));
+
+test('restore keeps the original last-played time', () =>
+  withRoot((root) => {
+    const source = join(root, 'source');
+    const target = join(root, 'target');
+    const file = join(root, ARCHIVE);
+    const played = new Date(PLAYED_AT);
+    succeed(source, ['new', CAMPAIGN]);
+    utimesSync(campaignFile(source, CAMPAIGN), played, played);
+    succeed(source, ['export', CAMPAIGN, file]);
+    succeed(target, ['restore', file]);
+    assert.equal(statSync(campaignFile(target, CAMPAIGN)).mtime.toISOString(), played.toISOString());
+  }));
+
+test('the delete prompt suggests rpg backup instead of copying the database file', () =>
+  withRoot((root) => {
+    succeed(root, ['new', CAMPAIGN]);
+    const prompt = succeed(root, ['delete', CAMPAIGN], 'keep\n');
+    assert.match(prompt, new RegExp(`rpg backup ${CAMPAIGN}`));
+    assert.doesNotMatch(prompt, /\.sqlite/);
   }));
