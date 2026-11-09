@@ -8,8 +8,10 @@ import {
   type CampaignHealth,
   type CampaignPlay,
   type CampaignSummary,
+  type ClientEvent,
   type ClientSession,
   type CreateCampaign,
+  EVENT_COMMITTED,
   MAX_INPUT_LENGTH,
   PROTOCOL_VERSION,
 } from '../../../packages/client-protocol/src/protocol.ts';
@@ -986,6 +988,39 @@ export const startSound = async (
   }
 };
 
+const SCENE_REFRESH_EVENT = { version: PROTOCOL_VERSION, type: EVENT_COMMITTED } as ClientEvent;
+
+export const lineSoundSession = (dataDir: string, name: string, gm: GameMaster, campaignId: CampaignId) => {
+  let listener: ((event: ClientEvent) => void) | undefined;
+  const session: Pick<ClientSession, 'getSnapshot' | 'subscribeEvents'> = {
+    getSnapshot: (command) => {
+      const opened = openClientSession(dataDir, name, gm);
+      try {
+        return opened.session.getSnapshot(command);
+      } finally {
+        opened.close();
+      }
+    },
+    subscribeEvents: (_command, onEvent) => {
+      listener = onEvent;
+      return () => {
+        listener = undefined;
+      };
+    },
+  };
+  return {
+    session,
+    campaignId,
+    refresh: () => {
+      try {
+        listener?.(SCENE_REFRESH_EVENT);
+      } catch {
+        return;
+      }
+    },
+  };
+};
+
 const stopSound = (dataDir: string) => {
   liveSounds.get(dataDir)?.dispose();
   liveSounds.delete(dataDir);
@@ -1865,6 +1900,7 @@ export const createEngineGateway = (
   gm: GameMaster = FAKE_GAME_MASTER,
   rng: Rng = Math.random,
   makeSpeech: MakeSpeech = makeLiveSpeech,
+  start: typeof startSound = startSound,
 ): CampaignGateway => ({
   home: (terminal) =>
     runHome(
@@ -1934,6 +1970,12 @@ export const createEngineGateway = (
     await completeCampaign(dataDir, name, gm);
     yield readView(dataDir, name, RECAP_VIEW, locale);
     const sessionId = randomUUID();
+    const opened = openClientSession(dataDir, name, gm, rng, undefined, locale);
+    const { campaignId } = opened;
+    opened.close();
+    const sound = lineSoundSession(dataDir, name, gm, campaignId);
+    const soundNotice = await start(dataDir, sound.session, campaignId, locale);
+    if (soundNotice !== undefined) yield soundNotice;
     let warned = false;
     const answers = lines[Symbol.asyncIterator]();
     const nextLine = async () => {
@@ -1958,11 +2000,13 @@ export const createEngineGateway = (
           onTurnError(error);
           continue;
         }
+        sound.refresh();
         yield acted.narration;
         if (acted.warning !== undefined && !warned) yield acted.warning;
         warned ||= acted.warning !== undefined;
       }
     } finally {
+      stopSound(dataDir);
       await answers.return?.();
     }
   },
