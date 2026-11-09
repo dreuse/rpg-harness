@@ -15,9 +15,11 @@ import {
   type ViewValue,
 } from '../../../packages/client-protocol/src/protocol.ts';
 import {
+  matchSlash,
   resolveSlash,
   SLASH_PREFIX,
   type SlashClient,
+  type SlashOption,
   slashCompletion,
   slashText,
 } from '../../../packages/client-protocol/src/slash-commands.ts';
@@ -184,6 +186,13 @@ const localeOf = (data: TuiData) => data.locale ?? DEFAULT_LOCALE;
 const labelOf = (locale: string, { id, label }: Pane) => say(locale, label ?? `pane.${id}`);
 const helpLabel = (locale: string) => say(locale, 'tui.help');
 
+const GM_ID = 'gm';
+
+const commandName = (locale: string, id: string) => `${SLASH_PREFIX}${slashText(locale, `slash.${id}.name`)}`;
+
+const commandLine = (locale: string, { id, name, args, description }: SlashOption) =>
+  `${[name, args].filter((part) => part !== '').join(' ')} - ${description}${id === GM_ID ? ` ${slashText(locale, 'slash.gm.hint')}` : ''}`;
+
 const helpLines = (data: TuiData) => {
   const locale = localeOf(data);
   const { gm } = data.snapshot;
@@ -193,11 +202,7 @@ const helpLines = (data: TuiData) => {
       say(locale, 'help.pane', { key: pane.key, label: labelOf(locale, pane) }),
     ),
     say(locale, 'help.type', { key: TYPE_KEY }),
-    say(locale, 'help.edit'),
-    say(locale, 'help.language'),
-    say(locale, 'help.roll'),
-    say(locale, 'help.retry'),
-    say(locale, 'help.gm'),
+    ...matchSlash(locale, SLASH_CLIENT, SLASH_PREFIX).map((option) => commandLine(locale, option)),
     say(locale, 'help.toggle', { key: HELP_KEY }),
     say(locale, 'help.quit', { key: QUIT_KEY }),
     ...(data.audio === undefined ? [] : [say(locale, 'tui.audioHelp')]),
@@ -253,11 +258,8 @@ const SLASH_CLIENT: SlashClient = 'tui';
 const HELP_COMMAND = 'help';
 const MEMORY_COMMAND = 'memory';
 const MEMORY_CORRECTION = /^(\d+)\s+(.+)$/u;
-const USAGE_KEYS: Readonly<Record<string, string>> = {
-  edit: 'help.edit',
-  language: 'help.language',
-  voice: 'tui.voiceOff',
-};
+const USAGE_COMMANDS: ReadonlySet<string> = new Set(['edit', 'language']);
+const VOICE_COMMAND = 'voice';
 const SLASH_LIST_SEPARATOR = ' ';
 
 const completing = (state: TuiState, draft: string, locale: string): TuiState => {
@@ -398,7 +400,7 @@ const sheetRows = (sheet: readonly ViewComponent[]) =>
 
 export const rollOfferText = (rollOffer: RollOffer, locale: string) =>
   rollOffer.expression === undefined
-    ? say(locale, 'tui.rollOffer', { label: rollOffer.label })
+    ? say(locale, 'tui.rollOffer', { label: rollOffer.label, roll: commandName(locale, 'roll') })
     : say(locale, 'tui.rollOfferPhysical', { label: rollOffer.label, expression: rollOffer.expression });
 
 const conversation = ({ currentScene, characters, turns, rollOffer, noRoll }: CampaignSnapshot, locale: string) => {
@@ -920,10 +922,13 @@ export const runTui = async (
     if (slash.kind === 'none') return submit(session, data(), input);
     if (slash.id === HELP_COMMAND) return helpLines(data()).join(NEWLINE);
     if (slash.id === MEMORY_COMMAND) return rememberStory(session, data(), slash.args);
-    const usage = USAGE_KEYS[slash.id];
+    if (slash.id === VOICE_COMMAND) return say(locale, 'tui.voiceOff');
+    const usage = USAGE_COMMANDS.has(slash.id)
+      ? matchSlash(locale, SLASH_CLIENT, `${SLASH_PREFIX}${slash.id}`).find(({ id }) => id === slash.id)
+      : undefined;
     return usage === undefined
       ? slashText(locale, 'slash.unknown', { name: `${SLASH_PREFIX}${slash.id}` })
-      : say(locale, usage);
+      : commandLine(locale, usage);
   };
   const act: AsyncAct = (input) => {
     const typed = canonical(input);

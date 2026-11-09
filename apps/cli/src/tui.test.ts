@@ -36,6 +36,7 @@ import {
   renderLinear,
   renderScreen,
   rollFrames,
+  rollOfferText,
   runTui,
   type Terminal,
   type TuiData,
@@ -722,8 +723,18 @@ test('rpg-42a.21: the TUI groups the sheet and edits a field with /edit, showing
   assert.match(printed, /might must be at most 20/);
 });
 
+test('rpg-asjw.29: TUI help lists the shared tui commands by their localized names', () => {
+  for (const locale of ['en', 'es', 'pt-BR']) {
+    const shown = renderScreen(press([key('?')]), { ...data, locale }, PLAIN_WIDE).join('\n');
+    for (const { name, args, description } of matchSlash(locale, 'tui', '/')) {
+      assert.ok(shown.includes(`${name} ${args}`.trim()), `${locale} ${name}`);
+      assert.ok(shown.includes(description.slice(0, 20)), `${locale} ${description}`);
+    }
+  }
+});
+
 test('rpg-42a.67: /language <locale> sets the story language, shows the result and is listed in the help', async () => {
-  assert.match(screen(press([key('?')])), /\/language <locale>/);
+  assert.match(screen(press([key('?')])), /\/language <code>/);
   const { session, campaignId } = engineSession();
   const sent: unknown[] = [];
   const switching: ClientSession = {
@@ -1110,6 +1121,11 @@ test('rpg-42a.74: the TUI conversation names an open roll offer and the /roll hi
   );
   assert.doesNotMatch(renderLinear(data, PLAIN).join('\n'), /Roll offered/);
   assert.match(screen(press([key('?')])), /\/roll - Roll the check the GM offered\./);
+});
+
+test('rpg-asjw.29: the roll offer names /roll with the locale alias', () => {
+  assert.match(rollOfferText(ROLL_OFFER, 'pt-BR'), /Digite \/rolar /);
+  assert.match(rollOfferText(ROLL_OFFER, 'es'), /Escribe \/tirar /);
 });
 
 const ROLL_TURN_LINES = {

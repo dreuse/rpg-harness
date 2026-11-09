@@ -397,6 +397,20 @@ test('rpg-42a.93: every command the line session lists runs, in every locale', a
   }
 });
 
+test('rpg-asjw.29: line help lists every shared line command by its localized name and no TUI-only command', async () => {
+  for (const locale of ['en', 'es', 'pt-BR']) {
+    const { gateway, io, out } = setup(['/help', '/quit']);
+    assert.equal(await main(['play', 'Ember'], { ...io, locale }, gateway), 0);
+    const text = out.join('');
+    for (const { name, description } of matchSlash(locale, 'line', '/')) {
+      assert.ok(text.includes(`  ${name} - ${description}`), `${locale} ${name}`);
+    }
+    for (const id of ['gm', 'retry', 'edit', 'language', 'voice', 'memory']) {
+      assert.ok(!text.includes(`/${slashText(locale, `slash.${id}.name`)} `), `${locale} ${id}`);
+    }
+  }
+});
+
 test('gameplay does not require commands for normal actions', async () => {
   const { gateway, io, out, err } = setup([FREEFORM_HELP_LINE, FREEFORM_QUIT_LINE]);
   assert.equal(await main(['play', 'Ember'], io, gateway), 0);

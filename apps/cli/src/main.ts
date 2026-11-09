@@ -1,5 +1,11 @@
 import { parseArgs } from 'node:util';
-import { resolveSlash, SLASH_PREFIX, type SlashClient } from '../../../packages/client-protocol/src/slash-commands.ts';
+import {
+  matchSlash,
+  resolveSlash,
+  SLASH_PREFIX,
+  type SlashClient,
+  slashText,
+} from '../../../packages/client-protocol/src/slash-commands.ts';
 import { CLIENTS } from '../../../packages/intent/src/intent.ts';
 import type { Ask } from './character-creation.ts';
 import type { GmSettingsChanges } from './engine-gateway.ts';
@@ -247,15 +253,16 @@ const SLASH_CLIENT: SlashClient = 'line';
 const QUIT_CONTROL = '/quit';
 const HELP_CONTROL = '/help';
 const HISTORY_CONTROL = '/history';
-const ROLL_CONTROL = '/roll';
-const sessionHelp = (views: readonly ViewName[], locale: string) =>
+const ROLL_COMMAND = 'roll';
+const ROLL_CONTROL = `${CONTROL_PREFIX}${ROLL_COMMAND}`;
+const PLAY_ONLY_COMMANDS: ReadonlySet<string> = new Set([ROLL_COMMAND, ...VIEW_NAMES]);
+const sessionHelp = (playing: boolean, locale: string) =>
   [
     phrase(locale, 'session.plain'),
     phrase(locale, 'session.controls'),
-    `  ${HELP_CONTROL} - ${describe(locale, 'help')}`,
-    `  ${HISTORY_CONTROL} - ${phrase(locale, 'control.history')}`,
-    ...views.map((view) => `  ${CONTROL_PREFIX}${view} - ${describe(locale, view)}`),
-    `  ${QUIT_CONTROL} - ${phrase(locale, 'control.quit')}`,
+    ...matchSlash(locale, SLASH_CLIENT, CONTROL_PREFIX)
+      .filter(({ id }) => playing || !PLAY_ONLY_COMMANDS.has(id))
+      .map(({ name, description }) => `  ${name} - ${description}`),
   ].join('\n');
 
 const withControls = async function* (io: Io, show?: (view: ViewName) => string): AsyncGenerator<string> {
@@ -270,7 +277,7 @@ const withControls = async function* (io: Io, show?: (view: ViewName) => string)
     } else if (text === QUIT_CONTROL) {
       return;
     } else if (text === HELP_CONTROL) {
-      say(io, sessionHelp(show === undefined ? [] : VIEW_NAMES, localeOf(io)));
+      say(io, sessionHelp(show !== undefined, localeOf(io)));
     } else if (text === ROLL_CONTROL) {
       yield text;
     } else if (text === HISTORY_CONTROL) {
@@ -287,7 +294,9 @@ const withControls = async function* (io: Io, show?: (view: ViewName) => string)
         reportError(io, error);
       }
     } else {
-      io.stderr(`${phrase(localeOf(io), 'session.unknown', { control: printable(text) })}\n`);
+      io.stderr(
+        `${phrase(localeOf(io), 'session.unknown', { control: printable(text), help: `${CONTROL_PREFIX}${slashText(localeOf(io), 'slash.help.name')}` })}\n`,
+      );
     }
   }
 };

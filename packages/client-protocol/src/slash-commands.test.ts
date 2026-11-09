@@ -50,7 +50,19 @@ test('rpg-42a.93 a slash prefix filters by client and shows name, description an
   );
   assert.deepEqual(
     matchSlash('en', 'line', '/').map(({ id }) => id),
-    ['roll', 'help', 'history', 'journal', 'sheet', 'sheet-export', 'encounter', 'quit'],
+    [
+      'roll',
+      'help',
+      'history',
+      'journal',
+      'sheet',
+      'sheet-export',
+      'inventory',
+      'quests',
+      'encounter',
+      'recap',
+      'quit',
+    ],
   );
 });
 
