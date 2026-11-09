@@ -5,6 +5,7 @@ import type { SheetSchema, SheetValueType } from '../../../packages/client-proto
 import {
   type CampaignEvent,
   type CampaignState,
+  CHECK_OFFERED,
   CHECK_RESOLVED,
   type Character,
   type EventId,
@@ -20,7 +21,7 @@ import {
 import type { CampaignEntity, EntityKind, Relationship } from '../../../packages/domain/src/entity.ts';
 import { usesSheet } from '../../../packages/domain/src/rules-usage.ts';
 import { CHARACTER_CREATED, playTurns, profileOf } from '../../../packages/engine/src/character.ts';
-import { proposalEventsOf } from '../../../packages/engine/src/check-offer.ts';
+import { offerOf, proposalEventsOf } from '../../../packages/engine/src/check-offer.ts';
 import type { EncounterAction } from '../../../packages/engine/src/encounter.ts';
 import { campaignLanguageOf } from '../../../packages/engine/src/engine.ts';
 import { HIT_EVENTS, MISS_EVENTS } from '../../../packages/engine/src/gameplay.ts';
@@ -455,10 +456,21 @@ const narrationLine = (names: ReadonlyMap<string, string>, turn: Turn, locale: s
     : (FIRST_SENTENCE.exec(narration)?.[0] ?? narration);
 };
 
+const BARE_REPORT_INPUT = /^-?\d+(?:\.\d+)?[\s.!?]*$/;
+
+const offeredActionOf = (events: readonly CampaignEvent[], turn: Turn, input: string) => {
+  if (!BARE_REPORT_INPUT.test(input)) return input;
+  const resolved = events.findIndex(({ turnId, type }) => turnId === turn.id && type === CHECK_RESOLVED);
+  const offered = events.slice(0, Math.max(resolved, 0)).findLast(({ type }) => type === CHECK_OFFERED);
+  const label = offerOf(offered?.payload ?? {})?.label;
+  if (label === undefined) return input;
+  return `${label.charAt(0).toLowerCase()}${label.slice(1)}`.replace(WHITESPACE_RUN, ' ').trim();
+};
+
 const journalLine = (names: ReadonlyMap<string, string>, turn: Turn, shown: CampaignState, locale: string) => {
   const rows = eventSummary(
     [...shown.events.filter(({ turnId }) => turnId === turn.id), ...proposalEventsOf(shown, turn.actionId)],
-    turn.input.replace(WHITESPACE_RUN, ' ').trim(),
+    offeredActionOf(shown.events, turn, turn.input.replace(WHITESPACE_RUN, ' ').trim()),
     locale,
   );
   return rows.length > 0 ? rows : [clip(narrationLine(names, turn, locale), JOURNAL_LINE_MAX)];

@@ -1043,7 +1043,13 @@ test('rpg-asjw.14: the journal names people met, things found and outcomes, neve
   assert.doesNotMatch(rows.join('\n'), /Secret Villain/);
 });
 
-const journalRowsOf = (introduced: readonly string[], input = 'I look', resolved = 'check.success', locale = 'en') => {
+const journalRowsOf = (
+  introduced: readonly string[],
+  input = 'I look',
+  resolved = 'check.success',
+  locale = 'en',
+  offered?: string,
+) => {
   const ev = (id: string, turnId: string, type: string, payload: Record<string, unknown>) => ({
     id,
     campaignId: CAMPAIGN,
@@ -1061,6 +1067,9 @@ const journalRowsOf = (introduced: readonly string[], input = 'I look', resolved
       { id: 't1', campaignId: CAMPAIGN, sceneId: 's', actionId: 't1', actorId: 'hero', input, narration: 'Quiet.' },
     ],
     events: [
+      ...(offered === undefined
+        ? []
+        : [ev('o', 'o1', 'CheckOffered', { offer: { offerId: 'of', ruleId: 'r', target: 'x', label: offered } })]),
       ...introduced.map((name, index) =>
         ev(`i${index}`, 't1', 'EntityIntroduced', { entity: { id: `e${index}`, kind: 'place', name } }),
       ),
@@ -1108,4 +1117,10 @@ test('rpg-asjw.18: a long action fits the line max in pt-BR hit rows', () => {
   const rows = journalRowsOf([], 'pick the archive lock '.repeat(10), 'check.success', 'pt-BR');
   assert.ok(rows.join('').includes('Sucesso: '), rows.join(' '));
   for (const row of rows) assert.ok(Array.from(row.replace(/^ *(\d+\. )?/, '')).length <= JOURNAL_LINE_MAX, row);
+});
+
+test('rpg-asjw.18: a reported roll names the offered action, not the number', () => {
+  const rows = journalRowsOf([], '15', 'check.success', 'en', 'Climb the wet barn wall');
+  assert.ok(rows[0]?.endsWith('Success: climb the wet barn wall'), rows.join(' '));
+  assert.ok(journalRowsOf([], '15')[0]?.endsWith('Success: 15'));
 });
