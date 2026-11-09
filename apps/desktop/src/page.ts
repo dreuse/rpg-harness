@@ -1,4 +1,5 @@
 import type { StartVoices } from '../../../packages/client-protocol/src/guided-start.ts';
+import { safeLocale } from '../../../packages/client-protocol/src/locale.ts';
 import type { CampaignSnapshot } from '../../../packages/client-protocol/src/protocol.ts';
 import {
   matchSlash,
@@ -365,7 +366,7 @@ export const mountPage = ({
   const storyLanguage = () => {
     const { open, draft } = client.state().start;
     const draftLanguage = draft.choices.language;
-    if (open && typeof draftLanguage === 'string') return draftLanguage;
+    if (open) return typeof draftLanguage === 'string' ? draftLanguage : safeLocale(preferences.locale);
     return client.state().snapshot?.language ?? voice.view().preferences.locale;
   };
   const setup = createVoiceSetup({

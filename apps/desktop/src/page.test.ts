@@ -1913,6 +1913,41 @@ test('rpg-42a.99 page lists only voices of the chosen story language and default
   assert.doesNotMatch(page.root.innerHTML, /Heart|Adam/);
 });
 
+test('rpg-asjw.22 page defaults the guided start narrator to the interface language when no story language is chosen', async () => {
+  const page = fakePage();
+  const voice = fakeVoiceBridge();
+  const brazilian: VoiceProviderStatus = {
+    ...VOICE_PROVIDER,
+    id: 'kokoro-mlx',
+    languages: ['pt-BR'],
+    voices: ['pf_dora', 'pm_alex'],
+    narrator: 'pf_dora',
+    installed: true,
+  };
+  const both = async () => ({ providers: [{ ...VOICE_PROVIDER, installed: true }, brazilian], cacheBytes: 0 });
+  const BEGIN: StartDraft = {
+    ...INITIAL_DRAFT,
+    path: 'guide',
+    step: GUIDE_STEPS.indexOf('begin'),
+    choices: { voiceOutput: true },
+  };
+  mount(
+    page,
+    { locale: 'pt-BR', voice: { ...DEFAULT_PREFERENCES.voice, locale: 'en' } },
+    deniedMicrophone,
+    BEGIN,
+    WIDE_WIDTH,
+    {
+      bridge: { ...page.bridge, voice: { ...voice.bridge, check: both } },
+      audio: { play: async () => ({ decodeMs: 1 }) },
+    },
+  );
+  page.receive(READY);
+  await settle();
+  assert.match(page.root.innerHTML, /<option value="\d+" selected>Dora/);
+  assert.doesNotMatch(page.root.innerHTML, /Heart|Adam/);
+});
+
 test('rpg-42a.99 page previews and keeps a story-language voice while the voice locale differs', async () => {
   const page = fakePage();
   const voice = fakeVoiceBridge();
