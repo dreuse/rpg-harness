@@ -1,6 +1,7 @@
 {
   "name": "rpg-harness",
   "private": true,
+  "version": "0.1.0",
   "author": "dreuse",
   "type": "module",
   "main": "apps/desktop/src/electron-main.ts",
@@ -18,7 +19,7 @@
     "check:prereqs": "node scripts/check-prerequisites.ts",
     "rpg": "node apps/cli/src/bin.ts",
     "build": "tsc --rootDir . --outDir dist",
-    "package:desktop": "pnpm dlx @electron/packager@20.3.0 . \"RPG Harness\" --out=out --electron-version=45.2.1 --app-version=0.0.0 --no-asar --no-prune --overwrite --ignore=/node_modules/@rpg",
+    "package:desktop": "pnpm dlx @electron/packager@20.3.0 . \"RPG Harness\" --out=out --electron-version=45.2.1 --no-asar --no-prune --overwrite --ignore=/node_modules/@rpg",
     "postinstall": "pnpm --filter @rpg/desktop exec install-electron"
   },
   "devDependencies": {

@@ -6,8 +6,8 @@
 pnpm install
 pnpm check:prereqs
 pnpm rpg
-pnpm rpg new Ember
-pnpm rpg play Ember
+pnpm rpg new <campaign>
+pnpm rpg play <campaign>
 pnpm rpg help
 ```
 
