@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 export const SOUND_KINDS = ['ambience', 'effect', 'music'] as const;
 export type SoundKind = (typeof SOUND_KINDS)[number];
@@ -27,7 +28,7 @@ export type SoundManifestResult =
 
 export const CC0_LICENSE = 'CC0';
 export const MANIFEST_VERSION = 1;
-export const BUNDLED_MANIFEST_PATH = new URL('../sounds/manifest.json', import.meta.url).pathname;
+export const BUNDLED_MANIFEST_PATH = join(import.meta.dirname, '..', 'sounds', 'manifest.json');
 
 const NOT_AN_ENTRY = -1;
 const SHA256_HEX = /^[0-9a-f]{64}$/;

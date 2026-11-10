@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import { copyFileSync, mkdirSync, mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { test } from 'node:test';
 import { BUNDLED_MANIFEST_PATH, loadBundledManifest, validateSoundManifest } from './sound-manifest.ts';
 import { BASE_SOUND_TABLE } from './sound-selection.ts';
@@ -132,4 +135,14 @@ const BLOCKED_HOST = 'opengameart.org';
 
 test('no bundled sound is hosted on a site that blocks automated clients', () => {
   for (const { url } of loadBundledManifest()) assert.notEqual(new URL(url).hostname, BLOCKED_HOST, url);
+});
+
+test('the bundled manifest loads when the install path has a space', async () => {
+  const root = join(mkdtempSync(join(tmpdir(), 'rpg-')), 'RPG Harness');
+  mkdirSync(join(root, 'src'), { recursive: true });
+  mkdirSync(join(root, 'sounds'));
+  copyFileSync(join(import.meta.dirname, 'sound-manifest.ts'), join(root, 'src', 'sound-manifest.ts'));
+  copyFileSync(join(import.meta.dirname, '..', 'sounds', 'manifest.json'), join(root, 'sounds', 'manifest.json'));
+  const moved = await import(join(root, 'src', 'sound-manifest.ts'));
+  assert.ok(moved.loadBundledManifest().length > 0);
 });
