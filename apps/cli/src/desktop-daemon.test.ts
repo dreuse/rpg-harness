@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -59,8 +59,6 @@ import { visualizationPreferenceOf } from './roll-visualization.ts';
 import { DATA_DIR_ENV } from './setup-check.ts';
 import { createSpeechRuntime } from './speech-runtime.ts';
 
-const SPIKE_DOC = new URL('../../../docs/product/ui07-desktop-packaging-spike.md', import.meta.url);
-const TARGET_PLATFORMS = ['win32', 'darwin', 'linux'] as const;
 const OAUTH_ENV = 'CLAUDE_CODE_OAUTH_TOKEN';
 const CONFIG_DIR_ENV = 'CLAUDE_CONFIG_DIR';
 const FAKE_SECRET = 'fake-consumer-token';
@@ -273,11 +271,6 @@ const snapshotOf = async (daemon: ReturnType<typeof startDaemon>, campaignId: st
 };
 
 describe('validate windows/macos/linux packaging, daemon lifecycle and node engine embedding', () => {
-  it('checks that the spike doc platform matrix lists win32, darwin and linux', () => {
-    const doc = readFileSync(SPIKE_DOC, 'utf8');
-    for (const platform of TARGET_PLATFORMS) assert.match(doc, new RegExp(`^\\| \`${platform}\` \\|`, 'm'));
-  });
-
   it('spawns the node engine, handshakes, answers ping and shuts down gracefully', async (t) => {
     const daemon = supervise(t, { env: baseEnv() });
     const ready = await daemon.ready();

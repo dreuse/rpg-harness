@@ -1,8 +1,0 @@
-{
-  "gate": "pnpm install --frozen-lockfile && python3 scripts/validate_plan.py && pnpm typecheck && pnpm lint && pnpm test && pnpm build",
-  "prompt": ".claude/loop-prompt.md",
-  "model": "sonnet",
-  "effort": "medium",
-  "budget_usd": 20,
-  "parallel_gate": true
-}
