@@ -1,6 +1,7 @@
 {
   "name": "rpg-harness",
   "private": true,
+  "author": "dreuse",
   "type": "module",
   "main": "apps/desktop/src/electron-main.ts",
   "packageManager": "pnpm@11.7.0",
