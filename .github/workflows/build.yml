@@ -31,19 +31,30 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y xvfb
       - run: pnpm install --frozen-lockfile --prod --config.node-linker=hoisted --ignore-scripts
       - run: pnpm --config.verify-deps-before-run=false package:desktop --platform=${{ matrix.platform }} --arch=${{ matrix.arch }} --executable-name="${{ matrix.executable }}"
+      - run: tar -czf "$ARCHIVE" -C out "$(basename "$PACKAGE_DIR")"
+      - name: install from archive
+        run: |
+          mkdir installed
+          tar -xzf "$ARCHIVE" -C installed
+          echo "INSTALLED=$PWD/installed/$(basename "$PACKAGE_DIR")" >> "$GITHUB_ENV"
       - name: desktop smoke
         timeout-minutes: 5
         env:
           RPG_DESKTOP_SMOKE: 1
         run: |
-          RPG_DATA_DIR="$RUNNER_TEMP/desktop-data" ${{ matrix.launcher }} "$PACKAGE_DIR/${{ matrix.binary }}" ${{ matrix.flags }} | tee smoke.log
+          RPG_DATA_DIR="$RUNNER_TEMP/desktop-data" ${{ matrix.launcher }} "$INSTALLED/${{ matrix.binary }}" ${{ matrix.flags }} | tee smoke.log
           grep -q "rpg-desktop-smoke-status: Connected" smoke.log
-      - name: cli smoke
+      - name: cli smoke without a provider
         timeout-minutes: 2
         env:
           ELECTRON_RUN_AS_NODE: 1
-        run: RPG_DATA_DIR="$RUNNER_TEMP/cli-data" "$PACKAGE_DIR/${{ matrix.binary }}" "$PACKAGE_DIR/${{ matrix.app }}/apps/cli/src/bin.ts" list
-      - run: tar -czf "$ARCHIVE" -C out "$(basename "$PACKAGE_DIR")"
+          RPG_DATA_DIR: ${{ runner.temp }}/cli-data
+        run: |
+          rpg() { "$INSTALLED/${{ matrix.binary }}" "$INSTALLED/${{ matrix.app }}/apps/cli/src/bin.ts" "$@"; }
+          rpg new Smoke | tee new.log
+          grep -q "no AI game master is available" new.log
+          rpg list | tee list.log
+          grep -q "Campaigns: Smoke" list.log
       - uses: actions/upload-artifact@v4
         with:
           name: rpg-harness-${{ matrix.platform }}-${{ matrix.arch }}
