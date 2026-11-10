@@ -31,3 +31,9 @@ test('rpg-cm63.75 execFile finds uv through the child env PATH', () => {
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('rpg-cm63.75 Windows PATH keeps its drive letters and joins with a semicolon', () => {
+  const home = 'C:\\Users\\ana';
+  const { PATH } = inheritedEnv({ PATH: 'C:\\Windows;C:\\Tools', HOME: home }, 'win32');
+  assert.equal(PATH, `C:\\Windows;C:\\Tools;${home}/.local/bin;${home}/.cargo/bin`);
+});

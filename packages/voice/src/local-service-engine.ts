@@ -22,7 +22,9 @@ const STOP_SIGNAL = 'SIGTERM';
 const INHERITED_ENV = ['PATH', 'HOME', 'TMPDIR', 'LANG'] as const;
 
 const PATH_NAME = 'PATH';
-const PATH_SEPARATOR = ':';
+const POSIX_PATH_SEPARATOR = ':';
+const WINDOWS_PATH_SEPARATOR = ';';
+const WINDOWS_PLATFORM = 'win32';
 const HOME_TOOL_DIRS = ['.local/bin', '.cargo/bin'];
 const MACOS_TOOL_DIRS = ['/opt/homebrew/bin', '/usr/local/bin'];
 
@@ -31,8 +33,9 @@ const withToolDirs = (path: string | undefined, home: string | undefined, platfo
     ...(home === undefined ? [] : HOME_TOOL_DIRS.map((dir) => `${home}/${dir}`)),
     ...(platform === 'darwin' ? MACOS_TOOL_DIRS : []),
   ];
-  const kept = path === undefined || path === '' ? [] : path.split(PATH_SEPARATOR);
-  return [...new Set([...kept, ...extra])].join(PATH_SEPARATOR);
+  const separator = platform === WINDOWS_PLATFORM ? WINDOWS_PATH_SEPARATOR : POSIX_PATH_SEPARATOR;
+  const kept = path === undefined || path === '' ? [] : path.split(separator);
+  return [...new Set([...kept, ...extra])].join(separator);
 };
 
 export const inheritedEnv = (
