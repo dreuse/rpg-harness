@@ -11,7 +11,7 @@ export interface CircuitBreakerOptions {
   readonly now?: () => number;
 }
 
-export const withCircuitBreaker = <P extends TtsProvider>(
+export const withCircuitBreaker = <P extends Pick<TtsProvider, 'synthesize' | 'healthy'>>(
   provider: P,
   {
     maxRetries = TTS_MAX_RETRIES,

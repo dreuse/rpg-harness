@@ -36,6 +36,7 @@ import {
   createKokoroProvider,
   KOKORO_CAPABILITIES,
   KOKORO_MIME_TYPE,
+  KOKORO_NO_AUDIO_MESSAGE,
   KOKORO_ONNX_PROVIDER_ID,
   KOKORO_PROVIDER_ID,
   type KokoroCapabilities,
@@ -51,6 +52,7 @@ import { createMlxAudioInstaller, type MlxAudioInstaller } from '../../../packag
 import { MAX_PLAYBACK_SPEED, MIN_PLAYBACK_SPEED } from '../../../packages/voice/src/playback.ts';
 import { choosePtBrRoute, type PtBrRoute } from '../../../packages/voice/src/pt-br-route.ts';
 import type { SpeechChunk } from '../../../packages/voice/src/tts.ts';
+import { type CircuitBreakerOptions, withCircuitBreaker } from '../../../packages/voice/src/tts-circuit-breaker.ts';
 import type { CommittedUtterance, Delivery } from '../../../packages/voice/src/voice.ts';
 import { MAX_SPEECH_CHARS } from './voice-setup.ts';
 
@@ -277,6 +279,7 @@ export const createVoiceHost = ({
       };
       try {
         const chunks = await collect(hosted, voiceId);
+        if (chunks.length === 0) throw new Error(KOKORO_NO_AUDIO_MESSAGE);
         const synthesisMs = now() - started;
         cache.set(key, chunks);
         return { chunks: chunks.map(({ audio }) => audio), synthesisMs, cacheHit: false };
@@ -471,18 +474,29 @@ export const fakeVoiceProviders = (schedule: (run: () => void, ms: number) => vo
   },
 ];
 
+export const guardedHostedProviders = (
+  providers: readonly HostedProvider[],
+  breaker?: CircuitBreakerOptions,
+): HostedProvider[] =>
+  providers.map((hosted) => ({ ...hosted, provider: withCircuitBreaker(hosted.provider, breaker) }));
+
 export const voiceProviders = (
   env: NodeJS.ProcessEnv,
   dataDir: string,
   mlxSupported: boolean = choosePtBrRoute(process.platform, process.arch, env) === 'mlx',
-): HostedProvider[] => [
-  ...kokoroProviders(env[KOKORO_MODEL_DIR_ENV] || join(dataDir, VOICE_MODELS_DIR)),
-  ...(mlxSupported
-    ? mlxAudioProviders(env[MLX_AUDIO_DIR_ENV] || join(dataDir, MLX_AUDIO_SUBDIR))
-    : onnxProviders(env[KOKORO_MODEL_DIR_ENV] || join(dataDir, VOICE_MODELS_DIR))),
-  ...chatterboxProviders(env[CHATTERBOX_DIR_ENV] || join(dataDir, CHATTERBOX_SUBDIR)),
-  ...f5Providers(env[F5_DIR_ENV] || join(dataDir, F5_SUBDIR)),
-];
+  breaker?: CircuitBreakerOptions,
+): HostedProvider[] =>
+  guardedHostedProviders(
+    [
+      ...kokoroProviders(env[KOKORO_MODEL_DIR_ENV] || join(dataDir, VOICE_MODELS_DIR)),
+      ...(mlxSupported
+        ? mlxAudioProviders(env[MLX_AUDIO_DIR_ENV] || join(dataDir, MLX_AUDIO_SUBDIR))
+        : onnxProviders(env[KOKORO_MODEL_DIR_ENV] || join(dataDir, VOICE_MODELS_DIR))),
+      ...chatterboxProviders(env[CHATTERBOX_DIR_ENV] || join(dataDir, CHATTERBOX_SUBDIR)),
+      ...f5Providers(env[F5_DIR_ENV] || join(dataDir, F5_SUBDIR)),
+    ],
+    breaker,
+  );
 
 export const voiceHostFromEnv = (env: NodeJS.ProcessEnv, dataDir: string): VoiceHost =>
   createVoiceHost({

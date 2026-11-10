@@ -19,11 +19,13 @@ import {
   MLX_KOKORO_CAPABILITIES,
   MLX_KOKORO_PROVIDER_ID,
 } from '../../../packages/voice/src/kokoro-provider.ts';
+import { TTS_COOL_DOWN_MS, TTS_FAILURE_THRESHOLD } from '../../../packages/voice/src/tts-circuit-breaker.ts';
 import {
   chatterboxProviders,
   createVoiceHost,
   f5Providers,
   fakeVoiceProviders,
+  guardedHostedProviders,
   type HostedProvider,
   MAX_EMOTION_CHARS,
   MAX_PRONUNCIATION_CHARS,
@@ -538,4 +540,91 @@ test('rpg-cm63.55 a failing opt-in voice previews with the default voice instead
   const { chunks } = await host.preview({ ...PREVIEW, providerId: 'f5-tts', voiceId: 'f5-voice' });
   assert.ok(chunks.length > 0 && chunks.every((chunk) => chunk === AUDIO));
   await assert.rejects(host.preview({ ...PREVIEW, providerId: 'f5-tts', voiceId: 'f5-voice', language: 'xx' }));
+});
+
+test('rpg-cm63.73 a hosted voice failing in a row is skipped during the cool-down and the default voice speaks', async () => {
+  let calls = 0;
+  const failing: HostedProvider = {
+    id: 'f5-tts',
+    capabilities: { ...KOKORO_CAPABILITIES, voices: ['f5-voice'] },
+    narrator: 'f5-voice',
+    model: fakeModel(true).model,
+    optIn: true,
+    provider: {
+      synthesize: () => ({
+        [Symbol.asyncIterator]: () => ({
+          next: () => {
+            calls += 1;
+            return Promise.reject(new Error('down'));
+          },
+        }),
+      }),
+      dispose: async () => {},
+      preload: async () => {},
+      healthy: () => true,
+    },
+  };
+  const fallback: HostedProvider = {
+    id: KOKORO_PROVIDER_ID,
+    capabilities: KOKORO_CAPABILITIES,
+    narrator: NARRATOR,
+    model: fakeModel(true).model,
+    provider: createKokoroProvider({
+      engine: { ready: () => true, load: async () => {}, synthesize: async () => AUDIO, unload: async () => {} },
+    }),
+  };
+  const host = createVoiceHost({
+    providers: guardedHostedProviders([failing, fallback], { now: () => 0 }),
+    cacheDir,
+  });
+  const preview = (text: string) => host.preview({ ...PREVIEW, providerId: 'f5-tts', voiceId: 'f5-voice', text });
+  for (let line = 0; line < TTS_FAILURE_THRESHOLD; line += 1) await preview(`line ${line}`);
+  const callsAtOpen = calls;
+  const { chunks } = await preview('after the breaker opened');
+  assert.equal(calls, callsAtOpen);
+  assert.ok(chunks.length > 0 && chunks.every((chunk) => chunk === AUDIO));
+});
+
+test('rpg-cm63.73 real voice providers are wrapped in the circuit breaker', () => {
+  let reads = 0;
+  const [first] = voiceProviders({}, '/dir', false, {
+    now: () => {
+      reads += 1;
+      return 0;
+    },
+  });
+  first?.provider.healthy();
+  assert.ok(reads > 0);
+});
+
+test('rpg-cm63.73 a default voice with an open breaker rejects and caches nothing', async () => {
+  let engineDown = true;
+  let breakerClock = 0;
+  const hosted: HostedProvider = {
+    id: KOKORO_PROVIDER_ID,
+    capabilities: KOKORO_CAPABILITIES,
+    narrator: NARRATOR,
+    model: fakeModel(true).model,
+    provider: createKokoroProvider({
+      engine: {
+        ready: () => true,
+        load: async () => {},
+        synthesize: async () => {
+          if (engineDown) throw new Error('down');
+          return AUDIO;
+        },
+        unload: async () => {},
+      },
+    }),
+  };
+  const host = createVoiceHost({ providers: guardedHostedProviders([hosted], { now: () => breakerClock }), cacheDir });
+  const preview = (text: string) =>
+    host.preview({ ...PREVIEW, providerId: KOKORO_PROVIDER_ID, voiceId: NARRATOR, text });
+  for (let line = 0; line < TTS_FAILURE_THRESHOLD; line += 1) await assert.rejects(preview(`line ${line}`));
+  await assert.rejects(preview('while open'));
+  engineDown = false;
+  breakerClock += TTS_COOL_DOWN_MS;
+  const { cacheHit, chunks } = await preview('while open');
+  assert.equal(cacheHit, false);
+  assert.ok(chunks.length > 0);
 });

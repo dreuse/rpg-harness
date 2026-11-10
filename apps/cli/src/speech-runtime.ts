@@ -48,6 +48,7 @@ import { createProcessSink } from '../../../packages/voice/src/process-sink.ts';
 import { choosePtBrRoute, type PtBrRoute } from '../../../packages/voice/src/pt-br-route.ts';
 import { createStreamingSpeech, type StreamingSpeech } from '../../../packages/voice/src/streaming-speech.ts';
 import type { SpeechChunk, TtsProvider } from '../../../packages/voice/src/tts.ts';
+import { type CircuitBreakerOptions, withCircuitBreaker } from '../../../packages/voice/src/tts-circuit-breaker.ts';
 import type { CommittedUtterance, VoiceProfile } from '../../../packages/voice/src/voice.ts';
 import {
   createVoiceDiagnostics,
@@ -161,31 +162,39 @@ export const createSpeechRuntime = ({
   };
 };
 
+export const guardedProviders = (providers: readonly TtsProvider[], breaker?: CircuitBreakerOptions): TtsProvider[] =>
+  providers.map((provider) => withCircuitBreaker(provider, breaker));
+
 export const liveProviders = (
   dataDir: string,
   env: NodeJS.ProcessEnv = process.env,
   route: PtBrRoute = choosePtBrRoute(process.platform, process.arch, env),
-): TtsProvider[] => [
-  createKokoroProvider({
-    engine: createKokoroJsEngine(env[KOKORO_MODEL_DIR_ENV] || join(dataDir, VOICE_MODELS_DIR)),
-  }),
-  ...(route === 'mlx'
-    ? [
-        createMlxAudioProvider({
-          dir: env[MLX_AUDIO_DIR_ENV] || join(dataDir, MLX_AUDIO_SUBDIR),
-          voiceBlend: npcVoiceBlend(MLX_KOKORO_CAPABILITIES.voices),
-        }),
-      ]
-    : [
-        createKokoroProvider({
-          id: KOKORO_ONNX_PROVIDER_ID,
-          capabilities: MLX_KOKORO_CAPABILITIES,
-          engine: createKokoroOnnxEngine(env[KOKORO_MODEL_DIR_ENV] || join(dataDir, VOICE_MODELS_DIR)),
-        }),
-      ]),
-  createChatterboxProvider({ dir: env[CHATTERBOX_DIR_ENV] || join(dataDir, CHATTERBOX_SUBDIR) }),
-  createF5Provider({ dir: env[F5_DIR_ENV] || join(dataDir, F5_SUBDIR) }),
-];
+  breaker?: CircuitBreakerOptions,
+): TtsProvider[] =>
+  guardedProviders(
+    [
+      createKokoroProvider({
+        engine: createKokoroJsEngine(env[KOKORO_MODEL_DIR_ENV] || join(dataDir, VOICE_MODELS_DIR)),
+      }),
+      ...(route === 'mlx'
+        ? [
+            createMlxAudioProvider({
+              dir: env[MLX_AUDIO_DIR_ENV] || join(dataDir, MLX_AUDIO_SUBDIR),
+              voiceBlend: npcVoiceBlend(MLX_KOKORO_CAPABILITIES.voices),
+            }),
+          ]
+        : [
+            createKokoroProvider({
+              id: KOKORO_ONNX_PROVIDER_ID,
+              capabilities: MLX_KOKORO_CAPABILITIES,
+              engine: createKokoroOnnxEngine(env[KOKORO_MODEL_DIR_ENV] || join(dataDir, VOICE_MODELS_DIR)),
+            }),
+          ]),
+      createChatterboxProvider({ dir: env[CHATTERBOX_DIR_ENV] || join(dataDir, CHATTERBOX_SUBDIR) }),
+      createF5Provider({ dir: env[F5_DIR_ENV] || join(dataDir, F5_SUBDIR) }),
+    ],
+    breaker,
+  );
 
 export const optedInNarrator = (dataDir: string, language: string): VoiceProfile['fallbacks'][number] | undefined => {
   try {

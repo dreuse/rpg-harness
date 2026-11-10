@@ -9,10 +9,12 @@ import { KOKORO_MODEL_SOURCE } from '../../../packages/voice/src/kokoro-model.ts
 import { KOKORO_MIME_TYPE, KOKORO_PROVIDER_ID } from '../../../packages/voice/src/kokoro-provider.ts';
 import type { PlaybackSink } from '../../../packages/voice/src/playback.ts';
 import type { SpeechChunk, TtsProvider } from '../../../packages/voice/src/tts.ts';
+import { TTS_FAILURE_THRESHOLD } from '../../../packages/voice/src/tts-circuit-breaker.ts';
 import type { CommittedUtterance, VoiceProfile } from '../../../packages/voice/src/voice.ts';
 import {
   createLiveSpeechRuntime,
   createSpeechRuntime,
+  guardedProviders,
   liveProviders,
   optedInNarrator,
   PREFERENCES_FILE,
@@ -450,4 +452,57 @@ test('rpg-cm63.55 only the opt-in providers that speak the language are chosen f
   assert.equal(choice({ providerId: KOKORO_PROVIDER_ID }), undefined);
   assert.equal(choice({}), undefined);
   assert.equal(optedInNarrator('/missing', PT_BR_LANGUAGE), undefined);
+});
+
+const BROKEN_ID = 'broken';
+const COOL_DOWN_RETRY_LINES = 2;
+
+test('rpg-cm63.73 a provider failing in a row is skipped during the cool-down and the fallback speaks', async () => {
+  let calls = 0;
+  const broken: TtsProvider = {
+    ...provider(BROKEN_ID),
+    synthesize: () => ({
+      [Symbol.asyncIterator]: () => ({
+        next: () => {
+          calls += 1;
+          return Promise.reject(new Error('down'));
+        },
+      }),
+    }),
+  };
+  const played: string[] = [];
+  const runtime = createSpeechRuntime({
+    providers: guardedProviders([broken, provider('good')], { now: () => 0 }),
+    sink: sinkOf(played),
+  });
+  const profile = {
+    ...profileWith(BROKEN_ID),
+    fallbacks: [
+      { providerId: BROKEN_ID, voiceId: 'a' },
+      { providerId: 'good', voiceId: 'b' },
+    ],
+  };
+  const speak = async (turn: number) => {
+    runtime.speech.hold(`t${turn}`, { ...utterance('good'), profile });
+    runtime.speech.commit(`t${turn}`);
+    await runtime.speech.idle();
+  };
+  for (let turn = 0; turn < TTS_FAILURE_THRESHOLD; turn += 1) await speak(turn);
+  const callsAtOpen = calls;
+  for (let turn = 0; turn < COOL_DOWN_RETRY_LINES; turn += 1) await speak(TTS_FAILURE_THRESHOLD + turn);
+  assert.equal(calls, callsAtOpen);
+  assert.ok(played.length >= TTS_FAILURE_THRESHOLD + COOL_DOWN_RETRY_LINES);
+  assert.ok(played.every((voice) => voice === 'b'));
+});
+
+test('rpg-cm63.73 live providers are wrapped in the circuit breaker', () => {
+  let reads = 0;
+  const [first] = liveProviders('/data', {}, 'onnx', {
+    now: () => {
+      reads += 1;
+      return 0;
+    },
+  });
+  first?.healthy?.();
+  assert.ok(reads > 0);
 });
