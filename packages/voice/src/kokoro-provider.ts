@@ -58,6 +58,7 @@ export const KOKORO_IDLE_TIMEOUT_MS = 300_000;
 export const KOKORO_MAX_CONCURRENT = 1;
 export const KOKORO_MIME_TYPE = 'audio/wav';
 export const KOKORO_NO_AUDIO_MESSAGE = 'kokoro engine returned no audio';
+export const KOKORO_MODEL_MISSING_MESSAGE = 'voice model is not installed';
 
 const ENGLISH = 'en';
 

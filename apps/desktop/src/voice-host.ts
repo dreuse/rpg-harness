@@ -36,6 +36,7 @@ import {
   createKokoroProvider,
   KOKORO_CAPABILITIES,
   KOKORO_MIME_TYPE,
+  KOKORO_MODEL_MISSING_MESSAGE,
   KOKORO_NO_AUDIO_MESSAGE,
   KOKORO_ONNX_PROVIDER_ID,
   KOKORO_PROVIDER_ID,
@@ -278,6 +279,7 @@ export const createVoiceHost = ({
         return collected;
       };
       try {
+        if (!(await hosted.model.status()).installed) throw new Error(KOKORO_MODEL_MISSING_MESSAGE);
         const chunks = await collect(hosted, voiceId);
         if (chunks.length === 0) throw new Error(KOKORO_NO_AUDIO_MESSAGE);
         const synthesisMs = now() - started;

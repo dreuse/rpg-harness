@@ -148,6 +148,7 @@ export type VoiceSetupOptions = {
 };
 
 const OFF: SpokenOutputMode = 'off';
+const INSTALL_INCOMPLETE_FAILURE: AudioFailure = 'provider-error';
 const NO_COUNT = 0;
 
 const isVolume = (value: unknown): value is number =>
@@ -285,7 +286,11 @@ export const createVoiceSetup = ({
 
   const previewSetup = async (provider: VoiceProviderStatus) => {
     go('previewing');
-    if (!(await play(provider, narratorOf(provider)))) return go('failed');
+    if (!(await play(provider, narratorOf(provider)))) {
+      if (active()?.installed !== false) return go('failed');
+      error = undefined;
+      return go('consent');
+    }
     setOutput(hasNpcVoices(provider) ? VOICE_ON_MODE : NARRATOR_ONLY_MODE);
     go('ready');
   };
@@ -316,6 +321,10 @@ export const createVoiceSetup = ({
     await refresh();
     const installed = active();
     if (installed === undefined) return go('failed');
+    if (!installed.installed) {
+      error = INSTALL_INCOMPLETE_FAILURE;
+      return go('failed');
+    }
     return previewSetup(installed);
   };
 

@@ -542,6 +542,34 @@ test('rpg-cm63.55 a failing opt-in voice previews with the default voice instead
   await assert.rejects(host.preview({ ...PREVIEW, providerId: 'f5-tts', voiceId: 'f5-voice', language: 'xx' }));
 });
 
+test('rpg-cm63.74 an opt-in voice whose model is removed previews with the default voice', async () => {
+  const removed: HostedProvider = {
+    id: 'f5-tts',
+    capabilities: { ...KOKORO_CAPABILITIES, voices: ['f5-voice'] },
+    narrator: 'f5-voice',
+    model: fakeModel(false).model,
+    optIn: true,
+    provider: {
+      synthesize: () => ({ [Symbol.asyncIterator]: () => ({ next: () => Promise.reject(new Error('down')) }) }),
+      dispose: async () => {},
+      preload: async () => {},
+      healthy: () => true,
+    },
+  };
+  const fallback: HostedProvider = {
+    id: KOKORO_PROVIDER_ID,
+    capabilities: KOKORO_CAPABILITIES,
+    narrator: NARRATOR,
+    model: fakeModel(true).model,
+    provider: createKokoroProvider({
+      engine: { ready: () => true, load: async () => {}, synthesize: async () => AUDIO, unload: async () => {} },
+    }),
+  };
+  const host = createVoiceHost({ providers: [removed, fallback], cacheDir });
+  const { chunks } = await host.preview({ ...PREVIEW, providerId: 'f5-tts', voiceId: 'f5-voice' });
+  assert.ok(chunks.length > 0 && chunks.every((chunk) => chunk === AUDIO));
+});
+
 test('rpg-cm63.73 a hosted voice failing in a row is skipped during the cool-down and the default voice speaks', async () => {
   let calls = 0;
   const failing: HostedProvider = {
