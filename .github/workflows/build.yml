@@ -1,0 +1,51 @@
+name: build
+on:
+  push:
+  workflow_dispatch:
+jobs:
+  package:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: macos-latest, platform: darwin, arch: arm64, executable: RPG Harness, binary: RPG Harness.app/Contents/MacOS/RPG Harness, app: RPG Harness.app/Contents/Resources/app }
+          - { os: macos-15-intel, platform: darwin, arch: x64, executable: RPG Harness, binary: RPG Harness.app/Contents/MacOS/RPG Harness, app: RPG Harness.app/Contents/Resources/app }
+          - { os: windows-latest, platform: win32, arch: x64, executable: RPG Harness, binary: RPG Harness.exe, app: resources/app }
+          - { os: windows-11-arm, platform: win32, arch: arm64, executable: RPG Harness, binary: RPG Harness.exe, app: resources/app }
+          - { os: ubuntu-latest, platform: linux, arch: x64, executable: rpg-harness, binary: rpg-harness, app: resources/app, launcher: xvfb-run -a, flags: --no-sandbox }
+          - { os: ubuntu-24.04-arm, platform: linux, arch: arm64, executable: rpg-harness, binary: rpg-harness, app: resources/app, launcher: xvfb-run -a, flags: --no-sandbox }
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      PACKAGE_DIR: out/RPG Harness-${{ matrix.platform }}-${{ matrix.arch }}
+      ARCHIVE: rpg-harness-${{ matrix.platform }}-${{ matrix.arch }}.tar.gz
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - if: matrix.platform == 'linux'
+        run: sudo apt-get update && sudo apt-get install -y xvfb
+      - run: pnpm install --frozen-lockfile --prod --config.node-linker=hoisted --ignore-scripts
+      - run: pnpm --config.verify-deps-before-run=false package:desktop --platform=${{ matrix.platform }} --arch=${{ matrix.arch }} --executable-name="${{ matrix.executable }}"
+      - name: desktop smoke
+        timeout-minutes: 5
+        env:
+          RPG_DESKTOP_SMOKE: 1
+        run: |
+          RPG_DATA_DIR="$RUNNER_TEMP/desktop-data" ${{ matrix.launcher }} "$PACKAGE_DIR/${{ matrix.binary }}" ${{ matrix.flags }} | tee smoke.log
+          grep -q "rpg-desktop-smoke-status: Connected" smoke.log
+      - name: cli smoke
+        timeout-minutes: 2
+        env:
+          ELECTRON_RUN_AS_NODE: 1
+        run: RPG_DATA_DIR="$RUNNER_TEMP/cli-data" "$PACKAGE_DIR/${{ matrix.binary }}" "$PACKAGE_DIR/${{ matrix.app }}/apps/cli/src/bin.ts" list
+      - run: tar -czf "$ARCHIVE" -C out "$(basename "$PACKAGE_DIR")"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rpg-harness-${{ matrix.platform }}-${{ matrix.arch }}
+          path: ${{ env.ARCHIVE }}
+          compression-level: 0

@@ -107,6 +107,14 @@ pnpm rpg help
 pnpm test
 ```
 
+## Build
+
+```bash
+pnpm install --prod --config.node-linker=hoisted --ignore-scripts  # flat install for packaging
+pnpm --config.verify-deps-before-run=false package:desktop --platform=darwin --arch=arm64  # writes out/RPG Harness-<platform>-<arch>
+ELECTRON_RUN_AS_NODE=1 "out/RPG Harness-darwin-arm64/RPG Harness.app/Contents/MacOS/RPG Harness" "out/RPG Harness-darwin-arm64/RPG Harness.app/Contents/Resources/app/apps/cli/src/bin.ts"  # packaged CLI
+```
+
 ## Environment
 
 Optional:
