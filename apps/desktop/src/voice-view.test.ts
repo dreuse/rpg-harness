@@ -44,6 +44,7 @@ const ready: VoiceSetupView = {
   cacheBytes: 2048,
   progress: undefined,
   error: undefined,
+  detail: undefined,
   speech: { ...DEFAULT_SPEECH, volume: 0.5, npcVoices: { [CAMPAIGN]: { [HOSTILE]: 'af_heart' } } },
   npcVoices: { [HOSTILE]: 'af_heart' },
   speakers: ['Wren'],
@@ -162,6 +163,9 @@ test('rpg-cm63.7 setup flow dialog shows consent with size and source, progress,
   const failed = dialog({ step: 'failed', error: 'timeout' });
   assert.match(failed, /role="alert">Voice could not start \(timed out\)\. The story stays in text\./);
   assert.match(failed, /data-voice-setup="on">Try again/);
+  const installer = dialog({ step: 'failed', error: 'provider-error', detail: 'Needs uv <b>now</b>.' });
+  assert.match(installer, /role="alert">Voice could not start \(Needs uv &lt;b&gt;now&lt;\/b&gt;\.\)/);
+  assert.doesNotMatch(installer, /voice engine error/);
 });
 
 const RAW_IDS = ['kokoro', 'af_heart', ...Object.keys(VOICE_NAMES)];

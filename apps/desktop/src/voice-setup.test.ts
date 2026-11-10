@@ -27,6 +27,7 @@ const KOKORO: VoiceProviderStatus = {
   bytes: 0,
   offer: OFFER,
 };
+const UV_MESSAGE = 'Brazilian Portuguese voices need uv to install. Install uv and try again.';
 const CAMPAIGN_TEXT = 'Vyrnax the dragon wakes beneath Emberfall';
 const CAMPAIGN = 'campaign-a';
 const OTHER_CAMPAIGN = 'campaign-b';
@@ -206,6 +207,18 @@ test('rpg-cm63.7 a failed download or preview keeps voice off and records only a
   assert.equal(download.controller.view().step, 'failed');
   assert.equal(download.controller.view().error, 'provider-error');
   assert.deepEqual(download.outputs, []);
+
+  const installer = setup({ failDownload: new Error(UV_MESSAGE) });
+  await installer.controller.turnOn();
+  await installer.controller.accept();
+  assert.equal(installer.controller.view().detail, UV_MESSAGE);
+
+  const wrapped = setup({
+    failDownload: new Error(`Error invoking remote method 'rpg:voice:download': Error: ${UV_MESSAGE}`),
+  });
+  await wrapped.controller.turnOn();
+  await wrapped.controller.accept();
+  assert.equal(wrapped.controller.view().detail, UV_MESSAGE);
 
   const preview = setup({
     installed: true,

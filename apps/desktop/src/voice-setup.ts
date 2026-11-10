@@ -148,6 +148,7 @@ export type VoiceSetupOptions = {
 };
 
 const OFF: SpokenOutputMode = 'off';
+const IPC_ERROR_PREFIX = /^Error invoking remote method '[^']*': (?:Error: )?/;
 const INSTALL_INCOMPLETE_FAILURE: AudioFailure = 'provider-error';
 const NO_COUNT = 0;
 
@@ -215,6 +216,7 @@ export const createVoiceSetup = ({
   let status: VoiceHostStatus = { providers: [], cacheBytes: 0 };
   let progress: { bytes: number; total: number } | undefined;
   let error: AudioFailure | undefined;
+  let detail: string | undefined;
   let engine: VoiceDiagnosticsSummary | undefined;
 
   const go = (next: SetupStep) => {
@@ -233,6 +235,7 @@ export const createVoiceSetup = ({
   const failed = (cause: unknown) => {
     diagnostics.fail(cause);
     error = classifyAudioFailure(cause);
+    detail = undefined;
   };
   const observeEngine = async () => {
     try {
@@ -297,6 +300,7 @@ export const createVoiceSetup = ({
 
   const turnOn = async () => {
     error = undefined;
+    detail = undefined;
     go('checking');
     await refresh();
     const provider = active();
@@ -314,6 +318,7 @@ export const createVoiceSetup = ({
       await bridge.download(provider.id, { accepted: true, ...provider.offer });
     } catch (cause) {
       failed(cause);
+      if (cause instanceof Error && cause.message !== '') detail = cause.message.replace(IPC_ERROR_PREFIX, '');
       progress = undefined;
       return go('failed');
     }
@@ -436,6 +441,7 @@ export const createVoiceSetup = ({
       cacheBytes: status.cacheBytes,
       progress,
       error,
+      detail,
       speech,
       npcVoices,
       speakers: unvoiced(npcVoices),

@@ -21,10 +21,29 @@ const STDERR_TAIL_CHARS = 2000;
 const STOP_SIGNAL = 'SIGTERM';
 const INHERITED_ENV = ['PATH', 'HOME', 'TMPDIR', 'LANG'] as const;
 
-export const inheritedEnv = (): Record<string, string> =>
-  Object.fromEntries(
-    INHERITED_ENV.flatMap((name) => (process.env[name] === undefined ? [] : [[name, process.env[name]]])),
+const PATH_NAME = 'PATH';
+const PATH_SEPARATOR = ':';
+const HOME_TOOL_DIRS = ['.local/bin', '.cargo/bin'];
+const MACOS_TOOL_DIRS = ['/opt/homebrew/bin', '/usr/local/bin'];
+
+const withToolDirs = (path: string | undefined, home: string | undefined, platform: string): string => {
+  const extra = [
+    ...(home === undefined ? [] : HOME_TOOL_DIRS.map((dir) => `${home}/${dir}`)),
+    ...(platform === 'darwin' ? MACOS_TOOL_DIRS : []),
+  ];
+  const kept = path === undefined || path === '' ? [] : path.split(PATH_SEPARATOR);
+  return [...new Set([...kept, ...extra])].join(PATH_SEPARATOR);
+};
+
+export const inheritedEnv = (
+  source: NodeJS.ProcessEnv = process.env,
+  platform: string = process.platform,
+): Record<string, string> => {
+  const env = Object.fromEntries(
+    INHERITED_ENV.flatMap((name) => (source[name] === undefined ? [] : [[name, source[name]]])),
   );
+  return { ...env, [PATH_NAME]: withToolDirs(source[PATH_NAME], source.HOME, platform) };
+};
 
 export type ServiceSpawn = (command: string, args: readonly string[], options: SpawnOptions) => ChildProcess;
 

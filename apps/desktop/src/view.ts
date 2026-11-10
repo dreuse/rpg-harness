@@ -522,7 +522,7 @@ const settingsMenu = (
   return `<details data-settings><summary id="settings-toggle" ${SETTINGS_TOGGLE}>${escapeHtml(translate(locale, 'settings.label'))}</summary><div id="${SETTINGS_PANEL_ID}" ${SETTINGS_PANEL} tabindex="-1" role="group" aria-labelledby="${SETTINGS_HEADING_ID}"><h2 id="${SETTINGS_HEADING_ID}">${escapeHtml(translate(locale, 'settings.label'))}</h2>${sections.join('')}</div></details>`;
 };
 
-const setupBody = ({ step, provider, progress, error }: VoiceSetupView, locale: string): string => {
+const setupBody = ({ step, provider, progress, error, detail }: VoiceSetupView, locale: string): string => {
   const text = (key: string, values?: Record<string, string | number>) =>
     `<p>${escapeHtml(translate(locale, key, values))}</p>`;
   switch (step) {
@@ -545,7 +545,7 @@ const setupBody = ({ step, provider, progress, error }: VoiceSetupView, locale: 
     case 'unavailable':
       return `${text('voice.setup.unavailable')}${button(VOICE_SETUP, 'finish', translate(locale, 'voice.setup.done'), false, true)}`;
     case 'failed':
-      return `${alert(translate(locale, 'voice.setup.failed', { reason: failureName(locale, error ?? UNKNOWN_FAILURE) }))}${button(VOICE_SETUP, 'on', translate(locale, 'voice.setup.retry'))}${button(VOICE_SETUP, 'finish', translate(locale, 'voice.setup.done'), false, true)}`;
+      return `${alert(translate(locale, 'voice.setup.failed', { reason: detail ?? failureName(locale, error ?? UNKNOWN_FAILURE) }))}${button(VOICE_SETUP, 'on', translate(locale, 'voice.setup.retry'))}${button(VOICE_SETUP, 'finish', translate(locale, 'voice.setup.done'), false, true)}`;
     default:
       return '';
   }
