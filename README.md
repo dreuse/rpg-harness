@@ -3,6 +3,15 @@
 ## Run
 
 ```bash
+open rpg-harness-darwin-arm64.dmg  # macOS desktop app from the latest release; drag RPG Harness to Applications
+curl -fsSL https://raw.githubusercontent.com/dreuse/rpg-harness/main/install.sh | sh  # install or update
+curl -fsSL https://raw.githubusercontent.com/dreuse/rpg-harness/main/install.sh | sh -s -- --uninstall
+rpg tui [campaign]
+```
+
+From source:
+
+```bash
 pnpm install
 pnpm check:prereqs
 pnpm rpg
@@ -46,6 +55,7 @@ git tag v0.1.0 && git push origin v0.1.0  # CI publishes the binaries to a GitHu
 Optional:
 
 ```bash
+RPG_RELEASE_URL=  # install.sh only; default: https://github.com/dreuse/rpg-harness/releases/latest/download
 RPG_DATA_DIR=  # default: OS data folder + /rpg, created on first run
 XDG_DATA_HOME=
 APPDATA=
