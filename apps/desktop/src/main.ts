@@ -1,4 +1,5 @@
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
 import {
   loadStartDraft,
@@ -28,6 +29,7 @@ export const PREFERENCES_FILE = 'desktop-preferences.json';
 export const ENGINE_CRASHED = 'Engine crashed.';
 export const WINDOW_WIDTH = 1280;
 export const WINDOW_HEIGHT = 800;
+export const WINDOW_ICON = fileURLToPath(new URL('../assets/icon.png', import.meta.url));
 export const WINDOW_SECURITY = { contextIsolation: true, nodeIntegration: false, sandbox: true } as const;
 export const DENY_WINDOW = { action: 'deny' } as const;
 export const SMOKE_ENV = 'RPG_DESKTOP_SMOKE';
@@ -46,6 +48,7 @@ export type WindowOptions = {
   readonly width: number;
   readonly height: number;
   readonly show?: false;
+  readonly icon: string;
   readonly webPreferences: typeof WINDOW_SECURITY & { readonly preload: string };
 };
 export type BrowserWindowLike = {
@@ -225,6 +228,7 @@ export const startMain = ({
   const window = new BrowserWindow({
     width: WINDOW_WIDTH,
     height: WINDOW_HEIGHT,
+    icon: WINDOW_ICON,
     ...(hidden ? { show: false as const } : {}),
     webPreferences: { preload, ...WINDOW_SECURITY },
   });

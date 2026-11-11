@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { fork } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { INITIAL_DRAFT, START_DRAFT_FILE } from '../../../packages/client-protocol/src/guided-start.ts';
@@ -24,6 +25,7 @@ import {
   startMain,
   type UtilityProcessLike,
   utilityEngine,
+  WINDOW_ICON,
   WINDOW_SECURITY,
 } from './main.ts';
 import { CHANNELS, PREFERENCES_QUERY, START_QUERY } from './preload.ts';
@@ -739,4 +741,13 @@ test('rpg-42a.68 main registers no import channel without a dialog', () => {
   const electron = fakeElectron();
   start(electron);
   assert.equal(electron.channels().includes(CHANNELS.importRulebook), false);
+});
+
+test('rpg-42a.166 main gives the window the app icon', () => {
+  const electron = fakeElectron();
+  start(electron);
+  const [window] = electron.windows;
+  const icon = (window?.options as { icon?: string } | undefined)?.icon;
+  assert.equal(icon, WINDOW_ICON);
+  assert.ok(existsSync(WINDOW_ICON));
 });

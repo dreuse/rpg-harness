@@ -19,7 +19,7 @@
     "check:prereqs": "node scripts/check-prerequisites.ts",
     "rpg": "node apps/cli/src/bin.ts",
     "build": "tsc --rootDir . --outDir dist",
-    "package:desktop": "pnpm dlx @electron/packager@20.3.0 . \"RPG Harness\" --out=out --electron-version=45.2.1 --no-asar --no-prune --overwrite --ignore=/node_modules/@rpg",
+    "package:desktop": "pnpm dlx @electron/packager@20.3.0 . \"RPG Harness\" --out=out --electron-version=45.2.1 --no-asar --no-prune --overwrite --ignore=/node_modules/@rpg --icon=apps/desktop/assets/icon",
     "postinstall": "pnpm --filter @rpg/desktop exec install-electron"
   },
   "devDependencies": {
