@@ -21,6 +21,7 @@ jobs:
     env:
       PACKAGE_DIR: out/RPG Harness-${{ matrix.platform }}-${{ matrix.arch }}
       ARCHIVE: rpg-harness-${{ matrix.platform }}-${{ matrix.arch }}.tar.gz
+      DMG: rpg-harness-${{ matrix.platform }}-${{ matrix.arch }}.dmg
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
@@ -35,6 +36,15 @@ jobs:
         run: |
           codesign --force --deep --sign - "$PACKAGE_DIR/RPG Harness.app"
           codesign --verify --deep --strict "$PACKAGE_DIR/RPG Harness.app"
+      - if: matrix.platform == 'darwin'
+        run: |
+          mkdir dmg
+          ditto "$PACKAGE_DIR/RPG Harness.app" "dmg/RPG Harness.app"
+          ln -s /Applications dmg/Applications
+          hdiutil create -volname "RPG Harness" -srcfolder dmg -format UDZO "$DMG"
+          hdiutil attach -nobrowse -readonly -mountpoint mounted "$DMG"
+          codesign --verify --deep --strict "mounted/RPG Harness.app"
+          hdiutil detach mounted
       - run: tar -czf "$ARCHIVE" -C out "$(basename "$PACKAGE_DIR")"
       - name: install from archive
         run: |
@@ -62,7 +72,7 @@ jobs:
       - uses: actions/upload-artifact@v7
         with:
           name: rpg-harness-${{ matrix.platform }}-${{ matrix.arch }}
-          path: ${{ env.ARCHIVE }}
+          path: rpg-harness-${{ matrix.platform }}-${{ matrix.arch }}.*
           compression-level: 0
   release:
     if: startsWith(github.ref, 'refs/tags/v')
@@ -74,6 +84,6 @@ jobs:
       - uses: actions/download-artifact@v8
         with:
           merge-multiple: true
-      - run: gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --generate-notes *.tar.gz
+      - run: gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --generate-notes *.tar.gz *.dmg
         env:
           GH_TOKEN: ${{ github.token }}
