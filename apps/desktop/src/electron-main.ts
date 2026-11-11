@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { app, BrowserWindow, dialog, ipcMain, protocol, shell, utilityProcess } from 'electron';
 import { DEFAULT_RELEASES_URL, RELEASE_PUBLIC_KEY, RELEASES_URL_ENV } from '../../../packages/updater/src/release.ts';
+import { inheritedEnv } from '../../../packages/voice/src/local-service-engine.ts';
 import { startDaemon } from '../../cli/src/desktop-daemon.ts';
 import { dataDirFromEnv } from '../../cli/src/setup-check.ts';
 import { SOUNDS_DIR } from '../../cli/src/sound-files.ts';
@@ -24,6 +25,8 @@ import { guardRenderer, guardSmokeProcess } from './smoke-guard.ts';
 import { createSoundHost } from './sound-host.ts';
 import { offerDesktopUpdate, UPDATE_CHOICES } from './update.ts';
 import { voiceHostFromEnv } from './voice-host.ts';
+
+process.env.PATH = inheritedEnv().PATH;
 
 const TEXT = 'utf8';
 const NEWLINE = '\n';
