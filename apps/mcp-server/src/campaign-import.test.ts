@@ -18,12 +18,13 @@ import { listScopedEvents } from '../../../packages/persistence/src/event-store.
 import { importCampaign } from './campaign-import.ts';
 
 const CAMPAIGN_NAME = 'Ola Mundo';
-const DATABASE_FILE = `${encodeURIComponent(CAMPAIGN_NAME)}.sqlite`;
+const SECOND_NAME = 'Outra Campanha';
 const RULES_FILE = 'rules-01.md';
 const SETTING_FILE = 'character.md';
 const RULES_TEXT = '# Magias\nMagias de primeiro circulo custam um ponto.';
 const SETTING_TEXT = '# Ash\nHP 12 of 12.';
 const MANIFEST = {
+  name: CAMPAIGN_NAME,
   language: 'pt-BR',
   hero: 'Ash',
   scene: 'O Farol',
@@ -38,7 +39,7 @@ afterEach(() => {
   for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true });
 });
 
-const sandbox = (manifest: unknown = MANIFEST, databaseFile = DATABASE_FILE) => {
+const sandbox = (manifest: unknown = MANIFEST) => {
   const root = mkdtempSync(join(tmpdir(), 'rpg-import-'));
   directories.push(root);
   const folder = join(root, 'rpg-import');
@@ -46,7 +47,7 @@ const sandbox = (manifest: unknown = MANIFEST, databaseFile = DATABASE_FILE) => 
   writeFileSync(join(folder, RULES_FILE), RULES_TEXT);
   writeFileSync(join(folder, SETTING_FILE), SETTING_TEXT);
   if (manifest !== undefined) writeFileSync(join(folder, 'campaign.json'), JSON.stringify(manifest));
-  const path = join(root, databaseFile);
+  const path = join(root, 'campaigns.sqlite');
   const { database } = openDatabase(path);
   const store = createCampaignStore(database);
   const engine = createEngine(store);
@@ -55,12 +56,12 @@ const sandbox = (manifest: unknown = MANIFEST, databaseFile = DATABASE_FILE) => 
     folder,
     database,
     engine,
-    run: (target = folder) => importCampaign(engine, store, path, target),
+    run: (target = folder) => importCampaign(engine, store, target),
     events: (id: string) => listScopedEvents(database, id),
   };
 };
 
-test('imports rules, setting and the story so far into a campaign named after the database file', () => {
+test('imports rules, setting and the story so far into a campaign named in the manifest', () => {
   const { engine, run, events } = sandbox();
   const id = run();
   assert.deepEqual(engine.listCampaigns(), [{ id, name: CAMPAIGN_NAME }]);
@@ -84,18 +85,20 @@ test('imports rules, setting and the story so far into a campaign named after th
   assert.equal(written?.summary.actorId, null);
 });
 
-test('names the campaign after a database file that is not URI encoded, cut to the name limit', () => {
-  const percent = sandbox(MANIFEST, '50%.sqlite');
-  assert.equal(percent.engine.getCampaign(percent.run()).name, '50%');
-  const long = sandbox(MANIFEST, `${'a'.repeat(MAX_NAME_LENGTH + 1)}.sqlite`);
-  assert.equal(long.engine.getCampaign(long.run()).name, 'a'.repeat(MAX_NAME_LENGTH));
-});
-
-test('refuses a database that already holds a campaign', () => {
-  const { engine, run } = sandbox();
-  engine.createCampaign('Existing');
-  assert.throws(run, /already/);
-  assert.equal(engine.listCampaigns().length, 1);
+test('imports a second campaign next to the first and keeps their documents apart', () => {
+  const { engine, folder, run, events } = sandbox();
+  const first = run();
+  writeFileSync(join(folder, 'campaign.json'), JSON.stringify({ ...MANIFEST, name: SECOND_NAME, rules: [] }));
+  const second = run();
+  assert.deepEqual(engine.listCampaigns(), [
+    { id: first, name: CAMPAIGN_NAME },
+    { id: second, name: SECOND_NAME },
+  ]);
+  assert.deepEqual(
+    rulesDocumentsOf(events(first)).map(({ name }) => name),
+    [RULES_FILE],
+  );
+  assert.deepEqual(rulesDocumentsOf(events(second)), []);
 });
 
 test('refuses a relative folder', () => {
@@ -150,7 +153,7 @@ const refused: [string, (folder: string) => void, RegExp][] = [
   ['a missing manifest', (folder) => rmSync(join(folder, 'campaign.json')), /ENOENT/],
   ['a manifest that is not json', (folder) => writeFileSync(join(folder, 'campaign.json'), '{'), /JSON/],
   ['a manifest that is not an object', (folder) => writeFileSync(join(folder, 'campaign.json'), '[]'), /object/],
-  ...(['hero', 'scene', 'situation', 'storySoFar'] as const).flatMap((field) => [
+  ...(['name', 'hero', 'scene', 'situation', 'storySoFar'] as const).flatMap((field) => [
     [
       `a missing ${field}`,
       (folder: string) => {
@@ -165,6 +168,15 @@ const refused: [string, (folder: string) => void, RegExp][] = [
       new RegExp(field),
     ] as [string, (folder: string) => void, RegExp],
   ]),
+  [
+    'a campaign name that is too long',
+    (folder) =>
+      writeFileSync(
+        join(folder, 'campaign.json'),
+        JSON.stringify({ ...MANIFEST, name: 'n'.repeat(MAX_NAME_LENGTH + 1) }),
+      ),
+    /name/,
+  ],
   [
     'a hero name that is too long',
     (folder) => writeFileSync(join(folder, 'campaign.json'), JSON.stringify({ ...MANIFEST, hero: 'h'.repeat(121) })),

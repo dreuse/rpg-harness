@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -11,8 +10,8 @@ import { CAMPAIGN_TOOLS } from './tools.ts';
 
 const SERVER = join(import.meta.dirname, '..', '..', '..', 'apps', 'mcp-server', 'src', 'main.ts');
 const DATABASE_ENV = 'RPG_DATABASE_PATH';
+const DATA_DIR_ENV = 'RPG_DATA_DIR';
 const CAMPAIGN_NAME = 'Wire Test';
-const EXIT_OK = 0;
 
 test('stdio server lists, creates and reads campaigns from a sqlite file', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'rpg-mcp-'));
@@ -48,13 +47,23 @@ test('stdio server lists, creates and reads campaigns from a sqlite file', async
   }
 });
 
-test('stdio server exits non-zero without a database path', () => {
-  const env = { ...process.env };
-  delete env[DATABASE_ENV];
-  const result = spawnSync(process.execPath, [SERVER], { env, encoding: 'utf8' });
-  assert.notEqual(result.status, EXIT_OK);
-  assert.match(result.stderr, new RegExp(DATABASE_ENV));
-  assert.equal(result.stdout, '');
+test('stdio server keeps campaigns in a shared file under the data folder when no database path is set', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'rpg-mcp-'));
+  const transport = new StdioClientTransport({
+    command: process.execPath,
+    args: [SERVER],
+    env: { [DATA_DIR_ENV]: directory },
+  });
+  const client = new Client({ name: 'server-test', version: '0.0.0' });
+  try {
+    await client.connect(transport);
+    const listed = await client.callTool({ name: 'list_campaigns', arguments: {} });
+    assert.deepEqual(listed.structuredContent, { campaigns: [] });
+    assert.ok(existsSync(join(directory, 'claude-code', 'campaigns.sqlite')));
+  } finally {
+    await client.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 test('stdio server creates the missing data folder on first run', async () => {

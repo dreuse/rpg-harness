@@ -1,6 +1,14 @@
 {
-  "name": "@rpg/mcp-server",
+  "name": "rpg-harness-mcp",
   "version": "0.1.6",
-  "private": true,
-  "type": "module"
+  "type": "module",
+  "bin": {
+    "rpg-harness-mcp": "apps/mcp-server/src/main.js"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.2"
+  }
 }

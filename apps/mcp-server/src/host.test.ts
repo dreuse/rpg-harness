@@ -131,6 +131,7 @@ test('the host wires the folder import into the tool port', () => {
   writeFileSync(
     join(folder, 'campaign.json'),
     JSON.stringify({
+      name: 'Dock Tales',
       hero: 'Ash',
       scene: 'Dock',
       situation: 'Fog.',
@@ -142,7 +143,7 @@ test('the host wires the folder import into the tool port', () => {
   const { engine, memory, close } = openCampaignTools(database.path);
   try {
     const id = memory.importCampaign(folder);
-    assert.deepEqual(engine.listCampaigns(), [{ id, name: 'campaign' }]);
+    assert.deepEqual(engine.listCampaigns(), [{ id, name: 'Dock Tales' }]);
   } finally {
     close();
     database.remove();

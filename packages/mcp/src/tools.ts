@@ -203,8 +203,7 @@ export const CAMPAIGN_TOOLS: readonly ToolDefinition[] = [
   },
   {
     name: 'import_campaign',
-    description:
-      'Import the rpg-import folder at this absolute path as a new campaign, then return its scene state. Refused when the database already holds a campaign.',
+    description: 'Import the rpg-import folder at this absolute path as a new campaign, then return its scene state.',
     inputSchema: objectSchema({ folder: FOLDER }),
     outputSchema: SCENE_STATE_SCHEMA,
     annotations: { readOnlyHint: false },

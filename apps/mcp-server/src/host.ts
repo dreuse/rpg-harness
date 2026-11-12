@@ -18,7 +18,7 @@ export const openCampaignTools = (path: string) => {
       viewer: PLAYER_VIEWER,
       events: (campaignId: string) => listScopedEvents(database, campaignId),
       facts: (campaignId: string) => facts.listFacts(campaignId),
-      importCampaign: (folder: string) => importCampaign(engine, store, path, folder),
+      importCampaign: (folder: string) => importCampaign(engine, store, folder),
     },
     close: () => database.close(),
   };

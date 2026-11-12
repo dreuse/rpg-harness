@@ -22,16 +22,11 @@ pnpm rpg claude [campaign]  # Claude Code as game master, game tools preloaded
 pnpm rpg help
 ```
 
-MCP server for Claude Code, from source:
+MCP server for Claude Code (Node 24+):
 
 ```bash
-claude mcp add -s user rpg -e RPG_DATABASE_PATH="$HOME/Library/Application Support/rpg/<campaign>.sqlite" -- node "$PWD/apps/mcp-server/src/main.ts"  # <campaign> URL-encoded, e.g. My%20adventure
-```
-
-MCP server for Claude Code, from the installed macOS app:
-
-```bash
-claude mcp add -s user rpg -e ELECTRON_RUN_AS_NODE=1 -e RPG_DATABASE_PATH="$HOME/Library/Application Support/rpg/<campaign>.sqlite" -- "/Applications/RPG Harness.app/Contents/MacOS/RPG Harness" "/Applications/RPG Harness.app/Contents/Resources/app/apps/mcp-server/src/main.ts"
+claude mcp add -s user rpg npx rpg-harness-mcp@latest
+claude mcp add -s user rpg node "$PWD/apps/mcp-server/src/main.ts"  # from source
 /mcp__rpg__import-campaign  # in Claude Code, from your rpg folder
 /mcp__rpg__play
 ```
@@ -50,6 +45,7 @@ pnpm install --prod --config.node-linker=hoisted --ignore-scripts  # flat instal
 pnpm --config.verify-deps-before-run=false package:desktop --platform=darwin --arch=arm64  # writes out/RPG Harness-<platform>-<arch>
 ELECTRON_RUN_AS_NODE=1 "out/RPG Harness-darwin-arm64/RPG Harness.app/Contents/MacOS/RPG Harness" "out/RPG Harness-darwin-arm64/RPG Harness.app/Contents/Resources/app/apps/cli/src/bin.ts"  # packaged CLI
 git tag v0.1.0 && git push origin v0.1.0  # CI publishes the binaries to a GitHub release
+pnpm build:mcp && npm publish ./dist  # MCP server npm package
 ```
 
 ## Environment
@@ -64,8 +60,8 @@ APPDATA=
 RPG_LANG=  # default: LC_ALL, LC_MESSAGES, LANG, then the OS locale; en or pt-BR
 ```
 
-MCP server, required:
+MCP server, optional:
 
 ```bash
-RPG_DATABASE_PATH=  # campaign SQLite file: <RPG_DATA_DIR>/<URL-encoded campaign>.sqlite
+RPG_DATABASE_PATH=  # default: <RPG_DATA_DIR>/claude-code/campaigns.sqlite
 ```

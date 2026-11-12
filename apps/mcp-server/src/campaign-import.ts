@@ -1,4 +1,4 @@
-import { basename, isAbsolute } from 'node:path';
+import { isAbsolute } from 'node:path';
 import type { CampaignStore } from '../../../packages/domain/src/campaign.ts';
 import type { Engine } from '../../../packages/engine/src/engine.ts';
 import {
@@ -16,7 +16,6 @@ import { rulesDocumentOf } from '../../cli/src/own-rules-files.ts';
 export const MANIFEST_FILE = 'campaign.json';
 export const MAX_STORY_CHARS = 20_000;
 const LANGUAGES: readonly unknown[] = ['en', 'pt-BR'];
-const DATABASE_EXTENSION = '.sqlite';
 
 type Fields = Record<string, unknown>;
 
@@ -53,14 +52,6 @@ const languageOf = (fields: Fields) => {
   return language as string | undefined;
 };
 
-const decoded = (name: string) => {
-  try {
-    return decodeURIComponent(name);
-  } catch {
-    return name;
-  }
-};
-
 const documentOf = (folder: string, file: string, kind?: typeof SETTING_DOCUMENT_KIND): RulesDocument => {
   const { fileName, bytes } = readInside(folder, file);
   const document = rulesDocumentOf(fileName, bytes, kind);
@@ -68,10 +59,10 @@ const documentOf = (folder: string, file: string, kind?: typeof SETTING_DOCUMENT
   return document;
 };
 
-export const importCampaign = (engine: Engine, store: CampaignStore, databasePath: string, folder: string) => {
-  if (engine.listCampaigns().length > 0) throw new Error('This database already holds a campaign.');
+export const importCampaign = (engine: Engine, store: CampaignStore, folder: string) => {
   if (!isAbsolute(folder)) throw new Error('The folder must be an absolute path.');
   const manifest = parseManifest(readInside(folder, MANIFEST_FILE).bytes);
+  const name = textField(manifest, 'name', MAX_NAME_LENGTH);
   const hero = textField(manifest, 'hero', MAX_NAME_LENGTH);
   const scene = textField(manifest, 'scene', MAX_NAME_LENGTH);
   const situation = textField(manifest, 'situation', MAX_STORY_CHARS);
@@ -86,10 +77,7 @@ export const importCampaign = (engine: Engine, store: CampaignStore, databasePat
     ...setting.map((file) => documentOf(folder, file, SETTING_DOCUMENT_KIND)),
   ];
 
-  const { id: campaignId } = engine.createCampaign(
-    decoded(basename(databasePath, DATABASE_EXTENSION)).slice(0, MAX_NAME_LENGTH),
-    language,
-  );
+  const { id: campaignId } = engine.createCampaign(name, language);
   const opening = openScene(store, {
     campaignId,
     actorName: hero,
