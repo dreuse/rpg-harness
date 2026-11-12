@@ -1,7 +1,7 @@
 {
   "name": "rpg-harness",
   "private": true,
-  "version": "0.1.5",
+  "version": "0.1.6",
   "author": "dreuse",
   "type": "module",
   "main": "apps/desktop/src/electron-main.ts",
