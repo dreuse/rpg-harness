@@ -573,3 +573,13 @@ test('rpg-42a.118 hasEvent finds stored turn events of a type, also ones the liv
   assert.equal(store.hasEvent(CAMPAIGN.id, 'CampaignCreated'), false);
   connection.close();
 });
+
+test('listCampaigns returns the id and name of every campaign in creation order', () => {
+  const { database } = openDatabase(IN_MEMORY);
+  const store = createCampaignStore(database);
+  assert.deepEqual(store.listCampaigns(), []);
+  const second = { id: 'campaign-2', name: 'Second' };
+  create(store, CAMPAIGN);
+  create(store, second);
+  assert.deepEqual(store.listCampaigns(), [CAMPAIGN, second]);
+});

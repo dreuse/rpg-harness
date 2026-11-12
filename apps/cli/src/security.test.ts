@@ -313,6 +313,8 @@ test('Q06 local data scope: campaign names never write outside the data folder',
     );
   }));
 
+const IMPORT_TOOL = 'import_campaign';
+
 test('Q06 MCP tools are typed and campaign-scoped, and reads never change state', () =>
   withTemp((dir) => {
     const { connection, engine, campaign } = openCampaign(join(dir, `mcp${DATABASE_EXTENSION}`), CAMPAIGN);
@@ -320,11 +322,12 @@ test('Q06 MCP tools are typed and campaign-scoped, and reads never change state'
     try {
       for (const tool of CAMPAIGN_TOOLS) {
         assert.equal(tool.inputSchema.additionalProperties, false, tool.name);
-        assert.doesNotMatch(tool.name, /shell|exec|eval|file|path|fetch|import/);
+        assert.doesNotMatch(tool.name, /shell|exec|eval|file|path|fetch/);
+        if (tool.name !== IMPORT_TOOL) assert.doesNotMatch(tool.name, /import/);
       }
       assert.deepEqual(
         CAMPAIGN_TOOLS.filter(({ annotations }) => !annotations.readOnlyHint).map(({ name }) => name),
-        ['create_campaign', 'rename_campaign', 'submit_action'],
+        ['create_campaign', 'rename_campaign', 'submit_action', IMPORT_TOOL, 'record_summary'],
       );
 
       const before = JSON.stringify([engine.getState(campaign.id), engine.getState(other.id)]);

@@ -1,3 +1,5 @@
+import { mkdirSync } from 'node:fs';
+import { dirname } from 'node:path';
 import { serve } from '../../../packages/mcp/src/server.ts';
 import { openCampaignTools } from './host.ts';
 
@@ -10,5 +12,6 @@ if (!path) {
   process.exit(EXIT_MISSING_DATABASE);
 }
 
+mkdirSync(dirname(path), { recursive: true });
 const { engine, memory } = openCampaignTools(path);
 await serve(engine, memory);

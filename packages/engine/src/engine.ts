@@ -16,8 +16,10 @@ import {
 import type { GmSettings } from '../../domain/src/gm.ts';
 import type { OocApplied } from '../../domain/src/ooc.ts';
 import { isLocale, type SavedVoiceSettings } from '../../domain/src/voice.ts';
+import type { Summary } from '../../memory/src/history.ts';
 import type { Rng } from '../../rules/src/dice.ts';
 import { type GmSettingsSave, saveGmSettings } from './gm-settings.ts';
+import { recordSummary, type SummaryRecord } from './memory.ts';
 import { applyOocProposal, type OocApplication, type OocUndo, undoOocChange, withoutRetconned } from './ooc.ts';
 import { markOpeningSpoken, type OpeningSpokenMark } from './opening-spoken.ts';
 import { type Check, type NoCheck, type PlayerAction, performAction, type ReportedRoll } from './turn.ts';
@@ -33,6 +35,8 @@ export type CampaignLanguageSave = {
 export type Engine = {
   createCampaign(name: string, language?: string): Campaign;
   getCampaign(id: CampaignId): Campaign;
+  listCampaigns(): readonly Campaign[];
+  recordSummary(input: SummaryRecord): Summary;
   getState(id: CampaignId): CampaignState;
   renameCampaign(id: CampaignId, name: string): Campaign;
   submitAction(action: PlayerAction, check?: Check | NoCheck | ReportedRoll): CommittedTurn;
@@ -74,6 +78,8 @@ export const createEngine = (store: CampaignStore, rng: Rng = Math.random): Engi
     return campaign;
   },
   getCampaign: (id) => loadState(store, id).campaign,
+  listCampaigns: () => store.listCampaigns(),
+  recordSummary: (input) => recordSummary(store, input),
   getState: (id) => withoutRetconned(loadState(store, id)),
   renameCampaign: (id, name) => {
     const { revision } = loadState(store, id);

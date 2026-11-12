@@ -12,7 +12,7 @@ Arguments: a campaign ID, an actor character ID and one player input.
 5. If the actor ID is not in `characters`, report `UnknownActor`. Stop.
 6. Narrate the scene in at most three sentences. Use only the campaign name, the scene title and character names. Do not invent rules, dice, attributes or outcomes.
 7. Interpret the player input as one intended action of the actor. Describe the intent, not its result.
-8. Never call `create_campaign`. Never call `rename_campaign`. Never call any other tool that writes state.
+8. Never call `create_campaign`. Never call `rename_campaign`. Never call `import_campaign`. Never call `record_summary`. Never call any other tool that writes state.
 9. Never say the state changed before `submit_action` returns. The action has no effect until the engine validates and commits it.
 10. End with this block, filled from `get_scene` and the arguments. Set `actionId` to a new unique ID of at most 64 characters:
 

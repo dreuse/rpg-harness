@@ -25,6 +25,7 @@ import { createLiveStates } from './live-state.ts';
 const GM_VISIBILITY: Visibility = 'gm';
 const INSERT_CAMPAIGN = 'INSERT INTO campaign (id, name) VALUES (?, ?)';
 const SELECT_CAMPAIGN = 'SELECT id, name, revision FROM campaign WHERE id = ?';
+const SELECT_CAMPAIGNS = 'SELECT id, name FROM campaign ORDER BY rowid';
 const SELECT_REVISION = 'SELECT revision FROM campaign WHERE id = ?';
 const RENAME_CAMPAIGN = 'UPDATE campaign SET name = ?, revision = ? WHERE id = ?';
 const ADVANCE_REVISION = 'UPDATE campaign SET revision = ? WHERE id = ?';
@@ -310,6 +311,11 @@ export const createCampaignStore = (
       eventId === undefined
         ? database.prepare(HAS_TURN_EVENT).get(campaignId, type) !== undefined
         : database.prepare(HAS_TURN_EVENT_ID).get(campaignId, type, eventId) !== undefined,
+    listCampaigns: () =>
+      database
+        .prepare(SELECT_CAMPAIGNS)
+        .all()
+        .map(({ id, name }) => ({ id: String(id), name: String(name) })),
     load: (id) => {
       const row = database.prepare(SELECT_CAMPAIGN).get(id);
       if (row === undefined) return undefined;

@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import {
   type Campaign,
   type CampaignId,
@@ -7,19 +8,32 @@ import {
 } from '../../domain/src/campaign.ts';
 import type { Fact } from '../../domain/src/entity.ts';
 import type { Engine } from '../../engine/src/engine.ts';
+import { rulesDocumentsOf, settingDocumentsOf } from '../../engine/src/own-rules.ts';
 import { ActionIdConflictError, InvalidActionError } from '../../engine/src/turn.ts';
-import { searchVisibleEvents, summariesOf } from '../../memory/src/history.ts';
+import { SUMMARY_WRITTEN, searchVisibleEvents, summariesOf } from '../../memory/src/history.ts';
 import { PLAYER_VIEWER, type Scoped, type Viewer, visibleTo } from '../../memory/src/knowledge.ts';
 import { frameData } from '../../memory/src/packet.ts';
+import { condense, selectSections } from '../../memory/src/rules.ts';
 
 export const MAX_REQUEST_BYTES = 4096;
 export const MAX_NAME_LENGTH = 120;
 export const MAX_ID_LENGTH = 64;
 export const MAX_RESULTS = 50;
+export const MAX_FOLDER_LENGTH = 1024;
+export const MAX_SUMMARY_LENGTH = 1500;
+const RULES_BUDGET_TOKENS = 1500;
+const SUMMARY_LEVELS = ['scene', 'campaign'] as const;
+export const CAMPAIGN_LEVEL = 'campaign';
+export const PLAYER_VISIBILITY = 'player';
 const MIN_LENGTH = 1;
 const MIN_REVISION = 0;
 
-type StringSchema = { readonly type: 'string'; readonly minLength: number; readonly maxLength: number };
+type StringSchema = {
+  readonly type: 'string';
+  readonly minLength: number;
+  readonly maxLength: number;
+  readonly enum?: readonly string[];
+};
 
 type IntegerSchema = { readonly type: 'integer'; readonly minimum: number };
 
@@ -52,7 +66,8 @@ export type ToolErrorCode =
   | 'StaleRevision'
   | 'SceneNotFound'
   | 'InvalidAction'
-  | 'ActionIdConflict';
+  | 'ActionIdConflict'
+  | 'InvalidImport';
 
 export type SceneState = {
   readonly campaignId: string;
@@ -65,12 +80,15 @@ export type ActionResult = SceneState & { readonly turnId: string };
 
 export type MemoryResult = { readonly campaignId: string; readonly data: string };
 
-type ToolOutput = Campaign | SceneState | ActionResult | MemoryResult;
+export type CampaignList = { readonly campaigns: readonly Campaign[] };
+
+type ToolOutput = Campaign | CampaignList | SceneState | ActionResult | MemoryResult;
 
 export type MemoryPort = {
   readonly viewer: Viewer;
   readonly events: (campaignId: CampaignId) => readonly (DomainEvent & Scoped)[];
   readonly facts: (campaignId: CampaignId) => readonly Fact[];
+  readonly importCampaign?: (folder: string) => CampaignId;
 };
 
 const NO_MEMORY: MemoryPort = { viewer: PLAYER_VIEWER, events: () => [], facts: () => [] };
@@ -83,6 +101,9 @@ export type ToolResult = {
 
 const ID: StringSchema = { type: 'string', minLength: MIN_LENGTH, maxLength: MAX_ID_LENGTH };
 const NAME: StringSchema = { type: 'string', minLength: MIN_LENGTH, maxLength: MAX_NAME_LENGTH };
+const FOLDER: StringSchema = { type: 'string', minLength: MIN_LENGTH, maxLength: MAX_FOLDER_LENGTH };
+const SUMMARY_TEXT: StringSchema = { type: 'string', minLength: MIN_LENGTH, maxLength: MAX_SUMMARY_LENGTH };
+const SUMMARY_LEVEL: StringSchema = { ...NAME, enum: SUMMARY_LEVELS };
 
 const objectSchema = <Property extends JsonSchema>(properties: Record<string, Property>): ObjectSchema<Property> => ({
   type: 'object',
@@ -94,6 +115,7 @@ const objectSchema = <Property extends JsonSchema>(properties: Record<string, Pr
 const REVISION: IntegerSchema = { type: 'integer', minimum: MIN_REVISION };
 
 const CAMPAIGN_SCHEMA = objectSchema({ id: ID, name: NAME });
+const CAMPAIGN_LIST_SCHEMA = objectSchema<JsonSchema>({ campaigns: { type: 'array', items: CAMPAIGN_SCHEMA } });
 const SCENE_STATE_SCHEMA = objectSchema<JsonSchema>({
   campaignId: ID,
   revision: REVISION,
@@ -172,6 +194,42 @@ export const CAMPAIGN_TOOLS: readonly ToolDefinition[] = [
     outputSchema: MEMORY_RESULT_SCHEMA,
     annotations: { readOnlyHint: true },
   },
+  {
+    name: 'list_campaigns',
+    description: 'List the id and name of every campaign in the database.',
+    inputSchema: objectSchema({}),
+    outputSchema: CAMPAIGN_LIST_SCHEMA,
+    annotations: { readOnlyHint: true },
+  },
+  {
+    name: 'import_campaign',
+    description:
+      'Import the rpg-import folder at this absolute path as a new campaign, then return its scene state. Refused when the database already holds a campaign.',
+    inputSchema: objectSchema({ folder: FOLDER }),
+    outputSchema: SCENE_STATE_SCHEMA,
+    annotations: { readOnlyHint: false },
+  },
+  {
+    name: 'search_rules',
+    description: `Search the imported rules, character sheet, NPCs, places and quests of one campaign and return the best matching sections. ${AS_DATA}`,
+    inputSchema: objectSchema({ campaignId: ID, query: NAME }),
+    outputSchema: MEMORY_RESULT_SCHEMA,
+    annotations: { readOnlyHint: true },
+  },
+  {
+    name: 'record_summary',
+    description:
+      'Record a player-visible summary of everything since the last summary and return the new scene state. Rejected when nothing happened since the last summary.',
+    inputSchema: objectSchema<StringSchema | IntegerSchema>({
+      campaignId: ID,
+      actionId: ID,
+      expectedRevision: REVISION,
+      level: SUMMARY_LEVEL,
+      text: SUMMARY_TEXT,
+    }),
+    outputSchema: SCENE_STATE_SCHEMA,
+    annotations: { readOnlyHint: false },
+  },
 ];
 
 class ToolError extends Error {
@@ -209,13 +267,16 @@ const fieldError = (key: string, field: StringSchema | IntegerSchema) =>
     'InvalidArguments',
     field.type === 'integer'
       ? `${key} must be an integer of at least ${field.minimum}`
-      : `${key} must be a string of ${field.minLength} to ${field.maxLength} characters`,
+      : `${key} must be a string of ${field.minLength} to ${field.maxLength} characters${field.enum === undefined ? '' : ` and one of ${field.enum.join(', ')}`}`,
   );
 
 const validField = (field: StringSchema | IntegerSchema, value: unknown) =>
   field.type === 'integer'
     ? Number.isInteger(value) && (value as number) >= field.minimum
-    : typeof value === 'string' && value.length >= field.minLength && value.length <= field.maxLength;
+    : typeof value === 'string' &&
+      value.length >= field.minLength &&
+      value.length <= field.maxLength &&
+      (field.enum === undefined || field.enum.includes(value));
 
 const validate = (schema: ToolDefinition['inputSchema'], args: unknown): Arguments => {
   if (typeof args !== 'object' || args === null || Array.isArray(args)) {
@@ -283,6 +344,58 @@ const getSummaries = (engine: Engine, { campaignId }: Arguments, memory: MemoryP
       .map(({ level, scopeId, summary }) => ({ level, scopeId, text: summary.text })),
   );
 
+const searchRules = (engine: Engine, { campaignId, query }: Arguments, memory: MemoryPort) =>
+  memoryResult(engine, String(campaignId), () => {
+    const events = memory.events(String(campaignId));
+    const documents = [...rulesDocumentsOf(events), ...settingDocumentsOf(events)];
+    const sections = documents.flatMap(({ text, condensed }) => (condensed ?? condense(text)).sections);
+    return selectSections(sections, String(query), [], RULES_BUDGET_TOKENS);
+  });
+
+const importCampaign = (engine: Engine, { folder }: Arguments, memory: MemoryPort) => {
+  if (memory.importCampaign === undefined) throw new ToolError('InvalidImport', 'import is not available here');
+  try {
+    return readScene(engine, memory.importCampaign(String(folder)));
+  } catch (error) {
+    if (error instanceof Error) throw new ToolError('InvalidImport', error.message);
+    throw error;
+  }
+};
+
+const recordSummary = (
+  engine: Engine,
+  { campaignId, actionId, expectedRevision, level, text }: Arguments,
+  memory: MemoryPort,
+) => {
+  const { scene } = readScene(engine, String(campaignId));
+  const known = new Set(engine.getState(String(campaignId)).events.map(({ id }) => id));
+  const events = memory.events(String(campaignId));
+  const fresh = events
+    .slice(
+      events.findLastIndex(
+        ({ type, payload }) => type === SUMMARY_WRITTEN && (payload as { level?: unknown }).level === level,
+      ) + 1,
+    )
+    .filter(({ id }) => known.has(id));
+  if (fresh.length === 0) throw new ToolError('InvalidAction', 'no new events to summarize since the last summary');
+  engine.recordSummary({
+    campaignId: String(campaignId),
+    actionId: String(actionId),
+    expectedRevision: Number(expectedRevision),
+    level: level as (typeof SUMMARY_LEVELS)[number],
+    scopeId: level === CAMPAIGN_LEVEL ? String(campaignId) : scene.id,
+    summary: {
+      id: randomUUID(),
+      campaignId: String(campaignId),
+      text: String(text),
+      sourceEventIds: fresh.map(({ id }) => id),
+      visibility: PLAYER_VISIBILITY,
+      actorId: null,
+    },
+  });
+  return readScene(engine, String(campaignId));
+};
+
 const HANDLERS: Record<string, (engine: Engine, args: Arguments, memory: MemoryPort) => ToolOutput> = {
   create_campaign: (engine, { name }) => engine.createCampaign(String(name)),
   get_campaign: (engine, { id }) => engine.getCampaign(String(id)),
@@ -292,6 +405,10 @@ const HANDLERS: Record<string, (engine: Engine, args: Arguments, memory: MemoryP
   search_history: searchHistory,
   get_facts: getFacts,
   get_summaries: getSummaries,
+  list_campaigns: (engine) => ({ campaigns: engine.listCampaigns() }),
+  import_campaign: importCampaign,
+  search_rules: searchRules,
+  record_summary: recordSummary,
 };
 
 const toToolError = (error: unknown) => {

@@ -267,6 +267,8 @@ describe('rpg-42a.33 Claude Code CLI game master', () => {
       'mcp__rpg__search_history',
       'mcp__rpg__get_facts',
       'mcp__rpg__get_summaries',
+      'mcp__rpg__list_campaigns',
+      'mcp__rpg__search_rules',
     ]);
     assert.ok(WRITE_GAME_TOOLS.includes('mcp__rpg__submit_action'));
   });

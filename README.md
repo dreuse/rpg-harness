@@ -25,13 +25,15 @@ pnpm rpg help
 MCP server for Claude Code, from source:
 
 ```bash
-claude mcp add rpg -e RPG_DATABASE_PATH="$HOME/Library/Application Support/rpg/<campaign>.sqlite" -- node "$PWD/apps/mcp-server/src/main.ts"  # <campaign> URL-encoded, e.g. My%20adventure
+claude mcp add -s user rpg -e RPG_DATABASE_PATH="$HOME/Library/Application Support/rpg/<campaign>.sqlite" -- node "$PWD/apps/mcp-server/src/main.ts"  # <campaign> URL-encoded, e.g. My%20adventure
 ```
 
 MCP server for Claude Code, from the installed macOS app:
 
 ```bash
-claude mcp add rpg -e ELECTRON_RUN_AS_NODE=1 -e RPG_DATABASE_PATH="$HOME/Library/Application Support/rpg/<campaign>.sqlite" -- "/Applications/RPG Harness.app/Contents/MacOS/RPG Harness" "/Applications/RPG Harness.app/Contents/Resources/app/apps/mcp-server/src/main.ts"
+claude mcp add -s user rpg -e ELECTRON_RUN_AS_NODE=1 -e RPG_DATABASE_PATH="$HOME/Library/Application Support/rpg/<campaign>.sqlite" -- "/Applications/RPG Harness.app/Contents/MacOS/RPG Harness" "/Applications/RPG Harness.app/Contents/Resources/app/apps/mcp-server/src/main.ts"
+/mcp__rpg__import-campaign  # in Claude Code, from your rpg folder
+/mcp__rpg__play
 ```
 
 ## Test

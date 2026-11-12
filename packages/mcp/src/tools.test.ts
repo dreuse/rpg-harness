@@ -62,6 +62,10 @@ test('mcp tools can create, read and update a tiny test campaign with typed sche
       ['search_history', true],
       ['get_facts', true],
       ['get_summaries', true],
+      ['list_campaigns', true],
+      ['import_campaign', false],
+      ['search_rules', true],
+      ['record_summary', false],
     ],
   );
 
@@ -131,6 +135,8 @@ test('a stale revision from the engine maps to a StaleRevision tool error', () =
   const stale: Engine = {
     createCampaign: rejectStale,
     getCampaign: rejectStale,
+    listCampaigns: rejectStale,
+    recordSummary: rejectStale,
     getState: rejectStale,
     renameCampaign: rejectStale,
     submitAction: rejectStale,
@@ -329,5 +335,192 @@ test('rpg-42a.36 read-only memory tools return visible history, facts and summar
     MAX_RESULTS,
   );
   assert.equal(engine.getState(campaignId).revision, revision);
+  connection.close();
+});
+
+const RULES_NAME = 'rules-01.md';
+const SHA = 'a'.repeat(64);
+const GRIMOIRE = '# Grimoire\nFirst circle spells cost one mana and need a free hand.';
+const WEAPONS = '# Weapons\nA longsword deals 1d8 slashing damage.';
+const NPC_DOC = '# Mira\nMira is the harbour master and distrusts strangers.';
+const RULES_DOCUMENT = (text: string, kind?: 'setting') => ({
+  name: RULES_NAME,
+  format: 'markdown',
+  sourceHash: SHA,
+  text,
+  ...(kind === undefined ? {} : { kind }),
+});
+const framedData = (result: ToolResult) => {
+  const { data: framed } = ok(result) as { data: string };
+  return JSON.parse(framed.slice(DATA_OPEN.length, -DATA_CLOSE.length));
+};
+
+const importedCampaign = () => {
+  const { connection, database, engine } = openEngine();
+  const { id: campaignId } = engine.createCampaign(FIRST_NAME);
+  openScene(createCampaignStore(database), {
+    campaignId,
+    actorName: 'Ash',
+    sceneTitle: 'The Lighthouse',
+    narration: 'Waves.',
+    rulesDocuments: [RULES_DOCUMENT(`${GRIMOIRE}\n${WEAPONS}`), RULES_DOCUMENT(NPC_DOC, 'setting')],
+  });
+  const memory: MemoryPort = {
+    viewer: PLAYER_VIEWER,
+    events: (id) => listScopedEvents(database, id),
+    facts: () => [],
+  };
+  return { connection, engine, campaignId, memory };
+};
+
+test('list_campaigns returns the id and name of every campaign and takes no arguments', () => {
+  const { connection, engine } = openEngine();
+  assert.deepEqual(ok(callTool(engine, 'list_campaigns', {})), { campaigns: [] });
+  const created = engine.createCampaign(FIRST_NAME);
+  assert.deepEqual(ok(callTool(engine, 'list_campaigns', {})), { campaigns: [created] });
+  assert.equal(errorCode(callTool(engine, 'list_campaigns', { extra: 'x' })), 'InvalidArguments');
+  connection.close();
+});
+
+test('import_campaign passes the folder to the host import and returns the new scene state', () => {
+  const { connection, engine, campaignId, memory } = importedCampaign();
+  const folders: string[] = [];
+  const port = (folder: string) => {
+    folders.push(folder);
+    return campaignId;
+  };
+  const state = ok(
+    callTool(engine, 'import_campaign', { folder: '/tmp/rpg-import' }, { ...memory, importCampaign: port }),
+  );
+  assert.deepEqual(folders, ['/tmp/rpg-import']);
+  assert.equal(state.campaignId, campaignId);
+  assert.deepEqual(state.scene, { id: engine.getState(campaignId).currentScene?.id, title: 'The Lighthouse' });
+  connection.close();
+});
+
+test('import_campaign maps import failures to InvalidImport and rejects a missing or too long folder', () => {
+  const { connection, engine, memory } = importedCampaign();
+  const failing = () => {
+    throw new Error('campaign.json is missing hero');
+  };
+  const failed = callTool(engine, 'import_campaign', { folder: '/x' }, { ...memory, importCampaign: failing });
+  assert.equal(errorCode(failed), 'InvalidImport');
+  assert.match((failed.structuredContent as { message: string }).message, /missing hero/);
+  assert.equal(errorCode(callTool(engine, 'import_campaign', { folder: '/x' }, memory)), 'InvalidImport');
+  assert.equal(errorCode(callTool(engine, 'import_campaign', { folder: '' }, memory)), 'InvalidArguments');
+  assert.equal(
+    errorCode(callTool(engine, 'import_campaign', { folder: 'x'.repeat(1025) }, memory)),
+    'InvalidArguments',
+  );
+  connection.close();
+});
+
+test('search_rules ranks rules and setting sections for the query and frames them as data', () => {
+  const { connection, engine, campaignId, memory } = importedCampaign();
+  const grimoire = framedData(callTool(engine, 'search_rules', { campaignId, query: 'first circle spells' }, memory));
+  assert.deepEqual(
+    grimoire.map(({ title }: { title: string }) => title),
+    ['Grimoire'],
+  );
+  const npc = framedData(callTool(engine, 'search_rules', { campaignId, query: 'harbour master Mira' }, memory));
+  assert.deepEqual(
+    npc.map(({ title }: { title: string }) => title),
+    ['Mira'],
+  );
+  assert.deepEqual(framedData(callTool(engine, 'search_rules', { campaignId, query: 'zzzz' }, memory)), []);
+  assert.equal(
+    errorCode(callTool(engine, 'search_rules', { campaignId: MISSING_ID, query: 'a' }, memory)),
+    'CampaignNotFound',
+  );
+  connection.close();
+});
+
+test('record_summary cites the events since the last summary and rejects a call with no new events', () => {
+  const { connection, engine, campaignId, memory } = importedCampaign();
+  const summary = (actionId: string, level = 'scene', text = 'Ash reached the lighthouse.') => ({
+    campaignId,
+    actionId,
+    expectedRevision: engine.getState(campaignId).revision,
+    level,
+    text,
+  });
+  const before = engine.getState(campaignId).events.map(({ id }) => id);
+  const state = ok(callTool(engine, 'record_summary', summary('summary-1'), memory));
+  assert.equal(state.revision, engine.getState(campaignId).revision);
+  const [written] = memory
+    .events(campaignId)
+    .filter(({ type }) => type === 'SummaryWritten')
+    .map(({ payload }) => payload as { level: string; scopeId: string; summary: Record<string, unknown> });
+  assert.equal(written?.level, 'scene');
+  assert.equal(written?.scopeId, engine.getState(campaignId).currentScene?.id);
+  assert.deepEqual(written?.summary.sourceEventIds, before);
+  assert.equal(written?.summary.visibility, 'player');
+  assert.equal(written?.summary.actorId, null);
+
+  assert.equal(errorCode(callTool(engine, 'record_summary', summary('summary-2'), memory)), 'InvalidAction');
+
+  const state2 = engine.getState(campaignId);
+  const submitted = ok(
+    callTool(engine, 'submit_action', {
+      campaignId,
+      actionId: 'act-1',
+      expectedRevision: state2.revision,
+      sceneId: state2.currentScene?.id,
+      actorId: state2.characters[0]?.id,
+      input: 'I climb.',
+      intent: 'Ash climbs.',
+    }),
+  );
+  const newIds = engine
+    .getState(campaignId)
+    .events.slice(before.length)
+    .map(({ id }) => id);
+  ok(callTool(engine, 'record_summary', { ...summary('summary-3'), expectedRevision: submitted.revision }, memory));
+  const [, second] = memory
+    .events(campaignId)
+    .filter(({ type }) => type === 'SummaryWritten')
+    .map(({ payload }) => payload as { summary: { sourceEventIds: string[] } });
+  assert.deepEqual(second?.summary.sourceEventIds, newIds);
+  connection.close();
+});
+
+test('record_summary validates level and text and scopes a campaign summary to the campaign', () => {
+  const { connection, engine, campaignId, memory } = importedCampaign();
+  const base = { campaignId, actionId: 'a', expectedRevision: engine.getState(campaignId).revision, text: 'T' };
+  assert.equal(
+    errorCode(callTool(engine, 'record_summary', { ...base, level: 'chapter' }, memory)),
+    'InvalidArguments',
+  );
+  assert.equal(
+    errorCode(callTool(engine, 'record_summary', { ...base, level: 'scene', text: '' }, memory)),
+    'InvalidArguments',
+  );
+  ok(callTool(engine, 'record_summary', { ...base, level: 'campaign' }, memory));
+  const [written] = memory
+    .events(campaignId)
+    .filter(({ type }) => type === 'SummaryWritten')
+    .map(({ payload }) => payload as { scopeId: string });
+  assert.equal(written?.scopeId, campaignId);
+  connection.close();
+});
+
+test('record_summary cites the events since the last summary of the same level', () => {
+  const { connection, engine, campaignId, memory } = importedCampaign();
+  const summary = (actionId: string, level: string) => ({
+    campaignId,
+    actionId,
+    expectedRevision: engine.getState(campaignId).revision,
+    level,
+    text: 'Ash reached the lighthouse.',
+  });
+  const opening = engine.getState(campaignId).events.map(({ id }) => id);
+  ok(callTool(engine, 'record_summary', summary('scene-1', 'scene'), memory));
+  ok(callTool(engine, 'record_summary', summary('campaign-1', 'campaign'), memory));
+  const [, campaign] = memory
+    .events(campaignId)
+    .filter(({ type }) => type === 'SummaryWritten')
+    .map(({ payload }) => payload as { level: string; summary: { sourceEventIds: string[] } });
+  assert.equal(campaign?.level, 'campaign');
+  assert.deepEqual(campaign?.summary.sourceEventIds, opening);
   connection.close();
 });

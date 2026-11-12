@@ -4,8 +4,14 @@ import type { AddressInfo } from 'node:net';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
-import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
+import {
+  CallToolRequestSchema,
+  GetPromptRequestSchema,
+  ListPromptsRequestSchema,
+  ListToolsRequestSchema,
+} from '@modelcontextprotocol/sdk/types.js';
 import type { Engine } from '../../engine/src/engine.ts';
+import { PROMPTS } from './prompts.ts';
 import { CAMPAIGN_TOOLS, callTool, type MemoryPort } from './tools.ts';
 
 const SERVER_INFO = { name: 'rpg-harness', version: '0.0.0' };
@@ -23,7 +29,7 @@ const READ_ONLY_TOOLS = CAMPAIGN_TOOLS.filter(({ annotations }) => annotations.r
 
 const gameServerOf = (engine: Engine, memory?: MemoryPort, exposed: readonly { name: string }[] = CAMPAIGN_TOOLS) => {
   const names = new Set(exposed.map(({ name }) => name));
-  const server = new Server(SERVER_INFO, { capabilities: { tools: {} } });
+  const server = new Server(SERVER_INFO, { capabilities: { tools: {}, prompts: {} } });
   server.setRequestHandler(ListToolsRequestSchema, () => ({
     tools: structuredClone(CAMPAIGN_TOOLS.filter(({ name }) => names.has(name))),
   }));
@@ -32,6 +38,14 @@ const gameServerOf = (engine: Engine, memory?: MemoryPort, exposed: readonly { n
       return { isError: true, content: [{ type: 'text' as const, text: `UnknownTool: unknown tool ${params.name}` }] };
     const { isError, content, structuredContent } = callTool(engine, params.name, params.arguments ?? {}, memory);
     return structuredClone(isError ? { isError, content } : { isError, content, structuredContent });
+  });
+  server.setRequestHandler(ListPromptsRequestSchema, () => ({
+    prompts: PROMPTS.map(({ name, description }) => ({ name, description })),
+  }));
+  server.setRequestHandler(GetPromptRequestSchema, ({ params }) => {
+    const prompt = PROMPTS.find(({ name }) => name === params.name);
+    if (prompt === undefined) throw new Error(`unknown prompt ${params.name}`);
+    return { messages: [{ role: 'user' as const, content: { type: 'text' as const, text: prompt.text } }] };
   });
   return server;
 };

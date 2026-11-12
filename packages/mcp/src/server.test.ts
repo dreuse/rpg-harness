@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { PROMPTS } from './prompts.ts';
 import { CAMPAIGN_TOOLS } from './tools.ts';
 
 const SERVER = join(import.meta.dirname, '..', '..', '..', 'apps', 'mcp-server', 'src', 'main.ts');
@@ -54,4 +55,50 @@ test('stdio server exits non-zero without a database path', () => {
   assert.notEqual(result.status, EXIT_OK);
   assert.match(result.stderr, new RegExp(DATABASE_ENV));
   assert.equal(result.stdout, '');
+});
+
+test('stdio server creates the missing data folder on first run', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'rpg-mcp-'));
+  const database = join(directory, 'nested', 'data', 'campaign.sqlite');
+  const transport = new StdioClientTransport({
+    command: process.execPath,
+    args: [SERVER],
+    env: { [DATABASE_ENV]: database },
+  });
+  const client = new Client({ name: 'server-test', version: '0.0.0' });
+  try {
+    await client.connect(transport);
+    const { tools } = await client.listTools();
+    assert.ok(tools.length > 0);
+    assert.ok(existsSync(database));
+  } finally {
+    await client.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('stdio server lists and serves the import-campaign and play prompts', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'rpg-mcp-'));
+  const transport = new StdioClientTransport({
+    command: process.execPath,
+    args: [SERVER],
+    env: { [DATABASE_ENV]: join(directory, 'campaign.sqlite') },
+  });
+  const client = new Client({ name: 'server-test', version: '0.0.0' });
+  try {
+    await client.connect(transport);
+    const { prompts } = await client.listPrompts();
+    assert.deepEqual(
+      prompts.map(({ name }) => name),
+      ['import-campaign', 'play'],
+    );
+    for (const { name, text } of PROMPTS) {
+      const { messages } = await client.getPrompt({ name });
+      assert.deepEqual(messages, [{ role: 'user', content: { type: 'text', text } }]);
+    }
+    await assert.rejects(client.getPrompt({ name: 'missing' }));
+  } finally {
+    await client.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
 });

@@ -89,3 +89,11 @@ test('rpg-42a.67: CampaignLanguageChanged updates the language, the latest wins 
   assert.equal(campaignLanguageOf(eventsOf()), 'es');
   connection.close();
 });
+
+test('engine lists every campaign in the file', () => {
+  const { engine } = openEngine();
+  assert.deepEqual(engine.listCampaigns(), []);
+  const first = engine.createCampaign(FIRST_NAME);
+  const second = engine.createCampaign(SECOND_NAME);
+  assert.deepEqual(engine.listCampaigns(), [first, second]);
+});

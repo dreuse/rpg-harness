@@ -5,16 +5,20 @@ import { createCampaignStore } from '../../../packages/persistence/src/campaign-
 import { openDatabase } from '../../../packages/persistence/src/database.ts';
 import { createFactStore } from '../../../packages/persistence/src/entity-store.ts';
 import { listScopedEvents } from '../../../packages/persistence/src/event-store.ts';
+import { importCampaign } from './campaign-import.ts';
 
 export const openCampaignTools = (path: string) => {
   const { database } = openDatabase(path);
   const facts = createFactStore(database);
+  const store = createCampaignStore(database);
+  const engine = createEngine(store);
   return {
-    engine: createEngine(createCampaignStore(database)),
+    engine,
     memory: {
       viewer: PLAYER_VIEWER,
       events: (campaignId: string) => listScopedEvents(database, campaignId),
       facts: (campaignId: string) => facts.listFacts(campaignId),
+      importCampaign: (folder: string) => importCampaign(engine, store, path, folder),
     },
     close: () => database.close(),
   };

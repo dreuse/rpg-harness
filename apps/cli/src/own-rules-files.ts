@@ -59,6 +59,30 @@ const condensedFor = (text: string) => {
   return isCondensed(condensed) ? { condensed } : {};
 };
 
+export const rulesDocumentOf = (
+  fileName: string,
+  bytes: Uint8Array,
+  kind?: typeof SETTING_DOCUMENT_KIND,
+): RulesDocument => {
+  const { format, text } = textOf(fileName, bytes);
+  const provenance = makeProvenance({
+    sourceHash: createHash('sha256').update(bytes).digest('hex'),
+    fileName,
+    format,
+    locator: UNKNOWN_LOCATOR,
+    quality: 'high',
+  });
+  const data = interpretImported(wrapUntrusted(text, provenance));
+  return {
+    name: fileName,
+    format,
+    sourceHash: data.provenance.sourceHash,
+    text: data.text,
+    ...condensedFor(data.text),
+    ...(kind === undefined ? {} : { kind }),
+  };
+};
+
 export const loadOwnRules = (
   dataDir: string,
   names: readonly string[],
@@ -70,22 +94,6 @@ export const loadOwnRules = (
     if (!isSafeFileName(name) || !existsSync(dir) || !readdirSync(dir).includes(name))
       throw new Error(`${name} was not added as a rules file.`);
     const { fileName, bytes } = readInside(dir, name);
-    const { format, text } = textOf(fileName, bytes);
-    const provenance = makeProvenance({
-      sourceHash: createHash('sha256').update(bytes).digest('hex'),
-      fileName,
-      format,
-      locator: UNKNOWN_LOCATOR,
-      quality: 'high',
-    });
-    const data = interpretImported(wrapUntrusted(text, provenance));
-    return {
-      name: fileName,
-      format,
-      sourceHash: data.provenance.sourceHash,
-      text: data.text,
-      ...condensedFor(data.text),
-      ...(kind === undefined ? {} : { kind }),
-    };
+    return rulesDocumentOf(fileName, bytes, kind);
   });
 };

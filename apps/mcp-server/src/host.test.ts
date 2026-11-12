@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { request } from 'node:http';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { CAMPAIGN_TOOLS } from '../../../packages/mcp/src/tools.ts';
-import { hostGameServer } from './host.ts';
+import { hostGameServer, openCampaignTools } from './host.ts';
 
 const CAMPAIGN_NAME = 'Hosted Test';
 const LOOPBACK = '127.0.0.1';
@@ -119,6 +119,32 @@ test('fails fast instead of hanging when the port is taken', async () => {
     await assert.rejects(hostGameServer(database.path, port), { code: 'EADDRINUSE' });
   } finally {
     busy.close();
+    database.remove();
+  }
+});
+
+test('the host wires the folder import into the tool port', () => {
+  const database = sandbox();
+  const folder = join(dirname(database.path), 'rpg-import');
+  mkdirSync(folder);
+  writeFileSync(join(folder, 'rules.md'), '# Rules\nRoll 2d6.');
+  writeFileSync(
+    join(folder, 'campaign.json'),
+    JSON.stringify({
+      hero: 'Ash',
+      scene: 'Dock',
+      situation: 'Fog.',
+      storySoFar: 'Ash arrived.',
+      rules: ['rules.md'],
+      setting: [],
+    }),
+  );
+  const { engine, memory, close } = openCampaignTools(database.path);
+  try {
+    const id = memory.importCampaign(folder);
+    assert.deepEqual(engine.listCampaigns(), [{ id, name: 'campaign' }]);
+  } finally {
+    close();
     database.remove();
   }
 });

@@ -148,6 +148,7 @@ export interface CampaignStore {
   recordNarration(campaignId: CampaignId, turnId: TurnId, narration: string, segments?: readonly TurnSegment[]): void;
   recordUsage(event: CampaignChange): void;
   load(id: CampaignId): CampaignState | undefined;
+  listCampaigns(): readonly Campaign[];
   findTurn(campaignId: CampaignId, actionId: string): CommittedTurn | undefined;
   hasEvent(campaignId: CampaignId, type: string, eventId?: EventId): boolean;
 }
